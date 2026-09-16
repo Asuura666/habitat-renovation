@@ -1,0 +1,45 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: ruff-format-check
+        name: ruff format --check
+        entry: uv run ruff format --check
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: mypy
+        name: mypy
+        entry: uv run mypy
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: pytest
+        name: pytest
+        entry: uv run pytest
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: interdit-fixtures
+        name: interdit tout fichier sous tests/fixtures/ (sauf README.md)
+        entry: >-
+          Fichier refusé : tests/fixtures/ ne doit contenir aucune fixture
+          suivie par git (documents réels du client). Seul README.md y est autorisé.
+        language: fail
+        files: '^tests/fixtures/(?!README\.md$).*$'
+
+      - id: interdit-env
+        name: interdit tout fichier .env
+        entry: >-
+          Fichier refusé : un fichier .env (secrets) ne doit jamais être commité.
+        language: fail
+        files: '(^|/)\.env$'

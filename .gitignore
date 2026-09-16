@@ -1,0 +1,22 @@
+# Secrets
+.env
+
+# Fixtures (documents réels du client, jamais dans git)
+tests/fixtures/*
+!tests/fixtures/README.md
+
+# Documents de dev
+var/
+
+# Suivi de tâches interne, non livré
+.superpowers/
+
+# Environnement Python
+.venv/
+__pycache__/
+*.pyc
+
+# Caches outillage
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
