@@ -1,0 +1,14 @@
+# Surcouche de dev : publie postgres et api sur 127.0.0.1 pour un accès local
+# sans Traefik (qui ne doit jamais démarrer sur cette machine, nginx occupant
+# déjà les ports 80/443). Usage :
+#   docker compose --env-file .env -f deploy/docker-compose.yml \
+#     -f deploy/docker-compose.dev.yml up -d postgres
+
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5450:5432"
+
+  api:
+    ports:
+      - "127.0.0.1:8450:8000"
