@@ -18,6 +18,7 @@ package = false
 [dependency-groups]
 dev = [
     "anyio>=4.15.1",
+    "httpx>=0.28.1",
     "mypy>=2.3.1",
     "pre-commit>=4.6.2",
     "pytest>=9.1.1",
@@ -37,6 +38,12 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC", "S"]
 [tool.mypy]
 strict = true
 files = ["app", "tests"]
+
+[[tool.mypy.overrides]]
+# asyncpg ne fournit ni stubs ni marqueur py.typed ; utilisé uniquement pour
+# distinguer ses erreurs de connexion dans `app.core.db.base_joignable`.
+module = "asyncpg.*"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["app", "tests"]

@@ -9,10 +9,13 @@ l'autre serait vu comme une dérive).
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 
+from asyncpg import PostgresError
 from fastapi import Request
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -51,3 +54,22 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     sessionmaker: async_sessionmaker[AsyncSession] = request.app.state.sessions
     async with sessionmaker() as session:
         yield session
+
+
+async def base_joignable(engine: AsyncEngine, timeout_s: float = 2.0) -> bool:
+    """`True` si `engine` peut exécuter `SELECT 1` en moins de `timeout_s` s.
+
+    N'avale que les erreurs de connexion, SQL ou timeout
+    (`sqlalchemy.exc.SQLAlchemyError`, `asyncpg.PostgresError`, `OSError`,
+    `TimeoutError`) : un refus de connexion ou une base absente arrivent en
+    `asyncpg`/`OSError` bruts (avant que SQLAlchemy n'ait de connexion à
+    envelopper), une erreur SQL arrive en `SQLAlchemyError`. Toute autre
+    exception remonte, pour ne jamais masquer un bug de programmation
+    derrière un simple `False`.
+    """
+    try:
+        async with asyncio.timeout(timeout_s), engine.connect() as connexion:
+            await connexion.execute(text("SELECT 1"))
+    except (SQLAlchemyError, PostgresError, OSError, TimeoutError):
+        return False
+    return True

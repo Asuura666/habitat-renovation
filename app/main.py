@@ -10,10 +10,11 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
-from app.core.db import creer_engine, creer_sessionmaker
+from app.core.db import base_joignable, creer_engine, creer_sessionmaker
 
 settings = get_settings()
 
@@ -30,3 +31,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/health")
+async def health(request: Request) -> JSONResponse:
+    """Vérifie que la base est joignable. Ne renvoie jamais de détail
+    d'exception : uniquement `{"statut": "ok"/"ko", "base": "ok"/"injoignable"}`.
+    """
+    if await base_joignable(request.app.state.engine):
+        return JSONResponse({"statut": "ok", "base": "ok"}, status_code=200)
+    return JSONResponse({"statut": "ko", "base": "injoignable"}, status_code=503)

@@ -26,11 +26,30 @@ services:
       context: ..
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      # Reconstruite vers l'hôte `postgres` du réseau compose : le `.env` du
+      # dépôt n'est jamais copié dans l'image (voir Dockerfile), et sa
+      # variable DATABASE_URL vise 127.0.0.1 côté hôte, pas le conteneur
+      # (décision D18).
+      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:?POSTGRES_USER manquant}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB manquant}"
+      DOCS_DIR: /srv/docs
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - ${DOCS_HOST_DIR:?DOCS_HOST_DIR manquant}:/srv/docs
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.api.rule=Host(`${DOMAIN:?DOMAIN manquant}`)"
