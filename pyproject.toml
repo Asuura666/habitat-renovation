@@ -4,7 +4,11 @@ version = "0.1.0"
 description = "Contrôle BL & factures fournisseurs (Habitat & Rénovation)"
 requires-python = "==3.11.*"
 dependencies = [
+    "alembic>=1.20.0",
+    "asyncpg>=0.31.0",
     "fastapi>=0.141.1",
+    "pydantic-settings>=2.15.0",
+    "sqlalchemy[asyncio]>=2.0.54",
     "uvicorn>=0.53.0",
 ]
 
@@ -13,6 +17,7 @@ package = false
 
 [dependency-groups]
 dev = [
+    "anyio>=4.15.1",
     "mypy>=2.3.1",
     "pre-commit>=4.6.2",
     "pytest>=9.1.1",
@@ -36,6 +41,7 @@ files = ["app", "tests"]
 [tool.pytest.ini_options]
 testpaths = ["app", "tests"]
 addopts = "--import-mode=importlib"
+pythonpath = ["."]
 markers = [
     "db: nécessite une base PostgreSQL de dev/test (jamais skip si injoignable)",
 ]
