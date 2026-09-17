@@ -434,7 +434,25 @@ class RapprochementLigne(Base):
 
 
 class Anomalie(Base):
-    """Sortie des règles de contrôle."""
+    """Sortie des règles de contrôle.
+
+    Migration 0006 (L4-D11/L4-D13, ruling R1 de la tâche L4-T8) :
+    - `article_id` : porté par une anomalie de niveau ligne/article (R03-R09,
+      R13, R17), sert à la règle des 90 jours (`ingest.anomalies
+      .synchroniser_anomalies`, L4-D13) — une anomalie sans article (niveau
+      bloc ou document, ex. R01/R02/R10-R12) n'est jamais bloquée par cette
+      règle.
+    - Index unique `(regle, document_id, bloc_id, ligne_id)`, `NULLS NOT
+      DISTINCT` (comme `chantier_alias`) : identité d'une anomalie (L4-D11).
+      Garantit qu'aucune ligne dupliquée ne peut jamais exister en base pour
+      la même clé, quel que soit le chemin applicatif ; l'upsert
+      (`ingest.anomalies.synchroniser_anomalies`) s'appuie dessus pour son
+      recherche par clé, mais ne fait pas d'`ON CONFLICT` — deux
+      rapprochements strictement concurrents sur la même facture (cas non
+      prévu par l'orchestration actuelle, toujours séquentielle) feraient
+      échouer le second avec une violation de contrainte plutôt que d'être
+      absorbés silencieusement.
+    """
 
     __tablename__ = "anomalie"
     __table_args__ = (
@@ -445,6 +463,13 @@ class Anomalie(Base):
             "statut IN ('ouverte', 'traitee', 'ignoree')", name="statut_valide"
         ),
         CheckConstraint("detail <> '{}'::jsonb", name="detail_non_vide"),
+        UniqueConstraint(
+            "regle",
+            "document_id",
+            "bloc_id",
+            "ligne_id",
+            postgresql_nulls_not_distinct=True,
+        ),
     )
 
     id: Mapped[uuid.UUID] = _id()
@@ -458,6 +483,9 @@ class Anomalie(Base):
     )
     ligne_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("ligne.id"), nullable=True
+    )
+    article_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("article.id"), nullable=True
     )
     detail: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     statut: Mapped[str] = mapped_column(Text, nullable=False)
