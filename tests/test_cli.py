@@ -31,6 +31,12 @@ Tests transverses (le fichier vit à la racine `app/`, pas dans un module) :
   entrée `journal`) qu'il a créé. Le rôle invalide est rejeté par `argparse`
   lui-même (`choices`) : le test correspondant attend un `SystemExit`, pas un
   retour de `cli.main`.
+- `fournisseur-definir` (L3-T5) : même mécanique `_env_bl_test` sur `bl_test`,
+  nettoyage du fournisseur (et de ses agences) créé par le test. Une
+  création vérifie le SIRET/TVA stockés et le nombre d'alias/agences
+  annoncé ; une mise à jour (nom en casse différente, alias déjà présent
+  renvoyé, nouvelle agence) vérifie le remplacement du TVA, l'absence de
+  doublon d'alias et l'agence ajoutée.
 """
 
 from __future__ import annotations
@@ -47,7 +53,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app import cli
@@ -55,7 +61,13 @@ from app.core.config import get_settings
 from app.core.db import creer_sessionmaker
 from app.modules.extract.facture import Facture, FactureIllisible
 from app.modules.ingest.mistral import ErreurOCR
-from app.modules.ingest.models import Document, Journal, Utilisateur
+from app.modules.ingest.models import (
+    AgenceFournisseur,
+    Document,
+    Fournisseur,
+    Journal,
+    Utilisateur,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures" / "unikalo"
@@ -598,3 +610,151 @@ def test_utilisateur_desactiver_email_inconnu_code_2(
 
     assert code == 2
     assert sortie.err.strip() != ""
+
+
+# ---------------------------------------------------------------------------
+# `fournisseur-definir` (L3-T5)
+# ---------------------------------------------------------------------------
+
+
+async def _relire_fournisseur(engine: AsyncEngine, nom: str) -> Fournisseur | None:
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        return (
+            (
+                await session.execute(
+                    select(Fournisseur).where(
+                        func.lower(Fournisseur.nom) == nom.lower()
+                    )
+                )
+            )
+            .scalars()
+            .one_or_none()
+        )
+
+
+async def _compter_agences(engine: AsyncEngine, fournisseur_id: uuid.UUID) -> int:
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        return (
+            await session.execute(
+                select(func.count())
+                .select_from(AgenceFournisseur)
+                .where(AgenceFournisseur.fournisseur_id == fournisseur_id)
+            )
+        ).scalar_one()
+
+
+async def _supprimer_fournisseur(engine: AsyncEngine, nom: str) -> None:
+    """Nettoie le fournisseur inventé par un test, et ses agences (aucune
+    contrainte en cascade, `ingest/models.py`)."""
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        fournisseur_id = (
+            await session.execute(
+                select(Fournisseur.id).where(func.lower(Fournisseur.nom) == nom.lower())
+            )
+        ).scalar_one_or_none()
+        if fournisseur_id is not None:
+            await session.execute(
+                delete(AgenceFournisseur).where(
+                    AgenceFournisseur.fournisseur_id == fournisseur_id
+                )
+            )
+        await session.execute(
+            delete(Fournisseur).where(func.lower(Fournisseur.nom) == nom.lower())
+        )
+        await session.commit()
+
+
+@pytest.mark.db
+def test_fournisseur_definir_creation_avec_siret_tva_alias_et_agence(
+    db_engine: AsyncEngine,
+    _env_bl_test: None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    nom = "CLI Fournisseur Test Création"
+    try:
+        code = cli.main(
+            [
+                "fournisseur-definir",
+                "--nom",
+                nom,
+                "--siret",
+                "123 456 789 00012",
+                "--tva",
+                "FR12345678901",
+                "--alias",
+                "Alias Un",
+                "--alias",
+                "Alias Deux",
+                "--agence",
+                "Agence Nord",
+            ]
+        )
+        sortie = capsys.readouterr().out
+
+        assert code == 0
+        assert sortie.strip() == "Fournisseur créé (2 alias, 1 agences)"
+
+        fournisseur = asyncio.run(_relire_fournisseur(db_engine, nom))
+        assert fournisseur is not None
+        assert fournisseur.siret == "123 456 789 00012"
+        assert fournisseur.tva == "FR12345678901"
+        assert fournisseur.aliases is not None
+        assert set(fournisseur.aliases) == {"Alias Un", "Alias Deux"}
+        assert asyncio.run(_compter_agences(db_engine, fournisseur.id)) == 1
+    finally:
+        asyncio.run(_supprimer_fournisseur(db_engine, nom))
+
+
+@pytest.mark.db
+def test_fournisseur_definir_mise_a_jour_alias_double_ignore_agence_ajoutee(
+    db_engine: AsyncEngine,
+    _env_bl_test: None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    nom = "CLI Fournisseur Test Mise À Jour"
+    try:
+        premier = cli.main(
+            [
+                "fournisseur-definir",
+                "--nom",
+                nom,
+                "--alias",
+                "Alias Un",
+                "--agence",
+                "Agence Nord",
+            ]
+        )
+        assert premier == 0
+        capsys.readouterr()
+
+        # Nom en casse différente (comparaison sans casse) ; alias déjà
+        # présent (comparaison `normaliser_libelle`, casse ignorée) ignoré ;
+        # TVA fourni (remplacé) ; une nouvelle agence.
+        second = cli.main(
+            [
+                "fournisseur-definir",
+                "--nom",
+                nom.upper(),
+                "--tva",
+                "FR99999999999",
+                "--alias",
+                "alias un",
+                "--agence",
+                "Agence Sud",
+            ]
+        )
+        sortie = capsys.readouterr().out
+
+        assert second == 0
+        assert sortie.strip() == "Fournisseur mis à jour (1 alias, 2 agences)"
+
+        fournisseur = asyncio.run(_relire_fournisseur(db_engine, nom))
+        assert fournisseur is not None
+        assert fournisseur.tva == "FR99999999999"
+        assert fournisseur.aliases == ["Alias Un"]
+        assert asyncio.run(_compter_agences(db_engine, fournisseur.id)) == 2
+    finally:
+        asyncio.run(_supprimer_fournisseur(db_engine, nom))

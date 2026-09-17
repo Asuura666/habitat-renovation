@@ -12,13 +12,21 @@
   à `creer_utilisateur`/`desactiver_utilisateur` (`app.core.auth`) — cette
   CLI ne fait que construire ses dépendances (moteur DB) et les brancher,
   jamais de logique métier ici.
+- `python -m app.cli fournisseur-definir` (L3-T5) : alimente le référentiel
+  fournisseur (Q7/L3-D8, jamais créé automatiquement par l'extraction) —
+  crée ou met à jour un fournisseur (SIRET/TVA remplacés s'ils sont fournis,
+  alias et agences ajoutés sans doublon). Même organisation que
+  `utilisateur-creer` : l'écriture est déléguée à `definir_fournisseur`
+  (`app.modules.ingest.referentiels`), cette CLI ne fait que construire ses
+  dépendances et les brancher.
 
 N'importe que `app.core` (config, db, auth) et `app.modules.ingest`
 (`factures.py`, `mistral.py` — depuis le découpage de l'ancien
-`ingest/service.py`, vague finale du lot 2, point 1), plus `FactureIllisible`
-d'`extract` (nécessaire pour distinguer le code de sortie) : `ingest` reste
-le seul orchestrateur, la CLI ne fait que construire ses dépendances
-(client HTTP, moteur DB) et les brancher (décisions du contrôleur T7/L2-T1b).
+`ingest/service.py`, vague finale du lot 2, point 1 ; `referentiels.py`
+depuis L3-T5), plus `FactureIllisible` d'`extract` (nécessaire pour
+distinguer le code de sortie) : `ingest` reste le seul orchestrateur, la CLI
+ne fait que construire ses dépendances (client HTTP, moteur DB) et les
+brancher (décisions du contrôleur T7/L2-T1b/L3-T5).
 
 Import différé de `app.core.auth` (dans le corps de `_utilisateur_creer`/
 `_utilisateur_desactiver`, pas en tête de fichier) : ce module appelle
@@ -51,6 +59,7 @@ from app.modules.ingest.factures import (
     lire_facture,
 )
 from app.modules.ingest.mistral import ErreurOCR, ocr_document
+from app.modules.ingest.referentiels import definir_fournisseur
 
 _SIGNATURE_PDF = b"%PDF-"
 
@@ -205,6 +214,40 @@ async def _utilisateur_desactiver(*, email: str) -> int:
     return 0
 
 
+async def _fournisseur_definir(
+    *,
+    nom: str,
+    siret: str | None,
+    tva: str | None,
+    alias: list[str],
+    agence: list[str],
+) -> int:
+    """Implémentation de `fournisseur-definir` (décisions du contrôleur
+    L3-T5). Toute la logique (upsert par nom insensible à la casse,
+    dédoublonnage des alias/agences) est dans `definir_fournisseur`
+    (`app.modules.ingest.referentiels`) : cette CLI ne fait que construire
+    ses dépendances (moteur DB) et les brancher, comme `_utilisateur_creer`.
+    Toujours code 0 (aucune validation ne peut échouer ici : `--nom` est le
+    seul argument requis, `argparse` refuse déjà son absence)."""
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            resultat = await definir_fournisseur(
+                session, nom=nom, siret=siret, tva=tva, alias=alias, agence=agence
+            )
+            await session.commit()
+    finally:
+        await engine.dispose()
+
+    libelle = "Fournisseur créé" if resultat.cree else "Fournisseur mis à jour"
+    print(
+        f"{libelle} ({resultat.nombre_alias} alias, {resultat.nombre_agences} agences)"
+    )
+    return 0
+
+
 def _construire_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="app.cli")
     sous_parsers = parser.add_subparsers(dest="commande", required=True)
@@ -240,6 +283,26 @@ def _construire_parser() -> argparse.ArgumentParser:
     )
     parser_utilisateur_desactiver.add_argument("--email", required=True)
 
+    parser_fournisseur_definir = sous_parsers.add_parser(
+        "fournisseur-definir",
+        help="Crée ou met à jour un fournisseur du référentiel",
+    )
+    parser_fournisseur_definir.add_argument("--nom", required=True)
+    parser_fournisseur_definir.add_argument("--siret", default=None)
+    parser_fournisseur_definir.add_argument("--tva", default=None)
+    parser_fournisseur_definir.add_argument(
+        "--alias",
+        action="append",
+        default=None,
+        help="alias supplémentaire (répétable)",
+    )
+    parser_fournisseur_definir.add_argument(
+        "--agence",
+        action="append",
+        default=None,
+        help="agence à rattacher (répétable)",
+    )
+
     return parser
 
 
@@ -259,6 +322,16 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.commande == "utilisateur-desactiver":
         return asyncio.run(_utilisateur_desactiver(email=args.email))
+    if args.commande == "fournisseur-definir":
+        return asyncio.run(
+            _fournisseur_definir(
+                nom=args.nom,
+                siret=args.siret,
+                tva=args.tva,
+                alias=args.alias or [],
+                agence=args.agence or [],
+            )
+        )
     raise AssertionError(f"commande inconnue : {args.commande}")  # pragma: no cover
 
 

@@ -292,6 +292,31 @@ class Document(Base):
     # somme des lignes à chaque affichage. `NULL` pour un BL/enlèvement.
     total_ht: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
     ocr_brut: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # Migration 0005 (L3-D5, constat 5 du lot 3 : le modèle n'avait pas de
+    # chantier sur `document`, seulement sur `bloc_facture`) :
+    # - `chantier_brut`/`chantier_id` : chantier lu sur un BL/enlèvement,
+    #   résolu comme pour `BlocFacture.chantier_brut`/`chantier_id`
+    #   ci-dessus (même clé d'alias, L3-D6) ;
+    # - `numero_commande`/`enleve_par` : champs propres à un bon
+    #   d'enlèvement Point.P (CDC §4.4) ;
+    # - `total_tva`/`total_ttc` : totaux lus sur une facture, en plus de
+    #   `total_ht` (dette L2-R5) ;
+    # - `extraction` : instantané immuable de l'extraction OCR (valeurs
+    #   brutes, valeurs converties, confiances, motifs d'origine) — « valeur
+    #   OCR d'origine conservée » (CDC §4.3), y compris après une correction
+    #   (L3-D13) ou une nouvelle extraction (L3-D15) ;
+    #   `motifs` : motifs de mise « à vérifier » courants (L3-D3), recalculés
+    #   à chaque correction ou validation.
+    chantier_brut: Mapped[str | None] = mapped_column(Text, nullable=True)
+    chantier_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chantier.id"), nullable=True
+    )
+    numero_commande: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enleve_par: Mapped[str | None] = mapped_column(Text, nullable=True)
+    total_tva: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    total_ttc: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    extraction: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    motifs: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
     updated_by: Mapped[uuid.UUID | None] = _updated_by()
@@ -371,6 +396,12 @@ class Ligne(Base):
     remise_pct: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
     montant_ht: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
     tva: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    # Migration 0005 (L3-D5) : confiance OCR de la ligne (minimum des
+    # confiances de ses valeurs, L3-D2) ; `NULL` pour une ligne de facture
+    # (scores au niveau page seulement, L3-D16) ou une ligne corrigée/ajoutée
+    # par l'admin (L3-D13, « une ligne modifiée ou ajoutée a confiance =
+    # NULL »).
+    confiance: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
     type_ligne: Mapped[str] = mapped_column(Text, nullable=False)
     ordre: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = _created_at()
