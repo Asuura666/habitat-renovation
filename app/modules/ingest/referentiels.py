@@ -31,6 +31,12 @@ transaction. `sqlalchemy.dialects.postgresql.insert(...)
 `definir_fournisseur` alimente le référentiel fournisseur pour le compte de
 la CLI `fournisseur-definir` (`app/cli.py`, L3-T5) : seul point d'écriture
 du référentiel fournisseur (Q7/L3-D8, « jamais créé automatiquement »).
+Contrairement à `resoudre_chantier`/`rattacher_article`, c'est une action
+déclenchée par un humain (l'admin qui lance la CLI) sur une donnée métier :
+journalisée (`journal`, `utilisateur_id=NULL` faute de session utilisateur
+dans une CLI, action `fournisseur_defini`), même organisation que
+`creer_utilisateur`/`desactiver_utilisateur` (`app/core/auth.py`) — fix
+round 1 de la revue de cette tâche.
 """
 
 from __future__ import annotations
@@ -39,6 +45,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -49,6 +56,7 @@ from app.modules.ingest.models import (
     Article,
     ChantierAlias,
     Fournisseur,
+    Journal,
     Parametre,
 )
 from app.modules.normalize.article import PropositionArticle, completer_article
@@ -288,7 +296,18 @@ async def definir_fournisseur(
     doublon (comparaison `normalize.texte.normaliser_libelle`, alignée sur
     la comparaison par nom de `resoudre_fournisseur`/`resoudre_agence`) ;
     les alias existants sont conservés tels quels (jamais renormalisés).
-    Ne commite pas : la CLI commite après l'appel.
+
+    Journalise la mutation (« toute action qui modifie une donnée métier
+    est journalisée », contraintes globales du lot) : `action
+    ="fournisseur_defini"`, `utilisateur_id=None` (résolution/écriture
+    automatique, comme `depot_telegram`, jamais par un admin authentifié
+    ici — la CLI n'a pas de session utilisateur), `avant=None` à la
+    création sinon l'état précédent (siret/tva/aliases), `apres` l'état
+    final (nom/siret/tva/aliases) et les seules agences ajoutées par cet
+    appel (pas la liste complète, déjà couverte par `avant`/`apres.aliases`
+    pour les alias). Même organisation que `creer_utilisateur`
+    (`app/core/auth.py`) : le journal est ajouté dans la même transaction,
+    avant le commit — qui reste à la charge de l'appelant (la CLI).
     """
     fournisseur = (
         await session.execute(
@@ -297,10 +316,16 @@ async def definir_fournisseur(
     ).scalar_one_or_none()
 
     cree = fournisseur is None
+    avant: dict[str, Any] | None = None
     if fournisseur is None:
         fournisseur = Fournisseur(nom=nom, siret=siret, tva=tva, aliases=[])
         session.add(fournisseur)
     else:
+        avant = {
+            "siret": fournisseur.siret,
+            "tva": fournisseur.tva,
+            "aliases": list(fournisseur.aliases) if fournisseur.aliases else [],
+        }
         if siret is not None:
             fournisseur.siret = siret
         if tva is not None:
@@ -329,6 +354,7 @@ async def definir_fournisseur(
         .all()
     )
     normalises_agences = {normaliser_libelle(a) for a in agences_actuelles}
+    agences_ajoutees: list[str] = []
     for nom_agence in agence:
         normalise = normaliser_libelle(nom_agence)
         if normalise not in normalises_agences:
@@ -336,6 +362,7 @@ async def definir_fournisseur(
                 AgenceFournisseur(fournisseur_id=fournisseur.id, nom=nom_agence)
             )
             normalises_agences.add(normalise)
+            agences_ajoutees.append(nom_agence)
     await session.flush()
 
     nombre_agences = (
@@ -345,6 +372,23 @@ async def definir_fournisseur(
             .where(AgenceFournisseur.fournisseur_id == fournisseur.id)
         )
     ).scalar_one()
+
+    session.add(
+        Journal(
+            utilisateur_id=None,
+            action="fournisseur_defini",
+            cible_table="fournisseur",
+            cible_id=str(fournisseur.id),
+            avant=avant,
+            apres={
+                "nom": fournisseur.nom,
+                "siret": fournisseur.siret,
+                "tva": fournisseur.tva,
+                "aliases": aliases_actuels,
+                "agences_ajoutees": agences_ajoutees,
+            },
+        )
+    )
 
     return ResultatDefinitionFournisseur(
         cree=cree,

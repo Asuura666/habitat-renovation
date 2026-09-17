@@ -1,8 +1,10 @@
 """Tests de `ingest/referentiels.py` (L3-T5) : chargement des référentiels
 fournisseur/agence pour `normalize.fournisseur`, résolution d'un alias
 chantier (`resoudre_chantier`, L3-D6/L3-D7), rattachement d'un article
-(`rattacher_article`, L3-D9) et lecture d'un paramètre décimal
-(`lire_parametre_decimal`, L3-D4).
+(`rattacher_article`, L3-D9), lecture d'un paramètre décimal
+(`lire_parametre_decimal`, L3-D4) et définition d'un fournisseur
+(`definir_fournisseur`, journal d'audit — fix round 1 de la revue de cette
+tâche).
 
 Base de test réelle (`bl_test`), données entièrement inventées (R17).
 `db_session` (fixture locale, `app/modules/ingest/tests/conftest.py`) vide
@@ -11,6 +13,7 @@ toutes les tables après chaque test : aucun nettoyage manuel nécessaire ici.
 
 from __future__ import annotations
 
+import uuid
 from decimal import Decimal
 
 import pytest
@@ -22,12 +25,14 @@ from app.modules.ingest.models import (
     Article,
     ChantierAlias,
     Fournisseur,
+    Journal,
     Parametre,
 )
 from app.modules.ingest.referentiels import (
     ResolutionChantier,
     charger_agences,
     charger_fournisseurs,
+    definir_fournisseur,
     lire_parametre_decimal,
     rattacher_article,
     resoudre_chantier,
@@ -353,3 +358,124 @@ async def test_lire_parametre_decimal_non_convertible_renvoie_le_defaut(
     valeur = await lire_parametre_decimal(db_session, "seuil_invalide", Decimal("0.80"))
 
     assert valeur == Decimal("0.80")
+
+
+# ---------------------------------------------------------------------------
+# definir_fournisseur — journal d'audit (fix round 1)
+# ---------------------------------------------------------------------------
+
+
+async def _journal_pour_fournisseur(
+    db_session: AsyncSession, fournisseur_id: uuid.UUID
+) -> Journal:
+    """La seule ligne `journal` `fournisseur_defini` ciblant `fournisseur_id`
+    (erreur si aucune ou plusieurs, même mécanique que `_journal_pour` dans
+    `app/core/tests/test_auth.py`)."""
+    return (
+        await db_session.execute(
+            select(Journal).where(
+                Journal.cible_id == str(fournisseur_id),
+                Journal.action == "fournisseur_defini",
+            )
+        )
+    ).scalar_one()
+
+
+async def test_definir_fournisseur_creation_journal_avant_none(
+    db_session: AsyncSession,
+) -> None:
+    resultat = await definir_fournisseur(
+        db_session,
+        nom="Peintures Journal Création",
+        siret="123456789",
+        tva=None,
+        alias=["Alias Journal"],
+        agence=["Agence Journal"],
+    )
+    await db_session.commit()
+
+    assert resultat.cree is True
+    fournisseur = (
+        await db_session.execute(
+            select(Fournisseur).where(Fournisseur.nom == "Peintures Journal Création")
+        )
+    ).scalar_one()
+
+    journal = await _journal_pour_fournisseur(db_session, fournisseur.id)
+    assert journal.utilisateur_id is None
+    assert journal.cible_table == "fournisseur"
+    assert journal.avant is None
+    assert journal.apres is not None
+    assert journal.apres["nom"] == "Peintures Journal Création"
+    assert journal.apres["siret"] == "123456789"
+    assert journal.apres["tva"] is None
+    assert journal.apres["aliases"] == ["Alias Journal"]
+    assert journal.apres["agences_ajoutees"] == ["Agence Journal"]
+
+
+async def test_definir_fournisseur_mise_a_jour_journal_avant_apres(
+    db_session: AsyncSession,
+) -> None:
+    await definir_fournisseur(
+        db_session,
+        nom="Peintures Journal Mise À Jour",
+        siret="111111111",
+        tva=None,
+        alias=["Alias Un"],
+        agence=["Agence Nord"],
+    )
+    await db_session.commit()
+    fournisseur = (
+        await db_session.execute(
+            select(Fournisseur).where(
+                Fournisseur.nom == "Peintures Journal Mise À Jour"
+            )
+        )
+    ).scalar_one()
+
+    # Une seule ligne journal pour l'instant (la création ci-dessus) :
+    # `_journal_pour_fournisseur` échouerait s'il y en avait déjà plusieurs.
+    # Son `id` sert ensuite à distinguer la ligne de la mise à jour, la
+    # seconde, après le second appel ci-dessous.
+    journal_creation = await _journal_pour_fournisseur(db_session, fournisseur.id)
+
+    resultat = await definir_fournisseur(
+        db_session,
+        nom="peintures journal mise à jour",  # casse différente
+        siret=None,  # non fourni : conservé
+        tva="FR99999999999",  # fourni : remplacé
+        alias=["alias un"],  # doublon (normalisé) : ignoré
+        agence=["Agence Sud"],  # nouvelle agence
+    )
+    await db_session.commit()
+
+    assert resultat.cree is False
+
+    journaux = (
+        (
+            await db_session.execute(
+                select(Journal)
+                .where(
+                    Journal.cible_id == str(fournisseur.id),
+                    Journal.action == "fournisseur_defini",
+                )
+                .order_by(Journal.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(journaux) == 2
+    journal_mise_a_jour = journaux[1]
+    assert journal_mise_a_jour.id != journal_creation.id
+    assert journal_mise_a_jour.utilisateur_id is None
+    assert journal_mise_a_jour.avant == {
+        "siret": "111111111",
+        "tva": None,
+        "aliases": ["Alias Un"],
+    }
+    assert journal_mise_a_jour.apres is not None
+    assert journal_mise_a_jour.apres["siret"] == "111111111"  # non fourni, conservé
+    assert journal_mise_a_jour.apres["tva"] == "FR99999999999"
+    assert journal_mise_a_jour.apres["aliases"] == ["Alias Un"]  # doublon non ajouté
+    assert journal_mise_a_jour.apres["agences_ajoutees"] == ["Agence Sud"]
