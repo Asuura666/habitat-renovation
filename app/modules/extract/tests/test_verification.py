@@ -717,6 +717,25 @@ def test_motif_depuis_json_champ_mal_forme_leve() -> None:
         motif_depuis_json({"code": "champ_absent", "champ": 123, "detail": {}})
 
 
+@pytest.mark.parametrize("donnees", [None, ["a"], "x"])
+def test_motif_depuis_json_donnees_non_objet_leve_value_error(donnees: Any) -> None:
+    """`donnees` non indexable par clé (`None`, une liste, une chaîne) doit
+    lever `ValueError`, jamais le `TypeError` natif de l'indexation
+    (`donnees["code"]`) — contrat documenté de la fonction."""
+    with pytest.raises(ValueError):
+        motif_depuis_json(donnees)
+
+
+def test_motif_depuis_json_detail_non_dict_leve() -> None:
+    with pytest.raises(ValueError):
+        motif_depuis_json({"code": "champ_absent", "champ": None, "detail": ["a"]})
+
+
+def test_motif_depuis_json_detail_cle_non_chaine_leve() -> None:
+    with pytest.raises(ValueError):
+        motif_depuis_json({"code": "champ_absent", "champ": None, "detail": {1: "a"}})
+
+
 # --------------------------------------------------------------------------
 # Fixture réelle (skip si absente dans cet arbre de travail, décision du
 # contrôleur) : aucune valeur affichée, seulement une égalité.
@@ -742,4 +761,9 @@ def test_verifier_facture_fixture_reelle_sans_motif() -> None:
     )
     facture = analyser_facture_unikalo(reponse)
 
-    assert verifier_facture(facture, tolerance=TOLERANCE_TOTAL_DEFAUT) == ()
+    # Ruling R7 : on ne compare jamais directement au tuple de motifs — un
+    # échec ferait apparaître, via l'assertion réécrite par pytest, le
+    # `detail` du `Motif` (somme/total/écart réels du document client).
+    # On ne compare qu'un booléen, avec un message fixe sans valeur.
+    sans_motif = len(verifier_facture(facture, tolerance=TOLERANCE_TOTAL_DEFAUT)) == 0
+    assert sans_motif, "la facture réelle ne doit produire aucun motif"

@@ -346,11 +346,15 @@ def motif_en_json(motif: Motif) -> dict[str, Any]:
 
 
 def motif_depuis_json(donnees: Mapping[str, Any]) -> Motif:
-    """Symétrique de `motif_en_json`. Lève `ValueError` si `code` est
-    absent ou inconnu de `CodeMotif`, si `champ` n'est ni une chaîne ni
-    `None`, ou si `detail` n'est pas un `dict` de chaînes — jamais
-    d'exception d'un autre type, pour que l'appelant (base de données,
-    L3-D5) n'ait qu'une seule exception à traiter."""
+    """Symétrique de `motif_en_json`. Lève `ValueError` si `donnees`
+    n'est pas un `Mapping`, si `code` est absent ou inconnu de `CodeMotif`,
+    si `champ` n'est ni une chaîne ni `None`, ou si `detail` n'est pas un
+    `dict` de chaînes — jamais d'exception d'un autre type (notamment pas
+    de `TypeError` sur un `donnees` non indexable comme `None` ou une
+    liste), pour que l'appelant (base de données, L3-D5) n'ait qu'une
+    seule exception à traiter."""
+    if not isinstance(donnees, Mapping):
+        raise ValueError("motif JSON mal formé : donnees n'est pas un objet")
     try:
         code = CodeMotif(donnees["code"])
     except KeyError:
