@@ -47,6 +47,26 @@ async def _ocr_jamais_appele(contenu: bytes, mime: str) -> dict[str, Any]:
     raise AssertionError("l'OCR ne doit pas être appelé dans ce scénario")
 
 
+async def _ocr_reponse_liste(contenu: bytes, mime: str) -> Any:
+    """Faux OCR (correction tour 1/5) : réponse 200 mal formée, une liste au
+    lieu d'un objet — `texte_ocr` appellerait `.get` sur une `list` et
+    lèverait `AttributeError` sans la protection ajoutée dans
+    `_executer_ocr`."""
+    return ["pas", "un", "dict"]
+
+
+async def _ocr_reponse_sans_pages(contenu: bytes, mime: str) -> dict[str, Any]:
+    """Faux OCR (correction tour 1/5) : objet JSON valide mais sans clé
+    `pages` du tout — traité comme une réponse mal formée (pas comme une
+    réponse valide sans numéro détecté)."""
+    return {"quelque_chose_dautre": True}
+
+
+async def _ocr_reponse_pages_non_liste(contenu: bytes, mime: str) -> dict[str, Any]:
+    """Faux OCR (correction tour 1/5) : `pages` présent mais pas une liste."""
+    return {"pages": "pas une liste"}
+
+
 class MessagerieFactice:
     """Fausse `Messagerie` (aucune dépendance réseau réelle)."""
 
@@ -315,6 +335,43 @@ async def test_traiter_fichier_ocr_en_echec_document_garde_recu_sans_numero(
     assert document.ocr_brut is None
     # Le dépôt est acquis quoi qu'il arrive : la réponse « reçu » part même
     # si l'OCR échoue complètement.
+    assert messagerie.reponses == [(entrant.chat_id, entrant.message_id, "reçu")]
+    assert str(entrant.update_id) in caplog.text
+    assert "contenu-invente-du-fichier" not in caplog.text
+
+
+# --------------------------------------------------------------------------
+# Correction tour 1/5 : une réponse OCR 200 mal formée ne doit jamais faire
+# remonter d'exception jusqu'à `traiter_fichier` (la réponse « reçu » doit
+# toujours partir). Les trois formes constatées par le relecteur : liste au
+# lieu d'un objet, objet sans `pages`, `pages` présent mais pas une liste.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "ocr_factice",
+    [_ocr_reponse_liste, _ocr_reponse_sans_pages, _ocr_reponse_pages_non_liste],
+    ids=["reponse-liste", "objet-sans-pages", "pages-non-liste"],
+)
+async def test_traiter_fichier_reponse_ocr_malformee_document_garde_recu(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    ocr_factice: Any,
+) -> None:
+    messagerie = MessagerieFactice()
+    entrant = _entrant(update_id=30)
+
+    with caplog.at_level(logging.ERROR, logger="app.modules.ingest.service"):
+        await traiter_fichier(entrant, messagerie, sessions_test, tmp_path, ocr_factice)
+
+    document = (await db_session.execute(select(Document))).scalar_one()
+    assert document.statut == "recu"
+    assert document.numero is None
+    assert document.ocr_brut is None
+    # Le dépôt est acquis quoi qu'il arrive, y compris pour une réponse OCR
+    # mal formée : la réponse « reçu » part quand même.
     assert messagerie.reponses == [(entrant.chat_id, entrant.message_id, "reçu")]
     assert str(entrant.update_id) in caplog.text
     assert "contenu-invente-du-fichier" not in caplog.text

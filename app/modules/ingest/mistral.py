@@ -62,7 +62,11 @@ async def ocr_document(
     `extract.unikalo.analyser_facture_unikalo`.
 
     Lève `ErreurOCR` si l'appel échoue (connexion, timeout, statut HTTP en
-    échec) — jamais la clé API ni le contenu dans le message.
+    échec), si le corps de la réponse n'est pas du JSON valide, ou si ce
+    JSON n'est pas un objet (`{...}`) — jamais la clé API ni le contenu dans
+    le message (correction tour 1/5 : un corps 200 inattendu ne doit jamais
+    remonter tel quel jusqu'à `extract.ocr.texte_ocr`, qui suppose un
+    `dict`).
     """
     try:
         reponse = await http.post(
@@ -80,5 +84,10 @@ async def ocr_document(
     except httpx.HTTPError:
         raise ErreurOCR("Échec de l'appel à l'API Mistral OCR") from None
 
-    resultat: dict[str, Any] = reponse.json()
+    try:
+        resultat = reponse.json()
+    except ValueError:
+        raise ErreurOCR("Réponse Mistral OCR illisible (JSON invalide)") from None
+    if not isinstance(resultat, dict):
+        raise ErreurOCR("Réponse Mistral OCR invalide (objet JSON attendu)") from None
     return resultat

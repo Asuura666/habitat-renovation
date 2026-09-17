@@ -185,6 +185,15 @@ def test_detecter_numero_bl_deux_numeros_distincts_renvoie_none() -> None:
     assert detecter_numero_bl(texte) is None
 
 
+def test_detecter_numero_bl_deux_motifs_differents_distincts_renvoie_none() -> None:
+    """Ambigu même quand les deux numéros viennent de motifs différents
+    (livraison + enlèvement) : toujours `None`, jamais un choix arbitraire
+    entre les deux (correction tour 1/5)."""
+    texte = "LIVRAISON N°L209900000123 ... Bon d'enlèvement N°9900001234"
+
+    assert detecter_numero_bl(texte) is None
+
+
 def test_detecter_numero_bl_meme_numero_repete_est_accepte() -> None:
     texte = "LIVRAISON N°L209900000123 ... rappel LIVRAISON N°L209900000123"
 

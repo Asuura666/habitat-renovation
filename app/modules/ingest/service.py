@@ -149,8 +149,12 @@ async def _executer_ocr(
     - numéro détecté -> `numero` et `type` remplis, `statut` reste `recu` ;
     - aucun numéro détecté (absent ou ambigu) -> `numero` reste `NULL`,
       `statut` passe à `a_verifier` ;
-    - échec de l'OCR lui-même -> rien n'est modifié (document déjà `recu`
-      sans numéro), erreur journalisée sans contenu ni clé API.
+    - échec de l'OCR lui-même, réponse OCR mal formée (pas un objet JSON
+      avec une liste `pages`), ou échec de la mise à jour en base -> rien
+      n'est modifié (document déjà `recu` sans numéro), erreur journalisée
+      sans contenu ni clé API (correction tour 1/5 : une réponse mal formée
+      ne doit jamais faire remonter d'exception jusqu'à `traiter_fichier`,
+      qui n'enverrait alors jamais la réponse « reçu »).
     """
     try:
         reponse = await ocr(contenu, mime)
@@ -158,9 +162,17 @@ async def _executer_ocr(
         _journaliser_echec("ocr", update_id, exc)
         return
 
-    numero_bl = detecter_numero_bl(texte_ocr(reponse))
-
     try:
+        # Réponse structurellement inexploitable (pas un `dict` avec une
+        # liste `pages`) : traitée comme un échec d'OCR, pas comme une
+        # réponse valide où aucun numéro n'a été trouvé (`texte_ocr` est
+        # volontairement permissif — cf. son docstring — donc cette
+        # vérification vit ici, avant de lui déléguer la lecture du texte).
+        if not isinstance(reponse, dict) or not isinstance(reponse.get("pages"), list):
+            raise ValueError("réponse OCR mal formée (pas de « pages » exploitable)")
+
+        numero_bl = detecter_numero_bl(texte_ocr(reponse))
+
         async with sessions() as session:
             document = await session.get(Document, document_id)
             if document is None:
@@ -174,7 +186,7 @@ async def _executer_ocr(
                 document.statut = "a_verifier"
             await session.commit()
     except Exception as exc:
-        _journaliser_echec("enregistrement ocr", update_id, exc)
+        _journaliser_echec("traitement ocr", update_id, exc)
 
 
 async def traiter_fichier(

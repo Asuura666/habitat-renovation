@@ -81,3 +81,32 @@ async def test_ocr_document_erreur_connexion_leve_erreur_ocr_sans_la_cle() -> No
 
     assert CLE_INVENTEE not in str(exc_info.value)
     assert "api.mistral.ai" not in str(exc_info.value)
+
+
+async def test_ocr_document_corps_200_non_json_leve_erreur_ocr() -> None:
+    """Correction tour 1/5 : un corps 200 illisible en JSON ne doit jamais
+    lever une exception brute (`json.JSONDecodeError`) jusqu'à l'appelant."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"pas du json")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(ErreurOCR) as exc_info:
+            await ocr_document(http, CLE_INVENTEE, CONTENU_INVENTE, "image/jpeg")
+
+    assert CLE_INVENTEE not in str(exc_info.value)
+
+
+async def test_ocr_document_corps_200_json_non_objet_leve_erreur_ocr() -> None:
+    """Correction tour 1/5 : une réponse 200 dont le JSON n'est pas un objet
+    (ex. une liste) doit lever `ErreurOCR`, jamais être renvoyée telle
+    quelle (elle ferait planter `texte_ocr`/`detecter_numero_bl` en aval)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=["pas", "un", "objet"])
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(ErreurOCR) as exc_info:
+            await ocr_document(http, CLE_INVENTEE, CONTENU_INVENTE, "image/jpeg")
+
+    assert CLE_INVENTEE not in str(exc_info.value)
