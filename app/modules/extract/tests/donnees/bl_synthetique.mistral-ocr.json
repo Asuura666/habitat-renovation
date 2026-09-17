@@ -1,0 +1,580 @@
+{
+ "pages": [
+  {
+   "index": 0,
+   "markdown": "# PEINTURES EXEMPLE SAS\n\nAgence Exempleville Nord - 12 rue Fictive 99000 Exempleville\n\nSIRET 000 000 000 00000 - TVA FR00000000000\n\n# BON DE LIVRAISON N°L209900000123\n\nDate : 03/09/2026 Réf. commande : CDE-TEST-42\n\nChantier : MAISON TEST (9900000001)\n\nEnlevé par : J. DUPONT\n\n[tbl-0.md](tbl-0.md)\n\nTotal HT : 161,50\n\nTVA 20% : 32,30\n\nTotal TTC : 193,80",
+   "images": [],
+   "tables": [
+    {
+     "id": "tbl-0.md",
+     "content": "|  Code | Désignation | Qté | Unité | PU HT | Montant HT  |\n| --- | --- | --- | --- | --- | --- |\n|  AB1234 | ENDUIT EXEMPLE 25KG | 4 | SEAU | 31,50 | 126,00  |\n|  CD5678 | ROULEAU TEST 180MM | 2 | U | 12,25 | 24,50  |\n|  EF9012 | BACHE FICTIVE 4X5 | 10 | M | 1,10 | 11,00  |",
+     "format": "markdown",
+     "word_confidence_scores": [
+      {
+       "text": "Code",
+       "confidence": 0.982212101154237,
+       "start_index": 3
+      },
+      {
+       "text": "Désignation",
+       "confidence": 0.982212101154237,
+       "start_index": 10
+      },
+      {
+       "text": "Qté",
+       "confidence": 0.982212101154237,
+       "start_index": 24
+      },
+      {
+       "text": "Unité",
+       "confidence": 0.982212101154237,
+       "start_index": 30
+      },
+      {
+       "text": "PU",
+       "confidence": 0.982212101154237,
+       "start_index": 38
+      },
+      {
+       "text": " HT",
+       "confidence": 0.9999934686775852,
+       "start_index": 40
+      },
+      {
+       "text": "Montant",
+       "confidence": 0.9999934686775852,
+       "start_index": 46
+      },
+      {
+       "text": " HT",
+       "confidence": 0.9960496854530521,
+       "start_index": 53
+      },
+      {
+       "text": "AB1234",
+       "confidence": 0.9960496854530521,
+       "start_index": 101
+      },
+      {
+       "text": "ENDUIT",
+       "confidence": 0.9960496854530521,
+       "start_index": 110
+      },
+      {
+       "text": " EXEMPLE",
+       "confidence": 0.9994684330076601,
+       "start_index": 116
+      },
+      {
+       "text": " 25KG",
+       "confidence": 0.9999874461949526,
+       "start_index": 124
+      },
+      {
+       "text": "4",
+       "confidence": 0.9999874461949526,
+       "start_index": 132
+      },
+      {
+       "text": "SEAU",
+       "confidence": 0.9999874461949526,
+       "start_index": 136
+      },
+      {
+       "text": "31,50",
+       "confidence": 0.9999874461949526,
+       "start_index": 143
+      },
+      {
+       "text": "126,00",
+       "confidence": 0.9999874461949526,
+       "start_index": 151
+      },
+      {
+       "text": "CD5678",
+       "confidence": 0.9999874461949526,
+       "start_index": 164
+      },
+      {
+       "text": "ROULEAU",
+       "confidence": 0.9999874461949526,
+       "start_index": 173
+      },
+      {
+       "text": " TEST",
+       "confidence": 0.9999920130413283,
+       "start_index": 180
+      },
+      {
+       "text": " 180MM",
+       "confidence": 0.9999942108640942,
+       "start_index": 185
+      },
+      {
+       "text": "2",
+       "confidence": 0.9999942108640942,
+       "start_index": 194
+      },
+      {
+       "text": "U",
+       "confidence": 0.9999942108640942,
+       "start_index": 198
+      },
+      {
+       "text": "12,25",
+       "confidence": 0.9999942108640942,
+       "start_index": 202
+      },
+      {
+       "text": "24,50",
+       "confidence": 0.9999942108640942,
+       "start_index": 210
+      },
+      {
+       "text": "EF9012",
+       "confidence": 0.9999942108640942,
+       "start_index": 222
+      },
+      {
+       "text": "BACHE",
+       "confidence": 0.9999942108640942,
+       "start_index": 231
+      },
+      {
+       "text": " FICTIVE",
+       "confidence": 0.9976512067539337,
+       "start_index": 236
+      },
+      {
+       "text": " 4X5",
+       "confidence": 0.9999993494615217,
+       "start_index": 244
+      },
+      {
+       "text": "10",
+       "confidence": 0.9999993494615217,
+       "start_index": 251
+      },
+      {
+       "text": "M",
+       "confidence": 0.9999993494615217,
+       "start_index": 256
+      },
+      {
+       "text": "1,10",
+       "confidence": 0.9999993494615217,
+       "start_index": 260
+      },
+      {
+       "text": "11,00",
+       "confidence": 0.9999993494615217,
+       "start_index": 267
+      }
+     ]
+    }
+   ],
+   "hyperlinks": [],
+   "header": null,
+   "footer": null,
+   "dimensions": {
+    "dpi": 200,
+    "height": 1786,
+    "width": 1286
+   },
+   "confidence_scores": {
+    "word_confidence_scores": [
+     {
+      "text": "#",
+      "confidence": 0.9933071486460123,
+      "start_index": 0
+     },
+     {
+      "text": " PEINTURES",
+      "confidence": 0.9830153382368411,
+      "start_index": 1
+     },
+     {
+      "text": " EXEMPLE",
+      "confidence": 0.998386855704595,
+      "start_index": 11
+     },
+     {
+      "text": " SAS",
+      "confidence": 0.9999701985655173,
+      "start_index": 19
+     },
+     {
+      "text": "Agence",
+      "confidence": 0.99997878160731,
+      "start_index": 25
+     },
+     {
+      "text": " Exempleville",
+      "confidence": 0.7843650295800215,
+      "start_index": 31
+     },
+     {
+      "text": " Nord",
+      "confidence": 0.9999911785905904,
+      "start_index": 44
+     },
+     {
+      "text": " -",
+      "confidence": 0.9999997615814777,
+      "start_index": 49
+     },
+     {
+      "text": " 12",
+      "confidence": 0.9999990463267542,
+      "start_index": 51
+     },
+     {
+      "text": " rue",
+      "confidence": 0.9999902249342363,
+      "start_index": 54
+     },
+     {
+      "text": " Fictive",
+      "confidence": 0.999521358134353,
+      "start_index": 58
+     },
+     {
+      "text": " 99000",
+      "confidence": 0.9999758811173336,
+      "start_index": 66
+     },
+     {
+      "text": " Exempleville",
+      "confidence": 0.9919656850985239,
+      "start_index": 72
+     },
+     {
+      "text": "SIRET",
+      "confidence": 0.9998738771770901,
+      "start_index": 87
+     },
+     {
+      "text": " 000",
+      "confidence": 0.9999746389577574,
+      "start_index": 92
+     },
+     {
+      "text": " 000",
+      "confidence": 0.9999984800838786,
+      "start_index": 96
+     },
+     {
+      "text": " 000",
+      "confidence": 0.999900173795327,
+      "start_index": 100
+     },
+     {
+      "text": " 00000",
+      "confidence": 0.9995341210001456,
+      "start_index": 104
+     },
+     {
+      "text": " -",
+      "confidence": 0.9999885560391694,
+      "start_index": 110
+     },
+     {
+      "text": " TVA",
+      "confidence": 0.9999227583468039,
+      "start_index": 112
+     },
+     {
+      "text": " FR00000000000",
+      "confidence": 0.935053320330399,
+      "start_index": 116
+     },
+     {
+      "text": "#",
+      "confidence": 0.7981863374297502,
+      "start_index": 132
+     },
+     {
+      "text": " BON",
+      "confidence": 0.9994658701782768,
+      "start_index": 133
+     },
+     {
+      "text": " DE",
+      "confidence": 0.9999964237340748,
+      "start_index": 137
+     },
+     {
+      "text": " LIVRAISON",
+      "confidence": 0.9999794487959603,
+      "start_index": 140
+     },
+     {
+      "text": " N°L209900000123",
+      "confidence": 0.997593342328174,
+      "start_index": 150
+     },
+     {
+      "text": "Date",
+      "confidence": 0.999984503032491,
+      "start_index": 168
+     },
+     {
+      "text": " :",
+      "confidence": 0.9999902249342363,
+      "start_index": 172
+     },
+     {
+      "text": " 03/09/2026",
+      "confidence": 0.9999986887003864,
+      "start_index": 174
+     },
+     {
+      "text": " Réf.",
+      "confidence": 0.5719786657660958,
+      "start_index": 185
+     },
+     {
+      "text": " commande",
+      "confidence": 0.9994457457670984,
+      "start_index": 190
+     },
+     {
+      "text": " :",
+      "confidence": 0.9999964237340748,
+      "start_index": 199
+     },
+     {
+      "text": " CDE-TEST-42",
+      "confidence": 0.9999845827836034,
+      "start_index": 201
+     },
+     {
+      "text": "Chantier",
+      "confidence": 0.9998553995547912,
+      "start_index": 215
+     },
+     {
+      "text": " :",
+      "confidence": 0.9999986886995842,
+      "start_index": 223
+     },
+     {
+      "text": " MAISON",
+      "confidence": 0.9995371417316726,
+      "start_index": 225
+     },
+     {
+      "text": " TEST",
+      "confidence": 0.9999930859092101,
+      "start_index": 232
+     },
+     {
+      "text": " (9900000001)",
+      "confidence": 0.9994009268476653,
+      "start_index": 237
+     },
+     {
+      "text": "Enlevé",
+      "confidence": 0.999951047123252,
+      "start_index": 252
+     },
+     {
+      "text": " par",
+      "confidence": 0.9999969005680498,
+      "start_index": 258
+     },
+     {
+      "text": " :",
+      "confidence": 0.9999997615814777,
+      "start_index": 262
+     },
+     {
+      "text": " J.",
+      "confidence": 0.9999994436902979,
+      "start_index": 264
+     },
+     {
+      "text": " DUPONT",
+      "confidence": 0.9999509739365073,
+      "start_index": 267
+     },
+     {
+      "text": "[tbl-0.md](tbl-0.md)",
+      "confidence": 0.99630024869937,
+      "start_index": 276
+     },
+     {
+      "text": "Total",
+      "confidence": 0.9999984502816872,
+      "start_index": 298
+     },
+     {
+      "text": " HT",
+      "confidence": 0.9999997615814777,
+      "start_index": 303
+     },
+     {
+      "text": " :",
+      "confidence": 0.9999979734461775,
+      "start_index": 306
+     },
+     {
+      "text": " 161,50",
+      "confidence": 0.9999985013721352,
+      "start_index": 308
+     },
+     {
+      "text": "TVA",
+      "confidence": 0.9999558963926365,
+      "start_index": 317
+     },
+     {
+      "text": " 20%",
+      "confidence": 0.999996960177528,
+      "start_index": 320
+     },
+     {
+      "text": " :",
+      "confidence": 0.9999991655356624,
+      "start_index": 324
+     },
+     {
+      "text": " 32,30",
+      "confidence": 0.9999993840859818,
+      "start_index": 326
+     },
+     {
+      "text": "Total",
+      "confidence": 0.9999971389852362,
+      "start_index": 334
+     },
+     {
+      "text": " TTC",
+      "confidence": 0.9999595896822684,
+      "start_index": 339
+     },
+     {
+      "text": " :",
+      "confidence": 0.9999942779868433,
+      "start_index": 343
+     },
+     {
+      "text": " 193,80",
+      "confidence": 0.9999995231631585,
+      "start_index": 345
+     }
+    ],
+    "average_page_confidence_score": 0.9829677305726969,
+    "minimum_page_confidence_score": 0.5719786657660958
+   },
+   "blocks": [
+    {
+     "top_left_x": 57,
+     "top_left_y": 79,
+     "bottom_right_x": 554,
+     "bottom_right_y": 127,
+     "content": "# PEINTURES EXEMPLE SAS",
+     "confidence_scores": null,
+     "type": "title"
+    },
+    {
+     "top_left_x": 57,
+     "top_left_y": 122,
+     "bottom_right_x": 749,
+     "bottom_right_y": 168,
+     "content": "Agence Exempleville Nord - 12 rue Fictive 99000 Exempleville",
+     "confidence_scores": null,
+     "type": "text"
+    },
+    {
+     "top_left_x": 59,
+     "top_left_y": 161,
+     "bottom_right_x": 606,
+     "bottom_right_y": 202,
+     "content": "SIRET 000 000 000 00000 - TVA FR00000000000",
+     "confidence_scores": null,
+     "type": "text"
+    },
+    {
+     "top_left_x": 61,
+     "top_left_y": 227,
+     "bottom_right_x": 797,
+     "bottom_right_y": 284,
+     "content": "# BON DE LIVRAISON N°L209900000123",
+     "confidence_scores": null,
+     "type": "title"
+    },
+    {
+     "top_left_x": 62,
+     "top_left_y": 288,
+     "bottom_right_x": 769,
+     "bottom_right_y": 338,
+     "content": "Date : 03/09/2026 Réf. commande : CDE-TEST-42",
+     "confidence_scores": null,
+     "type": "text"
+    },
+    {
+     "top_left_x": 63,
+     "top_left_y": 338,
+     "bottom_right_x": 579,
+     "bottom_right_y": 383,
+     "content": "Chantier : MAISON TEST (9900000001)",
+     "confidence_scores": null,
+     "type": "text"
+    },
+    {
+     "top_left_x": 64,
+     "top_left_y": 388,
+     "bottom_right_x": 372,
+     "bottom_right_y": 429,
+     "content": "Enlevé par : J. DUPONT",
+     "confidence_scores": null,
+     "type": "text"
+    },
+    {
+     "top_left_x": 59,
+     "top_left_y": 433,
+     "bottom_right_x": 1241,
+     "bottom_right_y": 661,
+     "content": "|  Code | Désignation | Qté | Unité | PU HT | Montant HT  |\n| --- | --- | --- | --- | --- | --- |\n|  AB1234 | ENDUIT EXEMPLE 25KG | 4 | SEAU | 31,50 | 126,00  |\n|  CD5678 | ROULEAU TEST 180MM | 2 | U | 12,25 | 24,50  |\n|  EF9012 | BACHE FICTIVE 4X5 | 10 | M | 1,10 | 11,00  |",
+     "confidence_scores": null,
+     "type": "table",
+     "table_id": "tbl-0.md"
+    },
+    {
+     "top_left_x": 811,
+     "top_left_y": 670,
+     "bottom_right_x": 1040,
+     "bottom_right_y": 708,
+     "content": "Total HT : 161,50",
+     "confidence_scores": null,
+     "type": "text"
+    },
+    {
+     "top_left_x": 815,
+     "top_left_y": 712,
+     "bottom_right_x": 1036,
+     "bottom_right_y": 747,
+     "content": "TVA 20% : 32,30",
+     "confidence_scores": null,
+     "type": "text"
+    },
+    {
+     "top_left_x": 816,
+     "top_left_y": 751,
+     "bottom_right_x": 1054,
+     "bottom_right_y": 787,
+     "content": "Total TTC : 193,80",
+     "confidence_scores": null,
+     "type": "text"
+    }
+   ]
+  }
+ ],
+ "model": "mistral-ocr-latest",
+ "document_annotation": "{\"type_bon\": \"livraison\", \"fournisseur\": \"PEINTURES EXEMPLE SAS\", \"agence_fournisseur\": \"Agence Exempleville Nord - 12 rue Fictive 99000 Exempleville\", \"siret\": \"000 000 000 00000\", \"tva_intracommunautaire\": \"FR00000000000\", \"numero\": \"L209900000123\", \"date_doc\": \"03/09/2026\", \"chantier_brut\": \"MAISON TEST (9900000001)\", \"numero_commande\": \"CDE-TEST-42\", \"enleve_par\": \"J. DUPONT\", \"total_ht\": \"161,50\", \"total_tva\": \"32,30\", \"total_ttc\": \"193,80\", \"lignes\": [{\"code\": \"AB1234\", \"designation\": \"ENDUIT EXEMPLE 25KG\", \"quantite\": \"4\", \"unite\": \"SEAU\", \"pu_ht\": \"31,50\", \"montant_ht\": \"126,00\"}, {\"code\": \"CD5678\", \"designation\": \"ROULEAU TEST 180MM\", \"quantite\": \"2\", \"unite\": \"U\", \"pu_ht\": \"12,25\", \"montant_ht\": \"24,50\"}, {\"code\": \"EF9012\", \"designation\": \"BACHE FICTIVE 4X5\", \"quantite\": \"10\", \"unite\": \"M\", \"pu_ht\": \"1,10\", \"montant_ht\": \"11,00\"}]}",
+ "usage_info": {
+  "pages_processed": 1,
+  "doc_size_bytes": 77435
+ }
+}
