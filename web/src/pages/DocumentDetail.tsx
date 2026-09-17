@@ -972,6 +972,21 @@ export function DocumentDetail(): ReactElement {
     void queryClient.invalidateQueries({ queryKey: CLE_DOCUMENTS });
   }
 
+  /** Fix round 1 (revue L3-T10) : une correction d'en-tête ou de lignes
+   * réussie referme tout le mode édition, plutôt que de laisser
+   * `FormulaireEntete`/`TableauLignesEdition` montés avec leur état local
+   * d'avant l'écriture (options et lignes déjà envoyées, mais gardées en
+   * mémoire avec leur ancien `id`, notamment `null` pour une ligne qui vient
+   * d'être créée). Un « Modifier » suivant remonte les deux formulaires
+   * (voir la `key` incluant `donnees.id`) à partir du détail à jour renvoyé
+   * par l'API : plus aucun risque de renvoyer une ligne déjà créée comme un
+   * nouvel ajout, et la trace OCR (« Valeur OCR : … — corrigée par … »)
+   * s'affiche tout de suite, sans qu'il faille annuler ou recharger. */
+  function surEcritureEtFermeture(detail: DocumentDetailApi): void {
+    surEcriture(detail);
+    setEnEdition(false);
+  }
+
   const mutationValidation = useMutation({
     mutationFn: () => validerDocument(id ?? ""),
     onSuccess: surEcriture,
@@ -1088,7 +1103,7 @@ export function DocumentDetail(): ReactElement {
           documentId={donnees.id}
           donnees={donnees}
           fournisseurs={fournisseurs.data ?? []}
-          onEnregistre={surEcriture}
+          onEnregistre={surEcritureEtFermeture}
           onAnnuler={() => setEnEdition(false)}
         />
       ) : (
@@ -1122,7 +1137,7 @@ export function DocumentDetail(): ReactElement {
           key={`lignes-${donnees.id}-${String(enEdition)}`}
           documentId={donnees.id}
           lignesInitiales={donnees.lignes}
-          onEnregistre={surEcriture}
+          onEnregistre={surEcritureEtFermeture}
           onAnnuler={() => setEnEdition(false)}
         />
       ) : (
