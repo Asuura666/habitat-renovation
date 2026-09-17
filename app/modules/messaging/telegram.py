@@ -21,19 +21,45 @@ Décisions du contrôleur (brief T6) :
   (renvoie `None`).
 - `lire_update` ne lit que `update["message"]` (jamais `edited_message` ni
   `channel_post`).
+
+L2-T3 (boutons de confirmation, L2-D9/L2-D10) :
+- `lire_update` lit aussi `update["callback_query"]` (clic sur un des deux
+  boutons) et renvoie alors un `ClicBouton`, jamais un `FichierEntrant` : un
+  update Telegram ne porte jamais les deux à la fois, `callback_query` est
+  donc regardé en premier.
+- `callback_query.data` attendu : `"<préfixe>:<numero_interne>"`, préfixe
+  `PREFIXE_QUANTITES_VERIFIEES`/`PREFIXE_ECART_CONSTATE`
+  (`messaging/base.py`). Toute autre forme (préfixe inconnu, absence de
+  séparateur, partie numérique absente ou non entière) renvoie `None` — même
+  politique défensive que le reste de `lire_update`, jamais d'exception sur
+  une entrée malformée.
+- `POST .../answerCallbackQuery` (corps `{"callback_query_id": ...,
+  "text": ...}`) pour `accuser_clic`, `POST .../editMessageText` (corps
+  `{"chat_id": ..., "message_id": ..., "text": ...}`, sans `reply_markup` —
+  décision du contrôleur : l'omettre retire les boutons) pour
+  `editer_message`.
 """
 
 from __future__ import annotations
 
 import hmac
+from collections.abc import Sequence
 from pathlib import PurePosixPath
 from typing import Any
 
 import httpx
 
-from app.modules.messaging.base import FichierEntrant, FichierTelecharge
+from app.modules.messaging.base import (
+    PREFIXE_ECART_CONSTATE,
+    PREFIXE_QUANTITES_VERIFIEES,
+    ClicBouton,
+    FichierEntrant,
+    FichierTelecharge,
+)
 
 _BASE_URL = "https://api.telegram.org"
+
+_ACTIONS_VALIDES = frozenset({PREFIXE_QUANTITES_VERIFIEES, PREFIXE_ECART_CONSTATE})
 
 # Mapping explicite type MIME -> extension de stockage (décision du
 # contrôleur : pas de `mimetypes`, qui dépend d'une base système variable
@@ -138,25 +164,86 @@ def _expediteur_nom(expediteur: dict[str, Any]) -> str | None:
     return None
 
 
-def lire_update(update: dict[str, Any]) -> FichierEntrant | None:
-    """Extrait le fichier à traiter d'un update Telegram, s'il y en a un.
+def _numero_interne_valide(reste: str) -> int | None:
+    """`reste` (partie après `:` dans `callback_data`) doit être un entier
+    positif littéral (uniquement des chiffres) : ni vide, ni négatif, ni
+    flottant — un `numero_interne` invalide renvoie `None` (décision du
+    contrôleur : « numéro non entier » -> `None`)."""
+    if not reste.isdigit():
+        return None
+    return int(reste)
 
-    `None` si l'update ne porte pas de `message` (`edited_message`,
-    `channel_post`, ... ignorés), si le message ne contient ni photo ni
-    document, ou si le document n'est pas d'un type accepté.
+
+def _clic_depuis_callback_query(
+    update_id: int, callback_query: dict[str, Any]
+) -> ClicBouton | None:
+    """Construit un `ClicBouton` depuis `update["callback_query"]`, `None`
+    si sa forme ne correspond pas à un clic exploitable (L2-T3)."""
+    callback_id = callback_query.get("id")
+    data = callback_query.get("data")
+    message = callback_query.get("message")
+    if (
+        not isinstance(callback_id, str)
+        or not isinstance(data, str)
+        or not isinstance(message, dict)
+    ):
+        return None
+
+    chat = message.get("chat")
+    message_id = message.get("message_id")
+    if not isinstance(chat, dict) or not isinstance(message_id, int):
+        return None
+    chat_id = chat.get("id")
+    if not isinstance(chat_id, int):
+        return None
+
+    prefixe, separateur, reste = data.partition(":")
+    if not separateur or prefixe not in _ACTIONS_VALIDES:
+        return None
+    numero_interne = _numero_interne_valide(reste)
+    if numero_interne is None:
+        return None
+
+    expediteur = callback_query.get("from")
+    expediteur_id = expediteur.get("id") if isinstance(expediteur, dict) else None
+    if not isinstance(expediteur_id, int):
+        expediteur_id = None
+
+    return ClicBouton(
+        update_id=update_id,
+        callback_id=callback_id,
+        chat_id=chat_id,
+        message_id=message_id,
+        expediteur_id=expediteur_id,
+        action=prefixe,
+        numero_interne=numero_interne,
+    )
+
+
+def lire_update(update: dict[str, Any]) -> FichierEntrant | ClicBouton | None:
+    """Extrait le fichier à traiter ou le clic sur un bouton de confirmation
+    d'un update Telegram, s'il y en a un.
+
+    `None` si l'update ne porte ni `callback_query` exploitable (L2-T3) ni
+    `message` (`edited_message`, `channel_post`, ... ignorés), si le message
+    ne contient ni photo ni document, ou si le document n'est pas d'un type
+    accepté.
     """
+    update_id = update.get("update_id")
+    if not isinstance(update_id, int):
+        return None
+
+    callback_query = update.get("callback_query")
+    if isinstance(callback_query, dict):
+        return _clic_depuis_callback_query(update_id, callback_query)
+
     message = update.get("message")
     if not isinstance(message, dict):
         return None
 
-    update_id = update.get("update_id")
     chat = message.get("chat")
     message_id = message.get("message_id")
-    if (
-        not isinstance(update_id, int)
-        or not isinstance(chat, dict)
-        or not isinstance(message_id, int)
-    ):
+    if not isinstance(chat, dict) or not isinstance(message_id, int):
         return None
     chat_id = chat.get("id")
     if not isinstance(chat_id, int):
@@ -236,15 +323,32 @@ class TelegramClient:
             extension=_extension(fichier, file_path),
         )
 
-    async def repondre(self, chat_id: int, message_id: int, texte: str) -> None:
+    async def repondre(
+        self,
+        chat_id: int,
+        message_id: int,
+        texte: str,
+        boutons: Sequence[tuple[str, str]] | None = None,
+    ) -> None:
+        corps: dict[str, Any] = {
+            "chat_id": chat_id,
+            "text": texte,
+            "reply_parameters": {"message_id": message_id},
+        }
+        if boutons:
+            # Une seule ligne portant tous les boutons, dans l'ordre reçu
+            # (L2-D9 : les deux boutons de confirmation côte à côte).
+            corps["reply_markup"] = {
+                "inline_keyboard": [
+                    [
+                        {"text": libelle, "callback_data": donnee}
+                        for libelle, donnee in boutons
+                    ]
+                ]
+            }
         try:
             reponse = await self._http.post(
-                f"{_BASE_URL}/bot{self._token}/sendMessage",
-                json={
-                    "chat_id": chat_id,
-                    "text": texte,
-                    "reply_parameters": {"message_id": message_id},
-                },
+                f"{_BASE_URL}/bot{self._token}/sendMessage", json=corps
             )
             reponse.raise_for_status()
         except httpx.HTTPError:
@@ -262,3 +366,30 @@ class TelegramClient:
             reponse.raise_for_status()
         except httpx.HTTPError:
             raise ErreurTelegram("Échec de l'appel Telegram sendMessage") from None
+
+    async def accuser_clic(self, callback_id: str, texte: str) -> None:
+        """`answerCallbackQuery` (L2-T3) : accusé de réception du clic sur un
+        bouton, affiché par le client Telegram de l'utilisateur (bulle
+        éphémère), indépendant de `editer_message`."""
+        try:
+            reponse = await self._http.post(
+                f"{_BASE_URL}/bot{self._token}/answerCallbackQuery",
+                json={"callback_query_id": callback_id, "text": texte},
+            )
+            reponse.raise_for_status()
+        except httpx.HTTPError:
+            raise ErreurTelegram(
+                "Échec de l'appel Telegram answerCallbackQuery"
+            ) from None
+
+    async def editer_message(self, chat_id: int, message_id: int, texte: str) -> None:
+        """`editMessageText` (L2-T3), sans `reply_markup` : décision du
+        contrôleur, l'omettre retire les boutons du message édité."""
+        try:
+            reponse = await self._http.post(
+                f"{_BASE_URL}/bot{self._token}/editMessageText",
+                json={"chat_id": chat_id, "message_id": message_id, "text": texte},
+            )
+            reponse.raise_for_status()
+        except httpx.HTTPError:
+            raise ErreurTelegram("Échec de l'appel Telegram editMessageText") from None

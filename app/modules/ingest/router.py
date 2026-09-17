@@ -2,19 +2,25 @@
 routeur vit dans `ingest`, pas dans `messaging`, qui ne peut pas importer
 `ingest`).
 
-Déroulé (décisions du contrôleur T6, complété T6b, puis L2-T2) :
+Déroulé (décisions du contrôleur T6, complété T6b, puis L2-T2, L2-T3) :
 1. En-tête `X-Telegram-Bot-Api-Secret-Token` invalide ou absent -> 403.
 2. `lire_update` renvoie `None` (rien à traiter) -> 200, rien n'est écrit.
 3. `chat_id` différent de `Settings.telegram_chat_bl_id` (L2-D6) -> 200,
-   rien n'est écrit (même le dédoublonnage est sauté).
-4. `enregistrer_update` renvoie `False` (update déjà vu) -> 200.
-5. `service.utilisateur_rattache` (liste blanche, L2-D7) : expéditeur non
+   rien n'est écrit (même le dédoublonnage est sauté) — s'applique aussi à
+   un `ClicBouton` (L2-T3) : `chat_id` est un champ commun aux deux formes
+   renvoyées par `lire_update`.
+4. `enregistrer_update` renvoie `False` (update déjà vu) -> 200 (dédoublonne
+   aussi le rejeu d'un `callback_query`, même mécanisme que pour un fichier).
+5. `lire_update` a renvoyé un `ClicBouton` (L2-T3) : `traiter_clic` part en
+   tâche de fond -> 200 (autorisation, mise à jour atomique, journal, accusé
+   et édition du message, tout dans `ingest/service.py`).
+6. `service.utilisateur_rattache` (liste blanche, L2-D7) : expéditeur non
    rattaché (absent ou compte inactif) -> `signaler_expediteur_inconnu` part
    en tâche de fond (notification de supervision, aucune écriture ni
    téléchargement) -> 200.
-6. Sinon, `traiter_fichier` part en tâche de fond (`BackgroundTasks`) -> 200
+7. Sinon, `traiter_fichier` part en tâche de fond (`BackgroundTasks`) -> 200
    (téléchargement, écriture, document, OCR Mistral, ligne de supervision
-   puis réponse « reçu »).
+   puis réponse « reçu » avec numéro interne et boutons, L2-D9).
 
 Le routeur reste mince : aucune règle métier, seulement cet enchaînement
 (décision du contrôleur, L2-T2) — `ingest/service.py` décide de tout le
@@ -42,10 +48,11 @@ from app.modules.ingest.mistral import ocr_document
 from app.modules.ingest.service import (
     enregistrer_update,
     signaler_expediteur_inconnu,
+    traiter_clic,
     traiter_fichier,
     utilisateur_rattache,
 )
-from app.modules.messaging.base import Messagerie
+from app.modules.messaging.base import ClicBouton, Messagerie
 from app.modules.messaging.telegram import TelegramClient, lire_update, secret_valide
 
 router = APIRouter()
@@ -115,6 +122,19 @@ async def webhook_telegram(
 
     nouveau = await enregistrer_update(session, entrant.update_id)
     if not nouveau:
+        return Response(status_code=200)
+
+    if isinstance(entrant, ClicBouton):
+        # L2-T3 : clic sur un des deux boutons de confirmation. Toute la
+        # logique (autorisation, mise à jour atomique, journal, accusé et
+        # édition du message) vit dans `ingest/service.py::traiter_clic`.
+        background_tasks.add_task(
+            traiter_clic,
+            entrant,
+            messagerie,
+            sessions,
+            settings.telegram_chat_supervision_id,
+        )
         return Response(status_code=200)
 
     deposant = await utilisateur_rattache(session, entrant.expediteur_id)

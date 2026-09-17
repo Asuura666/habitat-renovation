@@ -148,3 +148,15 @@ aucune entrée tant qu'aucune simplification n'a été prise.
   reportée à la vérification sur des fixtures réelles communes (numéro de
   BL identique lu à la fois sur la facture et sur une photo) ; la
   normalisation plus poussée, si nécessaire, relève du lot 3.
+
+## L2-T3 — messaging/ingest (numéro interne et boutons de confirmation)
+
+- **Clic non autorisé signalé sans nom Telegram.** `ClicBouton`
+  (`messaging/base.py`) ne porte que `expediteur_id` (pas de champ
+  `expediteur_nom`, contrairement à `FichierEntrant`) : la ligne de
+  supervision d'un clic refusé (`traiter_clic`, L2-D10) ne montre donc que
+  l'identifiant Telegram numérique, jamais le nom d'affichage, contrairement
+  au message « expéditeur non rattaché » d'un dépôt (L2-D7). Ne couvre pas
+  l'identification humaine rapide d'un clic non autorisé en supervision ;
+  à ajouter si besoin en étendant `ClicBouton` avec le nom Telegram déjà
+  lu par `messaging.telegram._expediteur_nom` sur `callback_query.from`.

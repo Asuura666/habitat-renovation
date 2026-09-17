@@ -115,6 +115,147 @@ async def test_repondre_poste_sendmessage_avec_reply_parameters() -> None:
     }
 
 
+async def test_repondre_avec_boutons_ajoute_reply_markup_inline_keyboard() -> None:
+    requetes: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requetes.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = TelegramClient(TOKEN_INVENTE, http)
+        await client.repondre(
+            chat_id=42,
+            message_id=7,
+            texte="Reçu — document n° 123",
+            boutons=[
+                ("Quantités vérifiées", "v:123"),
+                ("Écart constaté", "e:123"),
+            ],
+        )
+
+    assert len(requetes) == 1
+    corps = json.loads(requetes[0].content)
+    assert corps == {
+        "chat_id": 42,
+        "text": "Reçu — document n° 123",
+        "reply_parameters": {"message_id": 7},
+        "reply_markup": {
+            "inline_keyboard": [
+                [
+                    {"text": "Quantités vérifiées", "callback_data": "v:123"},
+                    {"text": "Écart constaté", "callback_data": "e:123"},
+                ]
+            ]
+        },
+    }
+
+
+async def test_repondre_sans_boutons_najoute_pas_reply_markup() -> None:
+    requetes: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requetes.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = TelegramClient(TOKEN_INVENTE, http)
+        await client.repondre(chat_id=42, message_id=7, texte="reçu")
+
+    corps = json.loads(requetes[0].content)
+    assert "reply_markup" not in corps
+
+
+async def test_accuser_clic_poste_answercallbackquery() -> None:
+    requetes: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requetes.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = TelegramClient(TOKEN_INVENTE, http)
+        await client.accuser_clic("callback-invente", "Déjà enregistré")
+
+    assert len(requetes) == 1
+    assert requetes[0].url.path == f"/bot{TOKEN_INVENTE}/answerCallbackQuery"
+    corps = json.loads(requetes[0].content)
+    assert corps == {
+        "callback_query_id": "callback-invente",
+        "text": "Déjà enregistré",
+    }
+
+
+async def test_accuser_clic_leve_erreur_telegram_si_echec() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"ok": False})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = TelegramClient(TOKEN_INVENTE, http)
+        with pytest.raises(ErreurTelegram):
+            await client.accuser_clic("callback-invente", "Non autorisé")
+
+
+async def test_erreur_http_pendant_accuser_clic_ne_contient_pas_le_token() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom", request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = TelegramClient(TOKEN_INVENTE, http)
+        with pytest.raises(ErreurTelegram) as exc_info:
+            await client.accuser_clic("callback-invente", "Non autorisé")
+
+    assert TOKEN_INVENTE not in str(exc_info.value)
+    assert "api.telegram.org" not in str(exc_info.value)
+
+
+async def test_editer_message_poste_editmessagetext_sans_reply_markup() -> None:
+    requetes: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requetes.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = TelegramClient(TOKEN_INVENTE, http)
+        await client.editer_message(
+            chat_id=555, message_id=20, texte="Reçu — document n° 123 · confirmé"
+        )
+
+    assert len(requetes) == 1
+    assert requetes[0].url.path == f"/bot{TOKEN_INVENTE}/editMessageText"
+    corps = json.loads(requetes[0].content)
+    assert corps == {
+        "chat_id": 555,
+        "message_id": 20,
+        "text": "Reçu — document n° 123 · confirmé",
+    }
+    assert "reply_markup" not in corps
+
+
+async def test_editer_message_leve_erreur_telegram_si_echec() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"ok": False})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = TelegramClient(TOKEN_INVENTE, http)
+        with pytest.raises(ErreurTelegram):
+            await client.editer_message(chat_id=555, message_id=20, texte="échec")
+
+
+async def test_erreur_http_pendant_editer_message_ne_contient_pas_le_token() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom", request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = TelegramClient(TOKEN_INVENTE, http)
+        with pytest.raises(ErreurTelegram) as exc_info:
+            await client.editer_message(chat_id=555, message_id=20, texte="échec")
+
+    assert TOKEN_INVENTE not in str(exc_info.value)
+    assert "api.telegram.org" not in str(exc_info.value)
+
+
 async def test_envoyer_poste_sendmessage_sans_reply_parameters() -> None:
     requetes: list[httpx.Request] = []
 

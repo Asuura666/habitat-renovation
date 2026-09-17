@@ -1,9 +1,15 @@
-"""`lire_update` : extraction du fichier à traiter depuis un update Telegram
-brut. Toutes les valeurs (identifiants, noms) sont inventées."""
+"""`lire_update` : extraction du fichier à traiter, ou du clic sur un bouton
+de confirmation (L2-T3), depuis un update Telegram brut. Toutes les valeurs
+(identifiants, noms) sont inventées."""
 
 from __future__ import annotations
 
-from app.modules.messaging.base import FichierEntrant
+from app.modules.messaging.base import (
+    PREFIXE_ECART_CONSTATE,
+    PREFIXE_QUANTITES_VERIFIEES,
+    ClicBouton,
+    FichierEntrant,
+)
 from app.modules.messaging.telegram import lire_update
 
 
@@ -75,7 +81,7 @@ def test_document_pdf_est_accepte() -> None:
 
     resultat = lire_update(update)
 
-    assert resultat is not None
+    assert isinstance(resultat, FichierEntrant)
     assert resultat.mime_type == "application/pdf"
     assert resultat.compresse is False
 
@@ -115,7 +121,7 @@ def test_expediteur_avec_username_utilise_le_username() -> None:
 
     resultat = lire_update(update)
 
-    assert resultat is not None
+    assert isinstance(resultat, FichierEntrant)
     assert resultat.expediteur_nom == "agent-invente"
 
 
@@ -132,7 +138,7 @@ def test_expediteur_sans_username_utilise_le_prenom() -> None:
 
     resultat = lire_update(update)
 
-    assert resultat is not None
+    assert isinstance(resultat, FichierEntrant)
     assert resultat.expediteur_nom == "Prénom-invente"
 
 
@@ -149,7 +155,7 @@ def test_expediteur_sans_username_ni_prenom_renvoie_expediteur_nom_none() -> Non
 
     resultat = lire_update(update)
 
-    assert resultat is not None
+    assert isinstance(resultat, FichierEntrant)
     assert resultat.expediteur_nom is None
 
 
@@ -165,7 +171,7 @@ def test_message_sans_from_renvoie_expediteur_nom_none() -> None:
 
     resultat = lire_update(update)
 
-    assert resultat is not None
+    assert isinstance(resultat, FichierEntrant)
     assert resultat.expediteur_nom is None
 
 
@@ -176,6 +182,189 @@ def test_update_sans_message_renvoie_none() -> None:
             "message_id": 10,
             "chat": {"id": 15},
             "document": {"file_id": "x", "mime_type": "application/pdf"},
+        },
+    }
+
+    assert lire_update(update) is None
+
+
+# --------------------------------------------------------------------------
+# `callback_query` (L2-T3, L2-D9/L2-D10) : clic sur un des deux boutons de
+# confirmation. `callback_data` attendu : `"v:<numero_interne>"` ou
+# `"e:<numero_interne>"`. Chaque test construit son propre update, en dict
+# littéral (même style que les tests ci-dessus), pour éviter toute ambiguïté
+# de typage sur un dict partagé et muté.
+# --------------------------------------------------------------------------
+
+
+def test_callback_query_quantites_verifiees_renvoie_clicbouton() -> None:
+    update = {
+        "update_id": 200,
+        "callback_query": {
+            "id": "callback-invente",
+            "data": "v:42",
+            "from": {"id": 999},
+            "message": {"message_id": 20, "chat": {"id": 555}},
+        },
+    }
+
+    resultat = lire_update(update)
+
+    assert resultat == ClicBouton(
+        update_id=200,
+        callback_id="callback-invente",
+        chat_id=555,
+        message_id=20,
+        expediteur_id=999,
+        action=PREFIXE_QUANTITES_VERIFIEES,
+        numero_interne=42,
+    )
+
+
+def test_callback_query_ecart_constate_renvoie_clicbouton() -> None:
+    update = {
+        "update_id": 201,
+        "callback_query": {
+            "id": "callback-invente",
+            "data": "e:7",
+            "from": {"id": 999},
+            "message": {"message_id": 21, "chat": {"id": 555}},
+        },
+    }
+
+    resultat = lire_update(update)
+
+    assert resultat == ClicBouton(
+        update_id=201,
+        callback_id="callback-invente",
+        chat_id=555,
+        message_id=21,
+        expediteur_id=999,
+        action=PREFIXE_ECART_CONSTATE,
+        numero_interne=7,
+    )
+
+
+def test_callback_query_prefixe_inconnu_renvoie_none() -> None:
+    update = {
+        "update_id": 202,
+        "callback_query": {
+            "id": "callback-invente",
+            "data": "x:42",
+            "message": {"message_id": 22, "chat": {"id": 555}},
+        },
+    }
+
+    assert lire_update(update) is None
+
+
+def test_callback_query_numero_non_entier_renvoie_none() -> None:
+    update = {
+        "update_id": 203,
+        "callback_query": {
+            "id": "callback-invente",
+            "data": "v:abc",
+            "message": {"message_id": 23, "chat": {"id": 555}},
+        },
+    }
+
+    assert lire_update(update) is None
+
+
+def test_callback_query_numero_absent_renvoie_none() -> None:
+    update = {
+        "update_id": 204,
+        "callback_query": {
+            "id": "callback-invente",
+            "data": "v:",
+            "message": {"message_id": 24, "chat": {"id": 555}},
+        },
+    }
+
+    assert lire_update(update) is None
+
+
+def test_callback_query_donnee_sans_separateur_renvoie_none() -> None:
+    update = {
+        "update_id": 205,
+        "callback_query": {
+            "id": "callback-invente",
+            "data": "vabc",
+            "message": {"message_id": 25, "chat": {"id": 555}},
+        },
+    }
+
+    assert lire_update(update) is None
+
+
+def test_callback_query_sans_data_renvoie_none() -> None:
+    update = {
+        "update_id": 206,
+        "callback_query": {
+            "id": "callback-invente",
+            "message": {"message_id": 26, "chat": {"id": 555}},
+        },
+    }
+
+    assert lire_update(update) is None
+
+
+def test_callback_query_sans_id_renvoie_none() -> None:
+    update = {
+        "update_id": 207,
+        "callback_query": {
+            "data": "v:42",
+            "message": {"message_id": 27, "chat": {"id": 555}},
+        },
+    }
+
+    assert lire_update(update) is None
+
+
+def test_callback_query_sans_message_renvoie_none() -> None:
+    update = {
+        "update_id": 208,
+        "callback_query": {"id": "callback-invente", "data": "v:42"},
+    }
+
+    assert lire_update(update) is None
+
+
+def test_callback_query_sans_chat_renvoie_none() -> None:
+    update = {
+        "update_id": 209,
+        "callback_query": {
+            "id": "callback-invente",
+            "data": "v:42",
+            "message": {"message_id": 28},
+        },
+    }
+
+    assert lire_update(update) is None
+
+
+def test_callback_query_sans_from_renvoie_expediteur_id_none() -> None:
+    update = {
+        "update_id": 210,
+        "callback_query": {
+            "id": "callback-invente",
+            "data": "v:42",
+            "message": {"message_id": 29, "chat": {"id": 555}},
+        },
+    }
+
+    resultat = lire_update(update)
+
+    assert isinstance(resultat, ClicBouton)
+    assert resultat.expediteur_id is None
+
+
+def test_callback_query_sans_update_id_renvoie_none() -> None:
+    update = {
+        "callback_query": {
+            "id": "callback-invente",
+            "data": "v:42",
+            "message": {"message_id": 30, "chat": {"id": 555}},
         },
     }
 

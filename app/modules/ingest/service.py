@@ -71,19 +71,45 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.modules.extract.facture import Facture
 from app.modules.extract.ocr import detecter_numero_bl, texte_ocr
 from app.modules.extract.unikalo import analyser_facture_unikalo
-from app.modules.ingest.models import Document, TelegramUpdate, Utilisateur
-from app.modules.messaging.base import FichierEntrant, Messagerie
+from app.modules.ingest.models import Document, Journal, TelegramUpdate, Utilisateur
+from app.modules.messaging.base import (
+    PREFIXE_ECART_CONSTATE,
+    PREFIXE_QUANTITES_VERIFIEES,
+    ClicBouton,
+    FichierEntrant,
+    Messagerie,
+)
 
 _FUSEAU_PARIS = ZoneInfo("Europe/Paris")
 _MESSAGE_ECHEC_AGENT = "Échec de l'enregistrement, renvoyez la photo."
 _BL_NON_DETECTE = "non détecté"
+
+# L2-D9 : libellés des deux boutons de la réponse au dépôt.
+_LIBELLE_QUANTITES_VERIFIEES = "Quantités vérifiées"
+_LIBELLE_ECART_CONSTATE = "Écart constaté"
+
+# L2-D10 : action journal (`journal.action`) associée à chaque préfixe de
+# `callback_data` (`ClicBouton.action`, `messaging/base.py`).
+_ACTIONS_JOURNAL: dict[str, str] = {
+    PREFIXE_QUANTITES_VERIFIEES: "quantites_verifiees",
+    PREFIXE_ECART_CONSTATE: "ecart_constate",
+}
+# Textes d'accusé (`answerCallbackQuery`) et de l'édition du message une fois
+# la confirmation enregistrée (décision du contrôleur, exacts).
+_TEXTES_CONFIRMATION: dict[str, tuple[str, str]] = {
+    PREFIXE_QUANTITES_VERIFIEES: (
+        "Quantités vérifiées enregistrées",
+        "Quantités vérifiées",
+    ),
+    PREFIXE_ECART_CONSTATE: ("Écart enregistré", "Écart constaté"),
+}
 
 logger = logging.getLogger(__name__)
 
@@ -452,11 +478,204 @@ async def traiter_fichier(
     )
 
     try:
-        await messagerie.repondre(entrant.chat_id, entrant.message_id, "reçu")
+        # L2-D9 : numéro interne lisible + deux boutons de confirmation
+        # (`callback_data` "v:<numero_interne>" / "e:<numero_interne>",
+        # décodés par `messaging.telegram.lire_update` en `ClicBouton`, géré
+        # par `traiter_clic` ci-dessous).
+        await messagerie.repondre(
+            entrant.chat_id,
+            entrant.message_id,
+            f"Reçu — document n° {numero_interne}",
+            boutons=[
+                (
+                    _LIBELLE_QUANTITES_VERIFIEES,
+                    f"{PREFIXE_QUANTITES_VERIFIEES}:{numero_interne}",
+                ),
+                (
+                    _LIBELLE_ECART_CONSTATE,
+                    f"{PREFIXE_ECART_CONSTATE}:{numero_interne}",
+                ),
+            ],
+        )
     except Exception as exc:
         # Le document est déjà enregistré : on journalise sans revenir en
         # arrière (dédoublonnage déjà acquis, pas de nouvelle tentative).
         _journaliser_echec("réponse", entrant.update_id, exc)
+
+
+# --------------------------------------------------------------------------
+# `traiter_clic` (L2-T3, L2-D10) : clic sur un des deux boutons de
+# confirmation d'un dépôt (« Quantités vérifiées » / « Écart constaté »).
+#
+# Décisions du contrôleur :
+# - N'importe quel utilisateur rattaché actif peut cliquer (même liste
+#   blanche que `traiter_fichier`, `utilisateur_rattache`) : refus sinon
+#   (`accuser_clic("Non autorisé")` + une ligne de supervision, aucune
+#   écriture).
+# - `numero_interne` sans document correspondant -> `accuser_clic("Document
+#   introuvable")`.
+# - Le premier clic fait foi : mise à jour conditionnelle atomique
+#   (`UPDATE ... WHERE numero_interne = :n AND confirme_le IS NULL
+#   RETURNING ...`, une seule instruction SQL) — un second clic (ou deux
+#   clics concurrents sur le même document) ne trouve alors aucune ligne à
+#   mettre à jour -> `accuser_clic("Déjà enregistré")`, aucune écriture.
+# - Une écriture réussie journalise l'action (`quantites_verifiees` /
+#   `ecart_constate`), accuse le clic avec le texte de confirmation, puis
+#   édite le message du bot (numéro, action, nom du confirmateur, heure de
+#   Paris) — l'omission de `reply_markup` dans `editer_message` retire les
+#   boutons.
+# - Un échec Telegram (accusé ou édition) après l'écriture en base est
+#   journalisé, jamais propagé (même politique que `_envoyer_supervision`).
+# --------------------------------------------------------------------------
+
+
+async def _accuser_clic_sans_lever(
+    messagerie: Messagerie, clic: ClicBouton, texte: str
+) -> None:
+    """`accuser_clic` ne doit jamais faire échouer `traiter_clic` (tâche de
+    fond, personne à qui remonter l'exception) : un échec est journalisé."""
+    try:
+        await messagerie.accuser_clic(clic.callback_id, texte)
+    except Exception as exc:
+        _journaliser_echec("accusé clic", clic.update_id, exc)
+
+
+@dataclass(frozen=True)
+class _DecisionClic:
+    """Issue de `_decider_clic` : tout ce dont `traiter_clic` a besoin pour
+    parler à Telegram, calculé pendant que la session est encore ouverte
+    (même raison que `Deposant` pour `traiter_fichier` : la session de
+    base est fermée avant les appels réseau qui suivent, jamais tenue
+    ouverte pendant un appel Telegram)."""
+
+    texte_accuse: str
+    identifiant_refuse: str | None = None
+    texte_edition: str | None = None
+
+
+async def _decider_clic(session: AsyncSession, clic: ClicBouton) -> _DecisionClic:
+    """Toute la logique base de données de `traiter_clic` (L2-D10) : liste
+    blanche, existence du document, mise à jour conditionnelle atomique,
+    journal. Ne parle jamais à Telegram (fait par l'appelant, une fois la
+    session refermée)."""
+    deposant = await utilisateur_rattache(session, clic.expediteur_id)
+    if deposant is None:
+        identifiant = (
+            str(clic.expediteur_id) if clic.expediteur_id is not None else "inconnu"
+        )
+        return _DecisionClic(
+            texte_accuse="Non autorisé", identifiant_refuse=identifiant
+        )
+
+    ligne_document = (
+        await session.execute(
+            select(Document.id, Document.statut).where(
+                Document.numero_interne == clic.numero_interne
+            )
+        )
+    ).first()
+    if ligne_document is None:
+        return _DecisionClic(texte_accuse="Document introuvable")
+    document_id = ligne_document.id
+    statut_avant = ligne_document.statut
+
+    valeurs: dict[str, Any] = {
+        "confirme_le": func.now(),
+        "confirme_par": deposant.id,
+    }
+    statut_apres = statut_avant
+    if clic.action == PREFIXE_ECART_CONSTATE:
+        valeurs["statut"] = "a_verifier"
+        statut_apres = "a_verifier"
+
+    resultat = await session.execute(
+        update(Document)
+        .where(
+            Document.numero_interne == clic.numero_interne,
+            Document.confirme_le.is_(None),
+        )
+        .values(**valeurs)
+        .returning(Document.confirme_le)
+    )
+    ligne_mise_a_jour = resultat.first()
+    if ligne_mise_a_jour is None:
+        # Premier clic déjà enregistré (par ce document, éventuellement une
+        # transaction concurrente) : la condition `confirme_le IS NULL` de
+        # l'UPDATE ci-dessus ne matche plus aucune ligne — atomique côté
+        # base, sûr même pour deux clics simultanés (une seule instruction
+        # SQL, jamais un SELECT puis un UPDATE séparés).
+        return _DecisionClic(texte_accuse="Déjà enregistré")
+    confirme_le: datetime = ligne_mise_a_jour.confirme_le
+
+    action_journal = _ACTIONS_JOURNAL[clic.action]
+    session.add(
+        Journal(
+            utilisateur_id=deposant.id,
+            action=action_journal,
+            cible_table="document",
+            cible_id=str(document_id),
+            avant={
+                "statut": statut_avant,
+                "confirme_le": None,
+                "confirme_par": None,
+            },
+            apres={
+                "statut": statut_apres,
+                "confirme_le": confirme_le.isoformat(),
+                "confirme_par": str(deposant.id),
+            },
+        )
+    )
+    await session.commit()
+
+    texte_accuse, libelle_action = _TEXTES_CONFIRMATION[clic.action]
+    heure = confirme_le.astimezone(_FUSEAU_PARIS).strftime("%H:%M")
+    texte_edition = (
+        f"Reçu — document n° {clic.numero_interne} · {libelle_action} par "
+        f"{deposant.nom_affichage} à {heure}"
+    )
+    return _DecisionClic(texte_accuse=texte_accuse, texte_edition=texte_edition)
+
+
+async def traiter_clic(
+    clic: ClicBouton,
+    messagerie: Messagerie,
+    sessions: async_sessionmaker[AsyncSession],
+    telegram_chat_supervision_id: int,
+) -> None:
+    """Traite un clic sur un des deux boutons de confirmation (L2-D10).
+
+    Ouvre sa propre session (même raison que `traiter_fichier` : cette
+    tâche de fond s'exécute après la fermeture de la session de la requête
+    HTTP). Toute la décision (autorisation, mise à jour atomique, journal)
+    est prise dans `_decider_clic`, avant de refermer la session : les
+    appels Telegram qui suivent (accusé, éventuelle supervision, édition du
+    message) ne tiennent jamais une connexion base ouverte.
+    """
+    async with sessions() as session:
+        decision = await _decider_clic(session, clic)
+
+    await _accuser_clic_sans_lever(messagerie, clic, decision.texte_accuse)
+
+    if decision.identifiant_refuse is not None:
+        await _envoyer_supervision(
+            messagerie,
+            telegram_chat_supervision_id,
+            clic.update_id,
+            f"Clic non autorisé : id {decision.identifiant_refuse} · "
+            f"document n° {clic.numero_interne}",
+        )
+        return
+
+    if decision.texte_edition is None:
+        return
+
+    try:
+        await messagerie.editer_message(
+            clic.chat_id, clic.message_id, decision.texte_edition
+        )
+    except Exception as exc:
+        _journaliser_echec("édition message clic", clic.update_id, exc)
 
 
 # --------------------------------------------------------------------------

@@ -14,6 +14,7 @@ muter puis restaurer l'état du singleton `app.main.app` entre les tests
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings, get_settings
-from app.modules.ingest.models import Document, TelegramUpdate, Utilisateur
+from app.modules.ingest.models import Document, Journal, TelegramUpdate, Utilisateur
 from app.modules.ingest.router import get_messagerie, get_ocr, router
 from app.modules.ingest.service import _MESSAGE_ECHEC_AGENT
 from app.modules.messaging.base import FichierEntrant, FichierTelecharge
@@ -61,8 +62,12 @@ class MessagerieFactice:
     def __init__(self, *, echoue_telechargement: bool = False) -> None:
         self.echoue_telechargement = echoue_telechargement
         self.telechargements = 0
-        self.reponses: list[tuple[int, int, str]] = []
+        self.reponses: list[
+            tuple[int, int, str, tuple[tuple[str, str], ...] | None]
+        ] = []
         self.supervisions: list[tuple[int, str]] = []
+        self.accuses: list[tuple[str, str]] = []
+        self.editions: list[tuple[int, int, str]] = []
 
     async def telecharger(self, fichier: FichierEntrant) -> FichierTelecharge:
         self.telechargements += 1
@@ -70,11 +75,25 @@ class MessagerieFactice:
             raise RuntimeError("échec factice de téléchargement")
         return FichierTelecharge(contenu=b"contenu-invente-photo", extension="jpg")
 
-    async def repondre(self, chat_id: int, message_id: int, texte: str) -> None:
-        self.reponses.append((chat_id, message_id, texte))
+    async def repondre(
+        self,
+        chat_id: int,
+        message_id: int,
+        texte: str,
+        boutons: Sequence[tuple[str, str]] | None = None,
+    ) -> None:
+        self.reponses.append(
+            (chat_id, message_id, texte, tuple(boutons) if boutons else None)
+        )
 
     async def envoyer(self, chat_id: int, texte: str) -> None:
         self.supervisions.append((chat_id, texte))
+
+    async def accuser_clic(self, callback_id: str, texte: str) -> None:
+        self.accuses.append((callback_id, texte))
+
+    async def editer_message(self, chat_id: int, message_id: int, texte: str) -> None:
+        self.editions.append((chat_id, message_id, texte))
 
 
 def _app_test(
@@ -156,6 +175,34 @@ def _parse_ligne_supervision(texte: str) -> re.Match[str]:
     match = _RE_LIGNE_SUPERVISION.match(texte)
     assert match is not None, f"ligne de supervision inattendue : {texte!r}"
     return match
+
+
+def _boutons_confirmation(numero_interne: int) -> tuple[tuple[str, str], ...]:
+    """Boutons attendus dans la réponse au dépôt (L2-D9)."""
+    return (
+        ("Quantités vérifiées", f"v:{numero_interne}"),
+        ("Écart constaté", f"e:{numero_interne}"),
+    )
+
+
+def _update_callback(
+    *,
+    update_id: int,
+    data: str,
+    chat_id: int = CHAT_BL_TEST,
+    message_id: int = 20,
+    expediteur_id: int | None = 999,
+) -> dict[str, Any]:
+    """Update Telegram portant un `callback_query` (clic sur un bouton de
+    confirmation, L2-T3)."""
+    callback_query: dict[str, Any] = {
+        "id": f"callback-{update_id}",
+        "data": data,
+        "message": {"message_id": message_id, "chat": {"id": chat_id}},
+    }
+    if expediteur_id is not None:
+        callback_query["from"] = {"id": expediteur_id}
+    return {"update_id": update_id, "callback_query": callback_query}
 
 
 async def test_secret_absent_renvoie_403_sans_rien_ecrire(
@@ -242,7 +289,14 @@ async def test_photo_valide_cree_update_document_fichier_et_reponse(
     assert fichiers[0].read_bytes() == b"contenu-invente-photo"
     assert document.fichier_path == str(fichiers[0])
 
-    assert messagerie.reponses == [(555, 7, "reçu")]
+    assert messagerie.reponses == [
+        (
+            555,
+            7,
+            f"Reçu — document n° {document.numero_interne}",
+            _boutons_confirmation(document.numero_interne),
+        )
+    ]
 
     # L2-D8 : une ligne de supervision par dépôt traité.
     assert len(messagerie.supervisions) == 1
@@ -368,8 +422,9 @@ async def test_telechargement_en_echec_signale_supervision_et_repond_echec_agent
     assert (await db_session.execute(select(Document))).scalars().all() == []
     assert list(tmp_path.iterdir()) == []
 
-    # Ruling R22 : réponse d'échec à l'agent, sans détail technique.
-    assert messagerie.reponses == [(CHAT_BL_TEST, 7, _MESSAGE_ECHEC_AGENT)]
+    # Ruling R22 : réponse d'échec à l'agent, sans détail technique, jamais
+    # de boutons (décision du contrôleur L2-T3).
+    assert messagerie.reponses == [(CHAT_BL_TEST, 7, _MESSAGE_ECHEC_AGENT, None)]
 
     # Message de supervision sans token ni contenu du fichier.
     assert len(messagerie.supervisions) == 1
@@ -383,3 +438,111 @@ async def test_telechargement_en_echec_signale_supervision_et_repond_echec_agent
     # marque l'update comme vu dès qu'il décide de le traiter).
     updates = (await db_session.execute(select(TelegramUpdate))).scalars().all()
     assert [u.update_id for u in updates] == [48]
+
+
+# --------------------------------------------------------------------------
+# `callback_query` (L2-T3, L2-D9/L2-D10) : clic sur un des deux boutons de
+# confirmation, routé vers `traiter_clic` en tâche de fond.
+# --------------------------------------------------------------------------
+
+
+async def _creer_document(
+    db_session: AsyncSession, *, statut: str = "recu"
+) -> Document:
+    document = Document(
+        type="bl",
+        source="telegram",
+        statut=statut,
+        fichier_path="chemin-invente.jpg",
+    )
+    db_session.add(document)
+    await db_session.commit()
+    return document
+
+
+async def test_callback_query_valide_confirme_journalise_et_edite(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    await _creer_utilisateur(db_session, telegram_user_id=8100, nom="Confirmateur")
+    document = await _creer_document(db_session)
+    messagerie = MessagerieFactice()
+    app_test = _app_test(sessions_test, messagerie, tmp_path)
+    update = _update_callback(
+        update_id=200,
+        data=f"v:{document.numero_interne}",
+        expediteur_id=8100,
+    )
+
+    reponse = await _poster(app_test, update, SECRET_TEST)
+
+    assert reponse.status_code == 200
+
+    await db_session.refresh(document)
+    assert document.confirme_le is not None
+
+    journal = (await db_session.execute(select(Journal))).scalars().all()
+    assert len(journal) == 1
+    assert journal[0].action == "quantites_verifiees"
+
+    assert messagerie.accuses == [("callback-200", "Quantités vérifiées enregistrées")]
+    assert len(messagerie.editions) == 1
+
+
+async def test_meme_update_id_callback_envoye_deux_fois_ignore_le_second(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Rejeu du même `update_id` (webhook Telegram redélivré) : le
+    dédoublonnage (`enregistrer_update`, partagé avec les fichiers) ignore le
+    second envoi avant même d'atteindre `traiter_clic`."""
+    await _creer_utilisateur(db_session, telegram_user_id=8101, nom="Confirmateur")
+    document = await _creer_document(db_session)
+    messagerie = MessagerieFactice()
+    app_test = _app_test(sessions_test, messagerie, tmp_path)
+    update = _update_callback(
+        update_id=201,
+        data=f"v:{document.numero_interne}",
+        expediteur_id=8101,
+    )
+
+    premiere = await _poster(app_test, update, SECRET_TEST)
+    seconde = await _poster(app_test, update, SECRET_TEST)
+
+    assert premiere.status_code == 200
+    assert seconde.status_code == 200
+
+    journal = (await db_session.execute(select(Journal))).scalars().all()
+    assert len(journal) == 1
+    assert len(messagerie.accuses) == 1
+    assert len(messagerie.editions) == 1
+
+
+async def test_callback_query_chat_etranger_ignore_sans_rien_ecrire(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """L2-D6 : le filtre de chat s'applique aussi à un `callback_query`
+    (`ClicBouton.chat_id`, même champ commun que `FichierEntrant`)."""
+    document = await _creer_document(db_session)
+    messagerie = MessagerieFactice()
+    app_test = _app_test(sessions_test, messagerie, tmp_path)
+    update = _update_callback(
+        update_id=202,
+        data=f"v:{document.numero_interne}",
+        chat_id=CHAT_ETRANGER_TEST,
+        expediteur_id=999,
+    )
+
+    reponse = await _poster(app_test, update, SECRET_TEST)
+
+    assert reponse.status_code == 200
+    assert (await db_session.execute(select(TelegramUpdate))).scalars().all() == []
+    assert messagerie.accuses == []
+    assert messagerie.editions == []
+
+    await db_session.refresh(document)
+    assert document.confirme_le is None
