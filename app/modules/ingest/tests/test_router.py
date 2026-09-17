@@ -50,11 +50,13 @@ _RE_LIGNE_SUPERVISION = re.compile(
 
 async def _ocr_test(contenu: bytes, mime: str) -> dict[str, Any]:
     """Faux OCR (T6b), surchargé via `get_ocr` : jamais de client HTTP réel
-    dans ces tests de webhook. Renvoie un numéro de BL détectable pour que
-    le document reste `recu` (comportement par défaut attendu par ces
-    tests, centrés sur le webhook et non sur l'OCR lui-même — voir
-    `app/modules/ingest/tests/test_service.py` pour les tests dédiés à
-    l'OCR)."""
+    dans ces tests de webhook. Sans `document_annotation`, l'extraction
+    (L3-T6) part en `annotation_illisible` (`a_verifier`, L3-D10) — seul le
+    numéro de BL, détecté par le motif déterministe existant, est repris ;
+    ces tests, centrés sur le webhook et non sur l'extraction elle-même,
+    n'ont pas besoin d'une annotation complète (voir
+    `app/modules/ingest/tests/test_extraction_bl.py` pour les tests dédiés à
+    l'extraction, et `test_service.py` pour `_executer_ocr`)."""
     return {"pages": [{"markdown": f"LIVRAISON N°{NUMERO_BL_TEST}"}]}
 
 
@@ -276,10 +278,13 @@ async def test_photo_valide_cree_update_document_fichier_et_reponse(
     documents = (await db_session.execute(select(Document))).scalars().all()
     assert len(documents) == 1
     document = documents[0]
+    # `_ocr_test` ne renvoie aucune `document_annotation` : l'extraction
+    # (L3-T6) part donc en `annotation_illisible`, `a_verifier` (L3-D10) —
+    # seul le numéro, détecté par le motif déterministe existant, est repris.
     assert (document.source, document.type, document.statut) == (
         "telegram",
         "bl",
-        "recu",
+        "a_verifier",
     )
     assert document.telegram_message_id == 7
     assert document.photo_compressee is True
@@ -306,7 +311,7 @@ async def test_photo_valide_cree_update_document_fichier_et_reponse(
     assert match["numero_interne"] == str(document.numero_interne)
     assert match["bl"] == NUMERO_BL_TEST
     assert match["deposant"] == "Agent Testeur"
-    assert match["statut"] == "recu"
+    assert match["statut"] == "a_verifier"
 
 
 async def test_meme_update_id_envoye_deux_fois_ne_duplique_pas(

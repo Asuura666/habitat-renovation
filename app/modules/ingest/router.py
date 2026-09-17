@@ -36,7 +36,7 @@ dépendance FastAPI surchargeable dans les tests
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Annotated, Any
 
 import httpx
@@ -45,6 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
+from app.modules.extract.bl import OPTIONS_OCR_BL
 from app.modules.ingest.depot_telegram import (
     enregistrer_update,
     signaler_expediteur_inconnu,
@@ -59,10 +60,14 @@ from app.modules.messaging.telegram import TelegramClient, lire_update, secret_v
 router = APIRouter()
 
 # L2-T4 : délai OCR dédié au dépôt d'une facture (`get_ocr_facture`), plus
-# long que celui des photos (60 s par défaut, `ocr_document`) — une facture
-# de plusieurs pages peut prendre plus de temps à analyser (décision du
-# contrôleur, borne haute du CDC : délai max 90 s).
+# long que celui des photos avant T6 (60 s par défaut, `ocr_document`) — une
+# facture de plusieurs pages peut prendre plus de temps à analyser (décision
+# du contrôleur, borne haute du CDC : délai max 90 s).
 _DELAI_OCR_FACTURE = httpx.Timeout(90.0)
+# T6 : l'annotation structurée (`OPTIONS_OCR_BL`) et les scores de confiance
+# par mot allongent l'analyse d'une photo de BL — même borne haute que pour
+# une facture (décision du contrôleur).
+_DELAI_OCR_BL = httpx.Timeout(90.0)
 
 
 def get_messagerie(
@@ -90,16 +95,19 @@ def _construire_ocr(
     settings: Settings,
     *,
     delai: httpx.Timeout | None = None,
+    options: Mapping[str, Any] | None = None,
 ) -> Callable[[bytes, str], Awaitable[dict[str, Any]]]:
     """Construit la fonction OCR de production, sur le client HTTP du
     lifespan et la clé API de la configuration — partagée par `get_ocr`
-    (photos, délai par défaut de `ocr_document`) et `get_ocr_facture`
-    (factures, L2-T4, délai porté à 90 s)."""
+    (photos, T6 : `OPTIONS_OCR_BL`, délai porté à 90 s) et `get_ocr_facture`
+    (factures, L2-T4, délai porté à 90 s, sans options supplémentaires)."""
     http = request.app.state.http
     cle_api = settings.mistral_api_key.get_secret_value()
 
     async def _ocr(contenu: bytes, mime: str) -> dict[str, Any]:
-        return await ocr_document(http, cle_api, contenu, mime, delai=delai)
+        return await ocr_document(
+            http, cle_api, contenu, mime, delai=delai, options=options
+        )
 
     return _ocr
 
@@ -107,11 +115,16 @@ def _construire_ocr(
 def get_ocr(
     request: Request, settings: Annotated[Settings, Depends(get_settings)]
 ) -> Callable[[bytes, str], Awaitable[dict[str, Any]]]:
-    """OCR de production (T6b) : appelle l'API Mistral OCR via le client
-    HTTP du lifespan et la clé API de la configuration. Fonction injectée
-    dans `traiter_fichier`, surchargeable dans les tests
-    (`app.dependency_overrides[get_ocr]`) sans construire de client HTTP."""
-    return _construire_ocr(request, settings)
+    """OCR de production (T6b, complété T6) : appelle l'API Mistral OCR via
+    le client HTTP du lifespan et la clé API de la configuration, avec
+    `OPTIONS_OCR_BL` (annotation structurée + scores de confiance par mot,
+    lus par `ingest/extraction_bl.py::enregistrer_extraction_bl`) et un délai
+    porté à 90 s. Fonction injectée dans `traiter_fichier`, surchargeable
+    dans les tests (`app.dependency_overrides[get_ocr]`) sans construire de
+    client HTTP."""
+    return _construire_ocr(
+        request, settings, delai=_DELAI_OCR_BL, options=OPTIONS_OCR_BL
+    )
 
 
 def get_ocr_facture(

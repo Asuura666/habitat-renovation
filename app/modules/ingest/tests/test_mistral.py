@@ -141,6 +141,83 @@ async def test_ocr_document_sans_delai_utilise_le_delai_par_defaut() -> None:
     assert delais_recus == [httpx.Timeout(60.0)]
 
 
+async def test_ocr_document_options_fusionnees_dans_le_corps() -> None:
+    """T6 : les options passées sont fusionnées dans le corps envoyé."""
+    requetes: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requetes.append(request)
+        return httpx.Response(200, json={"pages": []})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        await ocr_document(
+            http,
+            CLE_INVENTEE,
+            CONTENU_INVENTE,
+            "image/jpeg",
+            options={
+                "confidence_scores_granularity": "word",
+                "document_annotation_prompt": "consigne-inventee",
+            },
+        )
+
+    corps = json.loads(requetes[0].content)
+    assert corps["confidence_scores_granularity"] == "word"
+    assert corps["document_annotation_prompt"] == "consigne-inventee"
+    assert corps["model"] == "mistral-ocr-latest"
+
+
+async def test_ocr_document_options_ne_peuvent_pas_ecraser_les_cles_imposees() -> None:
+    """Les clés imposées (`model`, `document`, `table_format`,
+    `include_image_base64`) gagnent toujours sur `options`, même si
+    l'appelant tente de les fournir lui-même."""
+    requetes: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requetes.append(request)
+        return httpx.Response(200, json={"pages": []})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        await ocr_document(
+            http,
+            CLE_INVENTEE,
+            CONTENU_INVENTE,
+            "image/jpeg",
+            options={
+                "model": "modele-invente-ne-doit-pas-gagner",
+                "table_format": "html",
+                "include_image_base64": True,
+            },
+        )
+
+    corps = json.loads(requetes[0].content)
+    assert corps["model"] == "mistral-ocr-latest"
+    assert corps["table_format"] == "markdown"
+    assert corps["include_image_base64"] is False
+    assert corps["document"]["type"] == "image_url"
+
+
+async def test_ocr_document_sans_options_corps_inchange() -> None:
+    """`options=None` (comportement par défaut) : le corps ne change pas par
+    rapport au comportement d'avant T6."""
+    requetes: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requetes.append(request)
+        return httpx.Response(200, json={"pages": []})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        await ocr_document(http, CLE_INVENTEE, CONTENU_INVENTE, "image/jpeg")
+
+    corps = json.loads(requetes[0].content)
+    assert set(corps.keys()) == {
+        "model",
+        "document",
+        "table_format",
+        "include_image_base64",
+    }
+
+
 async def test_ocr_document_corps_200_json_non_objet_leve_erreur_ocr() -> None:
     """Correction tour 1/5 : une réponse 200 dont le JSON n'est pas un objet
     (ex. une liste) doit lever `ErreurOCR`, jamais être renvoyée telle

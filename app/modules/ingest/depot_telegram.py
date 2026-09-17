@@ -1,7 +1,7 @@
 """Dépôt Telegram (`POST /tg/webhook`) : dédoublonnage, liste blanche,
-téléchargement et enregistrement d'un fichier déposé, OCR des photos
-(détection du numéro de BL), notifications de supervision, et traitement
-des clics sur les boutons de confirmation.
+téléchargement et enregistrement d'un fichier déposé, OCR et extraction
+complète du BL (`ingest/extraction_bl.py`, L3-T6), notifications de
+supervision, et traitement des clics sur les boutons de confirmation.
 
 Sous-module de `ingest` (D10) : `ingest` est le seul module métier autorisé
 à importer un autre module métier (`messaging`, `extract`), garde vérifiée
@@ -25,10 +25,11 @@ Responsabilités :
 - `signaler_expediteur_inconnu` (L2-T2) : notifie le groupe de supervision
   qu'un expéditeur non rattaché a tenté un dépôt (L2-D7), sans rien écrire
   ni télécharger ;
-- `traiter_fichier` (T6, complété T6b, L2-T2) : téléchargement, écriture
-  atomique sur disque, enregistrement du `document` (décisions du
-  contrôleur T6), OCR et détection du numéro de BL (décisions du
-  contrôleur T6b, ci-dessous), puis ligne de supervision (L2-D8) et
+- `traiter_fichier` (T6, complété T6b puis L3-T6, L2-T2) : téléchargement,
+  écriture atomique sur disque, enregistrement du `document` (décisions du
+  contrôleur T6), OCR puis extraction complète du BL déléguée à
+  `ingest/extraction_bl.py` (`_executer_ocr`, décisions du contrôleur T6b et
+  L3-T6 ci-dessous), puis ligne de supervision (remplace L2-D8) et
   notification d'échec à l'agent (Ruling R22, ci-dessous) ;
 - `traiter_clic` (L2-T3, L2-D10) : clic sur un des deux boutons de
   confirmation (« Quantités vérifiées » / « Écart constaté »).
@@ -43,7 +44,9 @@ Décisions du contrôleur T6b sur `traiter_fichier` :
   cette fonction à partir du client HTTP du lifespan et de
   `Settings.mistral_api_key`, voir `ingest/router.py`).
 - La réponse « reçu » part après la tentative d'OCR, dans tous les cas
-  (numéro détecté, non détecté, ou échec complet de l'OCR).
+  (extraction complète, annotation illisible, ou échec complet de l'OCR,
+  L3-D10 : ce dernier cas ne laisse plus jamais le document `recu` sans
+  extraction, contrairement au lot 2).
 
 Décisions du contrôleur L2-T2 (liste blanche, groupe BL, supervision) :
 - Le filtre de chat (`chat_id != TELEGRAM_CHAT_BL_ID`, L2-D6) et le
@@ -82,13 +85,16 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.modules.extract.ocr import detecter_numero_bl, texte_ocr
 from app.modules.ingest.commun import (
     Deposant,
     _ecrire_atomique,
     _journaliser_echec,
     _mime_pour_extension,
     _supprimer_si_existe,
+)
+from app.modules.ingest.extraction_bl import (
+    enregistrer_echec_ocr,
+    enregistrer_extraction_bl,
 )
 from app.modules.ingest.models import Document, Journal, TelegramUpdate, Utilisateur
 from app.modules.messaging.base import (
@@ -229,30 +235,68 @@ async def _signaler_echec_traitement(
 
 
 def _ligne_supervision(
-    numero_interne: int, numero_bl: str | None, statut: str, deposant_nom: str
+    numero_interne: int,
+    numero_bl: str | None,
+    fournisseur_nom: str | None,
+    chantier_brut: str | None,
+    statut: str,
+    deposant_nom: str,
 ) -> str:
-    """Format L2-D8 : `Document n° <interne> · BL <n° détecté ou « non
-    détecté »> · fournisseur — · chantier — · <déposant> · <HH:MM> ·
-    <statut>`. Fournisseur et chantier restent à « — » jusqu'au lot 3.
-    Heure de Paris (décision du contrôleur), calculée au moment de l'envoi
-    (après la tentative d'OCR, donc après le traitement complet du dépôt)."""
+    """Format T6 (remplace L2-D8) : `Document n° <interne> · BL <n° détecté
+    ou « non détecté »> · fournisseur <nom du référentiel ou « — »> ·
+    chantier <chantier brut ou « — »> · <déposant> · <HH:MM> · <statut>`.
+    `fournisseur_nom` est toujours le nom du référentiel (jamais le brut lu,
+    décision du contrôleur) ; `chantier_brut`, lui, est le libellé tel
+    qu'imprimé (aucun référentiel de libellé canonique avant résolution d'un
+    alias). Heure de Paris (décision du contrôleur), calculée au moment de
+    l'envoi (après la tentative d'OCR, donc après le traitement complet du
+    dépôt)."""
     heure = datetime.now(_FUSEAU_PARIS).strftime("%H:%M")
     bl = numero_bl if numero_bl is not None else _BL_NON_DETECTE
+    fournisseur = fournisseur_nom if fournisseur_nom is not None else "—"
+    chantier = chantier_brut if chantier_brut is not None else "—"
     return (
-        f"Document n° {numero_interne} · BL {bl} · fournisseur — · chantier — · "
-        f"{deposant_nom} · {heure} · {statut}"
+        f"Document n° {numero_interne} · BL {bl} · fournisseur {fournisseur} · "
+        f"chantier {chantier} · {deposant_nom} · {heure} · {statut}"
     )
 
 
 @dataclass(frozen=True)
 class _ResultatOcr:
-    """État final (`numero`, `statut`) du document après la tentative d'OCR
-    de `_executer_ocr`, quelle que soit l'issue (numéro détecté, non
-    détecté, ou échec complet) — utilisé pour la ligne de supervision
-    (L2-D8) sans relire le document en base une troisième fois."""
+    """État final du document après la tentative d'OCR de `_executer_ocr`,
+    quelle que soit l'issue (extraction complète, annotation illisible, ou
+    échec complet de l'OCR) — utilisé pour la ligne de supervision (T6) sans
+    relire le document en base une troisième fois."""
 
     numero: str | None
     statut: str
+    fournisseur_nom: str | None
+    chantier_brut: str | None
+
+
+async def _enregistrer_echec_ocr_sans_lever(
+    sessions: async_sessionmaker[AsyncSession],
+    document_id: uuid.UUID,
+    update_id: int,
+) -> _ResultatOcr:
+    """`enregistrer_echec_ocr` dans une session neuve (décision du
+    contrôleur, Ruling R5) : seule une exception de cette fonction elle-même
+    (base injoignable) est journalisée et avalée ici, avec le résultat
+    `numero=None, statut="recu"` comme avant T6 — rien d'autre à faire."""
+    try:
+        async with sessions() as session:
+            resultat = await enregistrer_echec_ocr(session, document_id)
+        return _ResultatOcr(
+            numero=resultat.numero,
+            statut=resultat.statut,
+            fournisseur_nom=resultat.fournisseur_nom,
+            chantier_brut=resultat.chantier_brut,
+        )
+    except Exception as exc:
+        _journaliser_echec("échec ocr", update_id, exc)
+        return _ResultatOcr(
+            numero=None, statut="recu", fournisseur_nom=None, chantier_brut=None
+        )
 
 
 async def _executer_ocr(
@@ -263,51 +307,52 @@ async def _executer_ocr(
     ocr: Callable[[bytes, str], Awaitable[dict[str, Any]]],
     update_id: int,
 ) -> _ResultatOcr:
-    """Appelle l'OCR injecté puis met à jour le document dans une seconde
-    transaction (décisions du contrôleur T6b) :
-    - numéro détecté -> `numero` et `type` remplis, `statut` reste `recu` ;
-    - aucun numéro détecté (absent ou ambigu) -> `numero` reste `NULL`,
-      `statut` passe à `a_verifier` ;
-    - échec de l'OCR lui-même, réponse OCR mal formée (pas un objet JSON
-      avec une liste `pages`), ou échec de la mise à jour en base -> rien
-      n'est modifié (document déjà `recu` sans numéro), erreur journalisée
-      sans contenu ni clé API (correction tour 1/5 : une réponse mal formée
-      ne doit jamais faire remonter d'exception jusqu'à `traiter_fichier`,
-      qui n'enverrait alors jamais la réponse « reçu »).
+    """Appelle l'OCR injecté puis délègue à `ingest/extraction_bl.py` dans
+    une seconde transaction (décisions du contrôleur T6, complète T6b) :
+    - échec de l'appel OCR lui-même, ou réponse structurellement
+      inexploitable (pas un objet JSON avec une liste `pages`) ->
+      `enregistrer_echec_ocr` dans une session neuve (L3-D10 : le document
+      part `a_verifier` avec le motif `ocr_echec`, plus jamais laissé `recu`
+      sans extraction) ;
+    - sinon `enregistrer_extraction_bl` (lecture complète du BL, résolution
+      des référentiels, persistance) ; une exception inattendue de cette
+      fonction (donnée OCR corrompue imprévue) est journalisée
+      (`_journaliser_echec`, sans contenu) puis déclenche elle aussi
+      `enregistrer_echec_ocr` dans une session neuve (Ruling R5 : aucun
+      document ne reste `recu` sans extraction).
+
+    Le contrat « `_executer_ocr` n'échoue jamais vers l'appelant » est
+    conservé : toute exception est journalisée et avalée ici.
     """
     try:
         reponse = await ocr(contenu, mime)
     except Exception as exc:
         _journaliser_echec("ocr", update_id, exc)
-        return _ResultatOcr(numero=None, statut="recu")
+        return await _enregistrer_echec_ocr_sans_lever(sessions, document_id, update_id)
+
+    # Réponse structurellement inexploitable (pas un `dict` avec une liste
+    # `pages`) : traitée comme un échec d'OCR, jamais transmise telle quelle
+    # à `enregistrer_extraction_bl` (qui suppose une réponse Mistral OCR
+    # normale).
+    if not isinstance(reponse, dict) or not isinstance(reponse.get("pages"), list):
+        _journaliser_echec(
+            "ocr", update_id, ValueError("réponse OCR mal formée (pas de « pages »)")
+        )
+        return await _enregistrer_echec_ocr_sans_lever(sessions, document_id, update_id)
 
     try:
-        # Réponse structurellement inexploitable (pas un `dict` avec une
-        # liste `pages`) : traitée comme un échec d'OCR, pas comme une
-        # réponse valide où aucun numéro n'a été trouvé (`texte_ocr` est
-        # volontairement permissif — cf. son docstring — donc cette
-        # vérification vit ici, avant de lui déléguer la lecture du texte).
-        if not isinstance(reponse, dict) or not isinstance(reponse.get("pages"), list):
-            raise ValueError("réponse OCR mal formée (pas de « pages » exploitable)")
-
-        numero_bl = detecter_numero_bl(texte_ocr(reponse))
-
         async with sessions() as session:
-            document = await session.get(Document, document_id)
-            if document is None:
-                return _ResultatOcr(numero=None, statut="recu")
-            document.ocr_brut = reponse
-            if numero_bl is not None:
-                document.numero = numero_bl.numero
-                document.type = numero_bl.type_bl.value
-                document.statut = "recu"
-            else:
-                document.statut = "a_verifier"
-            await session.commit()
-            return _ResultatOcr(numero=document.numero, statut=document.statut)
+            resultat = await enregistrer_extraction_bl(session, document_id, reponse)
     except Exception as exc:
-        _journaliser_echec("traitement ocr", update_id, exc)
-        return _ResultatOcr(numero=None, statut="recu")
+        _journaliser_echec("extraction ocr", update_id, exc)
+        return await _enregistrer_echec_ocr_sans_lever(sessions, document_id, update_id)
+
+    return _ResultatOcr(
+        numero=resultat.numero,
+        statut=resultat.statut,
+        fournisseur_nom=resultat.fournisseur_nom,
+        chantier_brut=resultat.chantier_brut,
+    )
 
 
 async def traiter_fichier(
@@ -423,6 +468,8 @@ async def traiter_fichier(
         _ligne_supervision(
             numero_interne,
             resultat_ocr.numero,
+            resultat_ocr.fournisseur_nom,
+            resultat_ocr.chantier_brut,
             resultat_ocr.statut,
             deposant.nom_affichage,
         ),

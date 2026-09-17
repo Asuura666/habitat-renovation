@@ -384,7 +384,11 @@ async def test_traiter_fichier_ecrit_le_fichier_le_document_et_repond(
     document = documents[0]
     assert document.type == "bl"
     assert document.source == "telegram"
-    assert document.statut == "recu"
+    # `_ocr_avec_numero_bl` ne renvoie aucune `document_annotation` :
+    # l'extraction (L3-T6) part en `annotation_illisible`, `a_verifier`
+    # (L3-D10) — seul le numéro, détecté par le motif déterministe existant,
+    # est repris.
+    assert document.statut == "a_verifier"
     assert document.telegram_message_id == entrant.message_id
     assert document.deposant_id == deposant.id
     assert document.numero == NUMERO_BL_INVENTE
@@ -413,7 +417,7 @@ async def test_traiter_fichier_ecrit_le_fichier_le_document_et_repond(
     assert match["numero_interne"] == str(document.numero_interne)
     assert match["bl"] == NUMERO_BL_INVENTE
     assert match["deposant"] == "Agent Testeur"
-    assert match["statut"] == "recu"
+    assert match["statut"] == "a_verifier"
 
 
 async def test_traiter_fichier_photo_compressee_false_pour_un_document_envoye(
@@ -605,7 +609,10 @@ async def test_traiter_fichier_echec_envoi_supervision_nempeche_pas_le_traitemen
         )
 
     document = (await db_session.execute(select(Document))).scalar_one()
-    assert document.statut == "recu"
+    # `_ocr_avec_numero_bl` ne renvoie aucune `document_annotation` :
+    # `a_verifier` (annotation illisible, L3-D10), comme pour tous les
+    # faux OCR de ce fichier qui n'en renvoient pas.
+    assert document.statut == "a_verifier"
     assert messagerie.supervisions == []
     assert messagerie.reponses == [
         (
@@ -648,7 +655,9 @@ async def test_traiter_fichier_numero_bl_detecte_remplit_numero_et_type(
     document = (await db_session.execute(select(Document))).scalar_one()
     assert document.numero == NUMERO_BL_INVENTE
     assert document.type == "bl"
-    assert document.statut == "recu"
+    # `_ocr_avec_numero_bl` ne renvoie aucune `document_annotation` :
+    # `a_verifier` (annotation illisible, L3-D10).
+    assert document.statut == "a_verifier"
     assert document.ocr_brut == {
         "pages": [{"markdown": f"LIVRAISON N°{NUMERO_BL_INVENTE}"}]
     }
@@ -705,12 +714,15 @@ async def test_traiter_fichier_numero_bl_non_detecte_statut_a_verifier(
     assert match["statut"] == "a_verifier"
 
 
-async def test_traiter_fichier_ocr_en_echec_document_garde_recu_sans_numero(
+async def test_traiter_fichier_ocr_en_echec_document_a_verifier_sans_numero(
     sessions_test: async_sessionmaker[AsyncSession],
     db_session: AsyncSession,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """L3-D10 : un échec complet de l'appel OCR ne laisse plus le document
+    `recu` sans extraction — il part `a_verifier` avec le motif `ocr_echec`
+    (`enregistrer_echec_ocr`), la réponse « reçu » part quand même."""
     utilisateur = await _creer_utilisateur(db_session, telegram_user_id=9022)
     deposant = _deposant_depuis(utilisateur)
     messagerie = MessagerieFactice()
@@ -728,9 +740,10 @@ async def test_traiter_fichier_ocr_en_echec_document_garde_recu_sans_numero(
         )
 
     document = (await db_session.execute(select(Document))).scalar_one()
-    assert document.statut == "recu"
+    assert document.statut == "a_verifier"
     assert document.numero is None
     assert document.ocr_brut is None
+    assert document.motifs == [{"code": "ocr_echec", "champ": None, "detail": {}}]
     # Le dépôt est acquis quoi qu'il arrive : la réponse « reçu » part même
     # si l'OCR échoue complètement.
     assert messagerie.reponses == [
@@ -747,7 +760,7 @@ async def test_traiter_fichier_ocr_en_echec_document_garde_recu_sans_numero(
     assert len(messagerie.supervisions) == 1
     match = _parse_ligne_supervision(messagerie.supervisions[0][1])
     assert match["bl"] == "non détecté"
-    assert match["statut"] == "recu"
+    assert match["statut"] == "a_verifier"
 
 
 # --------------------------------------------------------------------------
@@ -755,6 +768,8 @@ async def test_traiter_fichier_ocr_en_echec_document_garde_recu_sans_numero(
 # remonter d'exception jusqu'à `traiter_fichier` (la réponse « reçu » doit
 # toujours partir). Les trois formes constatées par le relecteur : liste au
 # lieu d'un objet, objet sans `pages`, `pages` présent mais pas une liste.
+# L3-D10 : traitée comme un échec d'OCR, le document part `a_verifier` avec
+# le motif `ocr_echec` (au lieu de rester `recu` sans extraction).
 # --------------------------------------------------------------------------
 
 
@@ -763,7 +778,7 @@ async def test_traiter_fichier_ocr_en_echec_document_garde_recu_sans_numero(
     [_ocr_reponse_liste, _ocr_reponse_sans_pages, _ocr_reponse_pages_non_liste],
     ids=["reponse-liste", "objet-sans-pages", "pages-non-liste"],
 )
-async def test_traiter_fichier_reponse_ocr_malformee_document_garde_recu(
+async def test_traiter_fichier_reponse_ocr_malformee_document_a_verifier(
     sessions_test: async_sessionmaker[AsyncSession],
     db_session: AsyncSession,
     tmp_path: Path,
@@ -787,9 +802,10 @@ async def test_traiter_fichier_reponse_ocr_malformee_document_garde_recu(
         )
 
     document = (await db_session.execute(select(Document))).scalar_one()
-    assert document.statut == "recu"
+    assert document.statut == "a_verifier"
     assert document.numero is None
     assert document.ocr_brut is None
+    assert document.motifs == [{"code": "ocr_echec", "champ": None, "detail": {}}]
     # Le dépôt est acquis quoi qu'il arrive, y compris pour une réponse OCR
     # mal formée : la réponse « reçu » part quand même.
     assert messagerie.reponses == [
@@ -800,6 +816,51 @@ async def test_traiter_fichier_reponse_ocr_malformee_document_garde_recu(
             _boutons_confirmation(document.numero_interne),
         )
     ]
+    assert str(entrant.update_id) in caplog.text
+    assert "contenu-invente-du-fichier" not in caplog.text
+
+
+async def test_traiter_fichier_extraction_bl_leve_document_a_verifier_ocr_echec(
+    monkeypatch: pytest.MonkeyPatch,
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Décision du contrôleur (Ruling R5) : une exception inattendue
+    d'`enregistrer_extraction_bl` (donnée OCR corrompue imprévue) ne doit
+    jamais laisser le document `recu` sans extraction — `enregistrer_echec_ocr`
+    est appelé dans une session neuve, le document part `a_verifier` avec le
+    motif `ocr_echec`."""
+
+    async def _extraction_qui_leve(
+        session: AsyncSession, document_id: uuid.UUID, reponse: dict[str, Any], **_: Any
+    ) -> Any:
+        raise RuntimeError("donnée OCR corrompue imprévue (factice)")
+
+    monkeypatch.setattr(
+        ingest_depot_telegram, "enregistrer_extraction_bl", _extraction_qui_leve
+    )
+
+    utilisateur = await _creer_utilisateur(db_session, telegram_user_id=9031)
+    deposant = _deposant_depuis(utilisateur)
+    messagerie = MessagerieFactice()
+    entrant = _entrant(update_id=31)
+
+    with caplog.at_level(logging.ERROR, logger="app.modules.ingest.service"):
+        await traiter_fichier(
+            entrant,
+            messagerie,
+            sessions_test,
+            tmp_path,
+            _ocr_avec_numero_bl,
+            deposant,
+            CHAT_SUPERVISION_INVENTE,
+        )
+
+    document = (await db_session.execute(select(Document))).scalar_one()
+    assert document.statut == "a_verifier"
+    assert document.motifs == [{"code": "ocr_echec", "champ": None, "detail": {}}]
     assert str(entrant.update_id) in caplog.text
     assert "contenu-invente-du-fichier" not in caplog.text
 
