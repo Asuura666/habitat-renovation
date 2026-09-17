@@ -73,12 +73,22 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.modules.extract.facture import Facture
+from app.modules.extract.facture import BlocBL, Facture, FactureIllisible
 from app.modules.extract.ocr import detecter_numero_bl, texte_ocr
 from app.modules.extract.unikalo import analyser_facture_unikalo
-from app.modules.ingest.models import Document, Journal, TelegramUpdate, Utilisateur
+from app.modules.ingest.mistral import ErreurOCR
+from app.modules.ingest.models import (
+    BlocFacture,
+    Document,
+    Fournisseur,
+    Journal,
+    Ligne,
+    TelegramUpdate,
+    Utilisateur,
+)
 from app.modules.messaging.base import (
     PREFIXE_ECART_CONSTATE,
     PREFIXE_QUANTITES_VERIFIEES,
@@ -691,6 +701,23 @@ async def traiter_clic(
 # --------------------------------------------------------------------------
 
 
+async def _lire_facture_ocr(
+    contenu_pdf: bytes,
+    ocr: Callable[[bytes, str], Awaitable[dict[str, Any]]],
+) -> tuple[dict[str, Any], Facture]:
+    """Appelle l'OCR injecté sur `contenu_pdf` puis `analyser_facture_unikalo`
+    sur sa réponse : aide interne partagée par `lire_facture` (T7, CLI
+    `bl-non-recus`) et `deposer_facture` (L2-T4, décision du contrôleur), qui
+    a en plus besoin de la réponse OCR brute pour `document.ocr_brut` — la
+    signature publique de `lire_facture` ne change pas, elle jette juste la
+    réponse brute. Ni `ErreurOCR` ni `FactureIllisible` ne sont interceptées
+    ici : c'est à chaque appelant de décider quoi en faire (la CLI les
+    propage telles quelles ; `deposer_facture` les traduit en erreurs
+    typées HTTP)."""
+    reponse = await ocr(contenu_pdf, "application/pdf")
+    return reponse, analyser_facture_unikalo(reponse)
+
+
 async def lire_facture(
     contenu_pdf: bytes,
     ocr: Callable[[bytes, str], Awaitable[dict[str, Any]]],
@@ -703,8 +730,8 @@ async def lire_facture(
     interceptée ici : c'est à l'appelant (la CLI) de décider du code de
     sortie et du message.
     """
-    reponse = await ocr(contenu_pdf, "application/pdf")
-    return analyser_facture_unikalo(reponse)
+    _reponse, facture = await _lire_facture_ocr(contenu_pdf, ocr)
+    return facture
 
 
 @dataclass(frozen=True)
@@ -801,3 +828,239 @@ def formater_blocs(blocs: list[BlocReception]) -> str:
     lignes.append(f"{len(blocs)} blocs — {recus} reçus — {non_recus} non reçus")
 
     return "\n".join(lignes)
+
+
+# --------------------------------------------------------------------------
+# `deposer_facture` (L2-T4) : dépôt d'une facture PDF Unikalo via
+# `POST /api/factures` (traité dans la requête, synchrone, L2-D11).
+#
+# Décisions du contrôleur :
+# - Ordre : signature `%PDF-` (sinon `FichierInvalide`) -> OCR injecté
+#   (`ErreurOCR` -> `LectureImpossible`) -> `analyser_facture_unikalo`
+#   (`FactureIllisible` -> `FormatNonPrisEnCharge`) -> fournisseur
+#   « Unikalo » get-or-create (normalisation SIRET/TVA réservée au lot 3,
+#   un seul fournisseur nommé exactement « Unikalo » fait foi pour
+#   l'instant) -> doublon `(fournisseur_id, numero)` parmi les documents de
+#   type `facture` (`FactureEnDouble(original_id)`) -> écriture atomique du
+#   fichier (`<uuid>.pdf`, réutilise `_ecrire_atomique`/`_supprimer_si_existe`
+#   ci-dessus) -> insertions (`document`, `bloc_facture`, `ligne`, `journal`)
+#   dans une seule transaction.
+# - En cas d'échec d'insertion (y compris une `IntegrityError` d'unicité :
+#   course entre deux dépôts concurrents du même fournisseur/numéro, la
+#   vérification applicative ci-dessus n'étant pas atomique), le fichier
+#   déjà écrit est supprimé et la transaction est annulée. Une
+#   `IntegrityError` est retraduite en `FactureEnDouble` (409 aussi) en
+#   requêtant à nouveau l'original après le `rollback`.
+# - `commentaire` d'un `bloc_facture` : lignes `COMMENTAIRE` du bloc jointes
+#   par `\n`, `NULL` s'il n'y en a aucune.
+# - `ligne` : mapping direct des champs de `LigneFacture` (designation ->
+#   `article_brut`, code_article -> `code_brut`, unite -> `unite_brut`,
+#   `type_ligne.value`, `ordre` inchangé).
+# --------------------------------------------------------------------------
+
+_SIGNATURE_PDF = b"%PDF-"
+_NOM_FOURNISSEUR_UNIKALO = "Unikalo"
+
+
+class FichierInvalide(Exception):
+    """Le contenu envoyé n'a pas la signature d'un PDF (`%PDF-`)."""
+
+
+class LectureImpossible(Exception):
+    """Échec de l'appel OCR pour lire la facture (`ErreurOCR`)."""
+
+
+class FormatNonPrisEnCharge(Exception):
+    """La réponse OCR n'a pas la structure d'une facture Unikalo reconnue
+    (`FactureIllisible`)."""
+
+
+class FactureEnDouble(Exception):
+    """Une facture du même fournisseur avec le même numéro est déjà déposée."""
+
+    def __init__(self, original_id: uuid.UUID) -> None:
+        super().__init__("facture déjà déposée")
+        self.original_id = original_id
+
+
+@dataclass(frozen=True)
+class FactureDeposee:
+    """Résultat d'un dépôt réussi, tout ce dont le routeur a besoin pour sa
+    réponse 201 (`{"id", "numero", "nb_blocs"}`)."""
+
+    id: uuid.UUID
+    numero: str
+    nb_blocs: int
+
+
+async def _fournisseur_unikalo(session: AsyncSession) -> Fournisseur:
+    """Fournisseur « Unikalo », créé s'il n'existe pas encore (décision du
+    contrôleur : la normalisation SIRET/TVA n'arrive qu'au lot 3, un seul
+    fournisseur nommé exactement « Unikalo » fait foi pour l'instant)."""
+    resultat = await session.execute(
+        select(Fournisseur).where(Fournisseur.nom == _NOM_FOURNISSEUR_UNIKALO)
+    )
+    fournisseur = resultat.scalar_one_or_none()
+    if fournisseur is not None:
+        return fournisseur
+    fournisseur = Fournisseur(nom=_NOM_FOURNISSEUR_UNIKALO)
+    session.add(fournisseur)
+    await session.flush()
+    return fournisseur
+
+
+async def _facture_en_double(
+    session: AsyncSession, fournisseur_id: uuid.UUID, numero: str
+) -> uuid.UUID | None:
+    """`id` du document `facture` existant pour ce fournisseur et ce numéro,
+    `None` si aucun. Un seul point de vérité, réutilisé aussi pour retrouver
+    l'original après une `IntegrityError` d'unicité (course entre deux
+    dépôts)."""
+    resultat = await session.execute(
+        select(Document.id).where(
+            Document.type == "facture",
+            Document.fournisseur_id == fournisseur_id,
+            Document.numero == numero,
+        )
+    )
+    return resultat.scalar_one_or_none()
+
+
+def _commentaire_bloc(bloc: BlocBL) -> str | None:
+    commentaires = bloc.commentaires
+    return "\n".join(commentaires) if commentaires else None
+
+
+async def deposer_facture(
+    session: AsyncSession,
+    contenu: bytes,
+    deposant: Deposant,
+    docs_dir: Path,
+    ocr: Callable[[bytes, str], Awaitable[dict[str, Any]]],
+) -> FactureDeposee:
+    """Dépose une facture PDF Unikalo : lecture, fournisseur, doublon,
+    stockage et insertions dans une seule transaction (L2-T4).
+
+    Lève `FichierInvalide` (pas un PDF), `LectureImpossible` (échec de
+    l'OCR), `FormatNonPrisEnCharge` (facture non reconnue comme Unikalo) ou
+    `FactureEnDouble(original_id)` (même fournisseur, même numéro, déjà
+    déposé) — le routeur (`app/modules/api/factures.py`) traduit chacune en
+    code HTTP. Aucun fichier n'est stocké et rien n'est inséré en base tant
+    que la facture n'est pas entièrement lue et validée.
+    """
+    if contenu[: len(_SIGNATURE_PDF)] != _SIGNATURE_PDF:
+        raise FichierInvalide("Le fichier n'est pas un PDF.")
+
+    try:
+        reponse_ocr, facture = await _lire_facture_ocr(contenu, ocr)
+    except ErreurOCR as exc:
+        raise LectureImpossible("Lecture de la facture impossible, réessayez.") from exc
+    except FactureIllisible as exc:
+        raise FormatNonPrisEnCharge(
+            "Format de facture non pris en charge "
+            "(seules les factures Unikalo sont reconnues)."
+        ) from exc
+
+    fournisseur = await _fournisseur_unikalo(session)
+    # Capturé tout de suite : un `rollback()` plus bas expirerait cet objet
+    # (inconditionnellement, indépendamment d'`expire_on_commit`) — relire
+    # `fournisseur.id` après coup lèverait `MissingGreenlet` (accès implicite
+    # hors contexte async). Même prudence que `traiter_fichier` ci-dessus
+    # pour `document.id`/`numero_interne`, capturés avant tout risque de
+    # rollback.
+    fournisseur_id = fournisseur.id
+
+    original_id = await _facture_en_double(session, fournisseur_id, facture.numero)
+    if original_id is not None:
+        raise FactureEnDouble(original_id)
+
+    identifiant = uuid.uuid4()
+    chemin_final = (docs_dir / f"{identifiant}.pdf").absolute()
+    chemin_temporaire = (docs_dir / f"{identifiant}.pdf.tmp").absolute()
+    await asyncio.to_thread(
+        _ecrire_atomique, docs_dir, chemin_temporaire, chemin_final, contenu
+    )
+
+    try:
+        document = Document(
+            type="facture",
+            source="upload",
+            statut="recu",
+            fichier_path=str(chemin_final),
+            fournisseur_id=fournisseur_id,
+            numero=facture.numero,
+            date_doc=facture.date_facture,
+            total_ht=facture.total_ht,
+            deposant_id=deposant.id,
+            ocr_brut=reponse_ocr,
+        )
+        session.add(document)
+        await session.flush()
+        document_id = document.id
+
+        for bloc in facture.blocs:
+            bloc_facture = BlocFacture(
+                facture_id=document_id,
+                numero_bl=bloc.numero_bl,
+                date_bl=bloc.date_bl,
+                numero_commande=bloc.numero_commande,
+                chantier_brut=bloc.chantier_brut,
+                commentaire=_commentaire_bloc(bloc),
+            )
+            session.add(bloc_facture)
+            await session.flush()
+            bloc_id = bloc_facture.id
+
+            for ligne in bloc.lignes:
+                session.add(
+                    Ligne(
+                        document_id=document_id,
+                        bloc_id=bloc_id,
+                        article_brut=ligne.designation,
+                        code_brut=ligne.code_article,
+                        unite_brut=ligne.unite,
+                        qte_livree=ligne.qte_livree,
+                        qte_totale=ligne.qte_totale,
+                        pu_ht=ligne.pu_ht,
+                        pu_cdt=ligne.pu_cdt,
+                        remise_pct=ligne.remise_pct,
+                        montant_ht=ligne.montant_ht,
+                        tva=ligne.tva,
+                        type_ligne=ligne.type_ligne.value,
+                        ordre=ligne.ordre,
+                    )
+                )
+
+        session.add(
+            Journal(
+                utilisateur_id=deposant.id,
+                action="facture_deposee",
+                cible_table="document",
+                cible_id=str(document_id),
+                avant=None,
+                apres={
+                    "numero": facture.numero,
+                    "fournisseur_id": str(fournisseur_id),
+                    "total_ht": str(facture.total_ht),
+                    "nb_blocs": len(facture.blocs),
+                },
+            )
+        )
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        await asyncio.to_thread(_supprimer_si_existe, chemin_final)
+        original_id_apres_course = await _facture_en_double(
+            session, fournisseur_id, facture.numero
+        )
+        if original_id_apres_course is None:
+            raise
+        raise FactureEnDouble(original_id_apres_course) from None
+    except Exception:
+        await session.rollback()
+        await asyncio.to_thread(_supprimer_si_existe, chemin_final)
+        raise
+
+    return FactureDeposee(
+        id=document_id, numero=facture.numero, nb_blocs=len(facture.blocs)
+    )

@@ -54,12 +54,25 @@ def _document(contenu: bytes, mime: str) -> dict[str, Any]:
 
 
 async def ocr_document(
-    http: httpx.AsyncClient, cle_api: str, contenu: bytes, mime: str
+    http: httpx.AsyncClient,
+    cle_api: str,
+    contenu: bytes,
+    mime: str,
+    *,
+    delai: httpx.Timeout | None = None,
 ) -> dict[str, Any]:
     """Envoie `contenu` (image ou PDF) à l'API Mistral OCR et renvoie sa
     réponse JSON brute (`{"pages": [...], ...}`), lue ensuite par
     `extract.ocr.texte_ocr` / `extract.ocr.detecter_numero_bl` ou par
     `extract.unikalo.analyser_facture_unikalo`.
+
+    `delai` (L2-T4) remplace le délai par défaut (60 s) quand fourni — utilisé
+    pour le dépôt d'une facture (délai porté à 90 s,
+    `ingest/router.py::get_ocr_facture`), sans changer le comportement
+    existant pour une photo de BL (`get_ocr`, délai par défaut inchangé).
+    Nommé `delai` et non `timeout` (ASYNC109) : un paramètre `timeout` sur
+    une fonction `async` est un faux positif ici (c'est un réglage passé à
+    `httpx`, pas un contrôle d'annulation façon `asyncio.timeout`).
 
     Lève `ErreurOCR` si l'appel échoue (connexion, timeout, statut HTTP en
     échec), si le corps de la réponse n'est pas du JSON valide, ou si ce
@@ -78,7 +91,7 @@ async def ocr_document(
                 "table_format": "markdown",
                 "include_image_base64": False,
             },
-            timeout=_TIMEOUT_OCR,
+            timeout=delai if delai is not None else _TIMEOUT_OCR,
         )
         reponse.raise_for_status()
     except httpx.HTTPError:

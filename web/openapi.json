@@ -139,6 +139,44 @@
     }
    }
   },
+  "/api/factures": {
+   "post": {
+    "summary": "Deposer Facture Pdf",
+    "operationId": "deposer_facture_pdf_api_factures_post",
+    "requestBody": {
+     "content": {
+      "multipart/form-data": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_deposer_facture_pdf_api_factures_post"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FactureDeposeeReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/health": {
    "get": {
     "summary": "Health",
@@ -159,6 +197,20 @@
  },
  "components": {
   "schemas": {
+   "Body_deposer_facture_pdf_api_factures_post": {
+    "properties": {
+     "fichier": {
+      "type": "string",
+      "contentMediaType": "application/octet-stream",
+      "title": "Fichier"
+     }
+    },
+    "type": "object",
+    "required": [
+     "fichier"
+    ],
+    "title": "Body_deposer_facture_pdf_api_factures_post"
+   },
    "Body_se_connecter_api_auth_login_post": {
     "properties": {
      "grant_type": {
@@ -217,6 +269,30 @@
      "password"
     ],
     "title": "Body_se_connecter_api_auth_login_post"
+   },
+   "FactureDeposeeReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "numero": {
+      "type": "string",
+      "title": "Numero"
+     },
+     "nb_blocs": {
+      "type": "integer",
+      "title": "Nb Blocs"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "numero",
+     "nb_blocs"
+    ],
+    "title": "FactureDeposeeReponse"
    },
    "HTTPValidationError": {
     "properties": {

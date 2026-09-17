@@ -84,6 +84,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/factures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deposer Facture Pdf */
+        post: operations["deposer_facture_pdf_api_factures_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -109,6 +126,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** Body_deposer_facture_pdf_api_factures_post */
+        Body_deposer_facture_pdf_api_factures_post: {
+            /** Fichier */
+            fichier: string;
+        };
         /** Body_se_connecter_api_auth_login_post */
         Body_se_connecter_api_auth_login_post: {
             /** Grant Type */
@@ -132,6 +154,18 @@ export interface components {
              * Format: password
              */
             client_secret?: string | null;
+        };
+        /** FactureDeposeeReponse */
+        FactureDeposeeReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Numero */
+            numero: string;
+            /** Nb Blocs */
+            nb_blocs: number;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -282,6 +316,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MoiReponse"];
+                };
+            };
+        };
+    };
+    deposer_facture_pdf_api_factures_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_deposer_facture_pdf_api_factures_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactureDeposeeReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -97,6 +97,50 @@ async def test_ocr_document_corps_200_non_json_leve_erreur_ocr() -> None:
     assert CLE_INVENTEE not in str(exc_info.value)
 
 
+async def test_ocr_document_delai_personnalise_remplace_le_delai_par_defaut() -> None:
+    """L2-T4 : `delai` optionnel, utilisé par `get_ocr_facture` (délai de
+    90 s pour une facture) sans changer le comportement par défaut (photos,
+    `get_ocr`, délai omis)."""
+    delais_recus: list[httpx.Timeout | float | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"pages": []})
+
+    class _ClientEspion(httpx.AsyncClient):
+        async def post(self, *args: object, **kwargs: object) -> httpx.Response:
+            delais_recus.append(kwargs.get("timeout"))  # type: ignore[arg-type]
+            return await super().post(*args, **kwargs)  # type: ignore[arg-type]
+
+    delai_facture = httpx.Timeout(90.0)
+    async with _ClientEspion(transport=httpx.MockTransport(handler)) as http:
+        await ocr_document(
+            http,
+            CLE_INVENTEE,
+            CONTENU_INVENTE,
+            "application/pdf",
+            delai=delai_facture,
+        )
+
+    assert delais_recus == [delai_facture]
+
+
+async def test_ocr_document_sans_delai_utilise_le_delai_par_defaut() -> None:
+    delais_recus: list[httpx.Timeout | float | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"pages": []})
+
+    class _ClientEspion(httpx.AsyncClient):
+        async def post(self, *args: object, **kwargs: object) -> httpx.Response:
+            delais_recus.append(kwargs.get("timeout"))  # type: ignore[arg-type]
+            return await super().post(*args, **kwargs)  # type: ignore[arg-type]
+
+    async with _ClientEspion(transport=httpx.MockTransport(handler)) as http:
+        await ocr_document(http, CLE_INVENTEE, CONTENU_INVENTE, "image/jpeg")
+
+    assert delais_recus == [httpx.Timeout(60.0)]
+
+
 async def test_ocr_document_corps_200_json_non_objet_leve_erreur_ocr() -> None:
     """Correction tour 1/5 : une réponse 200 dont le JSON n'est pas un objet
     (ex. une liste) doit lever `ErreurOCR`, jamais être renvoyée telle
