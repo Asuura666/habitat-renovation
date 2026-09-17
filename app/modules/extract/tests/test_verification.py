@@ -21,6 +21,7 @@ from typing import Any
 import pytest
 
 from app.modules.extract.bl import (
+    AnnotationIllisible,
     BLExtrait,
     DateLue,
     LigneBL,
@@ -55,18 +56,24 @@ _DONNEES = Path(__file__).parent / "donnees"
 
 def _bl_valide(**overrides: Any) -> BLAVerifier:
     """`BLAVerifier` sans aucun motif attendu de `verifier_bl` (seuil et
-    tolérance par défaut) : tous les champs obligatoires présents, aucune
-    ligne, `total_ht` absent (donc pas de `TOTAL_ABSENT`, aucune ligne
-    n'ayant de montant), confiances toutes au-dessus du seuil, numéro
-    détecté identique au numéro lu. Chaque test override seulement ce qui
-    l'intéresse."""
+    tolérance par défaut) : tous les champs obligatoires présents, une ligne
+    dont le montant égale `total_ht` (L3-D25 : depuis L3-T6b, `total_ht`
+    absent ou aucune ligne déclenchent toujours un motif, la ligne par
+    défaut évite de contaminer les tests qui ne s'intéressent pas à
+    `TOTAL_ABSENT`/`LIGNES_ABSENTES`), confiances toutes au-dessus du seuil,
+    numéro détecté identique au numéro lu. Chaque test override seulement ce
+    qui l'intéresse."""
     base: dict[str, Any] = {
         "fournisseur": "FOURNISSEUR INVENTE",
         "numero": "BL0001",
         "date_doc": date(2026, 1, 15),
         "chantier_brut": "CHANTIER INVENTE",
-        "total_ht": None,
-        "lignes": (),
+        "total_ht": Decimal("10.00"),
+        "lignes": (
+            LigneAVerifier(
+                ordre=0, montant_ht=Decimal("10.00"), confiance=Decimal("0.95")
+            ),
+        ),
         "confiances": {
             "fournisseur": Decimal("0.95"),
             "numero": Decimal("0.95"),
@@ -398,7 +405,9 @@ def test_ligne_sans_montant_ignoree_dans_la_somme() -> None:
 
 
 # --------------------------------------------------------------------------
-# TOTAL_ABSENT
+# TOTAL_ABSENT (L3-D25, constat 11 : toujours posé si `total_ht` est absent
+# et lisible, qu'il y ait ou non des lignes/montants — un document mal cadré
+# ne doit jamais paraître silencieusement cohérent).
 # --------------------------------------------------------------------------
 
 
@@ -416,19 +425,66 @@ def test_total_absent_declenche_si_une_ligne_a_un_montant() -> None:
     )
 
 
-def test_total_absent_ne_declenche_pas_sans_aucune_ligne() -> None:
+def test_total_absent_declenche_meme_sans_aucune_ligne() -> None:
+    """L3-D25 : plus de condition « au moins une ligne a un montant » — un
+    total absent part toujours `TOTAL_ABSENT` (sauf s'il est illisible)."""
     motifs = _verifier(_bl_valide(lignes=(), total_ht=None))
 
-    assert CodeMotif.TOTAL_ABSENT not in _codes(motifs)
+    assert (
+        Motif(code=CodeMotif.TOTAL_ABSENT, champ="total_ht", detail={"somme": "0"})
+        in motifs
+    )
 
 
-def test_total_absent_ne_declenche_pas_si_aucune_ligne_n_a_de_montant() -> None:
+def test_total_absent_declenche_meme_si_aucune_ligne_n_a_de_montant() -> None:
     ligne = LigneAVerifier(ordre=0, montant_ht=None, confiance=Decimal("0.95"))
     bl = _bl_valide(lignes=(ligne,), total_ht=None)
 
     motifs = _verifier(bl)
 
+    assert CodeMotif.TOTAL_ABSENT in _codes(motifs)
+
+
+def test_total_absent_ne_declenche_pas_si_total_present() -> None:
+    ligne = LigneAVerifier(
+        ordre=0, montant_ht=Decimal("10.00"), confiance=Decimal("0.95")
+    )
+    motifs = _verifier(_bl_valide(lignes=(ligne,), total_ht=Decimal("10.00")))
+
     assert CodeMotif.TOTAL_ABSENT not in _codes(motifs)
+
+
+def test_total_absent_ne_declenche_pas_si_illisible() -> None:
+    """`VALEUR_ILLISIBLE` couvre déjà ce cas (règle 1) : pas de doublon."""
+    bl = _bl_valide(total_ht=None, illisibles=frozenset({"total_ht"}))
+
+    motifs = _verifier(bl)
+
+    assert CodeMotif.TOTAL_ABSENT not in _codes(motifs)
+
+
+# --------------------------------------------------------------------------
+# LIGNES_ABSENTES (L3-D25, constat 11 : la photo mal cadrée n'a produit ni
+# tableau ni ligne — posé indépendamment de TOTAL_ABSENT/SOMME_INCOHERENTE).
+# --------------------------------------------------------------------------
+
+
+def test_lignes_absentes_declenche_sans_aucune_ligne() -> None:
+    motifs = _verifier(_bl_valide(lignes=(), total_ht=None))
+
+    assert (
+        Motif(code=CodeMotif.LIGNES_ABSENTES, champ="lignes", detail={"nb_lignes": "0"})
+        in motifs
+    )
+
+
+def test_lignes_absentes_ne_declenche_pas_si_une_ligne_existe() -> None:
+    ligne = LigneAVerifier(
+        ordre=0, montant_ht=Decimal("10.00"), confiance=Decimal("0.95")
+    )
+    motifs = _verifier(_bl_valide(lignes=(ligne,), total_ht=Decimal("10.00")))
+
+    assert CodeMotif.LIGNES_ABSENTES not in _codes(motifs)
 
 
 # --------------------------------------------------------------------------
@@ -566,6 +622,9 @@ def test_bl_a_verifier_confiance_ligne_minimum_des_trois_champs() -> None:
         ordre=0,
         code=_texte("AB1234", Decimal("0.9")),
         designation=_texte("DESIGNATION", Decimal("0.1")),  # ignorée
+        quantite_conditionnements=NombreLu(
+            brut="4", valeur=Decimal("4"), confiance=Decimal("0.05")
+        ),  # ignorée (L3-D24/L3-T6b : n'entre pas dans la confiance de ligne)
         quantite=NombreLu(brut="4", valeur=Decimal("4"), confiance=Decimal("0.5")),
         unite=_texte("U", Decimal("0.1")),  # ignorée
         pu_ht=NombreLu(
@@ -585,6 +644,7 @@ def test_bl_a_verifier_confiance_ligne_none_si_les_trois_sont_nulles() -> None:
         ordre=0,
         code=_texte("AB1234", None),
         designation=_texte("DESIGNATION", None),
+        quantite_conditionnements=NombreLu(brut=None, valeur=None, confiance=None),
         quantite=NombreLu(brut="4", valeur=Decimal("4"), confiance=None),
         unite=_texte("U", None),
         pu_ht=NombreLu(brut="10", valeur=Decimal("10"), confiance=None),
@@ -767,3 +827,43 @@ def test_verifier_facture_fixture_reelle_sans_motif() -> None:
     # On ne compare qu'un booléen, avec un message fixe sans valeur.
     sans_motif = len(verifier_facture(facture, tolerance=TOLERANCE_TOTAL_DEFAUT)) == 0
     assert sans_motif, "la facture réelle ne doit produire aucun motif"
+
+
+# --------------------------------------------------------------------------
+# Fixtures réelles de BL (L3-T6b, constat 11, décision du contrôleur) :
+# `tests/fixtures/bl/*.mistral-ocr.json`, produites avec l'ancien schéma
+# d'annotation (avant `quantite_conditionnements`) — la mesure du taux
+# d'erreur se fait avec L3-T11 (`rapport-ocr`). Ici on vérifie seulement que
+# `analyser_bl` puis `verifier_bl` ne lèvent jamais sur ces réponses réelles,
+# jamais une valeur (Ruling R7 : booléen affirmé avec un message fixe).
+# --------------------------------------------------------------------------
+
+_DOSSIER_BL_REEL = Path(__file__).resolve().parents[4] / "tests" / "fixtures" / "bl"
+
+
+def test_bl_a_verifier_fixtures_reelles_sans_lever() -> None:
+    fichiers = (
+        sorted(_DOSSIER_BL_REEL.glob("*.mistral-ocr.json"))
+        if _DOSSIER_BL_REEL.exists()
+        else []
+    )
+    if not fichiers:
+        pytest.skip(
+            "fixtures réelles absentes dans cet arbre de travail "
+            "(tests/fixtures/ ignoré par git)"
+        )
+
+    ok = True
+    for fichier in fichiers:
+        reponse: dict[str, Any] = json.loads(fichier.read_text(encoding="utf-8"))
+        try:
+            verifier_bl(
+                bl_a_verifier(analyser_bl(reponse)),
+                seuil_confiance=SEUIL_CONFIANCE_DEFAUT,
+                tolerance=TOLERANCE_TOTAL_DEFAUT,
+            )
+        except AnnotationIllisible:
+            pass
+        except Exception:
+            ok = False
+    assert ok, "l'analyse d'une réponse OCR réelle ne doit pas lever"

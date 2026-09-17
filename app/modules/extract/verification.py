@@ -43,6 +43,7 @@ class CodeMotif(StrEnum):
     CONFIANCE_FAIBLE = "confiance_faible"
     SOMME_INCOHERENTE = "somme_incoherente"
     TOTAL_ABSENT = "total_absent"
+    LIGNES_ABSENTES = "lignes_absentes"
     NUMERO_INCOHERENT = "numero_incoherent"
     OCR_ECHEC = "ocr_echec"  # posé par ingest
     ANNOTATION_ILLISIBLE = "annotation_illisible"  # posé par ingest
@@ -209,9 +210,10 @@ def verifier_bl(
     bl: BLAVerifier, *, seuil_confiance: Decimal, tolerance: Decimal
 ) -> tuple[Motif, ...]:
     """Motifs de mise « à vérifier » d'un BL, dans l'ordre de la fiche L3-T3
-    (règle 1 à 4). Aucune exception levée : une `BLAVerifier` incohérente
-    (construite à la main, par exemple en test) produit simplement les
-    motifs correspondants, jamais une erreur.
+    (règle 1 à 4, complétée L3-T6b d'une règle 3bis `LIGNES_ABSENTES`).
+    Aucune exception levée : une `BLAVerifier` incohérente (construite à la
+    main, par exemple en test) produit simplement les motifs correspondants,
+    jamais une erreur.
     """
     motifs: list[Motif] = []
 
@@ -255,14 +257,18 @@ def verifier_bl(
                     )
                 )
 
-    # 3. Réconciliation somme des lignes / total.
+    # 3. Réconciliation somme des lignes / total (L3-D25, constat 11 : un BL
+    # sans total lu part toujours « à vérifier », qu'il ait ou non des
+    # lignes chiffrées — un document mal cadré ne doit jamais produire un
+    # BLExtrait silencieusement cohérent). `total_ht` illisible est déjà
+    # signalé par VALEUR_ILLISIBLE (règle 1) : ne pas doubler avec
+    # TOTAL_ABSENT dans ce cas.
     somme = sum(
         (ligne.montant_ht for ligne in bl.lignes if ligne.montant_ht is not None),
         Decimal("0"),
     )
-    montant_present = any(ligne.montant_ht is not None for ligne in bl.lignes)
     if bl.total_ht is None:
-        if montant_present:
+        if "total_ht" not in bl.illisibles:
             motifs.append(
                 Motif(
                     code=CodeMotif.TOTAL_ABSENT,
@@ -285,6 +291,17 @@ def verifier_bl(
                     },
                 )
             )
+
+    # 3bis. Aucune ligne du tout (L3-D25, constat 11 : la photo mal cadrée
+    # n'a produit ni tableau ni ligne) — posé après les motifs de somme.
+    if not bl.lignes:
+        motifs.append(
+            Motif(
+                code=CodeMotif.LIGNES_ABSENTES,
+                champ="lignes",
+                detail={"nb_lignes": "0"},
+            )
+        )
 
     # 4. Numéro lu par l'annotation vs numéro détecté par le motif
     # déterministe existant (`ocr.detecter_numero_bl`).

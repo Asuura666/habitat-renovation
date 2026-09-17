@@ -15,6 +15,16 @@ def test_normaliser_unite_conditionnement_connu() -> None:
     )
 
 
+def test_normaliser_unite_bag_reconnu_comme_sac() -> None:
+    """L3-D26, constat 11 : Point.P imprime « BAG » (sac)."""
+    assert normaliser_unite("BAG") == Unite(
+        code="sac", nature=NatureUnite.CONDITIONNEMENT
+    )
+    assert normaliser_unite("bags") == Unite(
+        code="sac", nature=NatureUnite.CONDITIONNEMENT
+    )
+
+
 def test_normaliser_unite_metre_carre_symbole_exposant() -> None:
     assert normaliser_unite("M²") == Unite(code="m2", nature=NatureUnite.MESURE)
 

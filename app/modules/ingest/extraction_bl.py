@@ -28,6 +28,13 @@ Aucun fournisseur, aucune agence, aucun chantier n'est jamais créé
 automatiquement à partir du texte OCR (Q7/L3-D8, L3-D7) — seuls les articles
 le sont (L3-D9, non validés).
 
+Ajustements L3-T6b (constat 11, premier essai réel) : `Ligne.qte_livree` /
+`Ligne.qte_totale` reprennent respectivement `quantite_conditionnements` et
+`quantite` de la ligne extraite (L3-D24 — même sens que les colonnes QTÉ
+LIVRÉE / QTÉ TOTALE de la facture Unikalo, pour la comparaison du lot 4) ;
+une ligne d'éco-participation (`extract.bl.est_ligne_eco`) est typée `eco`
+et ne déclenche jamais de proposition d'article (L3-D26).
+
 Concurrence (fix round 1, finding 3) : deux dépôts du même numéro pour le
 même fournisseur, traités en même temps, peuvent tous les deux passer
 `_numero_interne_doublon` avant que l'un des deux commit — le second lève
@@ -56,6 +63,7 @@ from app.modules.extract.bl import (
     AnnotationIllisible,
     BLExtrait,
     analyser_bl,
+    est_ligne_eco,
     extraction_en_json,
     normaliser_numero_bl,
 )
@@ -410,22 +418,33 @@ async def _extraire_et_committer(
     document.statut = statut
 
     for ligne_extraite, ligne_vue in zip(extrait.lignes, vue.lignes, strict=True):
+        # L3-D26 : une ligne d'éco-participation/contribution n'est jamais
+        # proposée comme article (elle n'a pas de code article à valider).
+        type_ligne = (
+            "eco" if est_ligne_eco(ligne_extraite.designation.brut) else "article"
+        )
         article_id: uuid.UUID | None = None
-        if fournisseur_id is not None:
+        if fournisseur_id is not None and type_ligne != "eco":
             proposition = proposer_article_bl(
                 ligne_extraite.code.brut,
                 ligne_extraite.designation.brut,
                 ligne_extraite.unite.brut,
+                qte_conditionnements=ligne_extraite.quantite_conditionnements.valeur,
+                qte_facturee=ligne_extraite.quantite.valeur,
             )
             article_id = await rattacher_article(session, fournisseur_id, proposition)
         session.add(
             Ligne(
                 document_id=document_id,
-                type_ligne="article",
+                type_ligne=type_ligne,
                 code_brut=ligne_extraite.code.brut,
                 article_brut=ligne_extraite.designation.brut,
                 article_id=article_id,
-                qte_livree=ligne_extraite.quantite.valeur,
+                # L3-D24 : même sens que les colonnes QTÉ LIVRÉE (nombre de
+                # conditionnements) / QTÉ TOTALE (quantité facturée) de la
+                # facture Unikalo.
+                qte_livree=ligne_extraite.quantite_conditionnements.valeur,
+                qte_totale=ligne_extraite.quantite.valeur,
                 unite_brut=ligne_extraite.unite.brut,
                 pu_ht=ligne_extraite.pu_ht.valeur,
                 montant_ht=ligne_extraite.montant_ht.valeur,

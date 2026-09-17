@@ -121,6 +121,47 @@ def test_proposer_article_bl_code_absent_renvoie_none() -> None:
     assert proposer_article_bl(code=None, designation="x", unite_brut="KG") is None
 
 
+def test_proposer_article_bl_ratio_propose_si_deux_quantites_differentes() -> None:
+    """L3-D24, constat 11 : un BL qui imprime les deux quantités (ex. 4
+    seaux pour 100 kg) propose lui aussi un ratio, comme une facture."""
+    proposition = proposer_article_bl(
+        code="AB1234",
+        designation="Seau exemple",
+        unite_brut="SEAU",
+        qte_conditionnements=Decimal("4"),
+        qte_facturee=Decimal("100"),
+    )
+    assert proposition == PropositionArticle(
+        code="AB1234",
+        libelle="Seau exemple",
+        unite_cdt="seau",
+        unite_fact=None,
+        ratio=Decimal("25"),
+    )
+
+
+def test_proposer_article_bl_sans_ratio_si_quantites_egales() -> None:
+    proposition = proposer_article_bl(
+        code="AB1234",
+        designation="Seau exemple",
+        unite_brut="SEAU",
+        qte_conditionnements=Decimal("10"),
+        qte_facturee=Decimal("10"),
+    )
+    assert proposition is not None
+    assert proposition.ratio is None
+
+
+def test_proposer_article_bl_sans_ratio_si_quantites_absentes() -> None:
+    """Compatibilité : les appelants existants n'ont pas à passer les deux
+    nouveaux paramètres (nommés, défaut `None`)."""
+    proposition = proposer_article_bl(
+        code="AB1234", designation="Seau exemple", unite_brut="SEAU"
+    )
+    assert proposition is not None
+    assert proposition.ratio is None
+
+
 # --------------------------------------------------------------------------
 # completer_article
 # --------------------------------------------------------------------------

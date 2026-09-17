@@ -31,6 +31,7 @@ from app.modules.extract.bl import (
     TexteLu,
     analyser_bl,
     date_bl,
+    est_ligne_eco,
     extraction_en_json,
     nombre_bl,
     normaliser_numero_bl,
@@ -143,15 +144,24 @@ def test_analyser_bl_bl_synthetique_confiances_entete_non_nulles() -> None:
 
 
 def test_analyser_bl_bl_synthetique_confiances_lignes_non_nulles() -> None:
+    """`bl_synthetique.mistral-ocr.json` (L3-T1) a été produite avant
+    `quantite_conditionnements` (L3-T6b) : ce champ y est toujours absent
+    (une seule quantité imprimée par ligne, comme Point.P), donc toujours de
+    confiance `None` — exclu de cette assertion, couvert séparément par
+    `test_analyser_bl_quantite_conditionnements_distincte_de_quantite`."""
     extrait = analyser_bl(_charger_reponse())
 
+    champs_avec_confiance = [
+        c for c in CHAMPS_LIGNE_BL if c != "quantite_conditionnements"
+    ]
     for ligne in extrait.lignes:
-        for nom in CHAMPS_LIGNE_BL:
+        for nom in champs_avec_confiance:
             confiance = getattr(ligne, nom).confiance
             assert confiance is not None and confiance > Decimal("0"), (
                 ligne.code.brut,
                 nom,
             )
+        assert ligne.quantite_conditionnements.confiance is None
 
 
 # --------------------------------------------------------------------------
@@ -393,6 +403,52 @@ def test_date_bl_valeurs_invalides(brut: str | None) -> None:
 
 
 # --------------------------------------------------------------------------
+# date_bl — en toutes lettres (L3-D26, constat 11)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("brut", "attendu"),
+    [
+        ("27 septembre 2026", date(2026, 9, 27)),
+        ("27 SEPTEMBRE 2026", date(2026, 9, 27)),
+        ("27 sept 2026", date(2026, 9, 27)),
+        ("27 sept. 2026", date(2026, 9, 27)),
+        ("1er janvier 2026", date(2026, 1, 1)),
+        ("1 janvier 2026", date(2026, 1, 1)),
+        ("Du 27 septembre 2026", date(2026, 9, 27)),
+        ("le 27 septembre 2026", date(2026, 9, 27)),
+        ("27 août 2026", date(2026, 8, 27)),
+        ("27 aout 2026", date(2026, 8, 27)),
+        ("5 févr 2026", date(2026, 2, 5)),
+        ("5 fevr. 2026", date(2026, 2, 5)),
+        ("5 février 2026", date(2026, 2, 5)),
+        ("5 déc 2026", date(2026, 12, 5)),
+        ("5 dec. 2026", date(2026, 12, 5)),
+        ("3 avr 2026", date(2026, 4, 3)),
+        ("14 juil 2026", date(2026, 7, 14)),
+    ],
+)
+def test_date_bl_mots_valeurs_valides(brut: str, attendu: date) -> None:
+    assert date_bl(brut) == attendu
+
+
+@pytest.mark.parametrize(
+    "brut",
+    [
+        "31 février 2026",  # date impossible
+        "27 moisinvente 2026",
+        "trente septembre 2026",
+        "27 septembre 26",  # année sur 2 chiffres non acceptée en toutes lettres
+        "septembre 2026",  # jour absent
+        "27 septembre",  # année absente
+    ],
+)
+def test_date_bl_mots_valeurs_invalides(brut: str) -> None:
+    assert date_bl(brut) is None
+
+
+# --------------------------------------------------------------------------
 # normaliser_numero_bl
 # --------------------------------------------------------------------------
 
@@ -509,3 +565,184 @@ def test_options_ocr_bl_serialisable_et_strict() -> None:
     assert json_schema["schema"] is SCHEMA_ANNOTATION_BL
     assert OPTIONS_OCR_BL["document_annotation_prompt"] == CONSIGNE_ANNOTATION_BL
     assert CONSIGNE_ANNOTATION_BL  # jamais vide
+
+
+def test_schema_annotation_bl_lignes_a_une_description() -> None:
+    """L3-D26 : le tableau `lignes` porte désormais sa propre description
+    (consigne sur ce qui constitue une entrée), en plus de chaque champ."""
+    lignes_schema = SCHEMA_ANNOTATION_BL["properties"]["lignes"]
+    description = lignes_schema.get("description")
+    assert isinstance(description, str) and description
+
+
+# --------------------------------------------------------------------------
+# Descriptions réécrites L3-D26 (constat 11) : valeurs exactes de la fiche
+# L3-T6b, vérifiées mot pour mot (elles font foi).
+# --------------------------------------------------------------------------
+
+
+def test_descriptions_l3d26_champs_entete_exactes() -> None:
+    proprietes = SCHEMA_ANNOTATION_BL["properties"]
+    assert proprietes["fournisseur"]["description"] == (
+        "Raison sociale de l'entreprise qui émet le document (en-tête ou "
+        "pied de page), jamais le client destinataire ni l'adresse de "
+        "livraison"
+    )
+    assert proprietes["agence_fournisseur"]["description"] == (
+        "Agence ou point de vente de l'émetteur tel qu'imprimé (ex. le nom "
+        "d'agence à côté de la raison sociale), null si absent"
+    )
+    assert proprietes["siret"]["description"] == (
+        "SIRET de l'émetteur tel qu'imprimé, jamais celui du client"
+    )
+    assert proprietes["tva_intracommunautaire"]["description"] == (
+        "Numéro de TVA intracommunautaire de l'émetteur tel qu'imprimé "
+        "(parfois libellé id.cee), jamais celui du client"
+    )
+    assert proprietes["chantier_brut"]["description"] == (
+        'Texte imprimé après "CHANTIER :" ou "Votre chantier :", code entre '
+        "parenthèses compris ; null s'il n'y a pas de telle mention (jamais "
+        "l'adresse de livraison ni le nom du client)"
+    )
+    assert proprietes["total_ht"]["description"] == (
+        "Total hors taxes du document qui inclut les éco-contributions "
+        '(ex. "Total HT" ou "H.T. €"), jamais un total "hors éco-contribution"'
+    )
+
+
+def test_descriptions_l3d26_lignes_et_champs_ligne_exactes() -> None:
+    lignes_schema = SCHEMA_ANNOTATION_BL["properties"]["lignes"]
+    assert lignes_schema["description"] == (
+        "Une entrée par article ou par ligne d'éco-participation portant "
+        "son propre montant dans la colonne des montants ; ne crée pas "
+        'd\'entrée pour une mention "Dont éco-contribution" incluse dans le '
+        "montant d'une autre ligne, ni pour un commentaire ou une suite de "
+        "désignation (à rattacher à la désignation de la ligne précédente)"
+    )
+    proprietes_ligne = lignes_schema["items"]["properties"]
+    assert proprietes_ligne["quantite"]["description"] == (
+        "Quantité facturée de la ligne (celle qui multiplie le prix "
+        "unitaire), nombre seul sans unité"
+    )
+    assert proprietes_ligne["quantite_conditionnements"]["description"] == (
+        "Nombre de conditionnements quand le document l'imprime dans une "
+        "colonne distincte de la quantité facturée (ex. colonne UNITE qui "
+        "contient un nombre), sinon null"
+    )
+    assert proprietes_ligne["unite"]["description"] == (
+        "Unité imprimée à côté ou en face de la quantité facturée "
+        "(ex. BAG, RL, PAQ, KG), null si aucune"
+    )
+
+
+# --------------------------------------------------------------------------
+# quantite_conditionnements — deux quantités par ligne (L3-D24, constat 11)
+# --------------------------------------------------------------------------
+
+
+def test_analyser_bl_quantite_conditionnements_distincte_de_quantite() -> None:
+    """Forme « à la Unikalo » : colonne de conditionnements distincte de la
+    quantité facturée (données entièrement inventées)."""
+    annotation: dict[str, Any] = {
+        "lignes": [
+            {
+                "code": "AB1234",
+                "designation": "SEAU EXEMPLE",
+                "quantite_conditionnements": "4",
+                "quantite": "100",
+                "unite": "KG",
+                "pu_ht": "2,50",
+                "montant_ht": "250,00",
+            }
+        ]
+    }
+    reponse: dict[str, Any] = {"document_annotation": annotation}
+
+    extrait = analyser_bl(reponse)
+
+    ligne = extrait.lignes[0]
+    assert ligne.quantite_conditionnements.brut == "4"
+    assert ligne.quantite_conditionnements.valeur == Decimal("4")
+    assert ligne.quantite.valeur == Decimal("100")
+
+
+def test_analyser_bl_sans_quantite_conditionnements_distincte() -> None:
+    """Forme « à la Point.P » : une seule quantité suivie de son unité,
+    pas de colonne de conditionnements distincte (données inventées)."""
+    annotation: dict[str, Any] = {
+        "lignes": [
+            {
+                "code": "XY0001",
+                "designation": "ARTICLE EXEMPLE",
+                "quantite_conditionnements": None,
+                "quantite": "2",
+                "unite": "BAG",
+                "pu_ht": "5,00",
+                "montant_ht": "10,00",
+            }
+        ]
+    }
+    reponse: dict[str, Any] = {"document_annotation": annotation}
+
+    extrait = analyser_bl(reponse)
+
+    ligne = extrait.lignes[0]
+    assert ligne.quantite_conditionnements.brut is None
+    assert ligne.quantite_conditionnements.valeur is None
+    assert ligne.quantite.valeur == Decimal("2")
+
+
+# --------------------------------------------------------------------------
+# est_ligne_eco (L3-D26, constat 11)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "designation",
+    [
+        "ECO-PARTICIPATION",
+        "Eco participation mobilier",
+        "eco-contribution",
+        "ECO CONTRIBUTION DEEE",
+        "Éco-Participation",
+        "Dont ECO-PARTICIPATION incluse",
+    ],
+)
+def test_est_ligne_eco_vrai(designation: str) -> None:
+    assert est_ligne_eco(designation) is True
+
+
+@pytest.mark.parametrize(
+    "designation",
+    [None, "", "ENDUIT EXEMPLE 25KG", "PRODUIT ECOLOGIQUE", "SEAU EXEMPLE"],
+)
+def test_est_ligne_eco_faux(designation: str | None) -> None:
+    assert est_ligne_eco(designation) is False
+
+
+# --------------------------------------------------------------------------
+# extraction_en_json — nouveau champ quantite_conditionnements (L3-D24)
+# --------------------------------------------------------------------------
+
+
+def test_extraction_en_json_ligne_quantite_conditionnements_serialisee() -> None:
+    annotation: dict[str, Any] = {
+        "lignes": [
+            {
+                "code": "AB1234",
+                "designation": "SEAU EXEMPLE",
+                "quantite_conditionnements": "4",
+                "quantite": "100",
+                "unite": "KG",
+                "pu_ht": "2,50",
+                "montant_ht": "250,00",
+            }
+        ]
+    }
+    extrait = analyser_bl({"document_annotation": annotation})
+
+    resultat = extraction_en_json(extrait)
+    json.dumps(resultat)  # ne doit jamais lever
+
+    assert resultat["lignes"][0]["quantite_conditionnements"]["brut"] == "4"
+    assert resultat["lignes"][0]["quantite_conditionnements"]["valeur"] == "4"

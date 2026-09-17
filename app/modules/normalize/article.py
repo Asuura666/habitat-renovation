@@ -75,10 +75,19 @@ def proposer_article_facture(
 
 
 def proposer_article_bl(
-    code: str | None, designation: str | None, unite_brut: str | None
+    code: str | None,
+    designation: str | None,
+    unite_brut: str | None,
+    qte_conditionnements: Decimal | None = None,
+    qte_facturee: Decimal | None = None,
 ) -> PropositionArticle | None:
     """`None` si `code` est absent. L'unité lue, une fois normalisée, classe
-    la ligne en conditionnement (`unite_cdt`) ou en mesure (`unite_fact`)."""
+    la ligne en conditionnement (`unite_cdt`) ou en mesure (`unite_fact`).
+
+    `qte_conditionnements`/`qte_facturee` (L3-D24, constat 11 : un BL qui
+    imprime les deux quantités, ex. 4 seaux pour 100 kg) : le ratio n'est
+    proposé que si les deux quantités existent et diffèrent, même règle que
+    `proposer_article_facture`."""
     if code is None or not code.strip():
         return None
     unite = normaliser_unite(unite_brut)
@@ -90,12 +99,17 @@ def proposer_article_bl(
     unite_fact = (
         unite.code if unite is not None and unite.nature is NatureUnite.MESURE else None
     )
+    ratio = (
+        proposer_ratio(qte_conditionnements, qte_facturee)
+        if qte_conditionnements != qte_facturee
+        else None
+    )
     return PropositionArticle(
         code=code,
         libelle=designation,
         unite_cdt=unite_cdt,
         unite_fact=unite_fact,
-        ratio=None,
+        ratio=ratio,
     )
 
 

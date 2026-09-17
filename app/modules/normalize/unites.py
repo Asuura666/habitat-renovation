@@ -39,7 +39,7 @@ _MESURES: dict[str, tuple[str, ...]] = {
 
 _CONDITIONNEMENTS: dict[str, tuple[str, ...]] = {
     "seau": ("SEAU", "SEAUX", "SE"),
-    "sac": ("SAC", "SACS"),
+    "sac": ("SAC", "SACS", "BAG", "BAGS"),
     "rouleau": ("ROULEAU", "ROULEAUX", "RLX", "RL"),
     "bidon": ("BIDON", "BIDONS", "BID"),
     "pot": ("POT", "POTS"),

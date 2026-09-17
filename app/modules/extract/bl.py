@@ -16,6 +16,17 @@ reformulée n'aura aucune occurrence dans le texte et vaudra confiance 0.
 `verification.py` (L3-T3) décidera, à partir de `BLExtrait`, si le document
 part « à vérifier ».
 
+Ajustements L3-T6b (constat 11, premier essai réel, L3-D24 à L3-D26) : le
+premier lot de photos réelles a montré des formes que le schéma initial ne
+couvrait pas — une date parfois imprimée en toutes lettres (`date_bl`), deux
+quantités par ligne d'article chez un fournisseur (conditionnements vs
+quantité facturée, `quantite_conditionnements`), des lignes d'éco-
+participation à isoler (`est_ligne_eco`), et des consignes de schéma trop
+ambiguës sur qui est l'émetteur du document et ce qui constitue le
+« chantier » (`_DESCRIPTIONS_ENTETE`/`_DESCRIPTIONS_LIGNE` réécrites). Aucune
+valeur réelle n'est reproduite ici : seules les formes observées (constat 11
+du plan) guident ces ajustements.
+
 Aucune dépendance d'infrastructure (`fastapi`, `sqlalchemy`, `httpx`), aucun
 log, aucun appel réseau (R17) : ce module prend un `dict` JSON déjà obtenu
 de l'API Mistral OCR (`OPTIONS_OCR_BL` documente seulement les options à
@@ -26,6 +37,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -62,6 +74,7 @@ CHAMPS_ENTETE_BL: tuple[str, ...] = (
 CHAMPS_LIGNE_BL: tuple[str, ...] = (
     "code",
     "designation",
+    "quantite_conditionnements",
     "quantite",
     "unite",
     "pu_ht",
@@ -81,30 +94,66 @@ _DESCRIPTIONS_ENTETE: dict[str, str] = {
         '"livraison" pour un bon de livraison, "enlevement" pour un bon '
         "d'enlèvement, null si indéterminé"
     ),
-    "fournisseur": "raison sociale du fournisseur telle qu'imprimée",
-    "agence_fournisseur": "agence ou point de vente du fournisseur tel qu'imprimé",
-    "siret": "numéro SIRET du fournisseur tel qu'imprimé",
+    # Descriptions réécrites L3-D26 (constat 11) : l'annotation confondait
+    # émetteur/client (adresse de livraison prise pour le chantier, SIRET/TVA
+    # du client pris pour ceux du fournisseur) sur une des quatre photos.
+    "fournisseur": (
+        "Raison sociale de l'entreprise qui émet le document (en-tête ou "
+        "pied de page), jamais le client destinataire ni l'adresse de "
+        "livraison"
+    ),
+    "agence_fournisseur": (
+        "Agence ou point de vente de l'émetteur tel qu'imprimé (ex. le nom "
+        "d'agence à côté de la raison sociale), null si absent"
+    ),
+    "siret": "SIRET de l'émetteur tel qu'imprimé, jamais celui du client",
     "tva_intracommunautaire": (
-        "numéro de TVA intracommunautaire du fournisseur tel qu'imprimé"
+        "Numéro de TVA intracommunautaire de l'émetteur tel qu'imprimé "
+        "(parfois libellé id.cee), jamais celui du client"
     ),
     "numero": 'numéro du bon tel qu\'imprimé, sans le libellé "N°"',
     "date_doc": "date du bon telle qu'imprimée",
     "chantier_brut": (
-        "libellé du chantier ou de l'adresse de livraison tel qu'imprimé, "
-        "code entre parenthèses compris"
+        'Texte imprimé après "CHANTIER :" ou "Votre chantier :", code entre '
+        "parenthèses compris ; null s'il n'y a pas de telle mention (jamais "
+        "l'adresse de livraison ni le nom du client)"
     ),
     "numero_commande": "référence de commande telle qu'imprimée",
     "enleve_par": "nom de la personne ayant enlevé la marchandise tel qu'imprimé",
-    "total_ht": "total hors taxes tel qu'imprimé",
+    "total_ht": (
+        "Total hors taxes du document qui inclut les éco-contributions "
+        '(ex. "Total HT" ou "H.T. €"), jamais un total "hors éco-contribution"'
+    ),
     "total_tva": "montant total de TVA tel qu'imprimé",
     "total_ttc": "total toutes taxes comprises tel qu'imprimé",
 }
 
+_DESCRIPTION_LIGNES: str = (
+    "Une entrée par article ou par ligne d'éco-participation portant son "
+    "propre montant dans la colonne des montants ; ne crée pas d'entrée "
+    'pour une mention "Dont éco-contribution" incluse dans le montant '
+    "d'une autre ligne, ni pour un commentaire ou une suite de désignation "
+    "(à rattacher à la désignation de la ligne précédente)"
+)
+
 _DESCRIPTIONS_LIGNE: dict[str, str] = {
     "code": "code ou référence article tel qu'imprimé",
     "designation": "désignation de l'article telle qu'imprimée",
-    "quantite": "quantité livrée telle qu'imprimée",
-    "unite": "unité telle qu'imprimée",
+    # Descriptions réécrites L3-D26 (constat 11) : deux quantités distinctes
+    # chez un fournisseur (conditionnements vs quantité facturée).
+    "quantite_conditionnements": (
+        "Nombre de conditionnements quand le document l'imprime dans une "
+        "colonne distincte de la quantité facturée (ex. colonne UNITE qui "
+        "contient un nombre), sinon null"
+    ),
+    "quantite": (
+        "Quantité facturée de la ligne (celle qui multiplie le prix "
+        "unitaire), nombre seul sans unité"
+    ),
+    "unite": (
+        "Unité imprimée à côté ou en face de la quantité facturée "
+        "(ex. BAG, RL, PAQ, KG), null si aucune"
+    ),
     "pu_ht": "prix unitaire hors taxes tel qu'imprimé",
     "montant_ht": "montant hors taxes de la ligne tel qu'imprimé",
 }
@@ -117,6 +166,7 @@ SCHEMA_ANNOTATION_BL: dict[str, Any] = {
         },
         "lignes": {
             "type": "array",
+            "description": _DESCRIPTION_LIGNES,
             "items": {
                 "type": "object",
                 "properties": {
@@ -190,11 +240,18 @@ class DateLue:
 @dataclass(frozen=True)
 class LigneBL:
     """Une ligne d'articles du BL, dans l'ordre des lignes gardées de
-    l'annotation (`ordre`, une ligne entièrement nulle est ignorée)."""
+    l'annotation (`ordre`, une ligne entièrement nulle est ignorée).
+
+    `quantite_conditionnements` (L3-D24, constat 11) : nombre de
+    conditionnements (ex. 4 seaux) quand le document l'imprime dans une
+    colonne distincte de `quantite`, la quantité facturée (ex. 100 kg) —
+    même sens que les colonnes QTÉ LIVRÉE / QTÉ TOTALE de la facture
+    Unikalo. `None` quand le document n'imprime qu'une seule quantité."""
 
     ordre: int
     code: TexteLu
     designation: TexteLu
+    quantite_conditionnements: NombreLu
     quantite: NombreLu
     unite: TexteLu
     pu_ht: NombreLu
@@ -261,22 +318,88 @@ def nombre_bl(brut: str | None) -> Decimal | None:
 _DATE_BL_RE = re.compile(r"^(\d{2})[./-](\d{2})[./-](\d{2}|\d{4})$")
 
 
-def date_bl(brut: str | None) -> date | None:
-    """Convertit une date annotée `JJ/MM/AAAA` ou `JJ/MM/AA` (-> 20AA),
-    séparateurs `/`, `.` ou `-`. `None` si mal formée ou impossible
-    (ex. « 31/02/2026 »).
-    """
-    if brut is None:
-        return None
-    correspondance = _DATE_BL_RE.match(brut.strip())
+def _sans_accents_minuscule(texte: str) -> str:
+    """`texte` sans diacritiques et en minuscules (NFKD + retrait des
+    caractères combinants) — module PUR : pas d'import de `normalize.texte
+    .normaliser_libelle` (frontière L2-D3/L3), une copie minimale suffit
+    ici (on ne réduit pas la ponctuation, seulement la casse et l'accent)."""
+    decompose = unicodedata.normalize("NFKD", texte)
+    return "".join(c for c in decompose if not unicodedata.combining(c)).lower()
+
+
+# Mois français en toutes lettres ou abrégés (L3-D26, constat 11 : une date
+# imprimée « 27 <mois> 2026 »), sans diacritique ni casse (comparés après
+# `_sans_accents_minuscule`).
+_MOIS_FR: dict[str, int] = {
+    "janvier": 1,
+    "janv": 1,
+    "fevrier": 2,
+    "fevr": 2,
+    "mars": 3,
+    "avril": 4,
+    "avr": 4,
+    "mai": 5,
+    "juin": 6,
+    "juillet": 7,
+    "juil": 7,
+    "aout": 8,
+    "septembre": 9,
+    "sept": 9,
+    "octobre": 10,
+    "oct": 10,
+    "novembre": 11,
+    "nov": 11,
+    "decembre": 12,
+    "dec": 12,
+}
+
+# Jour (1 ou 2 chiffres, « 1er » accepté), mois en toutes lettres ou abrégé
+# (point final toléré, consommé hors du groupe capturé), année sur 4
+# chiffres, préfixe « Du » ou « le » toléré — comparaison faite sur le texte
+# déjà passé par `_sans_accents_minuscule`.
+_DATE_MOTS_RE = re.compile(
+    r"^(?:(?:du|le)\s+)?(\d{1,2})(?:er)?\s+([a-z]+)\.?\s+(\d{4})$"
+)
+
+
+def _date_bl_mots(texte: str) -> date | None:
+    """Date en toutes lettres (« 27 septembre 2026 », « Du 1er janv. 2026 »)
+    -> `date`, `None` si le motif ne correspond pas, si le mois est inconnu,
+    ou si la date est impossible (ex. « 31 février 2026 »)."""
+    correspondance = _DATE_MOTS_RE.match(_sans_accents_minuscule(texte))
     if correspondance is None:
         return None
     jour_s, mois_s, annee_s = correspondance.groups()
-    annee = int(annee_s) if len(annee_s) == 4 else 2000 + int(annee_s)
+    mois = _MOIS_FR.get(mois_s)
+    if mois is None:
+        return None
     try:
-        return date(annee, int(mois_s), int(jour_s))
+        return date(int(annee_s), mois, int(jour_s))
     except ValueError:
         return None
+
+
+def date_bl(brut: str | None) -> date | None:
+    """Convertit une date annotée `JJ/MM/AAAA` ou `JJ/MM/AA` (-> 20AA),
+    séparateurs `/`, `.` ou `-` ; ou, à défaut, une date en toutes lettres
+    (L3-D26, constat 11 : une des photos réelles n'imprime la date que sous
+    cette forme) — voir `_date_bl_mots`. `None` si mal formée ou impossible
+    (ex. « 31/02/2026 », « 31 février 2026 »).
+    """
+    if brut is None:
+        return None
+    texte = brut.strip()
+    if not texte:
+        return None
+    correspondance = _DATE_BL_RE.match(texte)
+    if correspondance is not None:
+        jour_s, mois_s, annee_s = correspondance.groups()
+        annee = int(annee_s) if len(annee_s) == 4 else 2000 + int(annee_s)
+        try:
+            return date(annee, int(mois_s), int(jour_s))
+        except ValueError:
+            return None
+    return _date_bl_mots(texte)
 
 
 def normaliser_numero_bl(brut: str | None) -> str | None:
@@ -288,6 +411,26 @@ def normaliser_numero_bl(brut: str | None) -> str | None:
         return None
     texte = re.sub(r"\s+", "", brut).upper()
     return texte or None
+
+
+_MOTIFS_ECO = (
+    "ECO-PARTICIPATION",
+    "ECO PARTICIPATION",
+    "ECO-CONTRIBUTION",
+    "ECO CONTRIBUTION",
+)
+
+
+def est_ligne_eco(designation: str | None) -> bool:
+    """Vrai si `designation` (L3-D26, constat 11) désigne une ligne
+    d'éco-participation ou d'éco-contribution portant son propre montant :
+    la désignation normalisée (majuscules, sans accents) contient l'une des
+    mentions `_MOTIFS_ECO`. `False` si `designation` est `None` (jamais
+    deviné à partir d'un champ absent)."""
+    if designation is None:
+        return False
+    normalisee = _sans_accents_minuscule(designation).upper()
+    return any(motif in normalisee for motif in _MOTIFS_ECO)
 
 
 # --------------------------------------------------------------------------
@@ -337,9 +480,10 @@ def _charger_annotation(brute: Any) -> dict[str, Any]:
 
 def _lire_lignes(brutes: Any, index: IndexConfiance) -> tuple[LigneBL, ...]:
     """Lignes de l'annotation -> `LigneBL` : `lignes` absente ou non liste
-    -> `()` ; une entrée qui n'est pas un objet, ou dont les 6 champs sont
-    tous vides, est ignorée ; `ordre` = position parmi les lignes gardées
-    (pas l'index d'origine dans l'annotation).
+    -> `()` ; une entrée qui n'est pas un objet, ou dont les 7 champs
+    (L3-D24 : `quantite_conditionnements` compris) sont tous vides, est
+    ignorée ; `ordre` = position parmi les lignes gardées (pas l'index
+    d'origine dans l'annotation).
     """
     if not isinstance(brutes, list):
         return ()
@@ -359,6 +503,10 @@ def _lire_lignes(brutes: Any, index: IndexConfiance) -> tuple[LigneBL, ...]:
                 ordre=len(lignes),
                 code=_texte_lu(champs["code"], confs["code"]),
                 designation=_texte_lu(champs["designation"], confs["designation"]),
+                quantite_conditionnements=_nombre_lu(
+                    champs["quantite_conditionnements"],
+                    confs["quantite_conditionnements"],
+                ),
                 quantite=_nombre_lu(champs["quantite"], confs["quantite"]),
                 unite=_texte_lu(champs["unite"], confs["unite"]),
                 pu_ht=_nombre_lu(champs["pu_ht"], confs["pu_ht"]),

@@ -178,8 +178,14 @@ async def test_enregistrer_extraction_bl_complet_fournisseur_connu_statut_recu(
     assert [ligne.code_brut for ligne in lignes] == ["AB1234", "CD5678", "EF9012"]
     assert all(ligne.confiance is not None for ligne in lignes)
     assert all(ligne.article_id is not None for ligne in lignes)
+    assert all(ligne.type_ligne == "article" for ligne in lignes)
     assert lignes[0].montant_ht == Decimal("126.00")
-    assert lignes[0].qte_livree == Decimal("4")
+    # L3-D24 : `bl_synthetique.mistral-ocr.json` (schéma L3-T1, avant
+    # `quantite_conditionnements`) n'imprime qu'une seule quantité par ligne
+    # -> `qte_livree` (conditionnements) reste `None`, `qte_totale`
+    # (quantité facturée) reprend l'ancienne valeur `quantite`.
+    assert lignes[0].qte_livree is None
+    assert lignes[0].qte_totale == Decimal("4")
 
     articles = (await db_session.execute(select(Article))).scalars().all()
     assert len(articles) == 3
@@ -539,3 +545,71 @@ async def test_enregistrer_extraction_bl_relance_reste_a_verifier_sans_motif(
     await db_session.refresh(document)
     assert document.statut == "a_verifier"
     assert document.motifs == []
+
+
+# --------------------------------------------------------------------------
+# L3-T6b (constat 11, L3-D24/L3-D26) : deux quantités par ligne persistées
+# dans le bon sens, ratio proposé, ligne d'éco-participation sans article.
+# --------------------------------------------------------------------------
+
+
+async def test_enregistrer_extraction_bl_qte_livree_qte_totale_et_ratio(
+    db_session: AsyncSession,
+) -> None:
+    """`qte_livree` reprend le nombre de conditionnements
+    (`quantite_conditionnements`), `qte_totale` la quantité facturée
+    (`quantite`) — même sens que la facture Unikalo (L3-D24) — et un ratio
+    est proposé sur l'article correspondant quand les deux diffèrent."""
+    fournisseur = await _creer_fournisseur_peintures_exemple(db_session)
+    document = await _creer_document(db_session)
+    reponse = _reponse_synthetique()
+    annotation = _annotation(reponse)
+    annotation["lignes"][0]["quantite_conditionnements"] = "4"
+    annotation["lignes"][0]["quantite"] = "100"
+    reponse["document_annotation"] = json.dumps(annotation)
+
+    await enregistrer_extraction_bl(db_session, document.id, reponse)
+
+    lignes = await _lignes_du_document(db_session, document.id)
+    assert lignes[0].qte_livree == Decimal("4")
+    assert lignes[0].qte_totale == Decimal("100")
+    assert lignes[0].type_ligne == "article"
+
+    article = (
+        await db_session.execute(
+            select(Article).where(
+                Article.fournisseur_id == fournisseur.id,
+                Article.code == "AB1234",
+            )
+        )
+    ).scalar_one()
+    assert article.ratio == Decimal("25")
+
+
+async def test_enregistrer_extraction_bl_ligne_eco_type_ligne_sans_article(
+    db_session: AsyncSession,
+) -> None:
+    """Une ligne d'éco-participation (L3-D26) est typée `eco`, jamais
+    proposée comme article (`article_id` reste `None`, aucun `Article`
+    créé pour son code)."""
+    await _creer_fournisseur_peintures_exemple(db_session)
+    document = await _creer_document(db_session)
+    reponse = _reponse_synthetique()
+    annotation = _annotation(reponse)
+    annotation["lignes"][0]["designation"] = "ECO-PARTICIPATION"
+    annotation["lignes"][0]["code"] = "ECO001"
+    reponse["document_annotation"] = json.dumps(annotation)
+
+    await enregistrer_extraction_bl(db_session, document.id, reponse)
+
+    lignes = await _lignes_du_document(db_session, document.id)
+    ligne_eco = next(ligne for ligne in lignes if ligne.code_brut == "ECO001")
+    assert ligne_eco.type_ligne == "eco"
+    assert ligne_eco.article_id is None
+
+    articles_eco = (
+        (await db_session.execute(select(Article).where(Article.code == "ECO001")))
+        .scalars()
+        .all()
+    )
+    assert articles_eco == []
