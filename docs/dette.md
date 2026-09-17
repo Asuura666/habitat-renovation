@@ -192,6 +192,18 @@ aucune entrée tant qu'aucune simplification n'a été prise.
   l'identification humaine rapide d'un clic non autorisé en supervision ;
   à ajouter si besoin en étendant `ClicBouton` avec le nom Telegram déjà
   lu par `messaging.telegram._expediteur_nom` sur `callback_query.from`.
+- **Accusé d'erreur générique possible malgré une écriture réussie.**
+  `traiter_clic` (`ingest/service.py::_decider_clic`) enregistre la
+  confirmation et le journal, puis `await session.commit()`, avant de
+  construire les textes d'accusé et d'édition du message. Si une exception
+  survient après ce `commit()` (formatage final, fermeture de session,
+  envoi Telegram) mais avant que le routeur ne réponde, l'agent verrait un
+  accusé générique d'erreur alors que `confirme_le`/`confirme_par` et le
+  journal sont déjà écrits en base — situation théorique, jamais observée
+  ni testée. Ne couvre pas la distinction entre un échec avant et après
+  l'écriture pour le message renvoyé à l'agent ; à traiter si un agent
+  rapporte un accusé d'erreur alors que la confirmation apparaît bien à
+  l'écran.
 
 ## L2-T4 — ingest/api (dépôt de facture PDF Unikalo)
 
@@ -217,3 +229,25 @@ aucune entrée tant qu'aucune simplification n'a été prise.
   `FormatNonPrisEnCharge` (si son format diffère trop). Ne couvre pas la
   détection ni le typage d'un avoir ; à traiter dès réception d'un exemple
   réel — question posée à Ilane (`docs/plan-lot-2.md` §3, Q5).
+
+## L2-T5 — api (factures et documents en lecture)
+
+- **Correspondance numéro de BL : `trim()` SQL contre `strip()` Python.**
+  `documents_bl_par_numeros` (`ingest/service.py`) filtre en SQL avec
+  `trim()` (n'enlève que l'espace ASCII) pour présélectionner les lignes,
+  puis compare en Python avec `strip()` (enlève tout caractère d'espacement
+  Unicode, dont l'espace insécable). Un numéro de BL dont le seul espace de
+  bord serait un espace insécable (fréquent en sortie d'OCR/traitement de
+  texte) échapperait au filtre SQL avant même d'atteindre la comparaison
+  Python — le bloc resterait affiché « non reçu » à tort. Ne couvre pas ce
+  cas ; non observé sur les fixtures disponibles (aucun numéro en commun
+  avec un espace insécable de bord). À aligner (ex. `btrim` avec la liste
+  des espaces Unicode utiles, ou filtrer plus large en SQL et normaliser
+  uniquement en Python) si un écart de ce type est constaté en recette.
+- **`FileResponse` sans `filename` explicite.** `GET /api/factures/{id}
+  /fichier` et `GET /api/documents/{id}/fichier` renvoient le fichier sans
+  fixer son nom de téléchargement : le navigateur propose un nom générique
+  (dérivé de l'URL, pas du numéro de facture/BL). Cosmétique, ne couvre pas
+  le classement des fichiers téléchargés par l'utilisateur ; à ajouter
+  (paramètre `filename` de `FileResponse`) si signalé comme gênant en
+  usage réel.
