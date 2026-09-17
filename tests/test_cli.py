@@ -37,6 +37,12 @@ Tests transverses (le fichier vit à la racine `app/`, pas dans un module) :
   annoncé ; une mise à jour (nom en casse différente, alias déjà présent
   renvoyé, nouvelle agence) vérifie le remplacement du TVA, l'absence de
   doublon d'alias et l'agence ajoutée.
+- `rapport-ocr` (L3-T11) : sans base (l'outil ne touche jamais la base) —
+  dossier vide/inexistant -> code 2, rien écrit dans `--sortie` ; dossier
+  avec une photo, son `.attendu.json` et son cache `.mistral-ocr.json` ->
+  code 0, rapport Markdown écrit ; `--appeler-ocr` construit l'OCR de
+  production avec les mêmes options/délai que `ingest/router.py::get_ocr`
+  (`ocr_document` monkeypatché, R17 : jamais de vrai appel Mistral).
 """
 
 from __future__ import annotations
@@ -59,6 +65,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app import cli
 from app.core.config import get_settings
 from app.core.db import creer_sessionmaker
+from app.modules.extract.bl import OPTIONS_OCR_BL
 from app.modules.extract.facture import Facture, FactureIllisible
 from app.modules.ingest.mistral import ErreurOCR
 from app.modules.ingest.models import (
@@ -68,6 +75,7 @@ from app.modules.ingest.models import (
     Journal,
     Utilisateur,
 )
+from app.modules.ingest.router import DELAI_OCR_BL
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures" / "unikalo"
@@ -758,3 +766,111 @@ def test_fournisseur_definir_mise_a_jour_alias_double_ignore_agence_ajoutee(
         assert asyncio.run(_compter_agences(db_engine, fournisseur.id)) == 2
     finally:
         asyncio.run(_supprimer_fournisseur(db_engine, nom))
+
+
+# ---------------------------------------------------------------------------
+# `rapport-ocr` (L3-T11) — sans base, données inventées dans `tmp_path`
+# ---------------------------------------------------------------------------
+
+
+def _attendu_invente(**overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "numero": "BL0001",
+        "fournisseur": "Fournisseur Invente",
+        "date_doc": "2026-01-15",
+        "chantier_brut": "Chantier Invente",
+        "degradee": False,
+        "lignes": [],
+    }
+    base.update(overrides)
+    return base
+
+
+def test_rapport_ocr_dossier_vide_code_2_rien_ecrit(tmp_path: Path) -> None:
+    sortie = tmp_path / "rapport.md"
+
+    code = cli.main(["rapport-ocr", str(tmp_path), "--sortie", str(sortie)])
+
+    assert code == 2
+    assert not sortie.exists()
+
+
+def test_rapport_ocr_dossier_inexistant_code_2(tmp_path: Path) -> None:
+    dossier = tmp_path / "n-existe-pas"
+    sortie = tmp_path / "rapport.md"
+
+    code = cli.main(["rapport-ocr", str(dossier), "--sortie", str(sortie)])
+
+    assert code == 2
+    assert not sortie.exists()
+
+
+def test_rapport_ocr_rapport_ecrit_sans_appeler_ocr(tmp_path: Path) -> None:
+    """Sans `--appeler-ocr` : utilise uniquement le cache
+    `<nom>.mistral-ocr.json`, aucun appel réseau (R17)."""
+    dossier = tmp_path / "photos"
+    dossier.mkdir()
+    nom = "photo-cli"
+    (dossier / f"{nom}.jpg").write_bytes(b"contenu invente")
+    (dossier / f"{nom}.attendu.json").write_text(
+        json.dumps(_attendu_invente()), encoding="utf-8"
+    )
+    (dossier / f"{nom}.mistral-ocr.json").write_text(
+        json.dumps({"document_annotation": {"lignes": []}}), encoding="utf-8"
+    )
+    sortie = tmp_path / "rapport.md"
+
+    code = cli.main(["rapport-ocr", str(dossier), "--sortie", str(sortie)])
+
+    assert code == 0
+    assert sortie.is_file()
+    contenu = sortie.read_text(encoding="utf-8")
+    assert "Rapport" in contenu
+    assert nom in contenu
+
+
+def test_rapport_ocr_appeler_ocr_construit_ocr_meme_options_et_delai(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--appeler-ocr` construit l'OCR de production avec les mêmes options
+    et le même délai que `ingest/router.py::get_ocr` (décision du
+    contrôleur) — `ocr_document` monkeypatché (R17 : jamais de vrai appel
+    Mistral)."""
+    dossier = tmp_path / "photos"
+    dossier.mkdir()
+    nom = "photo-appel-ocr"
+    (dossier / f"{nom}.jpg").write_bytes(b"contenu invente")
+    (dossier / f"{nom}.attendu.json").write_text(
+        json.dumps(_attendu_invente()), encoding="utf-8"
+    )
+    sortie = tmp_path / "rapport.md"
+
+    appels: list[dict[str, Any]] = []
+
+    async def _ocr_document_factice(
+        http: Any,
+        cle_api: str,
+        contenu: bytes,
+        mime: str,
+        *,
+        delai: Any = None,
+        options: Any = None,
+    ) -> dict[str, Any]:
+        appels.append(
+            {"contenu": contenu, "mime": mime, "delai": delai, "options": options}
+        )
+        return {"document_annotation": {"lignes": []}}
+
+    monkeypatch.setattr(cli, "ocr_document", _ocr_document_factice)
+
+    code = cli.main(
+        ["rapport-ocr", str(dossier), "--sortie", str(sortie), "--appeler-ocr"]
+    )
+
+    assert code == 0
+    assert sortie.is_file()
+    assert len(appels) == 1
+    assert appels[0]["contenu"] == b"contenu invente"
+    assert appels[0]["mime"] == "image/jpeg"
+    assert appels[0]["delai"] == DELAI_OCR_BL
+    assert appels[0]["options"] == OPTIONS_OCR_BL

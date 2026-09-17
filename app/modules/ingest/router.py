@@ -67,7 +67,10 @@ _DELAI_OCR_FACTURE = httpx.Timeout(90.0)
 # T6 : l'annotation structurée (`OPTIONS_OCR_BL`) et les scores de confiance
 # par mot allongent l'analyse d'une photo de BL — même borne haute que pour
 # une facture (décision du contrôleur).
-_DELAI_OCR_BL = httpx.Timeout(90.0)
+# Publique (sans `_`, décision du contrôleur L3-T11) : `app.cli::rapport-ocr`
+# réutilise cette même constante pour construire l'OCR réel de `--appeler-ocr`
+# (mêmes options et délai que `get_ocr`, jamais un simple doublon de sa valeur).
+DELAI_OCR_BL = httpx.Timeout(90.0)
 # L3-T7 (L3-D16, décision du contrôleur) : confiance par page pour une
 # facture (`extract.confiance.confiance_min_pages`, lu par
 # `ingest/factures.py::deposer_facture`) — jamais l'annotation structurée ni
@@ -128,7 +131,7 @@ def get_ocr(
     dans les tests (`app.dependency_overrides[get_ocr]`) sans construire de
     client HTTP."""
     return _construire_ocr(
-        request, settings, delai=_DELAI_OCR_BL, options=OPTIONS_OCR_BL
+        request, settings, delai=DELAI_OCR_BL, options=OPTIONS_OCR_BL
     )
 
 

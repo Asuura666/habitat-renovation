@@ -19,14 +19,27 @@
   `utilisateur-creer` : l'écriture est déléguée à `definir_fournisseur`
   (`app.modules.ingest.referentiels`), cette CLI ne fait que construire ses
   dépendances et les brancher.
+- `python -m app.cli rapport-ocr` (L3-T11, L3-D20) : mesure le taux d'erreur
+  OCR sur un dossier de photos de BL annotées à la main (fichiers
+  `<nom>.attendu.json`, cache `<nom>.mistral-ocr.json`) et écrit le rapport
+  Markdown demandé (`--sortie`). Toute la logique (comparaison, agrégation,
+  rendu) est déléguée à `app.modules.ingest.rapport_ocr` ; cette CLI ne fait
+  que construire l'OCR réel de `--appeler-ocr` (mêmes options et délai que
+  `ingest/router.py::get_ocr`, `OPTIONS_OCR_BL` d'`extract.bl`,
+  `DELAI_OCR_BL` d'`ingest.router`) sur un client HTTP qu'elle ouvre et
+  ferme elle-même — jamais sur un document client (R17, protocole détaillé
+  dans `docs/protocole-mesure-ocr.md`).
 
 N'importe que `app.core` (config, db, auth) et `app.modules.ingest`
 (`factures.py`, `mistral.py` — depuis le découpage de l'ancien
 `ingest/service.py`, vague finale du lot 2, point 1 ; `referentiels.py`
-depuis L3-T5), plus `FactureIllisible` d'`extract` (nécessaire pour
-distinguer le code de sortie) : `ingest` reste le seul orchestrateur, la CLI
-ne fait que construire ses dépendances (client HTTP, moteur DB) et les
-brancher (décisions du contrôleur T7/L2-T1b/L3-T5).
+depuis L3-T5 ; `rapport_ocr.py`, `router.py` depuis L3-T11), plus
+`FactureIllisible` d'`extract` (nécessaire pour distinguer le code de
+sortie) et `OPTIONS_OCR_BL`/`SEUIL_CONFIANCE_DEFAUT`/
+`TOLERANCE_TOTAL_DEFAUT` d'`extract` (L3-T11, mêmes constantes que le reste
+du lot 3) : `ingest` reste le seul orchestrateur, la CLI ne fait que
+construire ses dépendances (client HTTP, moteur DB) et les brancher
+(décisions du contrôleur T7/L2-T1b/L3-T5/L3-T11).
 
 Import différé de `app.core.auth` (dans le corps de `_utilisateur_creer`/
 `_utilisateur_desactiver`, pas en tête de fichier) : ce module appelle
@@ -47,19 +60,27 @@ import getpass
 import sys
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 import httpx
 
 from app.core.config import get_settings
 from app.core.db import creer_engine, creer_sessionmaker
+from app.modules.extract.bl import OPTIONS_OCR_BL
 from app.modules.extract.facture import FactureIllisible
+from app.modules.extract.verification import (
+    SEUIL_CONFIANCE_DEFAUT,
+    TOLERANCE_TOTAL_DEFAUT,
+)
 from app.modules.ingest.factures import (
     blocs_avec_reception,
     formater_blocs,
     lire_facture,
 )
 from app.modules.ingest.mistral import ErreurOCR, ocr_document
+from app.modules.ingest.rapport_ocr import mesurer_dossier, rapport_markdown
 from app.modules.ingest.referentiels import definir_fournisseur
+from app.modules.ingest.router import DELAI_OCR_BL
 
 _SIGNATURE_PDF = b"%PDF-"
 
@@ -248,6 +269,80 @@ async def _fournisseur_definir(
     return 0
 
 
+async def _rapport_ocr(*, dossier: Path, sortie: Path, appeler_ocr: bool) -> int:
+    """Implémentation de `rapport-ocr` (L3-T11, L3-D20) : mesure le taux
+    d'erreur OCR sur `dossier` (photos + `<nom>.attendu.json`) et écrit le
+    rapport Markdown dans `sortie`. Toute la comparaison/agrégation est
+    déléguée à `app.modules.ingest.rapport_ocr` (module pur/orchestré, sans
+    FastAPI ni SQLAlchemy) : cette CLI ne fait que construire l'OCR réel et
+    brancher les dépendances.
+
+    Sans `--appeler-ocr`, seul le cache `<nom>.mistral-ocr.json` de chaque
+    photo est utilisé (aucun appel réseau) : une photo sans cache part dans
+    `documents_sans_ocr`. Avec `--appeler-ocr`, l'OCR de production est
+    construit avec les mêmes options et le même délai que `ingest/router
+    .py::get_ocr` (`OPTIONS_OCR_BL`, `DELAI_OCR_BL`), sur un client HTTP
+    ouvert et fermé par cette commande, clé API lue dans la configuration —
+    jamais sur un document client (décision du contrôleur,
+    `docs/protocole-mesure-ocr.md`).
+
+    Codes de sortie : 2 si `dossier` n'existe pas ou ne contient aucun BL
+    attendu (aucun `<nom>.attendu.json` apparié à une photo) — message court
+    sur stderr, rien n'est écrit dans `sortie` ; sinon 0, rapport écrit,
+    seuls des comptes et des taux affichés sur stdout (jamais une valeur
+    attendue ou lue)."""
+    if not await asyncio.to_thread(dossier.is_dir):
+        print(f"dossier introuvable : {dossier}", file=sys.stderr)
+        return 2
+
+    seuil = SEUIL_CONFIANCE_DEFAUT
+    tolerance = TOLERANCE_TOTAL_DEFAUT
+
+    if appeler_ocr:
+        settings = get_settings()
+        cle_api = settings.mistral_api_key.get_secret_value()
+        async with httpx.AsyncClient() as http:
+
+            async def _ocr(contenu: bytes, mime: str) -> dict[str, Any]:
+                return await ocr_document(
+                    http,
+                    cle_api,
+                    contenu,
+                    mime,
+                    delai=DELAI_OCR_BL,
+                    options=OPTIONS_OCR_BL,
+                )
+
+            rapport, comparaisons = await mesurer_dossier(
+                dossier, ocr=_ocr, seuil=seuil, tolerance=tolerance
+            )
+    else:
+        rapport, comparaisons = await mesurer_dossier(
+            dossier, ocr=None, seuil=seuil, tolerance=tolerance
+        )
+
+    if rapport.nb_documents == 0 and not rapport.documents_sans_ocr:
+        print(
+            f"aucun BL attendu (<nom>.attendu.json) trouvé dans {dossier}",
+            file=sys.stderr,
+        )
+        return 2
+
+    contenu_rapport = rapport_markdown(rapport, comparaisons)
+    await asyncio.to_thread(sortie.write_text, contenu_rapport, encoding="utf-8")
+
+    print(f"{rapport.nb_documents} documents mesurés ({rapport.nb_degrades} dégradés)")
+    for champ, taux in rapport.taux_champs.items():
+        print(f"  champ {champ} juste : {taux}")
+    print(f"  documents 4 champs justes : {rapport.taux_documents_4_champs}")
+    print(f"  lignes justes : {rapport.taux_lignes}")
+    print(f"  erreurs silencieuses : {rapport.nb_erreurs_silencieuses}")
+    if rapport.documents_sans_ocr:
+        print(f"  documents sans réponse OCR : {len(rapport.documents_sans_ocr)}")
+    print(f"rapport écrit : {sortie}")
+    return 0
+
+
 def _construire_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="app.cli")
     sous_parsers = parser.add_subparsers(dest="commande", required=True)
@@ -303,6 +398,26 @@ def _construire_parser() -> argparse.ArgumentParser:
         help="agence à rattacher (répétable)",
     )
 
+    parser_rapport_ocr = sous_parsers.add_parser(
+        "rapport-ocr",
+        help="Mesure le taux d'erreur OCR sur un dossier de photos de BL annotées",
+    )
+    parser_rapport_ocr.add_argument(
+        "dossier", type=Path, help="dossier contenant les photos et leurs .attendu.json"
+    )
+    parser_rapport_ocr.add_argument(
+        "--sortie", required=True, type=Path, help="chemin du rapport Markdown à écrire"
+    )
+    parser_rapport_ocr.add_argument(
+        "--appeler-ocr",
+        dest="appeler_ocr",
+        action="store_true",
+        help=(
+            "appelle réellement l'API Mistral OCR pour les photos sans cache "
+            "(jamais sur un document client)"
+        ),
+    )
+
     return parser
 
 
@@ -330,6 +445,12 @@ def main(argv: list[str] | None = None) -> int:
                 tva=args.tva,
                 alias=args.alias or [],
                 agence=args.agence or [],
+            )
+        )
+    if args.commande == "rapport-ocr":
+        return asyncio.run(
+            _rapport_ocr(
+                dossier=args.dossier, sortie=args.sortie, appeler_ocr=args.appeler_ocr
             )
         )
     raise AssertionError(f"commande inconnue : {args.commande}")  # pragma: no cover
