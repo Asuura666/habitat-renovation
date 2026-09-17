@@ -87,22 +87,32 @@ def convertir_en_unite_fact(
     unite_fact: str | None,
     ratio: Decimal | None,
     ratio_valide: bool,
+    *,
+    unite_absente_acceptee: bool = False,
 ) -> Decimal | None:
     """Quantité facturée convertie dans l'unité de facturation de l'article
-    (L4-D7, Ruling R6). Les unités sont comparées après `normaliser_unite`
-    (sur `Unite.code`, jamais sur les chaînes brutes) : quatre cas, dans cet
-    ordre, sinon `None` -- une conversion incertaine n'est jamais devinée
-    (CDC §10 : « 0 anomalie R03/R04 due à une unité »).
+    (L4-D7, Ruling R6 puis R10). Les unités sont comparées après
+    `normaliser_unite` (sur `Unite.code`, jamais sur les chaînes brutes) :
+    quatre cas, dans cet ordre, sinon `None` -- une conversion incertaine
+    n'est jamais devinée (CDC §10 : « 0 anomalie R03/R04 due à une unité »).
 
     1. `qte` absente -> `None`.
     2. `unite_lue` normalisée == `unite_fact` normalisée -> `qte` inchangée.
-    3. `unite_lue` absente et `unite_fact` connue -> `qte` inchangée (cas
-       Unikalo, constat 4 : la ligne n'imprime aucune unité).
+    3. `unite_lue` absente, `unite_absente_acceptee` vrai et `unite_fact`
+       connue -> `qte` inchangée. `unite_absente_acceptee` distingue les
+       deux types de document (Ruling R10, constat CDC §4.3) : une ligne de
+       facture Unikalo n'imprime structurellement aucune unité (l'appelant
+       passe `True`), alors qu'une ligne de BL photographié en imprime
+       toujours une -- une unité absente y signale un échec d'OCR, pas
+       l'absence de colonne, et ne doit jamais être acceptée telle quelle
+       (l'appelant passe `False`, la valeur par défaut). `L4-T7` est
+       responsable de choisir la valeur selon le type de document analysé.
     4. `unite_lue` normalisée == `unite_cdt` normalisée, avec un `ratio`
        strictement positif et validé (`ratio_valide`) -> `qte * ratio`.
 
-    Tout le reste (unité lue inconnue ou ne correspondant à rien, ratio
-    absent, nul, négatif ou non validé) -> `None`.
+    Tout le reste (unité lue absente sans acceptation, unité lue inconnue
+    ou ne correspondant à rien, ratio absent, nul, négatif ou non validé)
+    -> `None`.
     """
     if qte is None:
         return None
@@ -110,7 +120,9 @@ def convertir_en_unite_fact(
     unite_fact_normalisee = normaliser_unite(unite_fact)
 
     if unite_lue is None:
-        return qte if unite_fact_normalisee is not None else None
+        if unite_absente_acceptee and unite_fact_normalisee is not None:
+            return qte
+        return None
 
     unite_lue_normalisee = normaliser_unite(unite_lue)
     if unite_lue_normalisee is None:

@@ -64,6 +64,28 @@ def test_apparier_doublons_de_code_chacun_apparie_une_fois() -> None:
     )
 
 
+def test_apparier_passe_libelle_ne_vole_pas_une_ligne_bl_deja_appariee_par_code() -> (
+    None
+):
+    """Fix round 1 : une ligne de BL déjà consommée par la passe code ne
+    doit jamais être reprise par la passe désignation, même si sa
+    désignation correspond à une autre ligne de facture restée sans
+    correspondance."""
+    fact_1, fact_2, bl_1 = _uuids(3)
+    lignes_facture = [
+        LigneAApparier(cle=fact_1, code="AB1234", designation="Colle"),
+        LigneAApparier(cle=fact_2, code=None, designation="Colle"),
+    ]
+    lignes_bl = [LigneAApparier(cle=bl_1, code="AB1234", designation="Colle")]
+
+    resultat = apparier_lignes(lignes_facture, lignes_bl)
+
+    assert resultat == (
+        Appariement(cle_facture=fact_1, cle_bl=bl_1, methode="code"),
+        Appariement(cle_facture=fact_2, cle_bl=None, methode=None),
+    )
+
+
 def test_apparier_ligne_facture_en_trop_sans_correspondance() -> None:
     fact_1, fact_2, bl_1 = _uuids(3)
     lignes_facture = [
