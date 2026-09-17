@@ -7,20 +7,20 @@ Ordre complet du catalogue (CDC §5, « Ordre d'exécution ») :
    autre règle ne tourne pour cette facture : R10 est alors la seule
    anomalie renvoyée (Ruling R2).
 2. Sinon, pour chaque bloc de la facture, dans l'ordre : R11 sur le BL
-   rapproché à ce bloc, s'il y en a un. Si elle produit une anomalie pour
-   ce bloc, les règles de ligne de ce bloc sont sautées (Ruling R2) — les
-   autres blocs continuent d'être évalués normalement.
-3. Puis, pour chaque bloc, toujours (que R11 se soit déclenchée ou non) :
-   R01 (BL facturé non reçu), R02 (BL facturé « pas de bon »), R12
-   (doublon de facturation) — L4-T2/L4-T4, pas encore écrites.
-4. Puis, pour chaque ligne des blocs non sautés à l'étape 2 : R03, R04,
-   R05, R07, R08, R09, R13, R17 — L4-T3 à L4-T5, pas encore écrites.
+   rapproché à ce bloc, s'il y en a un.
+3. Puis, pour ce même bloc, toujours — que R11 se soit déclenchée ou non,
+   qu'il ait ou non un BL rapproché : R01 (BL facturé non reçu), R02 (BL
+   facturé « pas de bon »), R12 (doublon de facturation) — L4-T2. Ruling R2
+   ne saute jamais les règles de *bloc* : seules les règles de *ligne*
+   (étape 4) le sont, quand R11 se déclenche pour ce bloc.
+4. Puis, pour chaque ligne des blocs dont R11 ne s'est pas déclenchée :
+   R03, R04, R05, R07, R08, R09, R13, R17 — L4-T3 à L4-T5, pas encore
+   écrites. Aucun code n'anticipe ces règles (YAGNI) : ni fonction ni
+   branche vide.
 
-À ce stade (L4-T1), seules les étapes 1 et 2 (R10, R11) sont implémentées :
-les tâches suivantes ajouteront leurs règles dans `_evaluer_bloc` (niveau
-bloc) et une future fonction de niveau ligne, sans toucher à la structure
-ci-dessous. Aucun code n'anticipe ces règles (YAGNI) : ni fonction ni
-branche vide pour R01/R02/R12 ou les règles de ligne.
+L4-T1 posait la structure avec R10/R11 seules ; L4-T2 y ajoute R01/R02/R12
+et restructure `_evaluer_bloc` en conséquence (revue de L4-T1 : la sortie
+précoce sur R11 aurait sauté R01/R02/R12, contraire à Ruling R2).
 
 `evaluer_suivi` (R06, R14, R15, R16, contrôles différés au temps écoulé,
 L4-D14) n'est pas de ce module (L4-T5/T11).
@@ -34,8 +34,11 @@ from app.modules.rules.modeles import (
     FactureControlee,
     Parametres,
 )
+from app.modules.rules.rules.R01 import R01
+from app.modules.rules.rules.R02 import R02
 from app.modules.rules.rules.R10 import R10
 from app.modules.rules.rules.R11 import R11
+from app.modules.rules.rules.R12 import R12
 
 
 def evaluer_facture(
@@ -48,19 +51,26 @@ def evaluer_facture(
 
     anomalies: list[Anomalie] = []
     for bloc in facture.blocs:
-        anomalies.extend(_evaluer_bloc(bloc, parametres))
+        anomalies.extend(_evaluer_bloc(bloc, parametres, facture.document.numero))
     return tuple(anomalies)
 
 
-def _evaluer_bloc(bloc: BlocControle, parametres: Parametres) -> tuple[Anomalie, ...]:
-    """Règles de niveau bloc pour un bloc de la facture. R01, R02 et R12
-    (toujours évaluées, indépendamment de R11) rejoindront cette fonction à
-    partir de L4-T2/L4-T4 ; les règles de ligne rejoindront une nouvelle
-    fonction appelée d'ici, sautée si R11 se déclenche (Ruling R2)."""
-    if bloc.bl is None:
-        return ()
+def _evaluer_bloc(
+    bloc: BlocControle, parametres: Parametres, facture_numero: str | None
+) -> tuple[Anomalie, ...]:
+    """Règles de niveau bloc (L4-T2) : R11 (si un BL est rapproché), puis
+    R01, R02 et R12, **toujours** évaluées (Ruling R2 — seules les règles
+    de ligne, pas encore écrites, seront sautées ici même quand R11 se
+    déclenche)."""
+    anomalies: list[Anomalie] = []
 
-    anomalie_r11 = R11(bloc.bl, parametres)
-    if anomalie_r11 is not None:
-        return (anomalie_r11,)
-    return ()
+    if bloc.bl is not None:
+        anomalie_r11 = R11(bloc.bl, parametres)
+        if anomalie_r11 is not None:
+            anomalies.append(anomalie_r11)
+
+    for anomalie in (R01(bloc), R02(bloc), R12(bloc, facture_numero)):
+        if anomalie is not None:
+            anomalies.append(anomalie)
+
+    return tuple(anomalies)
