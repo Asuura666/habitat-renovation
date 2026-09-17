@@ -35,6 +35,7 @@ services:
       DOCS_DIR: /srv/docs
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN manquant}"
       TELEGRAM_WEBHOOK_SECRET: "${TELEGRAM_WEBHOOK_SECRET:?TELEGRAM_WEBHOOK_SECRET manquant}"
+      MISTRAL_API_KEY: "${MISTRAL_API_KEY:?MISTRAL_API_KEY manquant}"
     depends_on:
       postgres:
         condition: service_healthy

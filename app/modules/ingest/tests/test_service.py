@@ -8,6 +8,7 @@ import asyncio
 import logging
 import uuid
 from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlalchemy import select
@@ -19,6 +20,31 @@ from app.modules.ingest.service import enregistrer_update, traiter_fichier
 from app.modules.messaging.base import FichierEntrant, FichierTelecharge
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
+
+NUMERO_BL_INVENTE = "L209900000123"
+
+
+async def _ocr_avec_numero_bl(contenu: bytes, mime: str) -> dict[str, Any]:
+    """Faux OCR (T6b) : réponse portant un numéro de BL détectable, utilisé
+    par les tests qui ne portent pas sur l'OCR lui-même (le document doit
+    rester `recu`)."""
+    return {"pages": [{"markdown": f"LIVRAISON N°{NUMERO_BL_INVENTE}"}]}
+
+
+async def _ocr_sans_numero_bl(contenu: bytes, mime: str) -> dict[str, Any]:
+    """Faux OCR (T6b) : réponse sans motif de numéro de BL reconnaissable."""
+    return {"pages": [{"markdown": "texte inventé sans motif de BL"}]}
+
+
+async def _ocr_en_echec(contenu: bytes, mime: str) -> dict[str, Any]:
+    """Faux OCR (T6b) : simule un échec complet de l'appel OCR."""
+    raise RuntimeError("échec factice de l'OCR")
+
+
+async def _ocr_jamais_appele(contenu: bytes, mime: str) -> dict[str, Any]:
+    """Faux OCR (T6b) : prouve que l'OCR n'est jamais appelé quand le
+    document n'a pas pu être enregistré (téléchargement ou base en échec)."""
+    raise AssertionError("l'OCR ne doit pas être appelé dans ce scénario")
 
 
 class MessagerieFactice:
@@ -107,7 +133,9 @@ async def test_traiter_fichier_ecrit_le_fichier_le_document_et_repond(
     messagerie = MessagerieFactice()
     entrant = _entrant(update_id=10)
 
-    await traiter_fichier(entrant, messagerie, sessions_test, tmp_path)
+    await traiter_fichier(
+        entrant, messagerie, sessions_test, tmp_path, _ocr_avec_numero_bl
+    )
 
     documents = (await db_session.execute(select(Document))).scalars().all()
     assert len(documents) == 1
@@ -117,6 +145,7 @@ async def test_traiter_fichier_ecrit_le_fichier_le_document_et_repond(
     assert document.statut == "recu"
     assert document.telegram_message_id == entrant.message_id
     assert document.deposant_id is None
+    assert document.numero == NUMERO_BL_INVENTE
 
     fichiers = list(tmp_path.glob("*.jpg"))
     assert len(fichiers) == 1
@@ -141,7 +170,9 @@ async def test_traiter_fichier_deposant_rempli_si_utilisateur_connu(
     messagerie = MessagerieFactice()
     entrant = _entrant(update_id=11, expediteur_id=4242)
 
-    await traiter_fichier(entrant, messagerie, sessions_test, tmp_path)
+    await traiter_fichier(
+        entrant, messagerie, sessions_test, tmp_path, _ocr_avec_numero_bl
+    )
 
     document = (await db_session.execute(select(Document))).scalar_one()
     assert document.deposant_id == utilisateur.id
@@ -155,7 +186,9 @@ async def test_traiter_fichier_deposant_null_si_utilisateur_inconnu(
     messagerie = MessagerieFactice()
     entrant = _entrant(update_id=12, expediteur_id=999999)
 
-    await traiter_fichier(entrant, messagerie, sessions_test, tmp_path)
+    await traiter_fichier(
+        entrant, messagerie, sessions_test, tmp_path, _ocr_avec_numero_bl
+    )
 
     document = (await db_session.execute(select(Document))).scalar_one()
     assert document.deposant_id is None
@@ -171,7 +204,9 @@ async def test_traiter_fichier_echec_telechargement_necrit_rien(
     entrant = _entrant(update_id=13)
 
     with caplog.at_level(logging.ERROR, logger="app.modules.ingest.service"):
-        await traiter_fichier(entrant, messagerie, sessions_test, tmp_path)
+        await traiter_fichier(
+            entrant, messagerie, sessions_test, tmp_path, _ocr_jamais_appele
+        )
 
     assert (await db_session.execute(select(Document))).scalars().all() == []
     assert list(tmp_path.iterdir()) == []
@@ -199,8 +234,87 @@ async def test_traiter_fichier_echec_base_supprime_le_fichier_ecrit(
     messagerie = MessagerieFactice()
     entrant = _entrant(update_id=14)
 
-    await traiter_fichier(entrant, messagerie, sessions_test, tmp_path)
+    await traiter_fichier(
+        entrant, messagerie, sessions_test, tmp_path, _ocr_jamais_appele
+    )
 
     assert list(tmp_path.iterdir()) == []
     assert (await db_session.execute(select(Document))).scalars().all() == []
     assert messagerie.reponses == []
+
+
+# --------------------------------------------------------------------------
+# OCR (T6b) : numéro détecté, non détecté, échec de l'appel OCR lui-même.
+# Le dépôt du fichier est déjà acquis avant l'OCR (décision du contrôleur
+# T6b) : dans les trois cas, le document existe et la réponse « reçu » part.
+# --------------------------------------------------------------------------
+
+
+async def test_traiter_fichier_numero_bl_detecte_remplit_numero_et_type(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    tmp_path: Path,
+) -> None:
+    messagerie = MessagerieFactice()
+    entrant = _entrant(update_id=20)
+
+    await traiter_fichier(
+        entrant, messagerie, sessions_test, tmp_path, _ocr_avec_numero_bl
+    )
+
+    document = (await db_session.execute(select(Document))).scalar_one()
+    assert document.numero == NUMERO_BL_INVENTE
+    assert document.type == "bl"
+    assert document.statut == "recu"
+    assert document.ocr_brut == {
+        "pages": [{"markdown": f"LIVRAISON N°{NUMERO_BL_INVENTE}"}]
+    }
+    assert messagerie.reponses == [(entrant.chat_id, entrant.message_id, "reçu")]
+
+
+async def test_traiter_fichier_numero_bl_non_detecte_statut_a_verifier(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    tmp_path: Path,
+) -> None:
+    messagerie = MessagerieFactice()
+    entrant = _entrant(update_id=21)
+
+    await traiter_fichier(
+        entrant, messagerie, sessions_test, tmp_path, _ocr_sans_numero_bl
+    )
+
+    document = (await db_session.execute(select(Document))).scalar_one()
+    assert document.numero is None
+    assert document.statut == "a_verifier"
+    assert document.ocr_brut == {
+        "pages": [{"markdown": "texte inventé sans motif de BL"}]
+    }
+    # Le dépôt reste acquis : la réponse « reçu » part malgré l'absence de
+    # numéro détecté.
+    assert messagerie.reponses == [(entrant.chat_id, entrant.message_id, "reçu")]
+
+
+async def test_traiter_fichier_ocr_en_echec_document_garde_recu_sans_numero(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    messagerie = MessagerieFactice()
+    entrant = _entrant(update_id=22)
+
+    with caplog.at_level(logging.ERROR, logger="app.modules.ingest.service"):
+        await traiter_fichier(
+            entrant, messagerie, sessions_test, tmp_path, _ocr_en_echec
+        )
+
+    document = (await db_session.execute(select(Document))).scalar_one()
+    assert document.statut == "recu"
+    assert document.numero is None
+    assert document.ocr_brut is None
+    # Le dépôt est acquis quoi qu'il arrive : la réponse « reçu » part même
+    # si l'OCR échoue complètement.
+    assert messagerie.reponses == [(entrant.chat_id, entrant.message_id, "reçu")]
+    assert str(entrant.update_id) in caplog.text
+    assert "contenu-invente-du-fichier" not in caplog.text

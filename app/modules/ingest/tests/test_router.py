@@ -23,13 +23,25 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings, get_settings
 from app.modules.ingest.models import Document, TelegramUpdate, Utilisateur
-from app.modules.ingest.router import get_messagerie, router
+from app.modules.ingest.router import get_messagerie, get_ocr, router
 from app.modules.messaging.base import FichierEntrant, FichierTelecharge
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
 
 SECRET_TEST = "secret-webhook-invente-pour-les-tests"
 TOKEN_TEST = "000000:jamais-appele-messagerie-surchargee"
+CLE_MISTRAL_TEST = "cle-mistral-jamais-appelee-ocr-surcharge"
+NUMERO_BL_TEST = "L209900000123"
+
+
+async def _ocr_test(contenu: bytes, mime: str) -> dict[str, Any]:
+    """Faux OCR (T6b), surchargé via `get_ocr` : jamais de client HTTP réel
+    dans ces tests de webhook. Renvoie un numéro de BL détectable pour que
+    le document reste `recu` (comportement par défaut attendu par ces
+    tests, centrés sur le webhook et non sur l'OCR lui-même — voir
+    `app/modules/ingest/tests/test_service.py` pour les tests dédiés à
+    l'OCR)."""
+    return {"pages": [{"markdown": f"LIVRAISON N°{NUMERO_BL_TEST}"}]}
 
 
 class MessagerieFactice:
@@ -63,8 +75,10 @@ def _app_test(
         docs_dir=docs_dir,
         telegram_bot_token=SecretStr(TOKEN_TEST),
         telegram_webhook_secret=SecretStr(SECRET_TEST),
+        mistral_api_key=SecretStr(CLE_MISTRAL_TEST),
     )
     app_test.dependency_overrides[get_messagerie] = lambda: messagerie
+    app_test.dependency_overrides[get_ocr] = lambda: _ocr_test
     return app_test
 
 

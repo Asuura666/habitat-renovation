@@ -10,10 +10,15 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
 from app.modules.extract.ocr import (
+    NumeroBL,
+    TypeBL,
     date_fr,
     decimal_fr,
     decouper_ligne_tableau,
+    detecter_numero_bl,
     diviser_valeurs_empilees,
     est_ligne_empilee,
     est_separateur,
@@ -114,3 +119,75 @@ def test_diviser_valeurs_empilees_zippe_les_colonnes() -> None:
     resultat = diviser_valeurs_empilees(["1,00 2,00", "10,00 20,00", "5"])
 
     assert resultat == [["1,00", "10,00", "5"], ["2,00", "20,00", "5"]]
+
+
+# --------------------------------------------------------------------------
+# detecter_numero_bl (T6b, module PUR : reçoit du texte déjà OCRisé, aucun
+# appel réseau). Tous les numéros sont inventés, au format observé (décision
+# du contrôleur T6b) : Unikalo préfixe le numéro par « L », Point.P non.
+# --------------------------------------------------------------------------
+
+
+def test_detecter_numero_bl_livraison_type_bl_avec_prefixe_l() -> None:
+    texte = "LIVRAISON N°L209900000123\nSuite du bon de livraison inventé."
+
+    resultat = detecter_numero_bl(texte)
+
+    assert resultat == NumeroBL(numero="L209900000123", type_bl=TypeBL.LIVRAISON)
+
+
+def test_detecter_numero_bl_enlevement_type_enlevement_sans_prefixe() -> None:
+    texte = "Bon d'enlèvement N° 9900001234\nSuite du bon inventé."
+
+    resultat = detecter_numero_bl(texte)
+
+    assert resultat == NumeroBL(numero="9900001234", type_bl=TypeBL.ENLEVEMENT)
+
+
+@pytest.mark.parametrize(
+    "texte",
+    [
+        "LIVRAISON N°L209900000123",
+        "LIVRAISON N° L209900000123",
+        "LIVRAISON No L209900000123",
+        "LIVRAISON N0L209900000123",
+    ],
+    ids=["N-degre-colle", "N-degre-espace", "No-espace", "N0-colle"],
+)
+def test_detecter_numero_bl_tolere_les_n_degre_mal_lus(texte: str) -> None:
+    """« N° » mal lu par l'OCR sous ses variantes observées : même numéro
+    dans tous les cas."""
+    resultat = detecter_numero_bl(texte)
+
+    assert resultat == NumeroBL(numero="L209900000123", type_bl=TypeBL.LIVRAISON)
+
+
+def test_detecter_numero_bl_insensible_a_la_casse_et_aux_accents_mal_lus() -> None:
+    """Casse quelconque et accent de « enlèvement » mal lu (« enlevement »,
+    sans accent) : reconnu quand même."""
+    texte = "bon d'enlevement n°9900001234"
+
+    resultat = detecter_numero_bl(texte)
+
+    assert resultat == NumeroBL(numero="9900001234", type_bl=TypeBL.ENLEVEMENT)
+
+
+def test_detecter_numero_bl_aucun_motif_renvoie_none() -> None:
+    texte = "Facture n° 2026-0842 du 01/08/2026, aucun motif de BL ici."
+
+    assert detecter_numero_bl(texte) is None
+
+
+def test_detecter_numero_bl_deux_numeros_distincts_renvoie_none() -> None:
+    """Ambigu : jamais deviné, le document part en `a_verifier`."""
+    texte = "LIVRAISON N°L209900000123 ... LIVRAISON N°L209900000456"
+
+    assert detecter_numero_bl(texte) is None
+
+
+def test_detecter_numero_bl_meme_numero_repete_est_accepte() -> None:
+    texte = "LIVRAISON N°L209900000123 ... rappel LIVRAISON N°L209900000123"
+
+    resultat = detecter_numero_bl(texte)
+
+    assert resultat == NumeroBL(numero="L209900000123", type_bl=TypeBL.LIVRAISON)

@@ -80,3 +80,27 @@ aucune entrée tant qu'aucune simplification n'a été prise.
   structuré de l'OCR : à confirmer si une deuxième facture Unikalo révèle
   une mise en page différente (bandeau sur une seule ligne, absence de
   titre markdown pour le client, etc.).
+
+## T6b — extract/ingest (détection du numéro de BL sur photo, OCR Mistral minimal)
+
+- **Pas de nouvelle tentative automatique après un échec d'OCR.** Si l'appel
+  à l'API Mistral OCR échoue (réseau, timeout, statut HTTP), le document
+  reste `recu` sans `numero` ni `ocr_brut`, et rien ne relance
+  automatiquement l'OCR plus tard. Ne couvre pas un mécanisme de reprise :
+  à ajouter (job planifié ou action manuelle) dès le lot où la relecture des
+  documents `a_verifier`/sans numéro est traitée.
+- **Longueur du numéro non contrainte dans `detecter_numero_bl`.** Les
+  motifs acceptent `L\d+` (Unikalo) et `\d+` (Point.P) sans imposer une
+  longueur exacte (12 et 10 chiffres respectivement, décision du
+  contrôleur), pour rester robuste à une variation mineure d'un fournisseur
+  à l'autre ou d'une page à l'autre. Ne couvre pas le rejet d'un numéro
+  anormalement court qui matcherait accidentellement le motif (aucun cas de
+  ce type observé sur les fixtures disponibles).
+- **`_mime_pour_extension` sur une extension inconnue.** Le mapping
+  extension -> type MIME (`ingest/service.py`) ne couvre que les extensions
+  réellement produites par `Messagerie.telecharger` (images Telegram
+  usuelles + PDF). Une extension hors de cette liste retombe sur
+  `application/octet-stream`, envoyée à Mistral comme un `document_url` (pas
+  un `image_url`) : ne couvre pas un format de fichier inattendu, qui
+  échouerait alors côté Mistral (capté comme un échec d'OCR ordinaire,
+  document conservé `recu` sans numéro).

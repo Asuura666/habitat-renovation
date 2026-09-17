@@ -17,6 +17,7 @@ from app.core.config import Settings
 
 TOKEN_INVENTE = "000000:token-invente-pour-les-tests"
 SECRET_INVENTE = "secret-webhook-invente-pour-les-tests"
+CLE_MISTRAL_INVENTEE = "cle-mistral-invente-pour-les-tests"
 
 
 def _regler_environnement_complet(
@@ -26,6 +27,7 @@ def _regler_environnement_complet(
     monkeypatch.setenv("DOCS_DIR", str(docs_dir))
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN_INVENTE)
     monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", SECRET_INVENTE)
+    monkeypatch.setenv("MISTRAL_API_KEY", CLE_MISTRAL_INVENTEE)
 
 
 def test_toutes_les_variables_presentes(
@@ -40,6 +42,7 @@ def test_toutes_les_variables_presentes(
     assert settings.docs_dir == docs_dir
     assert settings.telegram_bot_token.get_secret_value() == TOKEN_INVENTE
     assert settings.telegram_webhook_secret.get_secret_value() == SECRET_INVENTE
+    assert settings.mistral_api_key.get_secret_value() == CLE_MISTRAL_INVENTEE
 
 
 def test_telegram_bot_token_manquant_leve_et_nomme_la_variable(
@@ -78,6 +81,30 @@ def test_telegram_bot_token_absent_du_repr_de_settings(
 
     assert TOKEN_INVENTE not in repr(settings)
     assert SECRET_INVENTE not in repr(settings)
+
+
+def test_mistral_api_key_manquante_leve_et_nomme_la_variable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+    monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert "mistral_api_key" in str(exc_info.value)
+
+
+def test_mistral_api_key_absente_du_repr_de_settings(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Même exigence que le token Telegram (`SecretStr`) : la clé Mistral ne
+    doit jamais apparaître dans un affichage accidentel de `Settings`."""
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert CLE_MISTRAL_INVENTEE not in repr(settings)
 
 
 def test_database_url_manquante_leve_et_nomme_la_variable(

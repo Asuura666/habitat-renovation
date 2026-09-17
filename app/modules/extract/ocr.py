@@ -26,8 +26,10 @@ Forme observée de la réponse (`table_format: "markdown"`) :
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from enum import StrEnum
 from typing import Any
 
 # Un nombre français avec espaces de milliers (espace normal, insécable ou
@@ -98,6 +100,80 @@ def texte_ocr(reponse: dict[str, Any]) -> str:
     if not isinstance(pages, list):
         return ""
     return "\n".join(_texte_page(page) for page in pages if isinstance(page, dict))
+
+
+# --------------------------------------------------------------------------
+# Détection du numéro de BL sur une photo (T6b, OCR Mistral minimal)
+#
+# Contrairement à une facture (couche texte structurée en tableaux),
+# une photo de BL n'a que du texte libre : `detecter_numero_bl` prend le
+# texte déjà obtenu via `texte_ocr` (jamais la réponse OCR brute) et cherche
+# le motif « <mot-clé> N° <numéro> » écrit en haut du document (Q5 du brief,
+# option a). Aucun appel réseau, aucun log ici (module PUR, R17).
+#
+# Formats réels observés (valeurs à NE PAS recopier, décision du contrôleur
+# T6b) : Unikalo imprime « LIVRAISON N°L » suivi de 12 chiffres (le préfixe
+# « L » fait partie du numéro) ; Point.P imprime « Bon d'enlèvement N° »
+# suivi de 10 chiffres, sans préfixe. Les tests n'utilisent que des numéros
+# inventés de même forme (ex. « L209900000123 », « 9900001234 »).
+#
+# Tolérance OCR : « N° » est régulièrement mal lu (« N °», « No », « N0 »),
+# avec ou sans espace avant le numéro ; la casse et l'accent d'« enlèvement »
+# (rendu parfois « enlevement ») sont ignorés. Deux numéros distincts trouvés
+# dans le texte -> ambigu, jamais deviné : `None` (le document part en
+# `a_verifier`, décision du contrôleur T6b sur `traiter_fichier`).
+# --------------------------------------------------------------------------
+
+
+class TypeBL(StrEnum):
+    """Nature du bon détecté sur la photo."""
+
+    LIVRAISON = "bl"
+    ENLEVEMENT = "enlevement"
+
+
+@dataclass(frozen=True)
+class NumeroBL:
+    """Numéro de BL détecté, normalisé (sans espace, préfixe `L` en
+    majuscule pour Unikalo)."""
+
+    numero: str
+    type_bl: TypeBL
+
+
+# "N°" mal lu : "N°", "N °", "No", "N0", avec espaces tolérés de part et
+# d'autre du symbole (mais le symbole lui-même — un de ces quatre — reste
+# obligatoire, pour ne pas confondre un "N" isolé ailleurs dans le texte
+# avec ce motif).
+_N_DEGRE_RE = r"N\s*(?:°|[oO]|0)\s*"
+
+_MOTIF_LIVRAISON_RE = re.compile(
+    rf"LIVRAISON\s+{_N_DEGRE_RE}(?P<numero>L\d+)", re.IGNORECASE
+)
+_MOTIF_ENLEVEMENT_RE = re.compile(
+    rf"ENL[EÈÉ]VEMENT\s+{_N_DEGRE_RE}(?P<numero>\d+)", re.IGNORECASE
+)
+
+
+def detecter_numero_bl(texte_ocr: str) -> NumeroBL | None:
+    """Détecte le numéro de BL dans le texte OCR d'une photo.
+
+    `None` si aucun motif reconnu, ou si plusieurs numéros distincts sont
+    trouvés (ambigu : ne jamais deviner lequel est le bon). Le même numéro
+    répété plusieurs fois n'est pas ambigu.
+    """
+    candidats: dict[str, TypeBL] = {}
+    for correspondance in _MOTIF_LIVRAISON_RE.finditer(texte_ocr):
+        numero = correspondance.group("numero").upper()
+        candidats.setdefault(numero, TypeBL.LIVRAISON)
+    for correspondance in _MOTIF_ENLEVEMENT_RE.finditer(texte_ocr):
+        numero = correspondance.group("numero")
+        candidats.setdefault(numero, TypeBL.ENLEVEMENT)
+
+    if len(candidats) != 1:
+        return None
+    numero, type_bl = next(iter(candidats.items()))
+    return NumeroBL(numero=numero, type_bl=type_bl)
 
 
 def decouper_ligne_tableau(ligne: str) -> list[str] | None:

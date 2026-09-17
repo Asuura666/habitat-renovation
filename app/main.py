@@ -26,7 +26,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     engine = creer_engine(settings.database_url)
     app.state.engine = engine
     app.state.sessions = creer_sessionmaker(engine)
-    app.state.http = httpx.AsyncClient()
+    # Timeout explicite (minor reporté de la revue T6, corrigé en T6b) :
+    # sans cela, httpx attend indéfiniment un appel qui ne répond jamais
+    # (ex. Telegram inaccessible). 30 s au total, 10 s pour établir la
+    # connexion ; l'appel OCR Mistral (plus long) surcharge ce timeout à
+    # 60 s par requête (voir `ingest/mistral.ocr_document`).
+    app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0))
     try:
         yield
     finally:

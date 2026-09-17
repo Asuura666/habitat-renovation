@@ -1,14 +1,28 @@
 """Orchestration de l'ingestion (D10) : `ingest` est le seul module métier
-autorisé à importer un autre module métier (`messaging`), garde vérifiée par
-`tests/test_frontieres.py`.
+autorisé à importer un autre module métier (`messaging`, `extract`), garde
+vérifiée par `tests/test_frontieres.py`.
 
-Deux responsabilités pour T6 :
-- `enregistrer_update` : dédoublonnage des webhooks Telegram
+Responsabilités :
+- `enregistrer_update` (T6) : dédoublonnage des webhooks Telegram
   (`INSERT ... ON CONFLICT DO NOTHING` sur la clé primaire `update_id` de
   `telegram_update` — atomique côté base, donc sûr même si deux requêtes
   concurrentes portent le même `update_id`) ;
-- `traiter_fichier` : téléchargement, écriture atomique sur disque puis
-  enregistrement du `document` (décisions du contrôleur T6).
+- `traiter_fichier` (T6, complété T6b) : téléchargement, écriture atomique
+  sur disque, enregistrement du `document` (décisions du contrôleur T6),
+  puis OCR et détection du numéro de BL (décisions du contrôleur T6b,
+  ci-dessous).
+
+Décisions du contrôleur T6b sur `traiter_fichier` :
+- Le document est déjà enregistré (`statut="recu"`) avant l'appel OCR : le
+  dépôt est acquis quoi qu'il arrive, y compris si l'OCR échoue.
+- L'OCR est appelé via une fonction injectée (`ocr`), plutôt qu'un appel
+  direct à `app.modules.ingest.mistral.ocr_document` : `ingest/service.py`
+  n'a donc besoin ni de `httpx` ni de la clé API, et les tests substituent
+  un faux OCR sans construire de client HTTP (production : le routeur
+  construit cette fonction à partir du client HTTP du lifespan et de
+  `Settings.mistral_api_key`, voir `ingest/router.py`).
+- La réponse « reçu » part après la tentative d'OCR, dans tous les cas
+  (numéro détecté, non détecté, ou échec complet de l'OCR).
 """
 
 from __future__ import annotations
@@ -17,16 +31,40 @@ import asyncio
 import logging
 import os
 import uuid
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.modules.extract.ocr import detecter_numero_bl, texte_ocr
 from app.modules.ingest.models import Document, TelegramUpdate, Utilisateur
 from app.modules.messaging.base import FichierEntrant, Messagerie
 
 logger = logging.getLogger(__name__)
+
+# Mapping extension de stockage (`FichierTelecharge.extension`, décidée par
+# `Messagerie.telecharger` — pas le type MIME Telegram d'origine, absent pour
+# une photo) -> type MIME attendu par l'API Mistral OCR (`ingest/mistral.py`,
+# `ocr_document`). Mapping explicite, même esprit que
+# `messaging/telegram.py` : pas de bibliothèque `mimetypes` dépendante de la
+# machine.
+_MIME_PAR_EXTENSION: dict[str, str] = {
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "webp": "image/webp",
+    "heic": "image/heic",
+    "heif": "image/heif",
+    "tiff": "image/tiff",
+    "pdf": "application/pdf",
+}
+
+
+def _mime_pour_extension(extension: str) -> str:
+    return _MIME_PAR_EXTENSION.get(extension, "application/octet-stream")
 
 
 def _journaliser_echec(etape: str, update_id: int, exc: Exception) -> None:
@@ -89,19 +127,65 @@ def _ecrire_atomique(
     os.replace(chemin_temporaire, chemin_final)
 
 
+async def _executer_ocr(
+    sessions: async_sessionmaker[AsyncSession],
+    document_id: uuid.UUID,
+    contenu: bytes,
+    mime: str,
+    ocr: Callable[[bytes, str], Awaitable[dict[str, Any]]],
+    update_id: int,
+) -> None:
+    """Appelle l'OCR injecté puis met à jour le document dans une seconde
+    transaction (décisions du contrôleur T6b) :
+    - numéro détecté -> `numero` et `type` remplis, `statut` reste `recu` ;
+    - aucun numéro détecté (absent ou ambigu) -> `numero` reste `NULL`,
+      `statut` passe à `a_verifier` ;
+    - échec de l'OCR lui-même -> rien n'est modifié (document déjà `recu`
+      sans numéro), erreur journalisée sans contenu ni clé API.
+    """
+    try:
+        reponse = await ocr(contenu, mime)
+    except Exception as exc:
+        _journaliser_echec("ocr", update_id, exc)
+        return
+
+    numero_bl = detecter_numero_bl(texte_ocr(reponse))
+
+    try:
+        async with sessions() as session:
+            document = await session.get(Document, document_id)
+            if document is None:
+                return
+            document.ocr_brut = reponse
+            if numero_bl is not None:
+                document.numero = numero_bl.numero
+                document.type = numero_bl.type_bl.value
+                document.statut = "recu"
+            else:
+                document.statut = "a_verifier"
+            await session.commit()
+    except Exception as exc:
+        _journaliser_echec("enregistrement ocr", update_id, exc)
+
+
 async def traiter_fichier(
     entrant: FichierEntrant,
     messagerie: Messagerie,
     sessions: async_sessionmaker[AsyncSession],
     docs_dir: Path,
+    ocr: Callable[[bytes, str], Awaitable[dict[str, Any]]],
 ) -> None:
     """Télécharge le fichier, l'écrit sous `docs_dir/<uuid4>.<ext>`, insère
-    le `document` correspondant puis répond « reçu ».
+    le `document` correspondant, tente l'OCR (T6b) puis répond « reçu ».
 
-    En cas d'erreur à n'importe quelle étape, aucun document n'est inséré et
-    aucun fichier partiel ne reste dans `docs_dir` (nettoyage explicite à
-    chaque étape). Ouvre sa propre session (la session de la requête HTTP
-    est déjà fermée quand cette tâche de fond s'exécute).
+    En cas d'erreur de téléchargement, d'écriture ou d'enregistrement du
+    document, aucun document n'est inséré et aucun fichier partiel ne reste
+    dans `docs_dir` (nettoyage explicite à chaque étape) — l'OCR n'est alors
+    jamais appelé. Une fois le document enregistré, le dépôt est acquis :
+    l'OCR est tenté (`_executer_ocr`, qui n'échoue jamais vers l'appelant)
+    puis la réponse « reçu » part dans tous les cas. Ouvre sa propre session
+    (la session de la requête HTTP est déjà fermée quand cette tâche de fond
+    s'exécute).
     """
     try:
         fichier = await messagerie.telecharger(entrant)
@@ -130,16 +214,22 @@ async def traiter_fichier(
     try:
         async with sessions() as session:
             deposant_id = await _resoudre_deposant(session, entrant.expediteur_id)
-            session.add(
-                Document(
-                    type="bl",
-                    source="telegram",
-                    statut="recu",
-                    fichier_path=str(chemin_final),
-                    telegram_message_id=entrant.message_id,
-                    deposant_id=deposant_id,
-                )
+            document = Document(
+                type="bl",
+                source="telegram",
+                statut="recu",
+                fichier_path=str(chemin_final),
+                telegram_message_id=entrant.message_id,
+                deposant_id=deposant_id,
             )
+            session.add(document)
+            # `flush` (pas seulement `commit`) : peuple `document.id`
+            # (`gen_random_uuid()` côté base) pendant que la session est
+            # encore active, pour le passer à `_executer_ocr` juste après —
+            # après `commit`, l'attribut est expiré et sa lecture hors
+            # session lèverait (accès implicite interdit en async).
+            await session.flush()
+            document_id = document.id
             await session.commit()
     except Exception as exc:
         # Le fichier est déjà écrit sur disque : il ne doit pas rester seul
@@ -147,6 +237,19 @@ async def traiter_fichier(
         await asyncio.to_thread(_supprimer_si_existe, chemin_final)
         _journaliser_echec("enregistrement document", entrant.update_id, exc)
         return
+
+    # Le document est déjà enregistré (`statut="recu"`) : le dépôt est
+    # acquis à partir d'ici, y compris si l'OCR échoue complètement
+    # (décision du contrôleur T6b). `_executer_ocr` n'échoue jamais vers
+    # l'appelant (ses erreurs sont journalisées en interne).
+    await _executer_ocr(
+        sessions,
+        document_id,
+        fichier.contenu,
+        _mime_pour_extension(fichier.extension),
+        ocr,
+        entrant.update_id,
+    )
 
     try:
         await messagerie.repondre(entrant.chat_id, entrant.message_id, "reçu")
