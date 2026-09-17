@@ -1,0 +1,19 @@
+"""Agrégateur des routeurs JSON consommés par le front (`/api/...`).
+
+Couche d'entrée (L2-D3) : chaque sous-module de `api` n'importe que
+`app.core` et, s'il a besoin d'orchestrer une action métier, `ingest`
+(jamais `extract`/`normalize`/`rules`/`messaging` directement — garde
+vérifiée par `tests/test_frontieres.py`). Le préfixe `/api` est posé une
+seule fois ici ; chaque sous-module expose un `router` sans préfixe.
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter
+
+from app.modules.api import moi
+
+router = APIRouter(prefix="/api")
+router.include_router(moi.router)
+
+__all__ = ["router"]

@@ -9,10 +9,19 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import NullPool
 
+from app.core.db import Base, creer_sessionmaker
 from tests.conftest import lire_test_database_url, preparer_base
 
 
@@ -32,6 +41,45 @@ def url_base_test_prete() -> str:
     url = lire_test_database_url()
     preparer_base(url)
     return url
+
+
+@pytest.fixture(scope="session")
+def db_engine(url_base_test_prete: str) -> Iterator[AsyncEngine]:
+    # `NullPool` : chaque test tourne dans sa propre boucle asyncio (plugin
+    # anyio), un pool par défaut garderait des connexions asyncpg créées
+    # dans une boucle déjà fermée (mêmes raisons que `tests/conftest.py`).
+    engine = create_async_engine(url_base_test_prete, poolclass=NullPool)
+    yield engine
+
+    async def _fermer() -> None:
+        await engine.dispose()
+
+    asyncio.run(_fermer())
+
+
+@pytest.fixture
+def sessions_test(db_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """Fabrique de sessions branchée sur `bl_test`, utilisée là où le code
+    testé (les dépendances FastAPI de `app.core.auth`) ouvre lui-même ses
+    sessions via `app.state.sessions`."""
+    return creer_sessionmaker(db_engine)
+
+
+@pytest.fixture
+async def db_session(db_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
+    """Session de test pour préparer/observer les données ; toutes les
+    tables sont vidées après le test."""
+    sessionmaker = creer_sessionmaker(db_engine)
+    async with sessionmaker() as session:
+        yield session
+
+    noms_tables = ", ".join(
+        f'"{table.name}"' for table in reversed(Base.metadata.sorted_tables)
+    )
+    async with db_engine.begin() as connexion:
+        await connexion.execute(
+            text(f"TRUNCATE {noms_tables} RESTART IDENTITY CASCADE")
+        )
 
 
 @pytest.fixture

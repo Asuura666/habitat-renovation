@@ -1,12 +1,17 @@
 """Garde-fous d'architecture (règles de frontière du monolithe modulaire).
 
-Deux règles, valables pour toute la durée du projet :
+Trois règles, valables pour toute la durée du projet :
 
 1. Les modules purs (`extract`, `normalize`, `rules`) n'importent aucune
    dépendance d'infrastructure (FastAPI, Starlette, SQLAlchemy, httpx,
    asyncpg). Ils ne manipulent que des dataclasses, sans base ni réseau.
-2. Aucun module métier sous `app/modules/` n'importe un autre module métier,
-   sauf `ingest` qui est le seul orchestrateur autorisé.
+2. `extract`, `normalize`, `rules` et `messaging` n'importent aucun autre
+   module de `app.modules` : ce sont soit des modules purs, soit une
+   messagerie qui ne connaît rien du domaine.
+3. `api` et `jobs` sont des couches d'entrée (L2-D3) : elles peuvent
+   importer `ingest` — le seul orchestrateur métier — mais aucun autre
+   module (`extract`/`normalize`/`rules`/`messaging` directement). `ingest`
+   peut tout importer.
 
 Les vérifications sont faites via `ast` (analyse statique des imports, pas
 d'exécution du code inspecté). Chaque import est résolu en un nom de module
@@ -39,6 +44,8 @@ FORBIDDEN_IMPORTS_IN_PURE_MODULES = (
     "asyncpg",
 )
 ORCHESTRATEUR_AUTORISE = "ingest"
+# L2-D3 : couches d'entrée, autorisées à importer uniquement l'orchestrateur.
+MODULES_ENTREE = ("api", "jobs")
 
 
 def _iter_python_files(directory: Path) -> list[Path]:
@@ -118,14 +125,20 @@ def find_forbidden_imports(
 
 
 def find_cross_module_imports(
-    root: Path, modules_dir: Path, allowed_orchestrator: str
+    root: Path,
+    modules_dir: Path,
+    allowed_orchestrator: str,
+    entry_modules: tuple[str, ...] = (),
 ) -> list[str]:
     """Liste `"fichier:import"` pour tout import d'un autre module métier.
 
     L'orchestrateur `allowed_orchestrator` (ingest) est exempté : c'est le
-    seul module autorisé à importer les autres modules métier. Un import
-    relatif vers le même module (ex. `from .pdf import x` dans `extract`)
-    n'est pas une violation.
+    seul module autorisé à importer n'importe quel autre module métier. Les
+    modules listés dans `entry_modules` (`api`, `jobs`, décision L2-D3)
+    peuvent importer `allowed_orchestrator` sans que ce soit une violation,
+    mais restent bloqués sur tout autre module. Un import relatif vers le
+    même module (ex. `from .pdf import x` dans `extract`) n'est jamais une
+    violation.
     """
     violations: list[str] = []
     if not modules_dir.is_dir():
@@ -139,8 +152,14 @@ def find_cross_module_imports(
                 parts = imported.split(".")
                 if len(parts) >= 3 and parts[0] == "app" and parts[1] == "modules":
                     other_module = parts[2]
-                    if other_module != module_name:
-                        violations.append(f"{path}:{imported}")
+                    if other_module == module_name:
+                        continue
+                    if (
+                        module_name in entry_modules
+                        and other_module == allowed_orchestrator
+                    ):
+                        continue
+                    violations.append(f"{path}:{imported}")
     return violations
 
 
@@ -157,9 +176,9 @@ def test_modules_purs_sans_dependance_infrastructure() -> None:
     assert not violations, f"imports interdits détectés : {violations}"
 
 
-def test_aucun_module_metier_nimporte_un_autre_sauf_ingest() -> None:
+def test_aucun_module_metier_nimporte_un_autre_sauf_ingest_et_couches_entree() -> None:
     violations = find_cross_module_imports(
-        REPO_ROOT, MODULES_DIR, ORCHESTRATEUR_AUTORISE
+        REPO_ROOT, MODULES_DIR, ORCHESTRATEUR_AUTORISE, MODULES_ENTREE
     )
     assert not violations, f"imports croisés interdits détectés : {violations}"
 
@@ -236,7 +255,7 @@ def test_garde_detecte_import_croise_sous_toutes_ses_formes(
     fichier_fautif.write_text(f"{import_statement}\n", encoding="utf-8")
 
     violations = find_cross_module_imports(
-        tmp_path, modules_dir, ORCHESTRATEUR_AUTORISE
+        tmp_path, modules_dir, ORCHESTRATEUR_AUTORISE, MODULES_ENTREE
     )
 
     assert violations == [f"{fichier_fautif}:{attendu}"]
@@ -253,7 +272,7 @@ def test_garde_autorise_import_relatif_intra_module(tmp_path: Path) -> None:
     )
 
     violations = find_cross_module_imports(
-        tmp_path, modules_dir, ORCHESTRATEUR_AUTORISE
+        tmp_path, modules_dir, ORCHESTRATEUR_AUTORISE, MODULES_ENTREE
     )
 
     assert violations == []
@@ -269,7 +288,50 @@ def test_garde_autorise_ingest_a_importer_un_autre_module(tmp_path: Path) -> Non
     fichier.write_text("from app.modules.extract import pdf\n", encoding="utf-8")
 
     violations = find_cross_module_imports(
-        tmp_path, modules_dir, ORCHESTRATEUR_AUTORISE
+        tmp_path, modules_dir, ORCHESTRATEUR_AUTORISE, MODULES_ENTREE
     )
 
     assert violations == []
+
+
+@pytest.mark.parametrize("module_entree", ["api", "jobs"])
+def test_garde_autorise_couche_entree_a_importer_ingest(
+    tmp_path: Path, module_entree: str
+) -> None:
+    """Cas positif (L2-D3) : `api` et `jobs` peuvent importer `ingest`, le
+    seul module métier qu'ils ont le droit d'appeler."""
+    modules_dir = tmp_path / "app" / "modules"
+    (modules_dir / module_entree).mkdir(parents=True)
+    (modules_dir / "ingest").mkdir(parents=True)
+    fichier = modules_dir / module_entree / "routeur.py"
+    fichier.write_text(
+        "from app.modules.ingest.service import faire_quelque_chose\n",
+        encoding="utf-8",
+    )
+
+    violations = find_cross_module_imports(
+        tmp_path, modules_dir, ORCHESTRATEUR_AUTORISE, MODULES_ENTREE
+    )
+
+    assert violations == []
+
+
+@pytest.mark.parametrize("module_entree", ["api", "jobs"])
+@pytest.mark.parametrize("autre_module", ["extract", "normalize", "rules", "messaging"])
+def test_garde_interdit_couche_entree_dimporter_un_module_pur_ou_messaging(
+    tmp_path: Path, module_entree: str, autre_module: str
+) -> None:
+    """Cas négatif (L2-D3) : `api`/`jobs` ne peuvent pas court-circuiter
+    `ingest` en important directement un module métier pur ou `messaging`."""
+    modules_dir = tmp_path / "app" / "modules"
+    (modules_dir / module_entree).mkdir(parents=True)
+    (modules_dir / autre_module).mkdir(parents=True)
+    (modules_dir / "ingest").mkdir(parents=True)
+    fichier = modules_dir / module_entree / "routeur.py"
+    fichier.write_text(f"from app.modules import {autre_module}\n", encoding="utf-8")
+
+    violations = find_cross_module_imports(
+        tmp_path, modules_dir, ORCHESTRATEUR_AUTORISE, MODULES_ENTREE
+    )
+
+    assert violations == [f"{fichier}:app.modules.{autre_module}"]

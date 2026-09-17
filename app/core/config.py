@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     telegram_bot_token: SecretStr
     telegram_webhook_secret: SecretStr
     mistral_api_key: SecretStr
+    cookie_secure: bool
 
 
 @cache

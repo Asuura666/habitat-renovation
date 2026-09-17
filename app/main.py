@@ -14,8 +14,10 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.core.auth import router as auth_router
 from app.core.config import get_settings
 from app.core.db import base_joignable, creer_engine, creer_sessionmaker
+from app.modules.api import router as api_router
 from app.modules.ingest.router import router as ingest_router
 
 settings = get_settings()
@@ -41,6 +43,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(ingest_router)
+app.include_router(auth_router)
+app.include_router(api_router)
 
 
 @app.get("/health")

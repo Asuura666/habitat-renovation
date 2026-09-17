@@ -44,20 +44,22 @@ def _lister_tables(url: str) -> list[str]:
     return asyncio.run(_lister())
 
 
-def test_upgrade_head_cree_les_14_tables_puis_aller_retour(
+def test_upgrade_head_cree_les_15_tables_puis_aller_retour(
     test_database_url: str,
 ) -> None:
+    """14 tables du CDC (migration 0001) + `jeton_session` (migration 0002,
+    L2-T1 : sessions de `DatabaseStrategy`, table d'infrastructure hors CDC)."""
     url = url_base_migrations(test_database_url)
     preparer_base(url)  # crée la base si besoin, puis upgrade head
 
     tables = _lister_tables(url)
-    assert len(tables) == 14
+    assert len(tables) == 15
 
     command.downgrade(_config(url), "base")
     assert _lister_tables(url) == []
 
     command.upgrade(_config(url), "head")
-    assert len(_lister_tables(url)) == 14
+    assert len(_lister_tables(url)) == 15
 
 
 def test_alembic_check_sans_derive(test_database_url: str) -> None:

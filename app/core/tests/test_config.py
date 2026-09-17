@@ -28,6 +28,7 @@ def _regler_environnement_complet(
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN_INVENTE)
     monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", SECRET_INVENTE)
     monkeypatch.setenv("MISTRAL_API_KEY", CLE_MISTRAL_INVENTEE)
+    monkeypatch.setenv("COOKIE_SECURE", "true")
 
 
 def test_toutes_les_variables_presentes(

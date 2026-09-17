@@ -84,7 +84,17 @@ def _updated_by() -> Mapped[uuid.UUID | None]:
 
 
 class Utilisateur(Base):
-    """Comptes applicatifs (admin / agent)."""
+    """Comptes applicatifs (admin / agent).
+
+    Mapping fastapi-users (L2-D1, `app/core/auth.py`) : les colonnes gardent
+    le nom du CDC (`mdp_hash`, `actif`), mais deux attributs Python portent
+    le nom que la bibliothèque attend en accès direct (`SQLAlchemyUserDatabase`,
+    `BaseUserManager.authenticate`, `Authenticator._authenticate`) — obtenu en
+    passant le nom de colonne en premier argument positionnel de
+    `mapped_column`, distinct du nom d'attribut. `is_verified` et
+    `is_superuser` sont dérivés (jamais stockés) : toujours vérifié ; superuser
+    ⇔ `role == 'admin'`.
+    """
 
     __tablename__ = "utilisateur"
     __table_args__ = (
@@ -94,16 +104,27 @@ class Utilisateur(Base):
     id: Mapped[uuid.UUID] = _id()
     email: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     nom: Mapped[str | None] = mapped_column(Text, nullable=True)
-    mdp_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hashed_password: Mapped[str | None] = mapped_column("mdp_hash", Text, nullable=True)
     role: Mapped[str] = mapped_column(Text, nullable=False)
     agence: Mapped[str | None] = mapped_column(Text, nullable=True)
     telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    actif: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("true")
+    is_active: Mapped[bool] = mapped_column(
+        "actif", Boolean, nullable=False, server_default=text("true")
     )
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
     updated_by: Mapped[uuid.UUID | None] = _updated_by()
+
+    @property
+    def is_verified(self) -> bool:
+        """Toujours vrai : le CDC ne prévoit pas de vérification d'e-mail
+        (L2-D1) — attribut dérivé, jamais une colonne."""
+        return True
+
+    @property
+    def is_superuser(self) -> bool:
+        """Dérivé du rôle, jamais stocké (L2-D1) : seule `role` fait foi."""
+        return self.role == "admin"
 
 
 class Fournisseur(Base):
@@ -437,5 +458,36 @@ class TelegramUpdate(Base):
     update_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     recu_le: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_at: Mapped[datetime] = _created_at()
+
+
+class JetonSession(Base):
+    """Jeton de session (`app/core/auth.py`, `DatabaseStrategy` de
+    fastapi-users, L2-D2) : une ligne par connexion active, supprimée à la
+    déconnexion.
+
+    `created_at` sert de double rôle : horodatage de création **et** de
+    dernière activité (expiration glissante). `utilisateur_courant` le
+    rafraîchit au plus toutes les 5 minutes ; `DatabaseStrategy.read_token`
+    traite tout jeton dont `created_at` a plus de 12 h comme expiré (filtre
+    SQL sur `created_at >= now() - 12h`, jamais chargé en Python).
+    L'attribut Python est `user_id` (nom attendu par
+    `SQLAlchemyAccessTokenDatabase`/`AccessTokenProtocol`), porté par la
+    colonne `utilisateur_id` (convention du CDC, comme les autres clés
+    étrangères vers `utilisateur`).
+
+    Table hors des 14 du CDC (ajout d'infrastructure auth) : pas
+    d'`updated_at`/`updated_by` (append/delete-only, comme `telegram_update`).
+    """
+
+    __tablename__ = "jeton_session"
+
+    token: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        "utilisateur_id",
+        UUID(as_uuid=True),
+        ForeignKey("utilisateur.id"),
+        nullable=False,
     )
     created_at: Mapped[datetime] = _created_at()
