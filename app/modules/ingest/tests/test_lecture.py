@@ -27,6 +27,7 @@ from app.modules.ingest.models import (
     BlocFacture,
     Document,
     Fournisseur,
+    Journal,
     Ligne,
     Utilisateur,
 )
@@ -196,6 +197,32 @@ async def _creer_document_bl(
     await db_session.commit()
     await db_session.refresh(document)
     return document
+
+
+async def _creer_journal_confirmation(
+    db_session: AsyncSession,
+    *,
+    document: Document,
+    action: str,
+    utilisateur: Utilisateur | None = None,
+    horodatage: datetime | None = None,
+) -> Journal:
+    """Entrée de journal telle qu'écrite par `_decider_clic`
+    (`quantites_verifiees`/`ecart_constate`), construite directement (pas via
+    `traiter_clic`, testé dans `test_service.py`) : ce fichier teste
+    `lister_documents` en isolation (Ruling L2-R8)."""
+    entree = Journal(
+        utilisateur_id=utilisateur.id if utilisateur is not None else None,
+        action=action,
+        cible_table="document",
+        cible_id=str(document.id),
+    )
+    if horodatage is not None:
+        entree.horodatage = horodatage
+    db_session.add(entree)
+    await db_session.commit()
+    await db_session.refresh(entree)
+    return entree
 
 
 # --------------------------------------------------------------------------
@@ -655,6 +682,124 @@ async def test_lister_documents_sans_deposant_ni_confirmateur(
 
     assert resultat[0].deposant is None
     assert resultat[0].confirme_par is None
+
+
+# --------------------------------------------------------------------------
+# lister_documents — confirmation (Ruling L2-R8, revue L2-T7 tour 1/5)
+#
+# Constat de revue corrigé ici : `statut` seul ne dit jamais si un document
+# a été confirmé « vérifié » ou « écart » — un document `a_verifier` (OCR
+# sans numéro de BL détecté, voir `traiter_fichier`) peut tout à fait
+# recevoir ensuite « Quantités vérifiées ». `confirmation` est donc dérivée
+# du journal, jamais de `statut`.
+# --------------------------------------------------------------------------
+
+
+async def test_lister_documents_confirmation_verifiee_meme_si_statut_a_verifier(
+    db_session: AsyncSession,
+) -> None:
+    admin = await _creer_utilisateur(db_session, role="admin")
+    confirmateur = await _creer_utilisateur(db_session, role="agent")
+    # Statut `a_verifier` d'origine OCR (numéro de BL non détecté), sans lien
+    # avec l'action de confirmation reçue ensuite : c'est exactement le cas
+    # que `statut` seul interprétait à tort comme un écart.
+    document = await _creer_document_bl(
+        db_session,
+        numero=None,
+        statut="a_verifier",
+        confirme_par=confirmateur,
+        confirme_le=_instant(0),
+    )
+    await _creer_journal_confirmation(
+        db_session,
+        document=document,
+        action="quantites_verifiees",
+        utilisateur=confirmateur,
+    )
+
+    resultat = await lister_documents(
+        db_session, utilisateur_id=admin.id, role="admin", depuis=None, limite=100
+    )
+
+    assert len(resultat) == 1
+    assert resultat[0].confirmation == "verifiee"
+
+
+async def test_lister_documents_confirmation_ecart(db_session: AsyncSession) -> None:
+    admin = await _creer_utilisateur(db_session, role="admin")
+    confirmateur = await _creer_utilisateur(db_session, role="agent")
+    document = await _creer_document_bl(
+        db_session,
+        numero="L360",
+        statut="a_verifier",
+        confirme_par=confirmateur,
+        confirme_le=_instant(0),
+    )
+    await _creer_journal_confirmation(
+        db_session, document=document, action="ecart_constate", utilisateur=confirmateur
+    )
+
+    resultat = await lister_documents(
+        db_session, utilisateur_id=admin.id, role="admin", depuis=None, limite=100
+    )
+
+    assert len(resultat) == 1
+    assert resultat[0].confirmation == "ecart"
+
+
+async def test_lister_documents_confirmation_absente_sans_clic(
+    db_session: AsyncSession,
+) -> None:
+    admin = await _creer_utilisateur(db_session, role="admin")
+    await _creer_document_bl(db_session, numero="L361")
+
+    resultat = await lister_documents(
+        db_session, utilisateur_id=admin.id, role="admin", depuis=None, limite=100
+    )
+
+    assert len(resultat) == 1
+    assert resultat[0].confirmation is None
+
+
+async def test_lister_documents_confirmation_sans_n_plus_1(
+    db_session: AsyncSession, db_engine: AsyncEngine
+) -> None:
+    """La jointure vers `journal` (confirmation, Ruling L2-R8) ne doit pas
+    ajouter de requête par document : toujours une seule requête au total,
+    quel que soit le nombre de documents."""
+    admin = await _creer_utilisateur(db_session, role="admin")
+    confirmateur = await _creer_utilisateur(db_session, role="agent")
+    for indice in range(3):
+        document = await _creer_document_bl(
+            db_session,
+            numero=f"L-N1-DOC-{indice}",
+            confirme_par=confirmateur,
+            confirme_le=_instant(indice),
+        )
+        action = "quantites_verifiees" if indice % 2 == 0 else "ecart_constate"
+        await _creer_journal_confirmation(
+            db_session, document=document, action=action, utilisateur=confirmateur
+        )
+
+    compteur = {"n": 0}
+
+    def _avant_execution(*args: object, **kwargs: object) -> None:
+        compteur["n"] += 1
+
+    sync_engine: Engine = db_engine.sync_engine
+    event.listen(sync_engine, "before_cursor_execute", _avant_execution)
+    try:
+        resultat = await lister_documents(
+            db_session, utilisateur_id=admin.id, role="admin", depuis=None, limite=100
+        )
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _avant_execution)
+
+    assert len(resultat) == 3
+    assert {document.confirmation for document in resultat} == {"verifiee", "ecart"}
+    # Une seule requête (jointure sur une sous-requête), jamais une par
+    # document.
+    assert compteur["n"] <= 1
 
 
 # --------------------------------------------------------------------------

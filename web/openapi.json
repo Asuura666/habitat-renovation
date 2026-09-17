@@ -656,6 +656,21 @@
        }
       ],
       "title": "Photo Compressee"
+     },
+     "confirmation": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "verifiee",
+         "ecart"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confirmation"
      }
     },
     "type": "object",
@@ -669,10 +684,11 @@
      "cree_le",
      "confirme_le",
      "confirme_par",
-     "photo_compressee"
+     "photo_compressee",
+     "confirmation"
     ],
     "title": "DocumentReponse",
-    "description": "Une ligne de `GET /api/documents`."
+    "description": "Une ligne de `GET /api/documents` (`confirmation` ajouté au Ruling\nL2-R8, correction de revue L2-T7 : le front ne doit plus dériver\nvérifié/écart à partir de `statut`, qui suit une tout autre logique —\nvoir `ingest/service.py::lister_documents`)."
    },
    "FactureDeposeeReponse": {
     "properties": {

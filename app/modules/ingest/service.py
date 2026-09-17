@@ -72,7 +72,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select, update
+from sqlalchemy import String, cast, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -121,6 +121,20 @@ _TEXTES_CONFIRMATION: dict[str, tuple[str, str]] = {
         "Quantités vérifiées",
     ),
     PREFIXE_ECART_CONSTATE: ("Écart enregistré", "Écart constaté"),
+}
+
+# Ruling L2-R8 (revue L2-T7, tour 1/5, correction) : `GET /api/documents`
+# expose un champ `confirmation` explicite, dérivé de la **dernière** entrée
+# de `journal` ciblant ce document parmi les deux actions ci-dessus — jamais
+# de `statut` (constat de revue : un document passé `a_verifier` par l'OCR,
+# faute de numéro de BL détecté, peut tout à fait recevoir « Quantités
+# vérifiées » ensuite ; `statut == "a_verifier"` ne permet pas de distinguer
+# ce cas d'un « Écart constaté », le front affichait alors « Écart signalé »
+# à tort). Réutilise les valeurs de `_ACTIONS_JOURNAL` (jamais de littéral
+# dupliqué).
+_CONFIRMATION_PAR_ACTION: dict[str, str] = {
+    "quantites_verifiees": "verifiee",
+    "ecart_constate": "ecart",
 }
 
 logger = logging.getLogger(__name__)
@@ -1429,7 +1443,8 @@ async def facture_detail(session: AsyncSession, facture_id: uuid.UUID) -> Factur
 
 @dataclass(frozen=True)
 class DocumentResume:
-    """Une ligne de `GET /api/documents` (L2-T5)."""
+    """Une ligne de `GET /api/documents` (L2-T5, `confirmation` ajouté au
+    Ruling L2-R8)."""
 
     id: uuid.UUID
     numero_interne: int
@@ -1441,6 +1456,9 @@ class DocumentResume:
     confirme_le: datetime | None
     confirme_par: str | None
     photo_compressee: bool | None
+    # "verifiee" | "ecart" | None (Ruling L2-R8) — jamais dérivé de `statut`
+    # côté front, voir `_CONFIRMATION_PAR_ACTION` ci-dessus.
+    confirmation: str | None
 
 
 LIMITE_DOCUMENTS_MIN = 1
@@ -1462,10 +1480,30 @@ async def lister_documents(
     déposés. Triés par `created_at` décroissant ; `depuis` filtre sur
     `created_at >= depuis` (borne incluse) ; `limite` borne le nombre de
     lignes (validée par le routeur, `1..500`). Une seule requête (jointures
-    sur le déposant et le confirmateur), jamais de N+1.
+    sur le déposant, le confirmateur et la confirmation), jamais de N+1.
+
+    `confirmation` (Ruling L2-R8, correction de revue L2-T7) : dérivée du
+    **journal**, jamais de `statut` — `_DERNIER_JOURNAL_CONFIRMATION`
+    présélectionne, par document (`DISTINCT ON`, PostgreSQL), la dernière
+    action `quantites_verifiees`/`ecart_constate` le ciblant ; en pratique au
+    plus une seule existe déjà (le premier clic fait foi, `_decider_clic`),
+    mais `DISTINCT ON ... ORDER BY horodatage DESC` reste correct si cela
+    changeait. Une jointure externe sur cette sous-requête, pas une requête
+    par document.
     """
     deposant_alias = aliased(Utilisateur)
     confirmateur_alias = aliased(Utilisateur)
+
+    dernier_journal_confirmation = (
+        select(Journal.cible_id, Journal.action)
+        .where(
+            Journal.cible_table == "document",
+            Journal.action.in_(tuple(_CONFIRMATION_PAR_ACTION)),
+        )
+        .distinct(Journal.cible_id)
+        .order_by(Journal.cible_id, Journal.horodatage.desc())
+        .subquery()
+    )
 
     conditions = [
         Document.type.in_(("bl", "enlevement")),
@@ -1481,9 +1519,14 @@ async def lister_documents(
             Document,
             func.coalesce(deposant_alias.nom, deposant_alias.email),
             func.coalesce(confirmateur_alias.nom, confirmateur_alias.email),
+            dernier_journal_confirmation.c.action,
         )
         .outerjoin(deposant_alias, deposant_alias.id == Document.deposant_id)
         .outerjoin(confirmateur_alias, confirmateur_alias.id == Document.confirme_par)
+        .outerjoin(
+            dernier_journal_confirmation,
+            dernier_journal_confirmation.c.cible_id == cast(Document.id, String),
+        )
         .where(*conditions)
         .order_by(Document.created_at.desc())
         .limit(limite)
@@ -1500,8 +1543,11 @@ async def lister_documents(
             confirme_le=document.confirme_le,
             confirme_par=nom_confirmateur,
             photo_compressee=document.photo_compressee,
+            confirmation=_CONFIRMATION_PAR_ACTION.get(action_journal)
+            if action_journal is not None
+            else None,
         )
-        for document, nom_deposant, nom_confirmateur in resultat.all()
+        for document, nom_deposant, nom_confirmateur, action_journal in resultat.all()
     ]
 
 

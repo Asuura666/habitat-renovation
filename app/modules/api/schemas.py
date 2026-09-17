@@ -18,6 +18,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -88,7 +89,10 @@ class FactureDetailReponse(BaseModel):
 
 
 class DocumentReponse(BaseModel):
-    """Une ligne de `GET /api/documents`."""
+    """Une ligne de `GET /api/documents` (`confirmation` ajouté au Ruling
+    L2-R8, correction de revue L2-T7 : le front ne doit plus dériver
+    vérifié/écart à partir de `statut`, qui suit une tout autre logique —
+    voir `ingest/service.py::lister_documents`)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -102,3 +106,4 @@ class DocumentReponse(BaseModel):
     confirme_le: datetime | None
     confirme_par: str | None
     photo_compressee: bool | None
+    confirmation: Literal["verifiee", "ecart"] | None

@@ -4,10 +4,12 @@
  *
  * Les montants viennent de l'API sous forme de chaîne décimale (Pydantic
  * sérialise les `Decimal` en `str`, jamais en `float` — voir
- * `app/modules/api/schemas.py`). `Intl.NumberFormat.format` accepte cette
- * chaîne directement (ECMA-402 : la valeur est convertie en valeur
- * mathématique exacte, `ToIntlMathematicalValue`) : aucune arithmétique en
- * virgule flottante n'est introduite côté front.
+ * `app/modules/api/schemas.py`). Cette chaîne décimale est acceptée par
+ * `Intl.NumberFormat.format` depuis la spécification « Intl.NumberFormat
+ * v3 » (navigateurs récents) : aucune arithmétique en virgule flottante
+ * n'est introduite côté front pour la formater (correction de revue L2-T7,
+ * tour 1/5 : la mention précédente de ce commentaire sur-évaluait la portée
+ * de la garantie ECMA-402).
  */
 
 const FORMATEUR_MONTANT = new Intl.NumberFormat("fr-FR", {

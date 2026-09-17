@@ -255,7 +255,10 @@ export interface components {
         };
         /**
          * DocumentReponse
-         * @description Une ligne de `GET /api/documents`.
+         * @description Une ligne de `GET /api/documents` (`confirmation` ajouté au Ruling
+         *     L2-R8, correction de revue L2-T7 : le front ne doit plus dériver
+         *     vérifié/écart à partir de `statut`, qui suit une tout autre logique —
+         *     voir `ingest/service.py::lister_documents`).
          */
         DocumentReponse: {
             /**
@@ -284,6 +287,8 @@ export interface components {
             confirme_par: string | null;
             /** Photo Compressee */
             photo_compressee: boolean | null;
+            /** Confirmation */
+            confirmation: ("verifiee" | "ecart") | null;
         };
         /** FactureDeposeeReponse */
         FactureDeposeeReponse: {

@@ -26,19 +26,30 @@ function classesStatut(statut: string): string {
     : "bg-green-100 text-green-800";
 }
 
-/** Seule lecture possible des champs exposés par `GET /api/documents`
- * (décision du contrôleur L2-T7) : `confirme_le` absent -> en attente ;
- * `confirme_le` renseigné et `statut == "a_verifier"` -> écart ; sinon,
- * vérifié. */
-function libelleConfirmation(document: DocumentResume): string {
-  if (document.confirme_le === null) {
-    return "En attente";
+/** Ruling L2-R8 (revue L2-T7, tour 1/5, correction) : `confirmation` est un
+ * champ explicite de l'API (`"verifiee" | "ecart" | null`), affiché tel
+ * quel — plus aucune dérivation à partir de `statut` ici (constat de revue :
+ * `statut == "a_verifier"` peut venir de l'OCR, sans rapport avec un clic
+ * « Écart constaté »). Le cas « écart » est mis en évidence par un badge
+ * (contraste vérifié : `text-amber-900` sur `bg-amber-100`, ≈ 10:1). */
+function Confirmation({ document }: { document: DocumentResume }): ReactElement {
+  if (document.confirmation === null) {
+    return <>En attente</>;
   }
   const qui = document.confirme_par ?? TIRET;
   const quand = formaterDateHeure(document.confirme_le);
-  return document.statut === "a_verifier"
-    ? `Écart signalé par ${qui} le ${quand}`
-    : `Vérifié par ${qui} le ${quand}`;
+  if (document.confirmation === "ecart") {
+    return (
+      <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
+        Écart signalé par {qui} le {quand}
+      </span>
+    );
+  }
+  return (
+    <>
+      Quantités vérifiées par {qui} le {quand}
+    </>
+  );
 }
 
 function BadgePhotoCompressee(): ReactElement {
@@ -113,7 +124,9 @@ export function BlDeposes(): ReactElement {
                     {libelleStatut(document.statut)}
                   </span>
                 </div>
-                <p className="mb-3 text-sm text-slate-600">{libelleConfirmation(document)}</p>
+                <p className="mb-3 text-sm text-slate-600">
+                  <Confirmation document={document} />
+                </p>
                 <div className="flex flex-wrap items-center gap-3">
                   {document.photo_compressee === true && <BadgePhotoCompressee />}
                   <LienPhoto documentId={document.id} />
@@ -173,7 +186,9 @@ export function BlDeposes(): ReactElement {
                         {libelleStatut(document.statut)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-slate-700">{libelleConfirmation(document)}</td>
+                    <td className="px-4 py-3 text-slate-700">
+                      <Confirmation document={document} />
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap items-center gap-2">
                         {document.photo_compressee === true && <BadgePhotoCompressee />}

@@ -28,7 +28,7 @@ from app.core.auth import NOM_COOKIE
 from app.core.auth import router as auth_router
 from app.core.config import get_settings
 from app.modules.api import router as api_router
-from app.modules.ingest.models import Document, Utilisateur
+from app.modules.ingest.models import Document, Journal, Utilisateur
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
 
@@ -111,6 +111,19 @@ async def _creer_document_bl(
     return document
 
 
+async def _creer_journal_confirmation(
+    db_session: AsyncSession, *, document: Document, action: str
+) -> None:
+    db_session.add(
+        Journal(
+            action=action,
+            cible_table="document",
+            cible_id=str(document.id),
+        )
+    )
+    await db_session.commit()
+
+
 # --------------------------------------------------------------------------
 # GET /api/documents
 # --------------------------------------------------------------------------
@@ -156,6 +169,9 @@ async def test_liste_admin_voit_tous_les_documents(
     assert ligne["numero"] == "L600"
     assert ligne["deposant"] == "Agent Testeur"
     assert ligne["confirme_par"] is None
+    # Ruling L2-R8 (revue L2-T7, tour 1/5) : aucun clic -> `confirmation`
+    # absente, jamais dérivée de `statut`.
+    assert ligne["confirmation"] is None
     assert set(ligne.keys()) == {
         "id",
         "numero_interne",
@@ -167,7 +183,45 @@ async def test_liste_admin_voit_tous_les_documents(
         "confirme_le",
         "confirme_par",
         "photo_compressee",
+        "confirmation",
     }
+
+
+async def test_liste_confirmation_reflete_le_journal_pas_le_statut(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Ruling L2-R8 (revue L2-T7, tour 1/5) : `confirmation` vient du
+    journal, jamais de `statut` — un document `a_verifier` (OCR sans numéro
+    de BL détecté, ex. `traiter_fichier`) qui reçoit malgré tout « Quantités
+    vérifiées » doit afficher `confirmation == "verifiee"`, pas « écart »."""
+    admin = await _creer_utilisateur(
+        db_session, email="admin.docconfirmation@example.invalid", role="admin"
+    )
+    document = Document(
+        type="bl",
+        source="telegram",
+        statut="a_verifier",
+        fichier_path="/var/docs/bl-a-verifier-invente.jpg",
+        numero=None,
+    )
+    db_session.add(document)
+    await db_session.commit()
+    await db_session.refresh(document)
+    await _creer_journal_confirmation(
+        db_session, document=document, action="quantites_verifiees"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _get(app_test, "/api/documents", cookie=cookie)
+
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert len(corps) == 1
+    assert corps[0]["statut"] == "a_verifier"
+    assert corps[0]["confirmation"] == "verifiee"
 
 
 async def test_liste_agent_ne_voit_que_ses_propres_documents(
