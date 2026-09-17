@@ -8,6 +8,8 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
 COPY app ./app
+COPY alembic.ini ./
+COPY migrations ./migrations
 
 RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin appuser \
     && chown -R appuser:appuser /app
