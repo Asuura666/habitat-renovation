@@ -17,6 +17,8 @@ const FORMATEUR_MONTANT = new Intl.NumberFormat("fr-FR", {
   currency: "EUR",
 });
 
+const FORMATEUR_POURCENTAGE = new Intl.NumberFormat("fr-FR", { style: "percent" });
+
 const FORMATEUR_DATE = new Intl.DateTimeFormat("fr-FR", {
   timeZone: "Europe/Paris",
   dateStyle: "short",
@@ -42,6 +44,18 @@ export function formaterMontant(valeur: string | null): string {
   // n'exposent cette surcharge que pour un littéral de gabarit `` `${number}` ``,
   // jamais pour un `string` général comme celui renvoyé par l'API.
   return FORMATEUR_MONTANT.format(valeur as unknown as number);
+}
+
+/** `valeur` est une chaîne décimale entre 0 et 1 (ex. `"0.80"` : confiance
+ * ou seuil OCR, `verifier_bl`) ; `null` affiche un tiret. Même technique que
+ * `formaterMontant` (fix round 1, revue L3-T9) : `Intl.NumberFormat` avec
+ * `style: "percent"` applique lui-même le facteur 100 sur la représentation
+ * décimale — aucune arithmétique en virgule flottante n'est introduite ici. */
+export function formaterPourcentage(valeur: string | null): string {
+  if (valeur === null) {
+    return TIRET;
+  }
+  return FORMATEUR_POURCENTAGE.format(valeur as unknown as number);
 }
 
 /** Date seule (`date_doc`, `date_bl`), au format `JJ/MM/AAAA`. */

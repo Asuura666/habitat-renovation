@@ -8,7 +8,7 @@
  * back-end en ajoute un que ce fichier ne connaît pas encore).
  */
 
-import { formaterMontant } from "./formats";
+import { formaterMontant, formaterPourcentage } from "./formats";
 import type { components } from "../api/schema";
 
 export type Motif = components["schemas"]["MotifReponse"];
@@ -23,14 +23,19 @@ const LIBELLES_CHAMP: Record<string, string> = {
 };
 
 /** `champ` peut valoir `"ligne:<ordre>"` (`verifier_bl`, confiance d'une
- * ligne) : rendu « Ligne <ordre> », les autres champs connus sont traduits,
- * un champ inconnu s'affiche tel quel. */
+ * ligne, `ordre` compté à partir de 0 côté API) : rendu « Ligne <ordre+1> »
+ * (fix round 1, revue L3-T9 : un numéro de ligne affiché à l'admin part de
+ * 1, une conversion d'affichage `+1`, pas un calcul métier — le brut est
+ * gardé tel quel si ce n'est pas un nombre, défense en profondeur). Les
+ * autres champs connus sont traduits, un champ inconnu s'affiche tel quel. */
 function libelleChamp(champ: string | null): string {
   if (champ === null) {
     return "";
   }
   if (champ.startsWith("ligne:")) {
-    return `Ligne ${champ.slice("ligne:".length)}`;
+    const ordreBrut = champ.slice("ligne:".length);
+    const ordre = Number(ordreBrut);
+    return `Ligne ${Number.isNaN(ordre) ? ordreBrut : ordre + 1}`;
   }
   return LIBELLES_CHAMP[champ] ?? champ;
 }
@@ -47,6 +52,19 @@ function montant(detail: Record<string, string>, cle: string): string {
   return brute !== undefined ? formaterMontant(brute) : "?";
 }
 
+/** `cle` porte une confiance ou un seuil (`verifier_bl`, chaîne décimale
+ * entre 0 et 1, ou littéralement `"inconnue"` quand aucun score n'existe) :
+ * fix round 1 (revue L3-T9), affichée en pourcentage français plutôt que la
+ * fraction brute (« 0.80 » n'est pas lisible pour un admin) ; `"inconnue"`
+ * reste inchangée. */
+function pourcentage(detail: Record<string, string>, cle: string): string {
+  const brute = detail[cle];
+  if (brute === undefined) {
+    return "?";
+  }
+  return brute === "inconnue" ? brute : formaterPourcentage(brute);
+}
+
 export function libelleMotif(motif: Motif): string {
   const champ = libelleChamp(motif.champ);
   switch (motif.code) {
@@ -55,9 +73,9 @@ export function libelleMotif(motif: Motif): string {
     case "valeur_illisible":
       return `${champ || "Champ"} illisible`;
     case "confiance_faible": {
-      const confiance = valeur(motif.detail, "confiance");
-      const seuil = valeur(motif.detail, "seuil");
-      return `Confiance insuffisante sur « ${champ} » (${confiance} < seuil ${seuil})`;
+      const confiance = pourcentage(motif.detail, "confiance");
+      const seuil = pourcentage(motif.detail, "seuil");
+      return `Confiance insuffisante sur « ${champ} » (confiance ${confiance}, seuil ${seuil})`;
     }
     case "somme_incoherente":
       return (

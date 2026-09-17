@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactElement, useState } from "react";
+import { type FormEvent, type ReactElement, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 
@@ -179,6 +179,19 @@ function SectionDocuments({ documents }: { documents: DocumentATraiter[] }): Rea
   );
 }
 
+/** Levée par la mutation d'`AliasCarte` (fix round 1, revue L3-T9) quand
+ * `creerChantier` a réussi mais que `validerAlias` échoue ensuite : le
+ * chantier existe déjà en base, ce n'est pas une erreur de création (jamais
+ * un `ChantierEnDoubleErreur`) mais un échec **partiel** qu'il faut nommer
+ * distinctement — sinon un réessai recréerait le même chantier et
+ * échouerait sur un 409 « existe déjà » sans issue depuis l'écran. */
+class RattachementApresCreationErreur extends Error {
+  constructor(cause: unknown) {
+    super("chantier créé, rattachement de l'alias échoué", { cause });
+    this.name = "RattachementApresCreationErreur";
+  }
+}
+
 /** Formulaire de rattachement d'un alias chantier en attente (L3-D7) : un
  * sélecteur « Chantier existant » ou la création d'un chantier (nom,
  * agence) puis validation de l'alias avec l'id renvoyé, en une action
@@ -195,19 +208,51 @@ function AliasCarte({
   const [chantierChoisi, setChantierChoisi] = useState("");
   const [nom, setNom] = useState("");
   const [agence, setAgence] = useState("");
+  // Id du chantier créé par un essai précédent de cette même carte, quand
+  // `validerAlias` a ensuite échoué (fix round 1) : un réessai réutilise cet
+  // id au lieu d'appeler `creerChantier` une seconde fois (qui échouerait,
+  // le nom existant déjà). Remis à `null` dès qu'un rattachement réussit.
+  const chantierCreeIdRef = useRef<string | null>(null);
 
   const validation = useMutation({
     mutationFn: async () => {
-      const chantierId = modeCreation
-        ? (await creerChantier(nom, agence.trim() === "" ? null : agence.trim())).id
-        : chantierChoisi;
-      return validerAlias(alias.id, chantierId);
+      let chantierId: string;
+      if (modeCreation) {
+        if (chantierCreeIdRef.current !== null) {
+          chantierId = chantierCreeIdRef.current;
+        } else {
+          const cree = await creerChantier(nom, agence.trim() === "" ? null : agence.trim());
+          chantierCreeIdRef.current = cree.id;
+          chantierId = cree.id;
+        }
+      } else {
+        chantierId = chantierChoisi;
+      }
+
+      try {
+        const resultat = await validerAlias(alias.id, chantierId);
+        chantierCreeIdRef.current = null;
+        return resultat;
+      } catch (erreur) {
+        // `chantierId` existe déjà en base à ce stade (créé à cet essai ou
+        // à un essai précédent) : le signaler distinctement de l'erreur
+        // brute de `validerAlias` (fix round 1).
+        if (modeCreation) {
+          throw new RattachementApresCreationErreur(erreur);
+        }
+        throw erreur;
+      }
+    },
+    // Que la validation réussisse ou échoue après une création de chantier,
+    // le référentiel a pu changer (chantier créé) : jamais servir une liste
+    // de chantiers périmée depuis le cache (`staleTime` global 5 min,
+    // `main.tsx`) — fix round 1, invalide dans tous les cas via `onSettled`
+    // plutôt que seulement `onSuccess`.
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS });
     },
     onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: CLE_A_TRAITER }),
-        queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS }),
-      ]);
+      await queryClient.invalidateQueries({ queryKey: CLE_A_TRAITER });
       setModeCreation(false);
       setChantierChoisi("");
       setNom("");
@@ -216,6 +261,9 @@ function AliasCarte({
   });
 
   function messageErreur(erreur: unknown): string {
+    if (erreur instanceof RattachementApresCreationErreur) {
+      return "Le chantier a été créé, son rattachement a échoué : réessayez.";
+    }
     if (erreur instanceof ChantierEnDoubleErreur) {
       const existant = chantiers.find((chantier) => chantier.id === erreur.originalId);
       return existant
