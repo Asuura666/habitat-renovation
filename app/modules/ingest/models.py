@@ -312,6 +312,17 @@ class BlocFacture(Base):
     facture_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("document.id"), nullable=False
     )
+    # Position du bloc dans la facture (L2-D5bis, constat de la tâche T5) :
+    # `deposer_facture` insère tous les blocs d'une même facture dans une
+    # seule transaction, où `created_at` (`func.now()`) vaut le même
+    # horodatage de début de transaction pour toutes les lignes insérées —
+    # il ne peut donc pas servir à reconstituer l'ordre d'apparition des
+    # blocs sur la facture (contrairement à `Ligne.ordre`, qui, lui, se
+    # limite à l'ordre des lignes *à l'intérieur* d'un même bloc). Renseigné
+    # par `deposer_facture` (`enumerate(facture.blocs)`), lu par
+    # `ingest/service.py::facture_detail` (L2-T5, `GET /api/factures/{id}`)
+    # pour renvoyer les blocs « dans l'ordre ».
+    ordre: Mapped[int] = mapped_column(Integer, nullable=False)
     numero_bl: Mapped[str | None] = mapped_column(Text, nullable=True)
     date_bl: Mapped[date | None] = mapped_column(Date, nullable=True)
     numero_commande: Mapped[str | None] = mapped_column(Text, nullable=True)

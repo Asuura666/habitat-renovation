@@ -1,12 +1,14 @@
 """`POST /api/factures` : dépôt d'une facture PDF Unikalo (L2-T4).
+`GET /api/factures`, `GET /api/factures/{id}` et `GET /api/factures/{id}
+/fichier` : lecture des factures (L2-T5).
 
 Couche d'entrée (L2-D3) : ce routeur n'importe que `app.core` et
 `app.modules.ingest` (jamais `extract`/`messaging` directement — garde
-vérifiée par `tests/test_frontieres.py`). Réservé à l'admin (`admin_requis`,
-`app/core/auth.py`) : le CDC (§4.2) réserve les factures à l'administrateur,
-contrairement aux BL.
+vérifiée par `tests/test_frontieres.py`). Toutes les routes sont réservées à
+l'admin (`admin_requis`, `app/core/auth.py`) : le CDC (§4.2) réserve les
+factures à l'administrateur, contrairement aux BL.
 
-Déroulé (décisions du contrôleur, L2-T4) :
+Déroulé du dépôt (décisions du contrôleur, L2-T4) :
 1. Lecture bornée du fichier envoyé (au plus 20 Mo + 1 octet), avant tout
    appel à `deposer_facture` -> 413 si dépassé.
 2. `ingest.service.deposer_facture` fait tout le reste (signature PDF, OCR
@@ -20,6 +22,11 @@ Déroulé (décisions du contrôleur, L2-T4) :
    409 (doublon, avec l'identifiant de l'original — réponse construite à la
    main : `HTTPException(detail=...)` imbriquerait `original_id` sous
    `detail`, alors que le corps attendu les porte au même niveau).
+
+Lecture (décisions du contrôleur, L2-T5) : `ingest.service` porte toute la
+requête SQL (`lister_factures`, `facture_detail`, `fichier_facture`) ; ce
+routeur ne fait que les appeler et traduire leurs exceptions typées
+(`FactureIntrouvable`, `DocumentIntrouvable`) en 404.
 """
 
 from __future__ import annotations
@@ -29,22 +36,28 @@ from collections.abc import Awaitable, Callable
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import Utilisateur, admin_requis
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
+from app.modules.api.schemas import FactureDetailReponse, FactureResumeReponse
 from app.modules.ingest.router import get_ocr_facture
 from app.modules.ingest.service import (
     Deposant,
+    DocumentIntrouvable,
     EcritureImpossible,
     FactureEnDouble,
+    FactureIntrouvable,
     FichierInvalide,
     FormatNonPrisEnCharge,
     LectureImpossible,
     deposer_facture,
+    facture_detail,
+    fichier_facture,
+    lister_factures,
 )
 
 router = APIRouter()
@@ -123,3 +136,43 @@ async def deposer_facture_pdf(
     return FactureDeposeeReponse(
         id=deposee.id, numero=deposee.numero, nb_blocs=deposee.nb_blocs
     )
+
+
+@router.get("/factures", response_model=list[FactureResumeReponse])
+async def lister_factures_endpoint(
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[FactureResumeReponse]:
+    resumes = await lister_factures(session)
+    return [FactureResumeReponse.model_validate(resume) for resume in resumes]
+
+
+@router.get("/factures/{facture_id}", response_model=FactureDetailReponse)
+async def obtenir_facture(
+    facture_id: uuid.UUID,
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> FactureDetailReponse:
+    try:
+        detail = await facture_detail(session, facture_id)
+    except FactureIntrouvable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="facture introuvable"
+        ) from exc
+    return FactureDetailReponse.model_validate(detail)
+
+
+@router.get("/factures/{facture_id}/fichier")
+async def telecharger_facture(
+    facture_id: uuid.UUID,
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> FileResponse:
+    try:
+        fichier = await fichier_facture(session, facture_id, settings.docs_dir)
+    except DocumentIntrouvable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="facture introuvable"
+        ) from exc
+    return FileResponse(fichier.chemin, media_type=fichier.type_mime)

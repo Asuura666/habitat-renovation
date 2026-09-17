@@ -91,10 +91,79 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Lister Factures Endpoint */
+        get: operations["lister_factures_endpoint_api_factures_get"];
         put?: never;
         /** Deposer Facture Pdf */
         post: operations["deposer_facture_pdf_api_factures_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/factures/{facture_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Obtenir Facture */
+        get: operations["obtenir_facture_api_factures__facture_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/factures/{facture_id}/fichier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Telecharger Facture */
+        get: operations["telecharger_facture_api_factures__facture_id__fichier_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lister Documents Endpoint */
+        get: operations["lister_documents_endpoint_api_documents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/fichier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Telecharger Document */
+        get: operations["telecharger_document_api_documents__document_id__fichier_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -126,6 +195,35 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * BlocFactureReponse
+         * @description Un bloc « Concerne le B.L. », dans `GET /api/factures/{id}`.
+         */
+        BlocFactureReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Numero Bl */
+            numero_bl: string | null;
+            /** Date Bl */
+            date_bl: string | null;
+            /** Numero Commande */
+            numero_commande: string | null;
+            /** Chantier Brut */
+            chantier_brut: string | null;
+            /** Commentaire */
+            commentaire: string | null;
+            /** Montant Ht */
+            montant_ht: string;
+            /** Bl Recu */
+            bl_recu: boolean;
+            /** Bl Document Id */
+            bl_document_id: string | null;
+            /** Lignes */
+            lignes: components["schemas"]["LigneFactureReponse"][];
+        };
         /** Body_deposer_facture_pdf_api_factures_post */
         Body_deposer_facture_pdf_api_factures_post: {
             /** Fichier */
@@ -155,6 +253,38 @@ export interface components {
              */
             client_secret?: string | null;
         };
+        /**
+         * DocumentReponse
+         * @description Une ligne de `GET /api/documents`.
+         */
+        DocumentReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Numero Interne */
+            numero_interne: number;
+            /** Type */
+            type: string;
+            /** Numero */
+            numero: string | null;
+            /** Statut */
+            statut: string;
+            /** Deposant */
+            deposant: string | null;
+            /**
+             * Cree Le
+             * Format: date-time
+             */
+            cree_le: string;
+            /** Confirme Le */
+            confirme_le: string | null;
+            /** Confirme Par */
+            confirme_par: string | null;
+            /** Photo Compressee */
+            photo_compressee: boolean | null;
+        };
         /** FactureDeposeeReponse */
         FactureDeposeeReponse: {
             /**
@@ -167,10 +297,94 @@ export interface components {
             /** Nb Blocs */
             nb_blocs: number;
         };
+        /**
+         * FactureDetailReponse
+         * @description `GET /api/factures/{id}` : en-tête puis blocs.
+         */
+        FactureDetailReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Numero */
+            numero: string;
+            /** Fournisseur */
+            fournisseur: string;
+            /** Date Doc */
+            date_doc: string | null;
+            /** Total Ht */
+            total_ht: string | null;
+            /**
+             * Cree Le
+             * Format: date-time
+             */
+            cree_le: string;
+            /** Deposant */
+            deposant: string | null;
+            /** Blocs */
+            blocs: components["schemas"]["BlocFactureReponse"][];
+        };
+        /**
+         * FactureResumeReponse
+         * @description Une ligne de `GET /api/factures`.
+         */
+        FactureResumeReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Numero */
+            numero: string;
+            /** Fournisseur */
+            fournisseur: string;
+            /** Date Doc */
+            date_doc: string | null;
+            /** Total Ht */
+            total_ht: string | null;
+            /** Nb Blocs */
+            nb_blocs: number;
+            /** Nb Blocs Recus */
+            nb_blocs_recus: number;
+            /**
+             * Cree Le
+             * Format: date-time
+             */
+            cree_le: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * LigneFactureReponse
+         * @description Une ligne d'un bloc, dans `GET /api/factures/{id}`.
+         */
+        LigneFactureReponse: {
+            /** Ordre */
+            ordre: number;
+            /** Type Ligne */
+            type_ligne: string;
+            /** Code Brut */
+            code_brut: string | null;
+            /** Article Brut */
+            article_brut: string | null;
+            /** Qte Livree */
+            qte_livree: string | null;
+            /** Qte Totale */
+            qte_totale: string | null;
+            /** Pu Ht */
+            pu_ht: string | null;
+            /** Pu Cdt */
+            pu_cdt: string | null;
+            /** Remise Pct */
+            remise_pct: string | null;
+            /** Montant Ht */
+            montant_ht: string | null;
+            /** Tva */
+            tva: string | null;
         };
         /** MoiReponse */
         MoiReponse: {
@@ -320,6 +534,26 @@ export interface operations {
             };
         };
     };
+    lister_factures_endpoint_api_factures_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactureResumeReponse"][];
+                };
+            };
+        };
+    };
     deposer_facture_pdf_api_factures_post: {
         parameters: {
             query?: never;
@@ -340,6 +574,131 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FactureDeposeeReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    obtenir_facture_api_factures__facture_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                facture_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactureDetailReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    telecharger_facture_api_factures__facture_id__fichier_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                facture_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lister_documents_endpoint_api_documents_get: {
+        parameters: {
+            query?: {
+                depuis?: string | null;
+                limite?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    telecharger_document_api_documents__document_id__fichier_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

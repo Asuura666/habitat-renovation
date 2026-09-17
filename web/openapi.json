@@ -140,6 +140,26 @@
    }
   },
   "/api/factures": {
+   "get": {
+    "summary": "Lister Factures Endpoint",
+    "operationId": "lister_factures_endpoint_api_factures_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/FactureResumeReponse"
+         },
+         "type": "array",
+         "title": "Response Lister Factures Endpoint Api Factures Get"
+        }
+       }
+      }
+     }
+    }
+   },
    "post": {
     "summary": "Deposer Facture Pdf",
     "operationId": "deposer_facture_pdf_api_factures_post",
@@ -177,6 +197,185 @@
     }
    }
   },
+  "/api/factures/{facture_id}": {
+   "get": {
+    "summary": "Obtenir Facture",
+    "operationId": "obtenir_facture_api_factures__facture_id__get",
+    "parameters": [
+     {
+      "name": "facture_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Facture Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FactureDetailReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/factures/{facture_id}/fichier": {
+   "get": {
+    "summary": "Telecharger Facture",
+    "operationId": "telecharger_facture_api_factures__facture_id__fichier_get",
+    "parameters": [
+     {
+      "name": "facture_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Facture Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/documents": {
+   "get": {
+    "summary": "Lister Documents Endpoint",
+    "operationId": "lister_documents_endpoint_api_documents_get",
+    "parameters": [
+     {
+      "name": "depuis",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Depuis"
+      }
+     },
+     {
+      "name": "limite",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 500,
+       "minimum": 1,
+       "default": 100,
+       "title": "Limite"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/DocumentReponse"
+         },
+         "title": "Response Lister Documents Endpoint Api Documents Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/documents/{document_id}/fichier": {
+   "get": {
+    "summary": "Telecharger Document",
+    "operationId": "telecharger_document_api_documents__document_id__fichier_get",
+    "parameters": [
+     {
+      "name": "document_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Document Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/health": {
    "get": {
     "summary": "Health",
@@ -197,6 +396,114 @@
  },
  "components": {
   "schemas": {
+   "BlocFactureReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "numero_bl": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero Bl"
+     },
+     "date_bl": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date Bl"
+     },
+     "numero_commande": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero Commande"
+     },
+     "chantier_brut": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chantier Brut"
+     },
+     "commentaire": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Commentaire"
+     },
+     "montant_ht": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Montant Ht"
+     },
+     "bl_recu": {
+      "type": "boolean",
+      "title": "Bl Recu"
+     },
+     "bl_document_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Bl Document Id"
+     },
+     "lignes": {
+      "items": {
+       "$ref": "#/components/schemas/LigneFactureReponse"
+      },
+      "type": "array",
+      "title": "Lignes"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "numero_bl",
+     "date_bl",
+     "numero_commande",
+     "chantier_brut",
+     "commentaire",
+     "montant_ht",
+     "bl_recu",
+     "bl_document_id",
+     "lignes"
+    ],
+    "title": "BlocFactureReponse",
+    "description": "Un bloc « Concerne le B.L. », dans `GET /api/factures/{id}`."
+   },
    "Body_deposer_facture_pdf_api_factures_post": {
     "properties": {
      "fichier": {
@@ -270,6 +577,103 @@
     ],
     "title": "Body_se_connecter_api_auth_login_post"
    },
+   "DocumentReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "numero_interne": {
+      "type": "integer",
+      "title": "Numero Interne"
+     },
+     "type": {
+      "type": "string",
+      "title": "Type"
+     },
+     "numero": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero"
+     },
+     "statut": {
+      "type": "string",
+      "title": "Statut"
+     },
+     "deposant": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Deposant"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     },
+     "confirme_le": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confirme Le"
+     },
+     "confirme_par": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confirme Par"
+     },
+     "photo_compressee": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Photo Compressee"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "numero_interne",
+     "type",
+     "numero",
+     "statut",
+     "deposant",
+     "cree_le",
+     "confirme_le",
+     "confirme_par",
+     "photo_compressee"
+    ],
+    "title": "DocumentReponse",
+    "description": "Une ligne de `GET /api/documents`."
+   },
    "FactureDeposeeReponse": {
     "properties": {
      "id": {
@@ -294,6 +698,150 @@
     ],
     "title": "FactureDeposeeReponse"
    },
+   "FactureDetailReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "numero": {
+      "type": "string",
+      "title": "Numero"
+     },
+     "fournisseur": {
+      "type": "string",
+      "title": "Fournisseur"
+     },
+     "date_doc": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date Doc"
+     },
+     "total_ht": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Total Ht"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     },
+     "deposant": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Deposant"
+     },
+     "blocs": {
+      "items": {
+       "$ref": "#/components/schemas/BlocFactureReponse"
+      },
+      "type": "array",
+      "title": "Blocs"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "numero",
+     "fournisseur",
+     "date_doc",
+     "total_ht",
+     "cree_le",
+     "deposant",
+     "blocs"
+    ],
+    "title": "FactureDetailReponse",
+    "description": "`GET /api/factures/{id}` : en-tête puis blocs."
+   },
+   "FactureResumeReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "numero": {
+      "type": "string",
+      "title": "Numero"
+     },
+     "fournisseur": {
+      "type": "string",
+      "title": "Fournisseur"
+     },
+     "date_doc": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date Doc"
+     },
+     "total_ht": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Total Ht"
+     },
+     "nb_blocs": {
+      "type": "integer",
+      "title": "Nb Blocs"
+     },
+     "nb_blocs_recus": {
+      "type": "integer",
+      "title": "Nb Blocs Recus"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "numero",
+     "fournisseur",
+     "date_doc",
+     "total_ht",
+     "nb_blocs",
+     "nb_blocs_recus",
+     "cree_le"
+    ],
+    "title": "FactureResumeReponse",
+    "description": "Une ligne de `GET /api/factures`."
+   },
    "HTTPValidationError": {
     "properties": {
      "detail": {
@@ -306,6 +854,140 @@
     },
     "type": "object",
     "title": "HTTPValidationError"
+   },
+   "LigneFactureReponse": {
+    "properties": {
+     "ordre": {
+      "type": "integer",
+      "title": "Ordre"
+     },
+     "type_ligne": {
+      "type": "string",
+      "title": "Type Ligne"
+     },
+     "code_brut": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Code Brut"
+     },
+     "article_brut": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Article Brut"
+     },
+     "qte_livree": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Qte Livree"
+     },
+     "qte_totale": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Qte Totale"
+     },
+     "pu_ht": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Pu Ht"
+     },
+     "pu_cdt": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Pu Cdt"
+     },
+     "remise_pct": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Remise Pct"
+     },
+     "montant_ht": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Montant Ht"
+     },
+     "tva": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tva"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ordre",
+     "type_ligne",
+     "code_brut",
+     "article_brut",
+     "qte_livree",
+     "qte_totale",
+     "pu_ht",
+     "pu_cdt",
+     "remise_pct",
+     "montant_ht",
+     "tva"
+    ],
+    "title": "LigneFactureReponse",
+    "description": "Une ligne d'un bloc, dans `GET /api/factures/{id}`."
    },
    "MoiReponse": {
     "properties": {

@@ -11,10 +11,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.modules.api import factures, moi
+from app.modules.api import documents, factures, moi
 
 router = APIRouter(prefix="/api")
 router.include_router(moi.router)
 router.include_router(factures.router)
+router.include_router(documents.router)
 
 __all__ = ["router"]
