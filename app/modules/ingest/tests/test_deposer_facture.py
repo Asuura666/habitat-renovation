@@ -54,7 +54,10 @@ from app.modules.ingest.factures import (
 )
 from app.modules.ingest.mistral import ErreurOCR
 from app.modules.ingest.models import (
+    Article,
     BlocFacture,
+    Chantier,
+    ChantierAlias,
     Document,
     Fournisseur,
     Journal,
@@ -107,14 +110,16 @@ def _ligne_invente(
     designation: str = "Article inventé",
     code_article: str | None = "ART1",
     montant_ht: Decimal | None = Decimal("20.00"),
+    qte_livree: Decimal | None = Decimal("2"),
+    qte_totale: Decimal | None = Decimal("2"),
 ) -> LigneFacture:
     return LigneFacture(
         ordre=ordre,
         type_ligne=type_ligne,
         code_article=code_article,
         designation=designation,
-        qte_livree=Decimal("2"),
-        qte_totale=Decimal("2"),
+        qte_livree=qte_livree,
+        qte_totale=qte_totale,
         unite="U",
         pu_ht=Decimal("10.00"),
         pu_cdt=Decimal("10.00"),
@@ -137,15 +142,24 @@ def _bloc_invente(
 
 
 def _facture_invente(
-    *, numero: str = "FAC-INVENTE-0001", blocs: tuple[BlocBL, ...]
+    *,
+    numero: str = "FAC-INVENTE-0001",
+    blocs: tuple[BlocBL, ...],
+    total_ht: Decimal | None = None,
 ) -> Facture:
+    """`total_ht` par défaut (`None`) : somme des `montant_ht` des `blocs`
+    (L3-T7, `verifier_facture`) — une facture inventée est cohérente par
+    défaut (statut `recu`, aucun motif) ; un total explicite sert aux tests
+    qui veulent justement un écart (`somme_incoherente`)."""
+    if total_ht is None:
+        total_ht = sum((bloc.montant_ht for bloc in blocs), Decimal("0"))
     return Facture(
         fournisseur_brut="UNIKALO INVENTE",
         numero=numero,
         date_facture=date(2026, 8, 1),
         client=None,
         echeance=None,
-        total_ht=Decimal("123.45"),
+        total_ht=total_ht,
         blocs=blocs,
     )
 
@@ -324,6 +338,11 @@ async def test_depot_reussi_cree_fournisseur_document_blocs_lignes_et_journal(
     assert document.total_ht == facture.total_ht
     assert document.deposant_id == utilisateur.id
     assert document.ocr_brut == reponse_ocr_invente
+    # L3-T7 : facture cohérente (total = somme des blocs, `_facture_invente`)
+    # -> aucun motif ; `reponse_ocr_invente` n'a pas de `confidence_scores`
+    # -> `confiance_min` reste `None` (aucun score disponible).
+    assert document.motifs == []
+    assert document.confiance_min is None
 
     assert document.fournisseur_id is not None
     fournisseur = await db_session.get(Fournisseur, document.fournisseur_id)
@@ -342,6 +361,9 @@ async def test_depot_reussi_cree_fournisseur_document_blocs_lignes_et_journal(
     assert len(blocs_db) == 1
     assert blocs_db[0].numero_bl == bloc.numero_bl
     assert blocs_db[0].chantier_brut == bloc.chantier_brut
+    # L3-T7 : demande d'alias créée (aucun chantier du référentiel ne
+    # correspond) -> `chantier_id` reste `NULL` (L3-D7).
+    assert blocs_db[0].chantier_id is None
     assert blocs_db[0].commentaire is None
 
     lignes_db = (
@@ -356,6 +378,8 @@ async def test_depot_reussi_cree_fournisseur_document_blocs_lignes_et_journal(
     assert len(lignes_db) == 1
     assert lignes_db[0].article_brut == ligne.designation
     assert lignes_db[0].code_brut == ligne.code_article
+    # L3-T7 : article créé automatiquement (L3-D9), non validé.
+    assert lignes_db[0].article_id is not None
     assert lignes_db[0].unite_brut == ligne.unite
     assert lignes_db[0].montant_ht == ligne.montant_ht
     assert lignes_db[0].type_ligne == ligne.type_ligne.value
@@ -374,6 +398,11 @@ async def test_depot_reussi_cree_fournisseur_document_blocs_lignes_et_journal(
     assert journaux[0].action == "facture_deposee"
     assert journaux[0].utilisateur_id == utilisateur.id
     assert journaux[0].cible_table == "document"
+    assert journaux[0].apres is not None
+    assert journaux[0].apres["statut"] == "recu"
+    assert journaux[0].apres["motifs"] == []
+    assert journaux[0].apres["nb_demandes_alias"] == 1
+    assert journaux[0].apres["nb_articles"] == 1
 
     fichiers = list(tmp_path.glob("*.pdf"))
     assert len(fichiers) == 1
@@ -564,6 +593,268 @@ async def test_course_entre_deux_depots_leve_facture_en_double_via_contrainte_un
 
 
 # --------------------------------------------------------------------------
+# L3-T7 (L3-D16) : contrôle et normalisation d'une facture déposée — total
+# incohérent, confiance par page, résolution chantier/article.
+# --------------------------------------------------------------------------
+
+
+async def test_depot_total_incoherent_a_verifier_motif_somme_incoherente(
+    db_session: AsyncSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    facture = _facture_invente(
+        blocs=(_bloc_invente(lignes=(_ligne_invente(),)),),
+        total_ht=Decimal("999.99"),
+    )
+    monkeypatch.setattr(
+        ingest_factures, "analyser_facture_unikalo", lambda reponse: facture
+    )
+    utilisateur = await _creer_utilisateur(db_session)
+
+    resultat = await deposer_facture(
+        db_session,
+        _SIGNATURE_PDF_INVENTEE,
+        _deposant_depuis(utilisateur),
+        tmp_path,
+        _ocr_quelconque,
+    )
+
+    document = await db_session.get(Document, resultat.id)
+    assert document is not None
+    assert document.statut == "a_verifier"
+    assert document.motifs is not None
+    assert [m["code"] for m in document.motifs] == ["somme_incoherente"]
+    motif = document.motifs[0]
+    assert motif["champ"] == "total_ht"
+    assert motif["detail"]["somme"] == "20.00"
+    assert motif["detail"]["total"] == "999.99"
+
+    journal = (
+        await db_session.execute(
+            select(Journal).where(Journal.cible_id == str(resultat.id))
+        )
+    ).scalar_one()
+    assert journal.apres is not None
+    assert journal.apres["statut"] == "a_verifier"
+    assert journal.apres["motifs"] == ["somme_incoherente"]
+
+
+async def test_depot_confiance_min_calculee_depuis_les_pages(
+    db_session: AsyncSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    facture = _facture_invente(blocs=(_bloc_invente(lignes=(_ligne_invente(),)),))
+    monkeypatch.setattr(
+        ingest_factures, "analyser_facture_unikalo", lambda reponse: facture
+    )
+    utilisateur = await _creer_utilisateur(db_session)
+    reponse_avec_confiance = {
+        "pages": [
+            {"confidence_scores": {"minimum_page_confidence_score": 0.91}},
+            {"confidence_scores": {"minimum_page_confidence_score": 0.62}},
+        ]
+    }
+
+    async def _ocr(contenu: bytes, mime: str) -> dict[str, Any]:
+        return reponse_avec_confiance
+
+    resultat = await deposer_facture(
+        db_session,
+        _SIGNATURE_PDF_INVENTEE,
+        _deposant_depuis(utilisateur),
+        tmp_path,
+        _ocr,
+    )
+
+    document = await db_session.get(Document, resultat.id)
+    assert document is not None
+    assert document.confiance_min == Decimal("0.62")
+
+
+async def test_depot_bloc_avec_chantier_cree_une_demande_dalias(
+    db_session: AsyncSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    facture = _facture_invente(blocs=(_bloc_invente(lignes=(_ligne_invente(),)),))
+    monkeypatch.setattr(
+        ingest_factures, "analyser_facture_unikalo", lambda reponse: facture
+    )
+    utilisateur = await _creer_utilisateur(db_session)
+
+    resultat = await deposer_facture(
+        db_session,
+        _SIGNATURE_PDF_INVENTEE,
+        _deposant_depuis(utilisateur),
+        tmp_path,
+        _ocr_quelconque,
+    )
+
+    document = await db_session.get(Document, resultat.id)
+    assert document is not None
+    alias = (
+        await db_session.execute(
+            select(ChantierAlias).where(
+                ChantierAlias.fournisseur_id == document.fournisseur_id
+            )
+        )
+    ).scalar_one()
+    # « CHANTIER INVENTE » -> préfixe « CHANTIER » retiré (`decomposer_
+    # chantier`), reste normalisé « invente ».
+    assert alias.libelle_brut == "invente"
+    assert alias.chantier_id is None
+
+    bloc_db = (
+        await db_session.execute(
+            select(BlocFacture).where(BlocFacture.facture_id == resultat.id)
+        )
+    ).scalar_one()
+    assert bloc_db.chantier_id is None
+
+    journal = (
+        await db_session.execute(
+            select(Journal).where(Journal.cible_id == str(resultat.id))
+        )
+    ).scalar_one()
+    assert journal.apres is not None
+    assert journal.apres["nb_demandes_alias"] == 1
+
+
+async def test_depot_bloc_avec_alias_valide_propage_le_chantier_id(
+    db_session: AsyncSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    facture = _facture_invente(blocs=(_bloc_invente(lignes=(_ligne_invente(),)),))
+    monkeypatch.setattr(
+        ingest_factures, "analyser_facture_unikalo", lambda reponse: facture
+    )
+    utilisateur = await _creer_utilisateur(db_session)
+
+    fournisseur = Fournisseur(nom="Unikalo")
+    db_session.add(fournisseur)
+    await db_session.flush()
+    chantier = Chantier(nom_canonique="Chantier de test inventé")
+    db_session.add(chantier)
+    await db_session.flush()
+    db_session.add(
+        ChantierAlias(
+            fournisseur_id=fournisseur.id,
+            libelle_brut="invente",
+            code_brut=None,
+            chantier_id=chantier.id,
+        )
+    )
+    await db_session.commit()
+
+    resultat = await deposer_facture(
+        db_session,
+        _SIGNATURE_PDF_INVENTEE,
+        _deposant_depuis(utilisateur),
+        tmp_path,
+        _ocr_quelconque,
+    )
+
+    bloc_db = (
+        await db_session.execute(
+            select(BlocFacture).where(BlocFacture.facture_id == resultat.id)
+        )
+    ).scalar_one()
+    assert bloc_db.chantier_id == chantier.id
+
+    journal = (
+        await db_session.execute(
+            select(Journal).where(Journal.cible_id == str(resultat.id))
+        )
+    ).scalar_one()
+    assert journal.apres is not None
+    assert journal.apres["nb_demandes_alias"] == 0
+
+
+async def test_depot_ligne_article_avec_code_cree_article_avec_ratio_propose(
+    db_session: AsyncSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ligne = _ligne_invente(
+        code_article="ART-RATIO", qte_livree=Decimal("4"), qte_totale=Decimal("100")
+    )
+    bloc = _bloc_invente(lignes=(ligne,))
+    facture = _facture_invente(blocs=(bloc,))
+    monkeypatch.setattr(
+        ingest_factures, "analyser_facture_unikalo", lambda reponse: facture
+    )
+    utilisateur = await _creer_utilisateur(db_session)
+
+    resultat = await deposer_facture(
+        db_session,
+        _SIGNATURE_PDF_INVENTEE,
+        _deposant_depuis(utilisateur),
+        tmp_path,
+        _ocr_quelconque,
+    )
+
+    document = await db_session.get(Document, resultat.id)
+    assert document is not None
+    article = (
+        await db_session.execute(
+            select(Article).where(
+                Article.fournisseur_id == document.fournisseur_id,
+                Article.code == "ART-RATIO",
+            )
+        )
+    ).scalar_one()
+    assert article.valide is False
+    assert article.ratio == Decimal("25")
+
+    ligne_db = (
+        await db_session.execute(select(Ligne).where(Ligne.document_id == resultat.id))
+    ).scalar_one()
+    assert ligne_db.article_id == article.id
+
+    journal = (
+        await db_session.execute(
+            select(Journal).where(Journal.cible_id == str(resultat.id))
+        )
+    ).scalar_one()
+    assert journal.apres is not None
+    assert journal.apres["nb_articles"] == 1
+
+
+async def test_depot_ligne_eco_avec_code_ne_cree_pas_darticle(
+    db_session: AsyncSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L3-D9/décision du contrôleur : seule une ligne `ARTICLE` avec un code
+    rattache un article — jamais une éco-participation, même si elle porte
+    un code."""
+    ligne_eco = _ligne_invente(
+        type_ligne=TypeLigne.ECO,
+        code_article="ECO1",
+        designation="Eco-participation inventée",
+    )
+    bloc = _bloc_invente(lignes=(ligne_eco,))
+    facture = _facture_invente(blocs=(bloc,))
+    monkeypatch.setattr(
+        ingest_factures, "analyser_facture_unikalo", lambda reponse: facture
+    )
+    utilisateur = await _creer_utilisateur(db_session)
+
+    resultat = await deposer_facture(
+        db_session,
+        _SIGNATURE_PDF_INVENTEE,
+        _deposant_depuis(utilisateur),
+        tmp_path,
+        _ocr_quelconque,
+    )
+
+    assert (await db_session.execute(select(Article))).scalars().all() == []
+    ligne_db = (
+        await db_session.execute(select(Ligne).where(Ligne.document_id == resultat.id))
+    ).scalar_one()
+    assert ligne_db.article_id is None
+
+    journal = (
+        await db_session.execute(
+            select(Journal).where(Journal.cible_id == str(resultat.id))
+        )
+    ).scalar_one()
+    assert journal.apres is not None
+    assert journal.apres["nb_articles"] == 0
+
+
+# --------------------------------------------------------------------------
 # Test sur la vraie fixture (skip si absente) : comptes = analyser_facture_unikalo
 # --------------------------------------------------------------------------
 
@@ -622,3 +913,12 @@ async def test_fixture_reelle_comptes_de_blocs_et_lignes_egaux_a_lanalyse(
         .all()
     )
     assert nb_lignes_db == nb_lignes_attendu
+
+    # L3-T7 (Ruling R7, décision du contrôleur) : la facture réelle doit
+    # être reçue sans motif — booléen calculé puis affirmé avec un message
+    # fixe, jamais `assert document.motifs == []` (qui afficherait les
+    # motifs, potentiellement porteurs de montants réels, à l'échec).
+    document = await db_session.get(Document, resultat.id)
+    assert document is not None
+    conforme = document.statut == "recu" and not document.motifs
+    assert conforme, "la facture réelle doit être reçue sans motif"

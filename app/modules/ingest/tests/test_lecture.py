@@ -17,6 +17,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlalchemy import event
@@ -26,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from app.modules.ingest.lecture import (
     DocumentIntrouvable,
     FactureIntrouvable,
+    MotifLu,
     documents_bl_par_numeros,
     facture_detail,
     fichier_document,
@@ -35,6 +37,7 @@ from app.modules.ingest.lecture import (
 )
 from app.modules.ingest.models import (
     BlocFacture,
+    Chantier,
     Document,
     Fournisseur,
     Journal,
@@ -94,18 +97,33 @@ async def _creer_facture(
     deposant: Utilisateur | None = None,
     fichier_path: str = "/var/docs/facture-invente.pdf",
     created_at: datetime | None = None,
+    statut: str = "recu",
+    confiance_min: Decimal | None = None,
+    motifs: list[dict[str, Any]] | None = None,
+    ocr_brut: dict[str, Any] | None = None,
 ) -> Document:
     document = Document(
         type="facture",
         source="upload",
-        statut="recu",
+        statut=statut,
         fichier_path=fichier_path,
         fournisseur_id=fournisseur.id,
         numero=numero,
         date_doc=date_doc,
         total_ht=total_ht,
         deposant_id=deposant.id if deposant is not None else None,
+        confiance_min=confiance_min,
     )
+    # `motifs`/`ocr_brut` (JSONB) : ne jamais affecter explicitement `None`
+    # (le type JSON de SQLAlchemy sérialiserait un `null` JSON, distinct
+    # d'un SQL `NULL` — `ocr_brut IS NOT NULL` répondrait alors `vrai` à
+    # tort). Non fourni -> colonne omise de l'`INSERT`, `NULL` côté base,
+    # comme le fait `deposer_facture`/`depot_telegram` en production (aucun
+    # des deux n'assigne jamais `None` explicitement à ces colonnes).
+    if motifs is not None:
+        document.motifs = motifs
+    if ocr_brut is not None:
+        document.ocr_brut = ocr_brut
     if created_at is not None:
         document.created_at = created_at
     db_session.add(document)
@@ -121,6 +139,7 @@ async def _creer_bloc(
     ordre: int,
     numero_bl: str | None = "L1",
     chantier: str | None = "CHANTIER INVENTE",
+    chantier_id: uuid.UUID | None = None,
     commentaire: str | None = None,
 ) -> BlocFacture:
     bloc = BlocFacture(
@@ -129,6 +148,7 @@ async def _creer_bloc(
         numero_bl=numero_bl,
         numero_commande=None,
         chantier_brut=chantier,
+        chantier_id=chantier_id,
         commentaire=commentaire,
     )
     db_session.add(bloc)
@@ -411,6 +431,59 @@ async def test_lister_factures_sans_n_plus_1(
     assert compteur["n"] <= 3
 
 
+async def test_lister_factures_expose_statut_confiance_min_et_motifs(
+    db_session: AsyncSession,
+) -> None:
+    """L3-T7 : `GET /api/factures` expose le statut, la confiance réduite,
+    la confiance minimale et les motifs (`extraction/verification`)."""
+    fournisseur = await _creer_fournisseur(db_session)
+    await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="FAC-AVERIFIER",
+        statut="a_verifier",
+        confiance_min=Decimal("0.42"),
+        motifs=[
+            {
+                "code": "somme_incoherente",
+                "champ": "total_ht",
+                "detail": {"somme": "1", "total": "2"},
+            }
+        ],
+        ocr_brut={"pages": []},
+    )
+
+    resultat = await lister_factures(db_session)
+
+    assert len(resultat) == 1
+    assert resultat[0].statut == "a_verifier"
+    assert resultat[0].confiance_reduite is True
+    assert resultat[0].confiance_min == Decimal("0.42")
+    assert resultat[0].motifs == [
+        MotifLu(
+            code="somme_incoherente",
+            champ="total_ht",
+            detail={"somme": "1", "total": "2"},
+        )
+    ]
+
+
+async def test_lister_factures_confiance_non_reduite_sans_ocr_brut(
+    db_session: AsyncSession,
+) -> None:
+    """`confiance_reduite` (`ocr_brut IS NOT NULL`, L3-D16) : `False` pour un
+    document dont l'OCR brut n'a jamais été stocké."""
+    fournisseur = await _creer_fournisseur(db_session)
+    await _creer_facture(db_session, fournisseur=fournisseur, numero="FAC-SANS-OCR")
+
+    resultat = await lister_factures(db_session)
+
+    assert len(resultat) == 1
+    assert resultat[0].confiance_reduite is False
+    assert resultat[0].confiance_min is None
+    assert resultat[0].motifs == []
+
+
 # --------------------------------------------------------------------------
 # facture_detail
 # --------------------------------------------------------------------------
@@ -450,7 +523,35 @@ async def test_facture_detail_entete_et_deposant(db_session: AsyncSession) -> No
     assert detail.fournisseur == "Unikalo"
     assert detail.total_ht == Decimal("250.75")
     assert detail.deposant == "Admin Testeur"
+    # L3-T7 : facture par défaut (`_creer_facture`) -> reçue, sans motif, ni
+    # OCR brut stocké.
+    assert detail.statut == "recu"
+    assert detail.confiance_reduite is False
+    assert detail.confiance_min is None
+    assert detail.motifs == []
     assert detail.blocs == []
+
+
+async def test_facture_detail_expose_statut_confiance_min_et_motifs(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="FAC-DETAIL-AVERIFIER",
+        statut="a_verifier",
+        confiance_min=Decimal("0.15"),
+        motifs=[{"code": "total_absent", "champ": "total_ht", "detail": {}}],
+        ocr_brut={"pages": []},
+    )
+
+    detail = await facture_detail(db_session, facture.id)
+
+    assert detail.statut == "a_verifier"
+    assert detail.confiance_reduite is True
+    assert detail.confiance_min == Decimal("0.15")
+    assert detail.motifs == [MotifLu(code="total_absent", champ="total_ht", detail={})]
 
 
 async def test_facture_detail_deposant_sans_nom_utilise_lemail(
@@ -483,6 +584,29 @@ async def test_facture_detail_blocs_dans_lordre_malgre_linsertion(
     detail = await facture_detail(db_session, facture.id)
 
     assert [bloc.numero_bl for bloc in detail.blocs] == ["L-A", "L-B", "L-C"]
+
+
+async def test_facture_detail_bloc_expose_chantier_id(db_session: AsyncSession) -> None:
+    """L3-T7 : `chantier_id`, résolu par `deposer_facture`, est exposé tel
+    quel (jamais recalculé à la lecture, contrairement à `montant_ht`)."""
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = Chantier(nom_canonique="Chantier de test inventé")
+    db_session.add(chantier)
+    await db_session.flush()
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    await _creer_bloc(
+        db_session,
+        facture=facture,
+        ordre=0,
+        numero_bl="L-CHANTIER",
+        chantier_id=chantier.id,
+    )
+    await _creer_bloc(db_session, facture=facture, ordre=1, numero_bl="L-SANS-CHANTIER")
+
+    detail = await facture_detail(db_session, facture.id)
+
+    assert detail.blocs[0].chantier_id == chantier.id
+    assert detail.blocs[1].chantier_id is None
 
 
 async def test_facture_detail_lignes_dans_lordre(db_session: AsyncSession) -> None:

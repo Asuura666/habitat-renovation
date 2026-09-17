@@ -68,6 +68,11 @@ _DELAI_OCR_FACTURE = httpx.Timeout(90.0)
 # par mot allongent l'analyse d'une photo de BL — même borne haute que pour
 # une facture (décision du contrôleur).
 _DELAI_OCR_BL = httpx.Timeout(90.0)
+# L3-T7 (L3-D16, décision du contrôleur) : confiance par page pour une
+# facture (`extract.confiance.confiance_min_pages`, lu par
+# `ingest/factures.py::deposer_facture`) — jamais l'annotation structurée ni
+# les scores par mot d'`OPTIONS_OCR_BL`, réservés au BL (T6).
+_OPTIONS_OCR_FACTURE: dict[str, Any] = {"confidence_scores_granularity": "page"}
 
 
 def get_messagerie(
@@ -130,11 +135,14 @@ def get_ocr(
 def get_ocr_facture(
     request: Request, settings: Annotated[Settings, Depends(get_settings)]
 ) -> Callable[[bytes, str], Awaitable[dict[str, Any]]]:
-    """OCR de production pour le dépôt d'une facture (L2-T4, décision du
-    contrôleur) : même construction que `get_ocr`, délai porté à 90 s.
-    Utilisée par `app/modules/api/factures.py`, surchargeable dans les
-    tests de la même façon que `get_ocr`."""
-    return _construire_ocr(request, settings, delai=_DELAI_OCR_FACTURE)
+    """OCR de production pour le dépôt d'une facture (L2-T4, délai porté à
+    90 s ; L3-T7/L3-D16, `_OPTIONS_OCR_FACTURE` : confiance par page, lue
+    par `ingest/factures.py::deposer_facture` via `extract.confiance
+    .confiance_min_pages`). Utilisée par `app/modules/api/factures.py`,
+    surchargeable dans les tests de la même façon que `get_ocr`."""
+    return _construire_ocr(
+        request, settings, delai=_DELAI_OCR_FACTURE, options=_OPTIONS_OCR_FACTURE
+    )
 
 
 @router.post("/tg/webhook")

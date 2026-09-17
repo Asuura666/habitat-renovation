@@ -23,8 +23,20 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 
+class MotifReponse(BaseModel):
+    """Un motif de mise « à vérifier » (L3-T7), tel que renvoyé par `GET
+    /api/factures`/`GET /api/factures/{id}` (réutilisé par L3-T8a/L3-T8b) —
+    mêmes champs qu'`ingest.lecture.MotifLu`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    code: str
+    champ: str | None
+    detail: dict[str, str]
+
+
 class FactureResumeReponse(BaseModel):
-    """Une ligne de `GET /api/factures`."""
+    """Une ligne de `GET /api/factures` (statut/confiance/motifs, L3-T7)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -36,6 +48,10 @@ class FactureResumeReponse(BaseModel):
     nb_blocs: int
     nb_blocs_recus: int
     cree_le: datetime
+    statut: str
+    confiance_reduite: bool
+    confiance_min: Decimal | None
+    motifs: list[MotifReponse]
 
 
 class LigneFactureReponse(BaseModel):
@@ -57,7 +73,8 @@ class LigneFactureReponse(BaseModel):
 
 
 class BlocFactureReponse(BaseModel):
-    """Un bloc « Concerne le B.L. », dans `GET /api/factures/{id}`."""
+    """Un bloc « Concerne le B.L. », dans `GET /api/factures/{id}`
+    (`chantier_id`, L3-T7)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -66,6 +83,7 @@ class BlocFactureReponse(BaseModel):
     date_bl: date | None
     numero_commande: str | None
     chantier_brut: str | None
+    chantier_id: uuid.UUID | None
     commentaire: str | None
     montant_ht: Decimal
     bl_recu: bool
@@ -74,7 +92,8 @@ class BlocFactureReponse(BaseModel):
 
 
 class FactureDetailReponse(BaseModel):
-    """`GET /api/factures/{id}` : en-tête puis blocs."""
+    """`GET /api/factures/{id}` : en-tête puis blocs (statut/confiance/
+    motifs, L3-T7)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -85,6 +104,10 @@ class FactureDetailReponse(BaseModel):
     total_ht: Decimal | None
     cree_le: datetime
     deposant: str | None
+    statut: str
+    confiance_reduite: bool
+    confiance_min: Decimal | None
+    motifs: list[MotifReponse]
     blocs: list[BlocFactureReponse]
 
 

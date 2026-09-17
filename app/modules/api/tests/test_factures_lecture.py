@@ -193,6 +193,12 @@ async def test_liste_admin_renvoie_les_factures_avec_les_bons_champs(
     assert facture["fournisseur"] == "Unikalo"
     assert facture["nb_blocs"] == 1
     assert facture["nb_blocs_recus"] == 0
+    # L3-T7 : statut/confiance/motifs — `_creer_facture_avec_bloc` ne fixe
+    # ni `ocr_brut` ni `motifs`, la facture est donc reçue sans motif.
+    assert facture["statut"] == "recu"
+    assert facture["confiance_reduite"] is False
+    assert facture["confiance_min"] is None
+    assert facture["motifs"] == []
     assert set(facture.keys()) == {
         "id",
         "numero",
@@ -202,6 +208,10 @@ async def test_liste_admin_renvoie_les_factures_avec_les_bons_champs(
         "nb_blocs",
         "nb_blocs_recus",
         "cree_le",
+        "statut",
+        "confiance_reduite",
+        "confiance_min",
+        "motifs",
     }
 
 
@@ -274,11 +284,17 @@ async def test_detail_admin_renvoie_len_tete_et_les_blocs(
     assert reponse.status_code == 200
     corps = reponse.json()
     assert corps["numero"] == "FAC-DETAIL-OK"
+    # L3-T7 : statut/confiance/motifs de l'en-tête.
+    assert corps["statut"] == "recu"
+    assert corps["confiance_reduite"] is False
+    assert corps["confiance_min"] is None
+    assert corps["motifs"] == []
     assert len(corps["blocs"]) == 1
     bloc = corps["blocs"][0]
     assert bloc["numero_bl"] == "L500"
     assert bloc["bl_recu"] is False
     assert bloc["bl_document_id"] is None
+    assert bloc["chantier_id"] is None
     assert bloc["montant_ht"] == "12.50"
     assert len(bloc["lignes"]) == 1
     assert bloc["lignes"][0]["article_brut"] == "Article inventé"

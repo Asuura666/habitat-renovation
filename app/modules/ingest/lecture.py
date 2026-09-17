@@ -27,8 +27,9 @@ from pathlib import Path
 
 from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, defer
 
+from app.modules.extract.verification import motif_depuis_json
 from app.modules.ingest.commun import _mime_pour_extension, logger
 from app.modules.ingest.models import (
     BlocFacture,
@@ -131,8 +132,42 @@ _CONFIRMATION_PAR_ACTION: dict[str, str] = {
 
 
 @dataclass(frozen=True)
+class MotifLu:
+    """Un motif de mise « à vérifier », tel qu'exposé par l'API (L3-T7) —
+    mêmes champs qu'`extract.verification.Motif`, mais un type propre à
+    `ingest` (`api` ne peut pas importer `extract` directement, L2-D3) :
+    réutilisée par `L3-T8a`/`L3-T8b`."""
+
+    code: str
+    champ: str | None
+    detail: dict[str, str]
+
+
+def motifs_lus(valeur: object) -> list[MotifLu]:
+    """Décode une colonne JSON (`document.motifs`) en `MotifLu` (L3-T7,
+    décision du contrôleur) : chaque élément passe par `extract.verification
+    .motif_depuis_json` — un élément mal formé (`ValueError`, y compris un
+    élément qui n'est pas un objet) est simplement ignoré, jamais une erreur
+    500 sur une donnée déjà en base. `None` ou toute valeur qui n'est pas une
+    liste -> `[]`."""
+    if not isinstance(valeur, list):
+        return []
+    motifs: list[MotifLu] = []
+    for element in valeur:
+        try:
+            motif = motif_depuis_json(element)
+        except ValueError:
+            continue
+        motifs.append(
+            MotifLu(code=motif.code.value, champ=motif.champ, detail=motif.detail)
+        )
+    return motifs
+
+
+@dataclass(frozen=True)
 class FactureResume:
-    """Une ligne de `GET /api/factures` (L2-T5)."""
+    """Une ligne de `GET /api/factures` (L2-T5 ; statut/confiance/motifs
+    L3-T7)."""
 
     id: uuid.UUID
     numero: str
@@ -142,6 +177,10 @@ class FactureResume:
     nb_blocs: int
     nb_blocs_recus: int
     cree_le: datetime
+    statut: str
+    confiance_reduite: bool
+    confiance_min: Decimal | None
+    motifs: list[MotifLu]
 
 
 async def lister_factures(session: AsyncSession) -> list[FactureResume]:
@@ -152,9 +191,20 @@ async def lister_factures(session: AsyncSession) -> list[FactureResume]:
     soit le nombre de factures ou de blocs — une pour les factures (jointure
     fournisseur), une pour tous leurs blocs, une pour la correspondance BL
     (`documents_bl_par_numeros`, elle-même une seule requête).
+
+    `confiance_reduite` (L3-T7, décision du contrôleur) : `Document.ocr_brut
+    .is_not(None)` sélectionnée comme expression booléenne, colonne
+    `ocr_brut` elle-même déférée (`defer`, jamais chargée ici) — la réponse
+    OCR brute d'une facture pèse plusieurs centaines de Ko, inutile pour une
+    liste.
     """
     resultat_factures = await session.execute(
-        select(Document, Fournisseur.nom)
+        select(
+            Document,
+            Fournisseur.nom,
+            Document.ocr_brut.is_not(None).label("confiance_reduite"),
+        )
+        .options(defer(Document.ocr_brut))
         .join(Fournisseur, Fournisseur.id == Document.fournisseur_id)
         .where(Document.type == "facture")
         .order_by(Document.date_doc.desc(), Document.created_at.desc())
@@ -163,7 +213,7 @@ async def lister_factures(session: AsyncSession) -> list[FactureResume]:
     if not lignes_factures:
         return []
 
-    facture_ids = [document.id for document, _nom in lignes_factures]
+    facture_ids = [document.id for document, _nom, _reduite in lignes_factures]
     resultat_blocs = await session.execute(
         select(BlocFacture.facture_id, BlocFacture.numero_bl).where(
             BlocFacture.facture_id.in_(facture_ids)
@@ -182,7 +232,7 @@ async def lister_factures(session: AsyncSession) -> list[FactureResume]:
     documents_par_numero = await documents_bl_par_numeros(session, tous_numeros)
 
     resumes: list[FactureResume] = []
-    for document, nom_fournisseur in lignes_factures:
+    for document, nom_fournisseur, confiance_reduite in lignes_factures:
         numeros_bloc = numeros_par_facture.get(document.id, [])
         nb_blocs_recus = sum(
             1
@@ -200,6 +250,10 @@ async def lister_factures(session: AsyncSession) -> list[FactureResume]:
                 nb_blocs=len(numeros_bloc),
                 nb_blocs_recus=nb_blocs_recus,
                 cree_le=document.created_at,
+                statut=document.statut,
+                confiance_reduite=confiance_reduite,
+                confiance_min=document.confiance_min,
+                motifs=motifs_lus(document.motifs),
             )
         )
     return resumes
@@ -229,13 +283,15 @@ class LigneFactureLue:
 @dataclass(frozen=True)
 class BlocFactureLu:
     """Un bloc, avec ses lignes et son indicateur « BL reçu » calculé à la
-    lecture (L2-D12, jamais persisté dans `bl_document_id`)."""
+    lecture (L2-D12, jamais persisté dans `bl_document_id`). `chantier_id`
+    (L3-T7) : résolu par `ingest/factures.py::deposer_facture`."""
 
     id: uuid.UUID
     numero_bl: str | None
     date_bl: date | None
     numero_commande: str | None
     chantier_brut: str | None
+    chantier_id: uuid.UUID | None
     commentaire: str | None
     montant_ht: Decimal
     bl_recu: bool
@@ -245,7 +301,8 @@ class BlocFactureLu:
 
 @dataclass(frozen=True)
 class FactureDetail:
-    """En-tête et blocs d'une facture (`GET /api/factures/{id}`, L2-T5)."""
+    """En-tête et blocs d'une facture (`GET /api/factures/{id}`, L2-T5 ;
+    statut/confiance/motifs L3-T7)."""
 
     id: uuid.UUID
     numero: str
@@ -254,6 +311,10 @@ class FactureDetail:
     total_ht: Decimal | None
     cree_le: datetime
     deposant: str | None
+    statut: str
+    confiance_reduite: bool
+    confiance_min: Decimal | None
+    motifs: list[MotifLu]
     blocs: list[BlocFactureLu]
 
 
@@ -335,6 +396,7 @@ async def facture_detail(session: AsyncSession, facture_id: uuid.UUID) -> Factur
                 date_bl=bloc.date_bl,
                 numero_commande=bloc.numero_commande,
                 chantier_brut=bloc.chantier_brut,
+                chantier_id=bloc.chantier_id,
                 commentaire=bloc.commentaire,
                 montant_ht=sum(
                     (
@@ -373,6 +435,13 @@ async def facture_detail(session: AsyncSession, facture_id: uuid.UUID) -> Factur
         total_ht=document.total_ht,
         cree_le=document.created_at,
         deposant=nom_deposant,
+        # L3-T7 : un seul document chargé ici (contrairement à `lister_
+        # factures`) — pas besoin de déférer `ocr_brut` pour cette seule
+        # vérification de nullité.
+        statut=document.statut,
+        confiance_reduite=document.ocr_brut is not None,
+        confiance_min=document.confiance_min,
+        motifs=motifs_lus(document.motifs),
         blocs=blocs,
     )
 

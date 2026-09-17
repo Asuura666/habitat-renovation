@@ -34,12 +34,25 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.extract.facture import BlocBL, Facture, FactureIllisible
+from app.modules.extract.confiance import confiance_min_pages
+from app.modules.extract.facture import BlocBL, Facture, FactureIllisible, TypeLigne
 from app.modules.extract.unikalo import analyser_facture_unikalo
+from app.modules.extract.verification import (
+    TOLERANCE_TOTAL_DEFAUT,
+    motif_en_json,
+    verifier_facture,
+)
 from app.modules.ingest.commun import Deposant, _ecrire_atomique, _supprimer_si_existe
+from app.modules.ingest.extraction_bl import CLE_TOLERANCE_TOTAL_HT
 from app.modules.ingest.lecture import _normaliser_numero, documents_bl_par_numeros
 from app.modules.ingest.mistral import ErreurOCR
 from app.modules.ingest.models import BlocFacture, Document, Fournisseur, Journal, Ligne
+from app.modules.ingest.referentiels import (
+    lire_parametre_decimal,
+    rattacher_article,
+    resoudre_chantier,
+)
+from app.modules.normalize.article import proposer_article_facture
 
 
 async def _lire_facture_ocr(
@@ -194,10 +207,24 @@ def formater_blocs(blocs: list[BlocReception]) -> str:
 #   `EcritureImpossible`, jamais laissé remonter brut (le routeur la traduit
 #   en 500 neutre).
 #
+# L3-T7 (L3-D16, comble Ruling L2-R5) :
+# - `confiance_min` = `extract.confiance.confiance_min_pages(reponse_ocr)`
+#   (plus petit `minimum_page_confidence_score` des pages, options
+#   `get_ocr_facture`/`router.py` : confiance par page, pas par mot).
+# - Seule règle de contrôle d'une facture au lot 3 : `verifier_facture`
+#   (somme des blocs vs `total_ht`, même tolérance que pour un BL —
+#   `CLE_TOLERANCE_TOTAL_HT`, nommée dans `ingest/extraction_bl.py`,
+#   réutilisée ici, décision du contrôleur) -> `document.statut`
+#   (`a_verifier` si au moins un motif) et `document.motifs`.
+# - Chantier de chaque bloc dont `chantier_brut` n'est pas vide, article de
+#   chaque ligne `ARTICLE` avec un code : mêmes fonctions que pour un BL
+#   (`ingest/referentiels.py::resoudre_chantier`/`rattacher_article`) —
+#   jamais pour une ligne `eco`/`commentaire`. Aucune ligne de journal
+#   supplémentaire par alias ou article : `nb_demandes_alias`/`nb_articles`
+#   dans le journal `facture_deposee` suffisent (décision du contrôleur).
+#
 # Hors périmètre du lot 2 (Ruling L2-R5, décision du contrôleur, voir
 # `docs/dette.md`) :
-# - `confiance_min` n'est jamais renseignée pour une facture lue par OCR
-#   (score de confiance par champ défini au lot 3 Extraction, CDC §4.2).
 # - Un avoir Unikalo (CDC §4.2 « facture ou d'avoir ») serait aujourd'hui
 #   typé `facture` comme n'importe quel dépôt (aucun exemple disponible pour
 #   distinguer les deux formats) — question posée à Ilane
@@ -292,7 +319,8 @@ async def deposer_facture(
     ocr: Callable[[bytes, str], Awaitable[dict[str, Any]]],
 ) -> FactureDeposee:
     """Dépose une facture PDF Unikalo : lecture, fournisseur, doublon,
-    stockage et insertions dans une seule transaction (L2-T4).
+    contrôle, résolution chantier/article, stockage et insertions dans une
+    seule transaction (L2-T4, contrôle et normalisation L3-T7).
 
     Lève `FichierInvalide` (pas un PDF), `LectureImpossible` (échec de
     l'OCR), `FormatNonPrisEnCharge` (facture non reconnue comme Unikalo),
@@ -328,6 +356,16 @@ async def deposer_facture(
     if original_id is not None:
         raise FactureEnDouble(original_id)
 
+    # L3-T7 (L3-D16) : confiance par page et seule règle de contrôle d'une
+    # facture au lot 3 (somme des blocs vs total HT) — calculées avant le
+    # stockage, sur `facture`/`reponse_ocr` déjà lus, jamais recalculées.
+    confiance_min = confiance_min_pages(reponse_ocr)
+    tolerance = await lire_parametre_decimal(
+        session, CLE_TOLERANCE_TOTAL_HT, TOLERANCE_TOTAL_DEFAUT
+    )
+    motifs = list(verifier_facture(facture, tolerance=tolerance))
+    statut = "a_verifier" if motifs else "recu"
+
     identifiant = uuid.uuid4()
     chemin_final = (docs_dir / f"{identifiant}.pdf").absolute()
     chemin_temporaire = (docs_dir / f"{identifiant}.pdf.tmp").absolute()
@@ -347,7 +385,7 @@ async def deposer_facture(
         document = Document(
             type="facture",
             source="upload",
-            statut="recu",
+            statut=statut,
             fichier_path=str(chemin_final),
             fournisseur_id=fournisseur_id,
             numero=facture.numero,
@@ -355,12 +393,30 @@ async def deposer_facture(
             total_ht=facture.total_ht,
             deposant_id=deposant.id,
             ocr_brut=reponse_ocr,
+            confiance_min=confiance_min,
+            motifs=[motif_en_json(m) for m in motifs],
         )
         session.add(document)
         await session.flush()
         document_id = document.id
 
+        nb_demandes_alias = 0
+        articles_rattaches: set[uuid.UUID] = set()
+
         for position, bloc in enumerate(facture.blocs):
+            # L3-T7 (décision du contrôleur) : résolution seulement pour un
+            # bloc dont le chantier brut n'est pas vide (`resoudre_chantier`
+            # gère déjà un brut vide, mais l'appel est alors superflu et ne
+            # compterait jamais comme une demande d'alias).
+            chantier_id: uuid.UUID | None = None
+            if bloc.chantier_brut:
+                resolution_chantier = await resoudre_chantier(
+                    session, fournisseur_id, bloc.chantier_brut
+                )
+                chantier_id = resolution_chantier.chantier_id
+                if resolution_chantier.demande_creee:
+                    nb_demandes_alias += 1
+
             bloc_facture = BlocFacture(
                 facture_id=document_id,
                 # Position sur la facture (constat T5, voir le commentaire de
@@ -372,6 +428,7 @@ async def deposer_facture(
                 date_bl=bloc.date_bl,
                 numero_commande=bloc.numero_commande,
                 chantier_brut=bloc.chantier_brut,
+                chantier_id=chantier_id,
                 commentaire=_commentaire_bloc(bloc),
             )
             session.add(bloc_facture)
@@ -379,12 +436,30 @@ async def deposer_facture(
             bloc_id = bloc_facture.id
 
             for ligne in bloc.lignes:
+                # L3-T7 (décision du contrôleur) : seulement une ligne
+                # `ARTICLE` avec un code (L3-D9 : une éco-participation ou un
+                # commentaire ne rattache jamais un article).
+                article_id: uuid.UUID | None = None
+                if ligne.type_ligne is TypeLigne.ARTICLE and ligne.code_article:
+                    proposition = proposer_article_facture(
+                        ligne.code_article,
+                        ligne.designation,
+                        ligne.qte_livree,
+                        ligne.qte_totale,
+                    )
+                    article_id = await rattacher_article(
+                        session, fournisseur_id, proposition
+                    )
+                    if article_id is not None:
+                        articles_rattaches.add(article_id)
+
                 session.add(
                     Ligne(
                         document_id=document_id,
                         bloc_id=bloc_id,
                         article_brut=ligne.designation,
                         code_brut=ligne.code_article,
+                        article_id=article_id,
                         unite_brut=ligne.unite,
                         qte_livree=ligne.qte_livree,
                         qte_totale=ligne.qte_totale,
@@ -410,6 +485,10 @@ async def deposer_facture(
                     "fournisseur_id": str(fournisseur_id),
                     "total_ht": str(facture.total_ht),
                     "nb_blocs": len(facture.blocs),
+                    "statut": statut,
+                    "motifs": [m.code.value for m in motifs],
+                    "nb_demandes_alias": nb_demandes_alias,
+                    "nb_articles": len(articles_rattaches),
                 },
             )
         )

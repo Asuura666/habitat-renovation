@@ -14,18 +14,19 @@ muter puis restaurer l'état du singleton `app.main.app` entre les tests
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from httpx import ASGITransport
 from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+import app.modules.ingest.router as ingest_router
 from app.core.config import Settings, get_settings
 from app.modules.ingest.depot_telegram import _MESSAGE_ECHEC_AGENT
 from app.modules.ingest.models import Document, Journal, TelegramUpdate, Utilisateur
@@ -590,3 +591,55 @@ async def test_callback_data_malforme_renvoie_200_sans_rien_ecrire(
     assert (await db_session.execute(select(Journal))).scalars().all() == []
     assert messagerie.accuses == []
     assert messagerie.editions == []
+
+
+# --------------------------------------------------------------------------
+# `get_ocr_facture` (L3-T7, L3-D16) : confiance par page, jamais l'annotation
+# ni les scores par mot d'`OPTIONS_OCR_BL` (réservés au BL, T6).
+# --------------------------------------------------------------------------
+
+
+async def test_get_ocr_facture_options_confidence_scores_granularity_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    appels: list[dict[str, Any]] = []
+
+    async def _ocr_document_factice(
+        http: Any,
+        cle_api: str,
+        contenu: bytes,
+        mime: str,
+        *,
+        delai: httpx.Timeout | None = None,
+        options: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        appels.append(
+            {"delai": delai, "options": dict(options) if options is not None else None}
+        )
+        return {}
+
+    monkeypatch.setattr(ingest_router, "ocr_document", _ocr_document_factice)
+
+    app_test = FastAPI()
+    app_test.state.http = object()
+    settings = Settings(
+        _env_file=None,  # type: ignore[call-arg]
+        database_url="postgresql+asyncpg://inutilise:inutilise@localhost/inutilise",
+        docs_dir=Path("/inutilise"),
+        telegram_bot_token=SecretStr(TOKEN_TEST),
+        telegram_webhook_secret=SecretStr(SECRET_TEST),
+        telegram_chat_bl_id=CHAT_BL_TEST,
+        telegram_chat_supervision_id=CHAT_SUPERVISION_TEST,
+        mistral_api_key=SecretStr(CLE_MISTRAL_TEST),
+    )
+    request = Request({"type": "http", "app": app_test})
+
+    ocr = ingest_router.get_ocr_facture(request, settings)
+    await ocr(b"contenu-invente", "application/pdf")
+
+    assert appels == [
+        {
+            "delai": httpx.Timeout(90.0),
+            "options": {"confidence_scores_granularity": "page"},
+        }
+    ]
