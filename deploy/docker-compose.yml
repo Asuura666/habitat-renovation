@@ -33,6 +33,8 @@ services:
       # (décision D18).
       DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:?POSTGRES_USER manquant}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB manquant}"
       DOCS_DIR: /srv/docs
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN manquant}"
+      TELEGRAM_WEBHOOK_SECRET: "${TELEGRAM_WEBHOOK_SECRET:?TELEGRAM_WEBHOOK_SECRET manquant}"
     depends_on:
       postgres:
         condition: service_healthy

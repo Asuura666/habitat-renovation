@@ -10,11 +10,13 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.core.db import base_joignable, creer_engine, creer_sessionmaker
+from app.modules.ingest.router import router as ingest_router
 
 settings = get_settings()
 
@@ -24,13 +26,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     engine = creer_engine(settings.database_url)
     app.state.engine = engine
     app.state.sessions = creer_sessionmaker(engine)
+    app.state.http = httpx.AsyncClient()
     try:
         yield
     finally:
+        await app.state.http.aclose()
         await engine.dispose()
 
 
 app = FastAPI(lifespan=lifespan)
+app.include_router(ingest_router)
 
 
 @app.get("/health")

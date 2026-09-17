@@ -26,7 +26,15 @@ from app.modules.ingest import models  # noqa: F401
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # `disable_existing_loggers=False` : le comportement par défaut de
+    # `fileConfig` désactive tout logger déjà créé et absent de
+    # `alembic.ini` (seuls `root`, `sqlalchemy`, `alembic` y figurent). En
+    # test, les modules applicatifs (ex. `app.modules.ingest.service`) sont
+    # déjà importés — donc leur logger déjà créé — avant que cette fonction
+    # ne tourne (`preparer_base`, appelée par les fixtures de base de test) :
+    # sans ce paramètre, leurs logs seraient silencieusement perdus pendant
+    # toute la suite de tests.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
