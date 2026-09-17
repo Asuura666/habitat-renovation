@@ -1,9 +1,31 @@
 # Recette du lot 1 (Socle) — Contrôle BL & factures
 
-Branche `lot-1-socle`, commits `88825b5..ae63c37` (T1 à T6b, corrections
-comprises). Aucune donnée réelle (numéro, chantier, montant, nom) dans ce
-document : les résultats sont donnés en comptes et en écarts, jamais en
-valeurs.
+Branche `lot-1-socle` (T1 à T9, plus la vague de correction finale issue de
+la revue complète de la branche). Aucune donnée réelle (numéro, chantier,
+montant, nom) dans ce document : les résultats sont donnés en comptes et en
+écarts, jamais en valeurs.
+
+## À lire d'abord (Ilane)
+
+- La facture Unikalo fournie est un **scan** (pas de PDF natif) : elle est
+  lue par **OCR Mistral** plutôt que par `pdfplumber` comme prévu au plan —
+  décision déjà validée le 2026-09-16, mais **à reconfirmer** une fois une
+  deuxième facture disponible (§5, question 2).
+- **Résultat mesuré** sur la facture d'août : **28 blocs BL sur 28**
+  conformes à une référence établie indépendamment (comptes uniquement,
+  jamais de valeur réelle ici — voir §1).
+- **Testé réellement aujourd'hui** (2026-09-17) : Postgres de dev,
+  migrations (`alembic check` sans dérive), suite de tests complète, lint et
+  typage, `/health`, et l'aller-retour sauvegarde/restauration complet en
+  projet compose isolé (voir §3).
+- **Reste à faire avec toi** : test Telegram de bout en bout (pas de vrai
+  bot ni d'URL publique cette nuit), test OCR sur les 4 vraies photos de BL,
+  facture de septembre dès réception, sauvegarde réelle vers OVH Object
+  Storage (§4).
+- **Clé Mistral à faire tourner** : la clé actuelle a été transmise en clair
+  une fois pour configurer `.env` — à révoquer et régénérer côté compte
+  Mistral dès que possible (§4).
+- Questions ouvertes pour toi en §5.
 
 ## 1. Ce qui est fait
 
@@ -85,6 +107,8 @@ cette nuit, reporté ci-dessous en §4).
 | R19 | Test de non-régression ajouté sur fixture `<facture>.attendu.json` (critère de recette : 100 % des blocs) | Aucun — test en plus |
 | R20 | La restauration ne supprime jamais les documents existants (bascule par renommage) | Espace disque doublé jusqu'au nettoyage manuel du dossier `.avant-restauration-*` |
 | R21 | Parseur spécifique Unikalo déplacé dans `extract/unikalo.py` (un parseur par fournisseur, CDC §13) | Un renommage |
+| R22 | L'accusé Telegram avant persistance garantie n'est pas modifié au lot 1 (documenté dans `docs/dette.md`) ; la notification des échecs de traitement est portée par la tâche L2-T2 (supervision, lot 2) | Photos perdues sans alerte jusqu'au lot 2 (aucune donnée réelle en production d'ici là) |
+| R23 | Migration 0001 modifiée en place pour le nouveau nommage des contraintes uniques (rien n'est déployé) | Une migration 0002 de renommage à écrire si ce choix s'avérait faux |
 
 ## 3. Vérification commande par commande
 
@@ -104,6 +128,12 @@ chmod 600 .env
 # (voir .superpowers/sdd/plan-lot-1/execution.md pour les valeurs factices
 # utilisées cette nuit — jamais affichées ni copiées ici).
 ```
+
+Le Postgres de dev de cette machine est publié sur `127.0.0.1:5450` (pas le
+port 5432 par défaut, interne au réseau compose) : `DATABASE_URL` et
+`TEST_DATABASE_URL` dans `.env` doivent viser ce port (déjà le cas dans
+`.env.example`, corrigé cette vague de correction — il pointait par erreur
+vers 5432).
 
 ### Postgres de dev
 
@@ -140,12 +170,19 @@ changement de code.
 uv run pytest -q
 ```
 
-**Résultat réel, relancé ce jour (2026-09-17), Postgres de dev démarré,
-fixtures `facture_2026-08.{pdf,mistral-ocr.json,attendu.json}` présentes :**
+**Résultat réel, relancé ce jour (2026-09-17) après la vague de correction
+finale, Postgres de dev démarré (base `bl` remigrée `downgrade base` puis
+`upgrade head` pour le nouveau nommage des contraintes uniques, `bl_test`
+supprimée puis recréée), fixtures `facture_2026-08.{pdf,mistral-ocr.json,
+attendu.json}` présentes :**
 
 ```
-148 passed in 16.38s
+149 passed in 16.89s
 ```
+
+(148 avant la vague de correction finale + 1 nouveau test de non-régression
+sur la convention de nommage des contraintes uniques,
+`app/core/tests/test_db.py`.)
 
 **0 skip.** Les seuls tests conditionnés par une fixture réelle
 (`pytest.skip` explicite dans `app/modules/extract/tests/test_unikalo.py`
@@ -194,7 +231,7 @@ uv run python -m app.cli bl-non-recus tests/fixtures/unikalo/facture_2026-08.pdf
 cette nuit), **elle n'a pas été relancée ici et doit être exécutée par
 Ilane**. Sortie attendue : code 0, un tableau `N° BL | Date | Chantier brut
 | Montant HT | Photo reçue`, puis `N blocs — X reçus — Y non reçus`. Le
-sous-ensemble de tests commité (`tests/test_cli.py`, inclus dans les 148
+sous-ensemble de tests commité (`tests/test_cli.py`, inclus dans les 149
 tests ci-dessus) exécute déjà ce chemin avec la réponse OCR **rejouée**
 depuis la fixture locale (aucun appel réseau dans les tests) et vérifie le
 code 0 et la cohérence de la synthèse — l'intégration Mistral elle-même
@@ -255,7 +292,7 @@ publique). Procédure complète pour la matinée :
 
 ### OCR — numéro de BL sur photo (T6b)
 
-Détection unitaire déjà testée (textes inventés, 124/148 tests couvrent ce
+Détection unitaire déjà testée (textes inventés, 124/149 tests couvrent ce
 module et les autres). **Reste à prouver sur les 4 vraies photos** (3
 Unikalo, 1 Point.P) :
 
@@ -276,39 +313,23 @@ Deux façons de fournir les photos : les déposer dans
 ./deploy/test-restauration.sh
 ```
 
-**Relancé réellement ce jour.** Premier essai : échec immédiat —
-
-```
-error while interpolating services.api.environment.TELEGRAM_BOT_TOKEN: required variable TELEGRAM_BOT_TOKEN is missing a value: TELEGRAM_BOT_TOKEN manquant
-```
-
-**Cause identifiée (anomalie d'intégration, code non modifié dans le cadre
-de cette tâche T9) :** `deploy/docker-compose.yml` exige
+**Anomalie trouvée à la recette (T9), corrigée pendant la vague de
+correction finale :** `deploy/docker-compose.yml` exige
 `TELEGRAM_BOT_TOKEN`/`TELEGRAM_WEBHOOK_SECRET` (ajoutés par T6) et
 `MISTRAL_API_KEY` (ajouté par T6b) sur le service `api`, mais
-`deploy/test-restauration.sh` a été écrit par T8 dans un worktree branché
-**avant** T6/T6b et génère un `.env` de test isolé qui ne fixe que
-`DOMAIN`, `ACME_EMAIL`, `POSTGRES_*`, `DOCS_HOST_DIR`, `DOCS_DIR`,
-`RESTIC_REPOSITORY`, `RESTIC_PASSWORD`. Le cherry-pick d'intégration (T8 →
-`lot-1-socle`, commit `cc343e0`) n'a pas eu de conflit sur ce fichier
-(T8 ne touche pas `docker-compose.yml`) et personne n'a rejoué le script
-après l'intégration de T6b : la régression est passée inaperçue jusqu'à
-cette recette. **À corriger** (hors périmètre de T9 : aucun code touché
-ici) : ajouter les trois variables au bloc `cat > "$ENV_FILE"` du script.
+`deploy/test-restauration.sh` avait été écrit par T8 dans un worktree
+branché **avant** T6/T6b : le `.env` de test isolé qu'il générait ne fixait
+que `DOMAIN`, `ACME_EMAIL`, `POSTGRES_*`, `DOCS_HOST_DIR`, `DOCS_DIR`,
+`RESTIC_REPOSITORY`, `RESTIC_PASSWORD`, et le script échouait immédiatement
+(« TELEGRAM_BOT_TOKEN manquant »). Corrigé en générant désormais ce `.env`
+de test **à partir de `.env.example`** (valeurs factices déjà valides pour
+toutes les variables obligatoires), en ne surchargeant que ce qui doit être
+propre au test isolé (`POSTGRES_*`, `DOCS_HOST_DIR`, `RESTIC_*`, ports,
+`DOMAIN`/`ACME_EMAIL`) : le script n'a donc plus besoin d'être mis à jour à
+chaque nouvelle variable obligatoire ajoutée à `docker-compose.yml`.
 
-**Contournement utilisé pour vérifier réellement le mécanisme aujourd'hui**
-(valeurs factices exportées dans le shell, jamais écrites dans le dépôt ;
-`docker compose` fait passer les variables déjà exportées avant celles du
-`--env-file` généré par le script) :
-
-```bash
-export TELEGRAM_BOT_TOKEN="000000:dev-restore-test" \
-       TELEGRAM_WEBHOOK_SECRET="dev-restore-test-secret" \
-       MISTRAL_API_KEY="dev-restore-test-key"
-./deploy/test-restauration.sh
-```
-
-**Résultat réel avec ce contournement : SUCCÈS.**
+**Rejoué réellement ce jour (2026-09-17), sans aucun contournement**, deux
+fois de suite (projet compose isolé `bl_restore_test`, ports 5451/8451) :
 
 ```
 test-restauration.sh : SUCCÈS — aller-retour complet vérifié (migration, données inventées,
@@ -317,9 +338,12 @@ test-restauration.sh : SUCCÈS — aller-retour complet vérifié (migration, do
 
 Comptes de lignes par table identiques avant/après, sha256 du fichier
 `docs` identique, `/health` à 200 après restauration. Nettoyage automatique
-en fin de script (`docker compose down -v`, dossier temporaire supprimé) :
-vérifié, aucun résidu (`docker ps` ne montre plus que les conteneurs du
-projet principal après coup).
+en fin de script (`docker compose down -v --rmi local`, dossier temporaire
+supprimé) : vérifié après coup, aucun résidu (`docker ps -a`, `docker volume
+ls`, `docker network ls`, `docker images` ne montrent plus rien du projet
+`bl_restore_test`) ; les conteneurs `habitat_reno-postgres-1` (dev) et
+`habitat_reno_pg_l2` (worktree lot 2, jamais touché) tournaient toujours
+normalement pendant et après ce test.
 
 Hors périmètre de ce VPS de développement (voir `deploy/RESTAURATION.md`,
 § « Hors périmètre du lot 1 ») : sauvegarde réelle vers l'Object Storage
@@ -346,13 +370,14 @@ OVH et restauration sur un VPS jetable — reportées en §4.
   pas renseignées dans le vrai `.env` du dépôt (aucune valeur, même
   factice) : à faire avant toute sauvegarde nocturne réelle (voir
   `deploy/RESTAURATION.md`, `restic init`).
-- **Anomalie à corriger** (non traitée ici, T9 ne touche pas au code) :
-  `deploy/test-restauration.sh` échoue tel quel sur un dépôt propre car son
-  `.env` de test généré ne fixe pas `TELEGRAM_BOT_TOKEN`,
-  `TELEGRAM_WEBHOOK_SECRET`, `MISTRAL_API_KEY` désormais exigées par
-  `docker-compose.yml` (détail et contournement en §3). À corriger dans le
-  script avant de le remettre en cron ou de le rejouer sans contournement
-  manuel.
+- **Accusé Telegram avant persistance garantie** (`app/modules/ingest/
+  router.py` / `service.py::traiter_fichier`) : un échec transitoire après
+  le 200 (téléchargement, disque plein, insertion en base) perd la
+  photo/le PDF sans aucune réponse à l'agent Telegram, sans nouvelle
+  tentative possible (Telegram considère l'update livré). Décision prise
+  pendant la vague de correction finale : **pas de changement de code au
+  lot 1** — la notification de ce type d'échec relève de la supervision du
+  lot 2 (tâche L2-T2). Entrée détaillée dans `docs/dette.md` (§T6).
 - **Rotation de la clé Mistral** : la clé actuellement dans `.env` a été
   transmise en clair dans la conversation cette nuit (nécessaire pour
   configurer `.env` sans accès direct au secret manager du client) ; à

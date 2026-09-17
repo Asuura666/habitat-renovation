@@ -91,6 +91,13 @@ cron séparée n'est nécessaire pour la purge.
    résultat puis **supprimer à la main** le dossier
    `.avant-restauration-*` une fois satisfait (il n'est jamais nettoyé
    automatiquement).
+   **Espace disque** : la préparation (`cp -a` du contenu restauré dans le
+   dossier frère, avant les deux renommages) a besoin, le temps de la
+   bascule, de deux fois l'espace occupé par les documents sur le disque
+   du parent de `DOCS_HOST_DIR` (l'ancien contenu et la copie restaurée
+   coexistent jusqu'à la suppression manuelle du `.avant-restauration-*`) :
+   vérifier l'espace disponible avant de lancer une restauration sur un
+   volume déjà proche de sa capacité.
 8. Vérifier manuellement `/health` depuis l'extérieur (Traefik/HTTPS) et
    contrôler que Traefik démarre correctement (ports 80/443 libres sur ce
    VPS neuf — voir la mise en garde plus bas, propre au VPS de
@@ -116,10 +123,14 @@ nettoyage habituel (`trap ... EXIT`) : si une étape échoue (ex. `pg_restore`
   interrompue en cours de copie/renommage) ;
 - la commande de reprise : relancer `./deploy/restore.sh <même
   snapshot> --confirmer`. C'est idempotent — la base est de toute façon
-  recréée depuis zéro à chaque tentative, et la bascule des documents
-  refuse de s'exécuter si un `.avant-restauration-*`/`.restaure-*`
-  résiduel du run précédent traîne encore (supprimer ce résidu à la main
-  après l'avoir inspecté avant de relancer).
+  recréée depuis zéro à chaque tentative. La garde anti-résidu compare par
+  motif (`.avant-restauration-*`, `.restaure-*`), pas par nom horodaté
+  exact : un résidu `.restaure-*` (bascule précédente interrompue en cours
+  de copie/renommage, état incertain) **bloque** toujours la relance —
+  l'inspecter puis le supprimer à la main avant de relancer. Un résidu
+  `.avant-restauration-*` (ancien contenu d'une restauration précédente
+  déjà réussie, volontairement conservé) n'empêche pas de relancer ; il est
+  seulement signalé, à supprimer à la main une fois vérifié.
 
 Sur le VPS de développement actuel, Traefik ne démarre jamais (nginx
 occupe déjà 80/443) : `restore.sh` ne touche qu'au service `api`

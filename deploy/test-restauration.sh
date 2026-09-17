@@ -45,7 +45,20 @@ mkdir -p "$DOCS_DIR_TEST" "$RESTIC_REPO_TEST"
 POSTGRES_PASSWORD_TEST="$(openssl rand -hex 20)"
 RESTIC_PASSWORD_TEST="$(openssl rand -hex 20)"
 
-cat > "$ENV_FILE" <<EOF
+# `.env` de test généré à partir de `.env.example` : ce fichier contient déjà
+# des valeurs factices valides pour TOUTES les variables obligatoires du
+# service `api` (y compris celles ajoutées après ce script, comme
+# TELEGRAM_BOT_TOKEN/TELEGRAM_WEBHOOK_SECRET/MISTRAL_API_KEY — leur absence
+# ici a fait échouer `docker compose ... up` immédiatement, cf.
+# docs/lot-1-recette.md). Seules les clés qui doivent être propres à ce test
+# isolé sont surchargées ci-dessous (`docker compose --env-file` : la
+# dernière occurrence d'une clé dans le fichier l'emporte, vérifié), pour
+# que ce script n'ait plus besoin d'être mis à jour à chaque nouvelle
+# variable obligatoire ajoutée à `docker-compose.yml`.
+cp "$ROOT_DIR/.env.example" "$ENV_FILE"
+cat >> "$ENV_FILE" <<EOF
+
+# --- Surcharges propres à test-restauration.sh (projet compose isolé) ---
 DOMAIN=bl-restore-test.invalid
 ACME_EMAIL=test@invalid.example
 POSTGRES_USER=bl_restore_test

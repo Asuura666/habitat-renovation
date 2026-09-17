@@ -83,6 +83,28 @@ aucune entrée tant qu'aucune simplification n'a été prise.
 
 ## T6 — messaging/ingest (webhook Telegram, dédoublonnage, stockage des documents)
 
+- **Accusé Telegram envoyé avant que la persistance soit garantie, aucune
+  notification à l'agent en cas d'échec transitoire.** `webhook_telegram`
+  (`app/modules/ingest/router.py`) répond 200 dès qu'`enregistrer_update`
+  marque l'`update_id` comme vu, **avant même de lancer**
+  `traiter_fichier` (tâche de fond) : Telegram considère alors l'update
+  définitivement livré et ne le renverra jamais, quoi qu'il arrive ensuite.
+  Si `traiter_fichier` (`app/modules/ingest/service.py`) rencontre un échec
+  transitoire ordinaire (échec de téléchargement Telegram, disque plein ou
+  autre `OSError` à l'écriture du fichier, échec de l'insertion du
+  `document` en base), la fonction retourne silencieusement après avoir
+  seulement journalisé l'erreur (`_journaliser_echec`) : **aucune réponse
+  n'est envoyée à l'expéditeur**, ni « reçu » ni message d'erreur — contrairement
+  au cas où l'OCR échoue ou où `numero_bl` n'est pas détecté, qui envoient
+  quand même « reçu » après tentative. La photo/le PDF est donc perdu sans
+  qu'aucun agent Telegram ni administrateur ne soit averti, et sans nouvelle
+  tentative automatique possible (dédoublonnage déjà acquis sur
+  `update_id`). Décision du contrôleur (vague de correction finale du
+  lot 1) : **pas de changement de code au lot 1** — les notifications de
+  supervision de ce type d'échec relèvent de la tâche L2-T2 (lot 2), qui
+  devra les signaler (ex. alerte admin, tableau de bord). Ne couvre pas de
+  mécanisme de reprise ni d'alerte avant le lot 2 ; à surveiller manuellement
+  via les logs applicatifs d'ici là.
 - **Tâche de fond perdue si le process meurt après le 200.** Le webhook
   répond 200 à Telegram dès que `enregistrer_update` marque l'`update_id`
   comme vu, puis lance `traiter_fichier` en tâche de fond

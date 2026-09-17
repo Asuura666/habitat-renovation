@@ -201,9 +201,20 @@ if [[ ! -d "$RESTORED_DOCS_DIR" ]]; then
   exit 1
 fi
 
-if [[ -e "$DOCS_HOST_DIR_ANCIEN" || -e "$DOCS_HOST_DIR_NOUVEAU" ]]; then
-  echo "restore.sh : $DOCS_HOST_DIR_ANCIEN ou $DOCS_HOST_DIR_NOUVEAU existe déjà (restauration précédente non nettoyée ?). Rien n'a été modifié." >&2
+# Garde par motif (pas par nom horodaté exact, qui ne matcherait quasiment
+# jamais puisque HORODATAGE est calculé à chaque exécution) : un résidu
+# ".restaure-*" témoigne d'une bascule interrompue en cours de
+# copie/renommage (état incertain, jamais sûr de reprendre dessus) et
+# bloque toujours la restauration. Un résidu ".avant-restauration-*" est
+# l'ancien contenu d'une restauration précédente déjà réussie (conservé
+# volontairement, cf. RESTAURATION.md) : il n'empêche pas de relancer, mais
+# est signalé pour rappeler qu'il reste à supprimer à la main.
+if compgen -G "${DOCS_HOST_DIR}.restaure-*" >/dev/null; then
+  echo "restore.sh : résidu ${DOCS_HOST_DIR}.restaure-* détecté (bascule d'une restauration précédente interrompue en cours de copie/renommage) : à inspecter puis supprimer avant de relancer. Rien n'a été modifié." >&2
   exit 1
+fi
+if compgen -G "${DOCS_HOST_DIR}.avant-restauration-*" >/dev/null; then
+  echo "restore.sh : ancien(s) contenu(s) ${DOCS_HOST_DIR}.avant-restauration-* d'une restauration précédente déjà présents (non bloquant ; à supprimer à la main une fois vérifiés, cf. RESTAURATION.md)." >&2
 fi
 
 ETAPE_COURANTE="arrêt de l'API"
