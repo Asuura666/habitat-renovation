@@ -1,42 +1,53 @@
-"""Tests de `app/cli.py` (`python -m app.cli bl-non-recus <facture.pdf>`, T7).
+"""Tests de `app/cli.py` (T7 et L2-T1b).
 
 Tests transverses (le fichier vit à la racine `app/`, pas dans un module) :
-- fichier absent -> code 2, en sous-processus avec un environnement sans
-  configuration, pour prouver qu'aucun appel réseau ni base n'est tenté
-  (une configuration manquante ferait échouer le processus avant tout appel
-  si le code allait plus loin) ;
-- fichier non-PDF -> code 2, sans mock ni réseau (rejeté avant l'OCR) ;
-- `ErreurOCR` / `FactureIllisible` -> code 2, `lire_facture` monkeypatchée
-  (R17 : aucun appel réel à Mistral) ;
-- vraie fixture `tests/fixtures/unikalo/facture_2026-08.{pdf,mistral-ocr.json,
-  attendu.json}` (`pytest.skip` si absente) -> code 0, une ligne par bloc,
-  réception exacte vérifiée sur `bl_test` (tour de correction finale du
-  lot 1 : la version précédente interrogeait la base de **dev** via
-  `DATABASE_URL` et son assertion « reçus + non reçus = nombre de blocs »
-  était tautologique — toujours vraie quel que soit le contenu de la base).
-  `DATABASE_URL` est surchargée par `TEST_DATABASE_URL` dans l'environnement
-  du test (`get_settings()` étant mise en cache par processus, le cache est
-  vidé avant et après) ; des documents `bl` sont semés dans `bl_test` pour un
-  sous-ensemble des numéros de BL lus **à l'exécution** dans
-  `facture_2026-08.attendu.json` (jamais codés en dur ici), puis la
-  correspondance « photo reçue » est vérifiée bloc par bloc — par index de
-  ligne, jamais par numéro réel dans une assertion ou un message. L'OCR
-  Mistral est remplacé par la fixture rejouée (R17 : aucun appel réel).
+- `bl-non-recus` (T7) :
+  - fichier absent -> code 2, en sous-processus avec un environnement sans
+    configuration, pour prouver qu'aucun appel réseau ni base n'est tenté
+    (une configuration manquante ferait échouer le processus avant tout appel
+    si le code allait plus loin) ;
+  - fichier non-PDF -> code 2, sans mock ni réseau (rejeté avant l'OCR) ;
+  - `ErreurOCR` / `FactureIllisible` -> code 2, `lire_facture` monkeypatchée
+    (R17 : aucun appel réel à Mistral) ;
+  - vraie fixture `tests/fixtures/unikalo/facture_2026-08.{pdf,mistral-ocr.json,
+    attendu.json}` (`pytest.skip` si absente) -> code 0, une ligne par bloc,
+    réception exacte vérifiée sur `bl_test` (tour de correction finale du
+    lot 1 : la version précédente interrogeait la base de **dev** via
+    `DATABASE_URL` et son assertion « reçus + non reçus = nombre de blocs »
+    était tautologique — toujours vraie quel que soit le contenu de la base).
+    `DATABASE_URL` est surchargée par `TEST_DATABASE_URL` dans l'environnement
+    du test (`get_settings()` étant mise en cache par processus, le cache est
+    vidé avant et après) ; des documents `bl` sont semés dans `bl_test` pour un
+    sous-ensemble des numéros de BL lus **à l'exécution** dans
+    `facture_2026-08.attendu.json` (jamais codés en dur ici), puis la
+    correspondance « photo reçue » est vérifiée bloc par bloc — par index de
+    ligne, jamais par numéro réel dans une assertion ou un message. L'OCR
+    Mistral est remplacé par la fixture rejouée (R17 : aucun appel réel).
+- `utilisateur-creer` / `utilisateur-desactiver` (L2-T1b) : `getpass.getpass`
+  est monkeypatchée (jamais de vraie saisie interactive dans les tests) ;
+  chaque test qui écrit réellement en base surcharge `DATABASE_URL` par
+  `TEST_DATABASE_URL` (fixture `_env_bl_test` ci-dessous, même mécanique que
+  le test `bl-non-recus` sur fixture réelle) et nettoie l'utilisateur (et son
+  entrée `journal`) qu'il a créé. Le rôle invalide est rejeté par `argparse`
+  lui-même (`choices`) : le test correspondant attend un `SystemExit`, pas un
+  retour de `cli.main`.
 """
 
 from __future__ import annotations
 
 import asyncio
+import getpass
 import json
 import re
 import subprocess
 import sys
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app import cli
@@ -44,7 +55,7 @@ from app.core.config import get_settings
 from app.core.db import creer_sessionmaker
 from app.modules.extract.facture import Facture, FactureIllisible
 from app.modules.ingest.mistral import ErreurOCR
-from app.modules.ingest.models import Document
+from app.modules.ingest.models import Document, Journal, Utilisateur
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures" / "unikalo"
@@ -222,3 +233,364 @@ def test_bl_non_recus_reception_exacte_sur_bl_test(
     assert total == nombre_blocs_attendu
     assert recus == recus_attendus
     assert non_recus == nombre_blocs_attendu - recus_attendus
+
+
+# ---------------------------------------------------------------------------
+# `utilisateur-creer` / `utilisateur-desactiver` (L2-T1b)
+# ---------------------------------------------------------------------------
+
+_MOT_DE_PASSE_CLI = "mot-de-passe-invente-cli-1234"
+
+
+@pytest.fixture
+def _env_bl_test(
+    test_database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """Bascule `DATABASE_URL` sur `bl_test` pour la durée du test, jamais la
+    base de dev (même mécanique que le test `bl-non-recus` sur fixture
+    réelle ci-dessus) : `get_settings()` est mise en cache par processus, le
+    cache est vidé avant et après."""
+    monkeypatch.setenv("DATABASE_URL", test_database_url)
+    get_settings.cache_clear()
+    try:
+        yield
+    finally:
+        get_settings.cache_clear()
+
+
+def _getpass_sequence(monkeypatch: pytest.MonkeyPatch, *valeurs: str) -> None:
+    """Remplace `getpass.getpass` par une file de réponses inventées (jamais
+    de vraie saisie interactive dans les tests) : la première valeur pour le
+    mot de passe, la seconde pour sa confirmation. Monkeypatché sur le module
+    `getpass` importé ici (et non `cli.getpass`, que mypy strict refuse en
+    accès externe faute de réexport explicite) : c'est le même objet module
+    que celui que `app.cli` appelle à l'exécution."""
+    iterateur = iter(valeurs)
+
+    def _getpass(prompt: str = "") -> str:
+        return next(iterateur)
+
+    monkeypatch.setattr(getpass, "getpass", _getpass)
+
+
+async def _relire_utilisateur(engine: AsyncEngine, email: str) -> Utilisateur | None:
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        return (
+            (
+                await session.execute(
+                    select(Utilisateur).where(Utilisateur.email == email)
+                )
+            )
+            .scalars()
+            .one_or_none()
+        )
+
+
+async def _supprimer_utilisateur(engine: AsyncEngine, email: str) -> None:
+    """Nettoie l'utilisateur inventé par un test (et son entrée `journal`,
+    qui ne référence jamais `utilisateur_id` — L2-D dans le brief L2-T1b —
+    mais cible bien son `id` par `cible_id`)."""
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        utilisateur_id = (
+            await session.execute(
+                select(Utilisateur.id).where(Utilisateur.email == email)
+            )
+        ).scalar_one_or_none()
+        if utilisateur_id is not None:
+            await session.execute(
+                delete(Journal).where(Journal.cible_id == str(utilisateur_id))
+            )
+        await session.execute(delete(Utilisateur).where(Utilisateur.email == email))
+        await session.commit()
+
+
+@pytest.mark.db
+def test_utilisateur_creer_reussi_hash_argon2id_et_mot_de_passe_jamais_affiche(
+    db_engine: AsyncEngine,
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    email = "cli.utilisateur.cree1@example.invalid"
+    _getpass_sequence(monkeypatch, _MOT_DE_PASSE_CLI, _MOT_DE_PASSE_CLI)
+    try:
+        code = cli.main(
+            [
+                "utilisateur-creer",
+                "--email",
+                email,
+                "--nom",
+                "Agent Créé CLI",
+                "--role",
+                "agent",
+                "--agence",
+                "Toulouse",
+                "--telegram-id",
+                "555000111",
+            ]
+        )
+        sortie = capsys.readouterr()
+
+        assert code == 0
+        assert _MOT_DE_PASSE_CLI not in sortie.out
+        assert _MOT_DE_PASSE_CLI not in sortie.err
+
+        utilisateur = asyncio.run(_relire_utilisateur(db_engine, email))
+        assert utilisateur is not None
+        assert utilisateur.hashed_password is not None
+        assert utilisateur.hashed_password.startswith("$argon2id$")
+        assert _MOT_DE_PASSE_CLI not in utilisateur.hashed_password
+        assert utilisateur.role == "agent"
+        assert utilisateur.agence == "Toulouse"
+        assert utilisateur.telegram_user_id == 555000111
+        assert utilisateur.is_active is True
+    finally:
+        asyncio.run(_supprimer_utilisateur(db_engine, email))
+
+
+@pytest.mark.db
+def test_utilisateur_creer_email_deja_pris_code_2_sans_deuxieme_ligne(
+    db_engine: AsyncEngine,
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    email = "cli.utilisateur.cree2@example.invalid"
+    try:
+        _getpass_sequence(monkeypatch, _MOT_DE_PASSE_CLI, _MOT_DE_PASSE_CLI)
+        premier = cli.main(
+            [
+                "utilisateur-creer",
+                "--email",
+                email,
+                "--nom",
+                "Premier",
+                "--role",
+                "agent",
+                "--agence",
+                "Toulouse",
+            ]
+        )
+        assert premier == 0
+
+        _getpass_sequence(monkeypatch, _MOT_DE_PASSE_CLI, _MOT_DE_PASSE_CLI)
+        second = cli.main(
+            [
+                "utilisateur-creer",
+                "--email",
+                email,
+                "--nom",
+                "Second",
+                "--role",
+                "agent",
+                "--agence",
+                "Toulouse",
+            ]
+        )
+        sortie = capsys.readouterr()
+
+        assert second == 2
+        assert sortie.err.strip() != ""
+        assert _MOT_DE_PASSE_CLI not in sortie.out
+        assert _MOT_DE_PASSE_CLI not in sortie.err
+
+        utilisateur = asyncio.run(_relire_utilisateur(db_engine, email))
+        assert utilisateur is not None
+        assert utilisateur.nom == "Premier"
+    finally:
+        asyncio.run(_supprimer_utilisateur(db_engine, email))
+
+
+@pytest.mark.db
+def test_utilisateur_creer_telegram_id_deja_attribue_code_2(
+    db_engine: AsyncEngine,
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    email_1 = "cli.utilisateur.telegram1@example.invalid"
+    email_2 = "cli.utilisateur.telegram2@example.invalid"
+    try:
+        _getpass_sequence(monkeypatch, _MOT_DE_PASSE_CLI, _MOT_DE_PASSE_CLI)
+        premier = cli.main(
+            [
+                "utilisateur-creer",
+                "--email",
+                email_1,
+                "--nom",
+                "Premier",
+                "--role",
+                "agent",
+                "--agence",
+                "Toulouse",
+                "--telegram-id",
+                "555000222",
+            ]
+        )
+        assert premier == 0
+
+        _getpass_sequence(monkeypatch, _MOT_DE_PASSE_CLI, _MOT_DE_PASSE_CLI)
+        second = cli.main(
+            [
+                "utilisateur-creer",
+                "--email",
+                email_2,
+                "--nom",
+                "Second",
+                "--role",
+                "agent",
+                "--agence",
+                "Toulouse",
+                "--telegram-id",
+                "555000222",
+            ]
+        )
+
+        assert second == 2
+        assert asyncio.run(_relire_utilisateur(db_engine, email_2)) is None
+    finally:
+        asyncio.run(_supprimer_utilisateur(db_engine, email_1))
+        asyncio.run(_supprimer_utilisateur(db_engine, email_2))
+
+
+def test_utilisateur_creer_role_invalide_rejete_par_argparse_systemexit_2() -> None:
+    """`--role` est déclaré avec `choices=["admin", "agent"]` : un rôle hors
+    de cette liste ne fait même pas exécuter le corps de la commande —
+    `argparse` lève `SystemExit(2)` avant tout accès à la configuration ou à
+    la base."""
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(
+            [
+                "utilisateur-creer",
+                "--email",
+                "cli.utilisateur.role.invalide@example.invalid",
+                "--nom",
+                "Rôle invalide",
+                "--role",
+                "superadmin",
+                "--agence",
+                "Toulouse",
+            ]
+        )
+
+    assert exc_info.value.code == 2
+
+
+@pytest.mark.db
+def test_utilisateur_creer_mots_de_passe_differents_code_2(
+    db_engine: AsyncEngine,
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    email = "cli.utilisateur.mdp.differents@example.invalid"
+    _getpass_sequence(monkeypatch, _MOT_DE_PASSE_CLI, "un-autre-mot-de-passe-1234")
+
+    code = cli.main(
+        [
+            "utilisateur-creer",
+            "--email",
+            email,
+            "--nom",
+            "Mots de passe différents",
+            "--role",
+            "agent",
+            "--agence",
+            "Toulouse",
+        ]
+    )
+    sortie = capsys.readouterr()
+
+    assert code == 2
+    assert sortie.err.strip() != ""
+    assert _MOT_DE_PASSE_CLI not in sortie.out
+    assert _MOT_DE_PASSE_CLI not in sortie.err
+    assert asyncio.run(_relire_utilisateur(db_engine, email)) is None
+
+
+@pytest.mark.db
+def test_utilisateur_creer_mot_de_passe_trop_court_code_2(
+    db_engine: AsyncEngine,
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    mot_de_passe_court = "court12345"  # 10 caractères, < minimum de 12
+    email = "cli.utilisateur.mdp.court@example.invalid"
+    _getpass_sequence(monkeypatch, mot_de_passe_court, mot_de_passe_court)
+
+    code = cli.main(
+        [
+            "utilisateur-creer",
+            "--email",
+            email,
+            "--nom",
+            "Mot de passe court",
+            "--role",
+            "agent",
+            "--agence",
+            "Toulouse",
+        ]
+    )
+    sortie = capsys.readouterr()
+
+    assert code == 2
+    assert sortie.err.strip() != ""
+    assert mot_de_passe_court not in sortie.out
+    assert mot_de_passe_court not in sortie.err
+    assert asyncio.run(_relire_utilisateur(db_engine, email)) is None
+
+
+@pytest.mark.db
+def test_utilisateur_desactiver_reussi_bascule_actif(
+    db_engine: AsyncEngine,
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    email = "cli.utilisateur.desactive@example.invalid"
+    try:
+        _getpass_sequence(monkeypatch, _MOT_DE_PASSE_CLI, _MOT_DE_PASSE_CLI)
+        assert (
+            cli.main(
+                [
+                    "utilisateur-creer",
+                    "--email",
+                    email,
+                    "--nom",
+                    "À désactiver",
+                    "--role",
+                    "agent",
+                    "--agence",
+                    "Toulouse",
+                ]
+            )
+            == 0
+        )
+
+        code = cli.main(["utilisateur-desactiver", "--email", email])
+
+        assert code == 0
+        utilisateur = asyncio.run(_relire_utilisateur(db_engine, email))
+        assert utilisateur is not None
+        assert utilisateur.is_active is False
+    finally:
+        asyncio.run(_supprimer_utilisateur(db_engine, email))
+
+
+@pytest.mark.db
+def test_utilisateur_desactiver_email_inconnu_code_2(
+    _env_bl_test: None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = cli.main(
+        [
+            "utilisateur-desactiver",
+            "--email",
+            "personne.na.jamais.existe.cli@example.invalid",
+        ]
+    )
+    sortie = capsys.readouterr()
+
+    assert code == 2
+    assert sortie.err.strip() != ""

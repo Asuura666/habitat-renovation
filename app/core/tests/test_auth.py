@@ -16,6 +16,7 @@ leur résultat.
 from __future__ import annotations
 
 import itertools
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -27,10 +28,20 @@ from httpx import ASGITransport
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.core.auth import NOM_COOKIE, admin_requis
+from app.core.auth import (
+    NOM_COOKIE,
+    EmailDejaUtilise,
+    MotDePasseTropCourt,
+    RoleInvalide,
+    TelegramUserIdDejaAttribue,
+    UtilisateurIntrouvable,
+    admin_requis,
+    creer_utilisateur,
+    desactiver_utilisateur,
+)
 from app.core.auth import router as auth_router
 from app.modules.api import router as api_router
-from app.modules.ingest.models import JetonSession, Utilisateur
+from app.modules.ingest.models import JetonSession, Journal, Utilisateur
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
 
@@ -505,3 +516,224 @@ async def test_admin_requis_autorise_un_admin(
 
     assert reponse.status_code == 200
     assert reponse.json() == {"role": "admin"}
+
+
+# ---------------------------------------------------------------------------
+# Gestion des comptes (L2-T1b) : `creer_utilisateur` / `desactiver_utilisateur`
+# ---------------------------------------------------------------------------
+
+_MOT_DE_PASSE_VALIDE = "mot-de-passe-invente-cli-1234"
+
+
+async def _journal_pour(db_session: AsyncSession, utilisateur_id: uuid.UUID) -> Journal:
+    """La seule ligne `journal` ciblant `utilisateur_id` (erreur si aucune
+    ou plusieurs, pour ne jamais masquer un doublon inattendu)."""
+    return (
+        await db_session.execute(
+            select(Journal).where(Journal.cible_id == str(utilisateur_id))
+        )
+    ).scalar_one()
+
+
+async def test_creer_utilisateur_hash_argon2id_et_journal_sans_secret(
+    db_session: AsyncSession,
+) -> None:
+    utilisateur = await creer_utilisateur(
+        db_session,
+        email="cli.cree1@example.invalid",
+        nom="Agent Créé",
+        role="agent",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+
+    assert utilisateur.hashed_password is not None
+    assert utilisateur.hashed_password.startswith("$argon2id$")
+    assert utilisateur.is_active is True
+
+    relu = (
+        await db_session.execute(
+            select(Utilisateur).where(Utilisateur.id == utilisateur.id)
+        )
+    ).scalar_one()
+    assert relu.role == "agent"
+    assert relu.agence == "Toulouse"
+
+    journal = await _journal_pour(db_session, utilisateur.id)
+    assert journal.utilisateur_id is None
+    assert journal.action == "utilisateur_cree"
+    assert journal.cible_table == "utilisateur"
+    assert journal.avant is None
+    assert journal.apres is not None
+    assert journal.apres["email"] == "cli.cree1@example.invalid"
+    # Auto-relecture : ni le hash ni le mot de passe en clair ne doivent
+    # apparaître dans le journal (append-only, consultable par un admin).
+    assert "hashed_password" not in journal.apres
+    assert "mdp_hash" not in journal.apres
+    assert _MOT_DE_PASSE_VALIDE not in journal.apres.values()
+    assert utilisateur.hashed_password not in journal.apres.values()
+
+
+async def test_creer_utilisateur_email_deja_pris_refuse_sans_deuxieme_ligne(
+    db_session: AsyncSession,
+) -> None:
+    await creer_utilisateur(
+        db_session,
+        email="cli.cree2@example.invalid",
+        nom="Premier",
+        role="agent",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+
+    with pytest.raises(EmailDejaUtilise):
+        await creer_utilisateur(
+            db_session,
+            email="cli.cree2@example.invalid",
+            nom="Second",
+            role="agent",
+            agence="Toulouse",
+            mot_de_passe=_MOT_DE_PASSE_VALIDE,
+        )
+
+    lignes = (
+        (
+            await db_session.execute(
+                select(Utilisateur).where(
+                    Utilisateur.email == "cli.cree2@example.invalid"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(lignes) == 1
+    assert lignes[0].nom == "Premier"
+
+
+async def test_creer_utilisateur_role_invalide_refuse_sans_ecriture(
+    db_session: AsyncSession,
+) -> None:
+    with pytest.raises(RoleInvalide):
+        await creer_utilisateur(
+            db_session,
+            email="cli.role.invalide@example.invalid",
+            nom="Rôle invalide",
+            role="superadmin",
+            agence="Toulouse",
+            mot_de_passe=_MOT_DE_PASSE_VALIDE,
+        )
+
+    reste = (
+        await db_session.execute(
+            select(Utilisateur.id).where(
+                Utilisateur.email == "cli.role.invalide@example.invalid"
+            )
+        )
+    ).first()
+    assert reste is None
+
+
+async def test_creer_utilisateur_mot_de_passe_trop_court_refuse_sans_ecriture(
+    db_session: AsyncSession,
+) -> None:
+    with pytest.raises(MotDePasseTropCourt):
+        await creer_utilisateur(
+            db_session,
+            email="cli.mdp.court@example.invalid",
+            nom="Mot de passe court",
+            role="agent",
+            agence="Toulouse",
+            mot_de_passe="court12345",  # 10 caractères, < LONGUEUR_MOT_DE_PASSE_MIN
+        )
+
+    reste = (
+        await db_session.execute(
+            select(Utilisateur.id).where(
+                Utilisateur.email == "cli.mdp.court@example.invalid"
+            )
+        )
+    ).first()
+    assert reste is None
+
+
+async def test_creer_utilisateur_telegram_id_deja_attribue_refuse(
+    db_session: AsyncSession,
+) -> None:
+    await creer_utilisateur(
+        db_session,
+        email="cli.telegram1@example.invalid",
+        nom="Premier",
+        role="agent",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+        telegram_user_id=987654321,
+    )
+
+    with pytest.raises(TelegramUserIdDejaAttribue):
+        await creer_utilisateur(
+            db_session,
+            email="cli.telegram2@example.invalid",
+            nom="Second",
+            role="agent",
+            agence="Toulouse",
+            mot_de_passe=_MOT_DE_PASSE_VALIDE,
+            telegram_user_id=987654321,
+        )
+
+    porteurs = (
+        (
+            await db_session.execute(
+                select(Utilisateur).where(Utilisateur.telegram_user_id == 987654321)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(porteurs) == 1
+    assert porteurs[0].email == "cli.telegram1@example.invalid"
+
+
+async def test_desactiver_utilisateur_bascule_actif_et_journalise(
+    db_session: AsyncSession,
+) -> None:
+    utilisateur = await creer_utilisateur(
+        db_session,
+        email="cli.desactive1@example.invalid",
+        nom="À désactiver",
+        role="agent",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+
+    desactive = await desactiver_utilisateur(
+        db_session, "cli.desactive1@example.invalid"
+    )
+
+    assert desactive.is_active is False
+    relu = (
+        await db_session.execute(
+            select(Utilisateur).where(Utilisateur.id == utilisateur.id)
+        )
+    ).scalar_one()
+    assert relu.is_active is False
+
+    journal = (
+        await db_session.execute(
+            select(Journal)
+            .where(Journal.cible_id == str(utilisateur.id))
+            .where(Journal.action == "utilisateur_desactive")
+        )
+    ).scalar_one()
+    assert journal.utilisateur_id is None
+    assert journal.avant == {"actif": True}
+    assert journal.apres == {"actif": False}
+
+
+async def test_desactiver_utilisateur_email_inconnu_leve_utilisateur_introuvable(
+    db_session: AsyncSession,
+) -> None:
+    with pytest.raises(UtilisateurIntrouvable):
+        await desactiver_utilisateur(
+            db_session, "personne.na.jamais.existe.cli@example.invalid"
+        )

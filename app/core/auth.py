@@ -31,6 +31,19 @@ route d'inscription ni de mise à jour n'est montée). Les alias `UtilisateurDB`
 `JetonSessionDB` et `StrategieSession` ci-dessous portent l'unique
 `type: ignore[type-var]` de chaque paramétrage générique, pour ne pas le
 répéter à chaque usage.
+
+Gestion des comptes (L2-T1b, décisions du contrôleur) : `creer_utilisateur`
+et `desactiver_utilisateur` en bas de fichier sont les seules fonctions
+d'écriture sur `Utilisateur`, utilisées par les sous-commandes CLI
+`utilisateur-creer`/`utilisateur-desactiver` (`app/cli.py`) — aucune route
+HTTP ne les expose dans ce lot (Q3 du brief, décision provisoire). Elles
+écrivent directement en base plutôt que de passer par
+`BaseUserManager.create` (qui exigerait un schéma Pydantic `UserCreate` et
+déclencherait `on_after_register`, tous deux hors périmètre : aucune route
+d'inscription n'est montée). Le hachage n'est pas réimplémenté pour autant :
+`_password_helper` est la même classe `PasswordHelper` (argon2id par
+défaut) que celle que `GestionnaireUtilisateurs` utilise en interne —
+stateless, sans configuration propre à une instance particulière.
 """
 
 from __future__ import annotations
@@ -45,20 +58,26 @@ from fastapi_users import exceptions
 from fastapi_users.authentication import AuthenticationBackend, CookieTransport
 from fastapi_users.authentication.strategy import DatabaseStrategy
 from fastapi_users.manager import BaseUserManager, UUIDIDMixin
+from fastapi_users.password import PasswordHelper
 from fastapi_users_db_sqlalchemy import SQLAlchemyUserDatabase
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDatabase
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.db import get_session
-from app.modules.ingest.models import JetonSession
+from app.modules.ingest.models import JetonSession, Journal
 from app.modules.ingest.models import Utilisateur as Utilisateur
 
 NOM_COOKIE = "bl_session"
 DUREE_SESSION_S = 12 * 3600
 DELAI_RAFRAICHISSEMENT_S = 5 * 60
+# L2-T1b (décisions du contrôleur) : longueur minimale imposée à
+# `creer_utilisateur` ci-dessous.
+LONGUEUR_MOT_DE_PASSE_MIN = 12
+ROLES_VALIDES = ("admin", "agent")
 
 # Voir la note mypy en tête de fichier : chaque paramétrage générique porte
 # ici son unique `type: ignore[type-var]`.
@@ -67,6 +86,11 @@ JetonSessionDB = SQLAlchemyAccessTokenDatabase[JetonSession]  # type: ignore[typ
 StrategieSession = DatabaseStrategy[Utilisateur, uuid.UUID, JetonSession]  # type: ignore[type-var]
 
 _settings = get_settings()
+
+# Réutilisé par `creer_utilisateur` (bas de fichier, L2-T1b) : voir le
+# docstring de module pour la justification de ne pas passer par
+# `BaseUserManager.create`.
+_password_helper = PasswordHelper()
 
 cookie_transport = CookieTransport(
     cookie_name=NOM_COOKIE,
@@ -235,3 +259,149 @@ async def se_deconnecter(
     if jeton_brut is not None:
         await strategy.destroy_token(jeton_brut, utilisateur)
     return await cookie_transport.get_logout_response()
+
+
+# ---------------------------------------------------------------------------
+# Gestion des comptes (L2-T1b) : utilisées par `app/cli.py`
+# (`utilisateur-creer` / `utilisateur-desactiver`), seules routes d'écriture
+# sur `Utilisateur` de ce lot.
+# ---------------------------------------------------------------------------
+
+
+class RoleInvalide(Exception):
+    """Rôle hors de `ROLES_VALIDES` (`admin`, `agent`)."""
+
+
+class MotDePasseTropCourt(Exception):
+    """Moins de `LONGUEUR_MOT_DE_PASSE_MIN` caractères."""
+
+
+class EmailDejaUtilise(Exception):
+    """Un compte existe déjà avec cet e-mail."""
+
+
+class TelegramUserIdDejaAttribue(Exception):
+    """`telegram_user_id` déjà porté par un autre compte."""
+
+
+class UtilisateurIntrouvable(Exception):
+    """Aucun compte n'a cet e-mail."""
+
+
+async def creer_utilisateur(
+    session: AsyncSession,
+    *,
+    email: str,
+    nom: str,
+    role: str,
+    agence: str,
+    mot_de_passe: str,
+    telegram_user_id: int | None = None,
+) -> Utilisateur:
+    """Crée un compte (`utilisateur-creer`).
+
+    Lève `RoleInvalide`, `MotDePasseTropCourt`, `EmailDejaUtilise` ou
+    `TelegramUserIdDejaAttribue` (décisions du contrôleur L2-T1b : la CLI
+    traduit chacune en code de sortie 2, message court sur stderr, jamais le
+    mot de passe). Journalise `utilisateur_cree` avec `utilisateur_id` NULL
+    (action d'exploitation hors application, comme une migration) et un
+    `apres` qui ne contient jamais le hash ni le mot de passe en clair.
+
+    Les vérifications d'unicité ci-dessous sont de simples `SELECT` avant
+    l'écriture, non atomiques avec elle (`email` reste protégé par la
+    contrainte `UNIQUE` de la table en dernier recours ; `telegram_user_id`
+    n'en a pas — L2-T1b n'ajoute pas de migration). Acceptable pour une
+    commande d'exploitation qu'un seul administrateur exécute à la fois,
+    jamais deux créations concurrentes du même compte.
+    """
+    if role not in ROLES_VALIDES:
+        raise RoleInvalide(f"rôle invalide : {role!r} (attendu admin ou agent)")
+    if len(mot_de_passe) < LONGUEUR_MOT_DE_PASSE_MIN:
+        raise MotDePasseTropCourt(
+            f"mot de passe trop court (minimum {LONGUEUR_MOT_DE_PASSE_MIN} caractères)"
+        )
+
+    email_pris = (
+        await session.execute(select(Utilisateur.id).where(Utilisateur.email == email))
+    ).first()
+    if email_pris is not None:
+        raise EmailDejaUtilise(f"e-mail déjà utilisé : {email}")
+
+    if telegram_user_id is not None:
+        telegram_pris = (
+            await session.execute(
+                select(Utilisateur.id).where(
+                    Utilisateur.telegram_user_id == telegram_user_id
+                )
+            )
+        ).first()
+        if telegram_pris is not None:
+            raise TelegramUserIdDejaAttribue(
+                f"identifiant Telegram déjà attribué : {telegram_user_id}"
+            )
+
+    utilisateur = Utilisateur(
+        email=email,
+        nom=nom,
+        hashed_password=_password_helper.hash(mot_de_passe),
+        role=role,
+        agence=agence,
+        telegram_user_id=telegram_user_id,
+    )
+    session.add(utilisateur)
+    await session.flush()
+
+    session.add(
+        Journal(
+            utilisateur_id=None,
+            action="utilisateur_cree",
+            cible_table="utilisateur",
+            cible_id=str(utilisateur.id),
+            avant=None,
+            apres={
+                "email": email,
+                "nom": nom,
+                "role": role,
+                "agence": agence,
+                "telegram_user_id": telegram_user_id,
+            },
+        )
+    )
+    await session.commit()
+    await session.refresh(utilisateur)
+    return utilisateur
+
+
+async def desactiver_utilisateur(session: AsyncSession, email: str) -> Utilisateur:
+    """Désactive un compte (`utilisateur-desactiver`).
+
+    `is_active = False` (colonne `actif`) : `utilisateur_courant` refuse
+    déjà toute requête d'un compte inactif (voir plus haut), sans qu'il soit
+    nécessaire de révoquer une à une ses `JetonSession` existantes. Lève
+    `UtilisateurIntrouvable` si `email` ne correspond à aucun compte.
+    Journalise `utilisateur_desactive` (mêmes conventions que
+    `creer_utilisateur` ci-dessus : `utilisateur_id` NULL, pas de hash).
+    """
+    utilisateur = (
+        await session.execute(select(Utilisateur).where(Utilisateur.email == email))
+    ).scalar_one_or_none()
+    if utilisateur is None:
+        raise UtilisateurIntrouvable(f"utilisateur introuvable : {email}")
+
+    actif_avant = utilisateur.is_active
+    utilisateur.is_active = False
+    await session.flush()
+
+    session.add(
+        Journal(
+            utilisateur_id=None,
+            action="utilisateur_desactive",
+            cible_table="utilisateur",
+            cible_id=str(utilisateur.id),
+            avant={"actif": actif_avant},
+            apres={"actif": False},
+        )
+    )
+    await session.commit()
+    await session.refresh(utilisateur)
+    return utilisateur
