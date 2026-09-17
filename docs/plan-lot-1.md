@@ -279,6 +279,45 @@ La découpe interne sera fixée après lecture des fixtures : texte ligne à lig
 
 ---
 
+**Révision (nuit du 2026-09-16)** — La seule facture Unikalo fournie
+(`tests/fixtures/unikalo/facture_2026-08.pdf`) est un scan (9 pages image,
+aucune couche texte) : `pdfplumber` ne peut rien en extraire. Le CDC §4.2
+prévoyant qu'un PDF scanné « passe par l'OCR », T5 est requalifiée (R16,
+R17, voir `.superpowers/sdd/plan-lot-1/T5-requalification.md`) :
+- Le parseur lit la **réponse déjà obtenue de l'API Mistral OCR**
+  (`table_format: markdown`), fournie en fixture hors ligne
+  (`tests/fixtures/unikalo/facture_2026-08.mistral-ocr.json`, ignorée par
+  git). Aucun appel réseau dans `extract` (R17) : `ocr.py` prend un `dict`
+  JSON déjà obtenu et ne journalise rien.
+- Les dataclasses (`TypeLigne`, `LigneFacture`, `BlocBL`, `Facture`,
+  `FactureIllisible`) déménagent dans `app/modules/extract/facture.py`
+  (identiques à celles ci-dessus). `pdf.py` est remplacé par deux fichiers
+  (CDC §13, un parseur par fournisseur) : `app/modules/extract/ocr.py`
+  (utilitaires génériques : `texte_ocr(reponse) -> str`, conversion des
+  nombres/dates français, lecture de tableau markdown) et
+  `app/modules/extract/unikalo.py` (parseur propre à Unikalo, qui expose
+  `analyser_facture_unikalo(reponse: dict) -> Facture`).
+- Déviation par rapport à la lecture littérale de la requalification
+  (« `texte_ocr` concatène `pages[].markdown` ») : la réponse réelle de
+  l'API ne place PAS le texte des tableaux dans `page["markdown"]` (ce
+  champ ne fait que référencer chaque tableau par un lien, ex.
+  `[Tableau](tbl-0.md)`) — sans quoi l'exigence « blocs = occurrences de
+  « Concerne le B.L. » dans `texte_ocr` » serait invérifiable sur la
+  fixture réelle. `texte_ocr` reconstruit donc le texte complet de chaque
+  page via `page["blocks"]` (liste ordonnée qui couvre aussi les tableaux)
+  quand ce champ est présent et non vide, et ne se rabat sur `markdown`
+  seul que si `blocks` est absent (cas des réponses synthétiques des
+  tests). Les deux chemins ont un test dédié dans `test_ocr.py`.
+- `pdfplumber` **n'est pas** ajouté comme dépendance au lot 1 (voir
+  `docs/dette.md`, entrée R16) : la lecture native d'un PDF Unikalo est
+  reportée à la réception d'une facture non scannée.
+- Tests : synthétiques (données inventées, réponse OCR fabriquée dans le
+  test, y compris les 3 formes de fusion observées dans la sortie OCR) +
+  tests génériques sur `tests/fixtures/unikalo/*.mistral-ocr.json` (skip si
+  absente), avec la même exigence d'écart ≤ 0,05 € sur la facture réelle +
+  tests de non-régression contre un fichier de référence optionnel
+  `<nom>.attendu.json` (R19, ignoré par git), quand il est présent.
+
 ### T6 — `messaging: webhook Telegram, dédoublonnage, stockage des documents`
 
 **Interfaces produites**
