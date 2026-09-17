@@ -35,6 +35,8 @@ def test_R16_chantier_silencieux_avec_facture_produit_une_anomalie_basse() -> No
     assert anomalie.document_id is None
     assert anomalie.bloc_id is None
     assert anomalie.ligne_id is None
+    assert anomalie.alias_id is None
+    assert anomalie.chantier_id == chantier.id
     assert anomalie.detail == {
         "chantier": "Chantier Inventé",
         "dernier_depot": "2026-06-01T08:00:00",
@@ -42,6 +44,26 @@ def test_R16_chantier_silencieux_avec_facture_produit_une_anomalie_basse() -> No
         "jours": "8",
     }
     assert anomalie.detail  # jamais vide
+
+
+def test_R16_deux_chantiers_distincts_portent_des_chantier_id_distincts() -> None:
+    """Ruling du contrôleur (fix round 1) : sans `chantier_id`, deux
+    chantiers silencieux distincts partageraient la même identité
+    `("R16", None, None, None)` une fois persistés (L4-T11)."""
+    chantier_1 = _chantier(nb_bl_factures_depuis=2)
+    chantier_2 = _chantier(
+        id=uuid.uuid4(), nom="Autre chantier", nb_bl_factures_depuis=1
+    )
+    aujourdhui = DERNIER_DEPOT + timedelta(days=8)
+
+    anomalie_1 = R16(chantier_1, aujourdhui, Parametres())
+    anomalie_2 = R16(chantier_2, aujourdhui, Parametres())
+
+    assert anomalie_1 is not None
+    assert anomalie_2 is not None
+    assert anomalie_1.chantier_id == chantier_1.id
+    assert anomalie_2.chantier_id == chantier_2.id
+    assert anomalie_1.chantier_id != anomalie_2.chantier_id
 
 
 def test_R16_exactement_au_delai_ne_produit_rien() -> None:

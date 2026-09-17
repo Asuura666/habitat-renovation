@@ -35,7 +35,18 @@ class Anomalie:
     ayant déclenché la règle, en chaînes (montants/quantités : `str
     (Decimal)`, jamais de formatage français ; dates : ISO — décision du
     contrôleur) et n'est **jamais vide** : une anomalie sans justification
-    chiffrée ne doit jamais exister."""
+    chiffrée ne doit jamais exister.
+
+    `chantier_id` et `alias_id` (ruling du contrôleur, fix round 1 de
+    L4-T5, étendu à R14 par la revue) portent la portée d'une anomalie de
+    suivi qui n'est rattachée ni à un document, ni à un bloc, ni à une
+    ligne : sans eux, toutes les anomalies R16 (un chantier silencieux)
+    partageraient l'identité `("R16", None, None, None)`, de même pour
+    toutes les anomalies R14 (un alias en attente) — deux chantiers ou deux
+    alias distincts s'écraseraient l'un l'autre. Seules R16 (`chantier_id`)
+    et R14 (`alias_id`) les renseignent ; aucune autre règle ne le fait. La
+    persistance (colonne par champ, inclusion dans l'index d'unicité de
+    L4-D11) est de la responsabilité de L4-T11, pas de ce module pur."""
 
     regle: str  # "R01" … "R17"
     gravite: Gravite
@@ -44,6 +55,8 @@ class Anomalie:
     bloc_id: uuid.UUID | None = None
     ligne_id: uuid.UUID | None = None
     article_id: uuid.UUID | None = None
+    chantier_id: uuid.UUID | None = None
+    alias_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)

@@ -34,12 +34,32 @@ def test_R14_alias_non_valide_apres_le_delai_produit_une_anomalie_moyenne() -> N
     assert anomalie.bloc_id is None
     assert anomalie.ligne_id is None
     assert anomalie.article_id is None
+    assert anomalie.chantier_id is None
+    assert anomalie.alias_id == alias.id
     assert anomalie.detail == {
         "libelle": "CHANTIER ALIAS INVENTE",
         "fournisseur": "FOURNISSEUR INVENTE",
         "heures": "49",
     }
     assert anomalie.detail  # jamais vide
+
+
+def test_R14_deux_alias_distincts_portent_des_alias_id_distincts() -> None:
+    """Ruling du contrôleur (fix round 1, trouvé par la revue) : sans
+    `alias_id`, deux alias en attente distincts partageraient la même
+    identité `("R14", None, None, None)` une fois persistés (L4-T11)."""
+    alias_1 = _alias()
+    alias_2 = _alias(id=uuid.uuid4(), libelle="AUTRE ALIAS")
+    aujourdhui = alias_1.cree_le + timedelta(hours=49)
+
+    anomalie_1 = R14(alias_1, aujourdhui, Parametres())
+    anomalie_2 = R14(alias_2, aujourdhui, Parametres())
+
+    assert anomalie_1 is not None
+    assert anomalie_2 is not None
+    assert anomalie_1.alias_id == alias_1.id
+    assert anomalie_2.alias_id == alias_2.id
+    assert anomalie_1.alias_id != anomalie_2.alias_id
 
 
 def test_R14_exactement_au_delai_ne_produit_rien() -> None:

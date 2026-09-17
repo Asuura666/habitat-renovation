@@ -12,7 +12,11 @@ que des factures y référencent des BL ») : un chantier simplement inactif,
 sans aucune facture qui continue de s'y référer, n'est pas une anomalie
 (décision du contrôleur). Règle de suivi (L4-D14), évaluée par
 `evaluer_suivi`. Comparaison strictement supérieure au délai, en jours
-entiers : exactement au délai -> rien."""
+entiers : exactement au délai -> rien.
+
+`chantier_id` (ruling du contrôleur, fix round 1) porte la portée de
+l'anomalie : sans lui, deux chantiers silencieux distincts partageraient la
+même identité `("R16", None, None, None)` une fois persistés (L4-T11)."""
 
 from __future__ import annotations
 
@@ -51,4 +55,5 @@ def R16(
             "bl_factures_depuis": str(chantier.nb_bl_factures_depuis),
             "jours": str(jours),
         },
+        chantier_id=chantier.id,
     )

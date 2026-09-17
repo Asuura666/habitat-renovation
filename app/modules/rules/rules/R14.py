@@ -9,7 +9,12 @@ fournisseur »).
 Règle de suivi (L4-D14), évaluée par `evaluer_suivi` — elle dépend du temps
 écoulé depuis la création de l'alias, pas d'un document nouvellement
 déposé. Comparaison strictement supérieure au délai, en heures entières :
-exactement au délai -> rien (décision du contrôleur)."""
+exactement au délai -> rien (décision du contrôleur).
+
+`alias_id` (ruling du contrôleur, fix round 1, trouvé par la revue) porte
+la portée de l'anomalie : sans lui, deux alias en attente distincts
+partageraient la même identité `("R14", None, None, None)` une fois
+persistés (L4-T11)."""
 
 from __future__ import annotations
 
@@ -40,4 +45,5 @@ def R14(
             "fournisseur": alias.fournisseur,
             "heures": str(int(heures)),
         },
+        alias_id=alias.id,
     )

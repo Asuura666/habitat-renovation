@@ -676,6 +676,7 @@ def test_evaluer_facture_ajoute_r13_apres_les_blocs_dans_lordre() -> None:
     assert anomalies[0].detail["chantier"] == "Chantier A"
     assert anomalies[1].ligne_id == ligne2.id
     assert anomalies[1].detail["chantier"] == "—"
+    assert all(a.chantier_id is None and a.alias_id is None for a in anomalies)
 
 
 def test_evaluer_facture_r10_incoherente_ignore_aussi_les_avoirs() -> None:
@@ -734,6 +735,16 @@ def test_evaluer_suivi_enchaine_r06_r14_r15_r16_dans_lordre() -> None:
     anomalies = evaluer_suivi(contexte, Parametres())
 
     assert [a.regle for a in anomalies] == ["R06", "R14", "R15", "R16"]
+    anomalie_r06, anomalie_r14, anomalie_r15, anomalie_r16 = anomalies
+    # Ruling du contrôleur (fix round 1) : seules R14/R16 portent une
+    # portée de suivi (`alias_id`/`chantier_id`) ; les autres la laissent
+    # à `None`, y compris R06 et R15 qui vivent aussi dans `evaluer_suivi`.
+    assert anomalie_r06.chantier_id is None and anomalie_r06.alias_id is None
+    assert anomalie_r14.chantier_id is None
+    assert anomalie_r14.alias_id == alias.id
+    assert anomalie_r15.chantier_id is None and anomalie_r15.alias_id is None
+    assert anomalie_r16.alias_id is None
+    assert anomalie_r16.chantier_id == chantier.id
 
 
 def test_evaluer_suivi_sans_rien_a_signaler_ne_produit_rien() -> None:
@@ -746,6 +757,60 @@ def test_evaluer_suivi_sans_rien_a_signaler_ne_produit_rien() -> None:
     )
 
     assert evaluer_suivi(contexte, Parametres()) == ()
+
+
+def test_evaluer_suivi_chantiers_et_alias_portent_des_identites_distinctes() -> None:
+    """Ruling du contrôleur (fix round 1, R16 signalée par la tâche,
+    étendue à R14 par la revue) : deux chantiers silencieux, ou deux alias
+    en attente, distincts ne doivent jamais s'écraser une fois persistés
+    (L4-T11) — vérifié ici au niveau du moteur, pas seulement de la règle
+    isolée."""
+    aujourdhui = datetime(2026, 8, 1)
+    alias_1 = AliasEnAttenteControle(
+        id=uuid.uuid4(),
+        libelle="ALIAS UN",
+        fournisseur="FOURNISSEUR INVENTE",
+        cree_le=datetime(2026, 7, 1),
+    )
+    alias_2 = AliasEnAttenteControle(
+        id=uuid.uuid4(),
+        libelle="ALIAS DEUX",
+        fournisseur="FOURNISSEUR INVENTE",
+        cree_le=datetime(2026, 7, 1),
+    )
+    chantier_1 = ChantierSuiviControle(
+        id=uuid.uuid4(),
+        nom="Chantier Un",
+        dernier_depot=datetime(2026, 7, 1),
+        nb_bl_factures_depuis=1,
+    )
+    chantier_2 = ChantierSuiviControle(
+        id=uuid.uuid4(),
+        nom="Chantier Deux",
+        dernier_depot=datetime(2026, 7, 1),
+        nb_bl_factures_depuis=2,
+    )
+
+    contexte = ContexteSuivi(
+        aujourdhui=aujourdhui,
+        lignes_bl_non_facturees=(),
+        alias_en_attente=(alias_1, alias_2),
+        bl_sans_confirmation=(),
+        chantiers=(chantier_1, chantier_2),
+    )
+
+    anomalies = evaluer_suivi(contexte, Parametres())
+
+    assert [a.regle for a in anomalies] == ["R14", "R14", "R16", "R16"]
+    anomalie_alias_1, anomalie_alias_2, anomalie_chantier_1, anomalie_chantier_2 = (
+        anomalies
+    )
+    assert anomalie_alias_1.alias_id == alias_1.id
+    assert anomalie_alias_2.alias_id == alias_2.id
+    assert anomalie_alias_1.alias_id != anomalie_alias_2.alias_id
+    assert anomalie_chantier_1.chantier_id == chantier_1.id
+    assert anomalie_chantier_2.chantier_id == chantier_2.id
+    assert anomalie_chantier_1.chantier_id != anomalie_chantier_2.chantier_id
 
 
 def test_regles_facture_et_suivi_sont_disjointes_et_couvrent_r01_a_r17() -> None:
