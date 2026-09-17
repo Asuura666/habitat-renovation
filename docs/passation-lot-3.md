@@ -9,32 +9,46 @@ foi), `docs/passation-lots-1-2.md` (lots précédents), `docs/lot-3-recette.md`
 
 ## 1. État au 17/09/2026, fin de journée
 
-- **Branche `lot-3-extraction`** (dépôt `/home/debian/habitat_reno`), tête
-  `9fe112e` au moment de la rédaction de cette passation. **Non fusionnée
-  dans `main`** (`main` reste au point de fusion des lots 1-2, `080e792`
-  selon `docs/passation-lots-1-2.md`). Aucun remote, rien de déployé.
-- **Un point de revue non refermé** : la tâche L3-T10 (`web: détail et
-  correction d'un document`, commit `b572623`) a reçu un verdict
+- **Branche `lot-3-extraction`** (dépôt `/home/debian/habitat_reno`), créée
+  depuis `main` @ `59a2880` (« docs: passation des lots 1 et 2 »), tête
+  `8cbbb4c` après la vague finale de clôture. **Non fusionnée dans `main`**
+  au moment de la rédaction de cette mise à jour. Aucun remote, rien de
+  déployé.
+- **Revue de branche refermée.** La tâche L3-T10 (`web: détail et
+  correction d'un document`, commit `b572623`) avait reçu un verdict
   « Needs fixes » (1 Important : l'état d'édition du détail document ne se
-  réinitialise pas après une écriture réussie — risque de réinsertion de
+  réinitialisait pas après une écriture réussie — risque de réinsertion de
   lignes à un second enregistrement, trace de la valeur OCR d'un champ
-  corrigé invisible jusqu'au rechargement). Un tour de correction a été
-  dispatché sur `lot-3-extraction` (base `9fe112e`) **avant que cette
-  passation ne soit écrite, sans qu'aucun résultat n'ait été consigné dans
-  `.superpowers/sdd/plan-lot-3/progress.md` à ce moment-là.**
-  **Première chose à faire en reprenant le lot 3** : relire la fin de
-  `progress.md` et `git log lot-3-extraction` pour voir si un commit est
-  apparu après `9fe112e` ; s'il existe, vérifier son contenu et mettre à
-  jour `docs/lot-3-recette.md` (§1 et « À lire d'abord ») et cette
-  passation en conséquence ; sinon, reprendre/relancer ce tour de
-  correction avant de considérer le lot 3 clos.
+  corrigé invisible jusqu'au rechargement). Deux tours de correction l'ont
+  refermée :
+  - **Fix round 1** (`ecf25c6`, « web: état d'édition réinitialisé après
+    enregistrement ») referme tout le mode édition et reconstruit
+    `FormulaireEntete`/`TableauLignesEdition` depuis le détail renvoyé par
+    l'API après un PATCH/PUT réussi — corrige le risque de réinsertion et
+    la trace OCR invisible. La re-revue de ce tour a relevé une régression
+    qu'il introduisait : enregistrer une section referme aussi le mode
+    édition (et efface le brouillon non enregistré) de l'autre section.
+  - **Fix round 2** (`b2e817a`, « web: édition indépendante de l'en-tête et
+    des lignes », Ruling R16) : deux drapeaux d'édition indépendants
+    (en-tête / lignes), chacun avec son propre bouton « Modifier »/
+    « Annuler », refermé seulement par sa propre écriture réussie —
+    conserve le bénéfice du tour 1 sans toucher au brouillon voisin.
+  Les deux tours sont re-revus **clean** (`.superpowers/sdd/plan-lot-3/
+  progress.md`, entrées « L3-T10: fix round 1/5 » et « fix round 2/5 »).
+  La revue finale de branche (`59a2880..8cbbb4c`, 28 commits) n'a plus
+  relevé qu'un point de documentation — `CLAUDE.md`, cette passation et
+  `docs/lot-3-recette.md` affirmaient à tort que L3-T10 restait ouvert
+  alors qu'il était déjà corrigé — refermé par la présente mise à jour.
+  **Le lot 3 est clos côté code**, prêt à être fusionné dans `main`.
 - **Répertoire de cette tâche (L3-T12)** : `/home/debian/habitat_reno-wt-l3`,
   branche `lot-3-pur`, recréée au dernier commit de `lot-3-extraction`
   (`9fe112e`) — ce document, `docs/lot-3-recette.md` et les mises à jour de
-  `docs/dette.md`/`CLAUDE.md` sont commités là, **pas** sur
-  `lot-3-extraction` directement. Ils devront être intégrés (cherry-pick,
-  comme les autres allers-retours entre les deux arbres ce lot-ci) une fois
-  le point L3-T10 refermé.
+  `docs/dette.md`/`CLAUDE.md` ont d'abord été commités là (`24c860c`), puis
+  intégrés (cherry-pick) dans `lot-3-extraction` en `8cbbb4c`, une fois
+  L3-T10 refermé. Cette mise à jour de clôture (vague finale : docstring
+  `get_ocr_facture`, `--seuil nan`, noms accessibles des boutons « Modifier »/
+  « Annuler », et la présente correction documentaire) est commitée
+  directement sur `lot-3-extraction`.
 - **Environnement de dev** (VPS partagé) : Postgres de dev
   `habitat_reno-postgres-1` (`127.0.0.1:5450`), base `bl` migrée à `head`
   (`0005`). `.env` par arbre (mode 600, `MISTRAL_API_KEY` réelle — toujours
@@ -77,7 +91,7 @@ Détail commit par commit et revue par revue dans `docs/lot-3-recette.md`
 | L3-T8a | `ingest/corrections.py` + routes `api/documents.py` : détail, correction, validation, archivage, relance d'un document |
 | L3-T8b | `ingest/a_traiter.py` + `ingest/referentiels.py` (complété) + routes `api/a_traiter.py`/`api/referentiels.py` : écran « À traiter », chantiers/fournisseurs/alias/articles |
 | L3-T9 | Front : écran « À traiter », navigation, badges factures |
-| L3-T10 | Front : détail et correction d'un document (revue non refermée, voir §1) |
+| L3-T10 | Front : détail et correction d'un document, revue refermée après deux tours de correction (`ecf25c6`, `b2e817a` — voir §1) |
 | L3-T11 | `ingest/rapport_ocr.py` + CLI `rapport-ocr` : outil de mesure du taux d'erreur OCR, `docs/protocole-mesure-ocr.md` |
 | L3-T12 | Cette passation, `docs/lot-3-recette.md`, `docs/dette.md`, `CLAUDE.md` |
 
@@ -125,7 +139,7 @@ Q5, Q6, Q7 — non bloquantes, décisions provisoires déjà en place) :
 - **Q7 / L3-D8** — une agence fournisseur n'est jamais créée depuis le
   texte OCR, seulement rattachée si elle existe déjà (créée par la CLI).
 
-### 3.3 Prises en cours d'exécution — rulings (R1 à R15)
+### 3.3 Prises en cours d'exécution — rulings (R1 à R16)
 
 Liste complète dans `docs/lot-3-recette.md` §2. En résumé (aucune n'a de
 conséquence irréversible, rien n'est déployé) :
@@ -157,6 +171,10 @@ conséquence irréversible, rien n'est déployé) :
   transaction), pour survivre à une reprise sur doublon concurrent.
 - **R15** L3-T9 : implémenteur épuisé en cours de correction, repris par un
   implémenteur neuf qui vérifie puis termine.
+- **R16** L3-T10 fix round 2 : un drapeau d'édition par section (en-tête /
+  lignes), chacun refermé par sa propre écriture, plutôt qu'un drapeau
+  partagé — conserve le bénéfice du fix round 1 (état reconstruit depuis la
+  réponse de l'API) sans perdre le brouillon de la section voisine.
 
 ---
 
@@ -263,8 +281,9 @@ mémoire du VPS, base de test partagée, worktrees/hooks partagés) :
 
 ## 7. Point de départ du lot 4 — Rapprochement (CDC §11)
 
-**Avant toute chose** : refermer le point de revue L3-T10 (§1) — c'est un
-prérequis, pas une tâche du lot 4.
+Prérequis rempli : le point de revue L3-T10 (§1) est refermé et la branche
+`lot-3-extraction` a passé sa revue finale — le lot 3 peut être fusionné
+dans `main` avant, ou en même temps que le démarrage du lot 4.
 
 **Contenu du lot 4** (CDC §11) :
 - Rapprochement BL ↔ blocs de facture (correspondance déjà esquissée au
@@ -297,9 +316,8 @@ prérequis, pas une tâche du lot 4.
   correction de facture à l'écran.
 
 **Avant de commencer le lot 4** :
-1. refermer L3-T10 (§1) ;
-2. vérifier la disponibilité des 30 photos réelles et des documents
+1. vérifier la disponibilité des 30 photos réelles et des documents
    Point.P (Q2) — sans eux, ni le rapport CDC §10 ni le parseur Point.P
    ne peuvent être complétés, et le rapprochement avec ce fournisseur reste
    bloqué ;
-3. relire `docs/dette.md` (sections lot 3 en particulier).
+2. relire `docs/dette.md` (sections lot 3 en particulier).

@@ -883,11 +883,13 @@ def test_rapport_ocr_appeler_ocr_construit_ocr_meme_options_et_delai(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("valeur", ["abc", "1.5", "-0.1", "2"])
+@pytest.mark.parametrize("valeur", ["abc", "1.5", "-0.1", "2", "nan", "inf", "-inf"])
 def test_rapport_ocr_seuil_invalide_systemexit_2(valeur: str, tmp_path: Path) -> None:
-    """`--seuil` hors de [0, 1] ou non numérique -> rejeté par `argparse`
-    lui-même (même mécanique que `--role` de `utilisateur-creer`), avant
-    tout accès au dossier ou à la configuration."""
+    """`--seuil` hors de [0, 1], non numérique ou non fini (`nan`/`inf`,
+    acceptés par le constructeur `Decimal` mais dont la comparaison lève
+    `decimal.InvalidOperation`, vague finale/revue de branche) -> rejeté par
+    `argparse` lui-même (même mécanique que `--role` de `utilisateur-creer`),
+    avant tout accès au dossier ou à la configuration."""
     sortie = tmp_path / "rapport.md"
 
     with pytest.raises(SystemExit) as exc_info:

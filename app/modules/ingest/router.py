@@ -108,7 +108,8 @@ def _construire_ocr(
     """Construit la fonction OCR de production, sur le client HTTP du
     lifespan et la clé API de la configuration — partagée par `get_ocr`
     (photos, T6 : `OPTIONS_OCR_BL`, délai porté à 90 s) et `get_ocr_facture`
-    (factures, L2-T4, délai porté à 90 s, sans options supplémentaires)."""
+    (factures, L2-T4, délai porté à 90 s ; L3-T7 : `_OPTIONS_OCR_FACTURE`,
+    confiance par page)."""
     http = request.app.state.http
     cle_api = settings.mistral_api_key.get_secret_value()
 

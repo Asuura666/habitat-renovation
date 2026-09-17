@@ -81,11 +81,15 @@ dette : `docs/dette.md`.
 Points à retenir :
 - La facture fournie est un scan : les factures sont lues via l'OCR Mistral
   puis `extract/unikalo.py` (décision R16, à valider par Ilane).
-- **Point de revue non refermé sur `lot-3-extraction`** : L3-T10 (`web:
-  détail et correction d'un document`) a un tour de correction dispatché
-  dont le résultat n'était pas connu à la clôture de `docs/lot-3-recette.md`
-  — vérifier `progress.md`/`git log` avant de repartir de cette branche
-  (`docs/passation-lot-3.md` §1).
+- **Revue de `lot-3-extraction` refermée.** Le point Important relevé sur
+  L3-T10 (`web: détail et correction d'un document`, état d'édition non
+  réinitialisé après une écriture réussie) a été corrigé en deux tours —
+  fix round 1 `ecf25c6`, fix round 2 `b2e817a` — tous deux re-revus clean
+  (détail en `docs/passation-lot-3.md` §1 et `docs/lot-3-recette.md` §1).
+  La revue finale de branche (`59a2880..8cbbb4c`) n'a plus relevé qu'un
+  point de documentation (ces trois documents affirmant à tort que L3-T10
+  restait ouvert), refermé par la présente mise à jour : **le lot 3 est
+  clos côté code**, prêt à être fusionné dans `main`.
 - **Lot 3 bloqué sur des fichiers manquants** : seules 4 photos réelles de
   BL sont disponibles (30 dont 10 dégradées exigées par le CDC §10) ; le
   parseur de facture Point.P n'est pas construit (aucun document

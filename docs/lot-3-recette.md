@@ -56,19 +56,21 @@ du 17/09.
   vérifiée dans un cycle backup/restore réel) ; navigateur sur un appareil
   mobile réel (seule une émulation Chromium/Playwright à 375 px a été
   utilisée, jamais un téléphone).
-- **Point à vérifier en premier par la prochaine session** : la revue de
-  **L3-T10** a relevé un point Important (état d'édition du détail document
-  non réinitialisé après une écriture réussie — risque de réinsertion de
-  lignes à un second enregistrement, trace de la valeur OCR d'un champ
-  corrigé invisible jusqu'au rechargement) et un tour de correction a été
-  dispatché sur la branche `lot-3-extraction` (base `9fe112e`, implémenteur
-  repris) **au moment de la rédaction de cette recette, sans qu'aucun
-  résultat n'ait encore été consigné dans `progress.md` ni commité**. Cette
-  recette décrit donc L3-T10 comme *Needs fixes, correction en cours* —
-  relire `progress.md` (fin de fichier) et `git log lot-3-extraction` pour
-  voir si un commit a été ajouté après `9fe112e`, et mettre à jour cette
-  recette et `docs/passation-lot-3.md` en conséquence avant de considérer le
-  lot clos.
+- **Revue de branche refermée.** La revue de **L3-T10** avait relevé un
+  point Important (état d'édition du détail document non réinitialisé
+  après une écriture réussie — risque de réinsertion de lignes à un second
+  enregistrement, trace de la valeur OCR d'un champ corrigé invisible
+  jusqu'au rechargement). Deux tours de correction l'ont refermée : fix
+  round 1 (`ecf25c6`) referme le mode édition et reconstruit l'état depuis
+  la réponse de l'API après un enregistrement réussi, ce qui a introduit
+  une régression (enregistrer une section effaçait le brouillon non
+  enregistré de l'autre) relevée en re-revue et corrigée par le fix
+  round 2 (`b2e817a`, Ruling R16 : un drapeau d'édition indépendant par
+  section). Les deux tours sont re-revus clean — détail §1. La revue finale
+  de branche (`59a2880..8cbbb4c`) n'a plus relevé qu'un point de
+  documentation (les trois documents affirmant à tort que L3-T10 restait
+  ouvert), refermé par cette mise à jour : **le lot 3 est clos côté code**,
+  prêt à être fusionné dans `main`.
 
 ## 1. Ce qui est fait
 
@@ -86,9 +88,10 @@ du 17/09.
 | L3-T8a | `1036586` (`ed3ac7d`) + correction `db0a513` (`92ebd9c`) | `api: détail, correction et validation d'un BL` + `ingest: journal de relance préservé en cas de reprise`. Revue → 1 Important (le journal `extraction_relancee` était écrit avant l'appel à l'extraction, dans la même transaction ; une reprise sur doublon concurrent le faisait disparaître au rollback — Ruling R14). Re-revue → 1 addressed, 0 open. 2 minor (deferred). Complete. |
 | L3-T8b | `45c6a2c` | `api: écran À traiter et référentiels`. Revue → spec ✅, **Approved**. 3 minor (deferred). Complete. |
 | L3-T9 | `651d4a6` (`4d446c4`) + correction `9fe112e` (`9dc5690`) | `web: écran À traiter et navigation` + `web: lisibilité des motifs et échec partiel de rattachement`. Revue → 3 Important (confiance/seuil affichés en fraction brute type « 0.80 » ; numérotation de ligne 0-based « Ligne 0 » ; un échec de rattachement après création réussie d'un chantier laissait l'écran sans issue). L'implémenteur d'origine s'est épuisé en cours de correction (Ruling R15) ; repris par un implémenteur neuf qui a vérifié le travail déjà commité puis terminé. Re-revue → 3 addressed, 0 open. Complete (reprise indépendante confirmée sans second commit). |
-| L3-T10 | `b572623` | `web: détail et correction d'un document`. Implémenteur DONE (typecheck/build, 828 passed dans l'arbre principal, 13 captures). **Revue → Needs fixes** : 1 Important (état d'édition non réinitialisé après une écriture réussie — réinsertion possible de lignes à un second enregistrement, trace OCR d'un champ corrigé invisible jusqu'au rechargement). **Fix round 1 dispatché (base `9fe112e`), résultat non connu au moment de la rédaction de cette recette — voir « À lire d'abord ».** |
-| L3-T11 | `fd6eb5f` + correction `389512b` | `ingest: outil de mesure du taux d'erreur OCR` + `ingest: mesure OCR robuste aux fichiers invalides et seuil paramétrable`. Revue → 1 Important (aucune isolation par document : un seul fichier corrompu ou un échec réseau pendant `--appeler-ocr` faisait planter toute la commande, perte de toute la mesure) ; Ruling R13 (le §6 du protocole, sans chemin actionnable pour recaler le seuil, requalifié Important). Re-revue → 2 addressed, 0 open. 3 minor (deferred). Complete. |
-| L3-T12 | (ce commit) | Cette recette, `docs/passation-lot-3.md`, `docs/dette.md` et `CLAUDE.md` mis à jour. |
+| L3-T10 | `b572623` + fix round 1 `ecf25c6` + fix round 2 `b2e817a` | `web: détail et correction d'un document`. Implémenteur DONE (typecheck/build, 828 passed dans l'arbre principal, 13 captures). Revue → 1 Important (état d'édition non réinitialisé après une écriture réussie — réinsertion possible de lignes à un second enregistrement, trace OCR d'un champ corrigé invisible jusqu'au rechargement). Fix round 1 (`ecf25c6`, « web: état d'édition réinitialisé après enregistrement ») corrige le point mais re-revue → 1 addressed, 1 nouveau Important (enregistrer une section referme aussi le brouillon non enregistré de l'autre). Fix round 2 (`b2e817a`, « web: édition indépendante de l'en-tête et des lignes », Ruling R16 : un drapeau d'édition par section) → re-revue 1 addressed, 0 open. 2 minor (deferred : noms accessibles partagés des boutons « Modifier »/« Annuler », corrigé par la vague finale ; valider/relancer/archiver ne referment pas une section ouverte). Complete. |
+| L3-T11 | `fd6eb5f` + correction `389512b` | `ingest: outil de mesure du taux d'erreur OCR` + `ingest: mesure OCR robuste aux fichiers invalides et seuil paramétrable`. Revue → 1 Important (aucune isolation par document : un seul fichier corrompu ou un échec réseau pendant `--appeler-ocr` faisait planter toute la commande, perte de toute la mesure) ; Ruling R13 (le §6 du protocole, sans chemin actionnable pour recaler le seuil, requalifié Important). Re-revue → 2 addressed, 0 open. 3 minor (deferred, dont `--seuil nan` non capté, corrigé par la vague finale). Complete. |
+| L3-T12 | `24c860c` → intégré `8cbbb4c` | Cette recette, `docs/passation-lot-3.md`, `docs/dette.md` et `CLAUDE.md` mis à jour (écrit avant la clôture de L3-T10, cf. correction ci-dessous). Revue → spec ✅, **Approved**. Complete. |
+| Vague finale | (ce commit) | Revue finale de branche (`59a2880..8cbbb4c`, 28 commits) → « Ready to merge, after fixing the documentation » : 1 Important (ces trois documents affirmaient à tort que L3-T10 restait ouvert alors que `ecf25c6`/`b2e817a` l'avaient déjà refermé), corrigé par la présente mise à jour. Plus 3 minors déjà consignés dans `progress.md` : docstring `_construire_ocr` toujours « sans options supplémentaires » pour `get_ocr_facture` malgré `_OPTIONS_OCR_FACTURE` depuis L3-T7 ; `app/cli.py::_seuil_decimal` levait `decimal.InvalidOperation` non captée sur `--seuil nan`/`inf` au lieu du code 2 ; les deux boutons « Modifier » (et « Annuler ») de `DocumentDetail.tsx` partageaient le même nom accessible. |
 
 ## 2. Décisions prises en autonomie
 
@@ -142,6 +145,7 @@ du 17/09.
 | R13 | Le §6 du protocole de mesure (sans chemin actionnable pour recaler le seuil) requalifié Important : option CLI `--seuil`, §6 réécrit, libellés de synthèse corrigés | Une option CLI de plus |
 | R14 | Journal de relance écrit **après** la réextraction, dans une seconde transaction (perte possible seulement sur panne de base entre les deux commits, alors signalée en erreur) | Une relance sans ligne de journal en cas de panne |
 | R15 | L3-T9 : l'implémenteur d'origine épuisé (contexte saturé) avec les corrections préparées mais non commitées ; tour repris par un implémenteur neuf qui juge et termine le travail indexé | Un tour de correction en plus |
+| R16 | L3-T10 fix round 2 : un drapeau d'édition par section (en-tête / lignes), chacun refermé par sa propre écriture, au lieu d'un drapeau partagé (régression du fix round 1) | Deux états au lieu d'un dans le composant |
 
 ## 3. Vérification commande par commande
 
@@ -243,10 +247,9 @@ documents insérés directement en base à partir de la donnée synthétique
   motifs), mais **toujours avec la donnée synthétique déjà connue rejouée
   par un faux client OCR**, jamais un nouvel appel réseau réel déclenché
   depuis l'écran.
-- **Ce point précis reste ouvert** : la revue de L3-T10 a signalé un défaut
-  (état d'édition non réinitialisé après écriture) dont la correction n'est
-  pas confirmée au moment de la rédaction de cette recette (voir « À lire
-  d'abord »).
+- **Ce point est refermé** : la revue de L3-T10 avait signalé un défaut
+  (état d'édition non réinitialisé après écriture), corrigé en deux tours
+  (`ecf25c6`, `b2e817a` — voir « À lire d'abord » et §1).
 
 ### Dépôt de facture « à vérifier »
 
@@ -329,8 +332,6 @@ peut pas non plus être extrapolé à 30 photos.
     fournisseurs et les noms de leurs agences (pour alimenter
     `fournisseur-definir`/la CLI de rattachement chantier avant tout usage
     réel).
-- **Point de revue non refermé** : L3-T10 (voir « À lire d'abord ») — à
-  vérifier et clore avant de considérer le lot 3 terminé.
 - **Décisions à valider** : Q1, Q3, Q4, Q5, Q6, Q7 (§2) — aucune n'a de
   conséquence irréversible en base de production (rien n'est déployé).
 - **Q2** (fichiers manquants) reste la question bloquante : sans elle, ni
@@ -389,3 +390,54 @@ Success: no issues found in 100 source files
 Front (typecheck/build) : vérifié par L3-T9 et L3-T10 dans leurs rapports
 respectifs (`npm --prefix web run typecheck`/`build`, propres) — non rejoué
 par cette tâche (aucun fichier front modifié par L3-T12).
+
+## 7. Vérification de la vague finale de clôture (arbre `/home/debian/habitat_reno`, branche `lot-3-extraction`)
+
+Commandes réellement exécutées après les quatre corrections (docstring
+`_construire_ocr`, `--seuil nan`/`inf` de `app/cli.py`, noms accessibles
+des boutons « Modifier »/« Annuler » de `DocumentDetail.tsx`, et la
+présente mise à jour documentaire) :
+
+```bash
+uv run pytest -q
+```
+```
+831 passed in 156.55s (0:02:36)
+```
+(+3 par rapport aux 828 de L3-T10 : les trois nouveaux cas `nan`/`inf`/
+`-inf` ajoutés au test paramétré `test_rapport_ocr_seuil_invalide_systemexit_2`.)
+
+```bash
+uv run ruff check
+```
+```
+All checks passed!
+```
+
+```bash
+uv run ruff format --check
+```
+```
+121 files already formatted
+```
+
+```bash
+uv run mypy
+```
+```
+Success: no issues found in 100 source files
+```
+
+```bash
+npm --prefix web run typecheck
+```
+```
+(silencieux, code 0 — tsc --noEmit sans sortie)
+```
+
+```bash
+npm --prefix web run build
+```
+```
+✓ 85 modules transformed, build en 1,35 s
+```

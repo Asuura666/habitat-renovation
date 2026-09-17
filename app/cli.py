@@ -282,14 +282,20 @@ def _seuil_decimal(valeur: str) -> Decimal:
     `Decimal` compris entre 0 et 1 inclus, sinon `argparse.ArgumentTypeError`
     — argparse affiche alors un message d'erreur clair et quitte avec le
     code 2, même mécanique que `--role` de `utilisateur-creer` (`choices`,
-    `test_utilisateur_creer_role_invalide_rejete_par_argparse_systemexit_2`)."""
+    `test_utilisateur_creer_role_invalide_rejete_par_argparse_systemexit_2`).
+    `Decimal("nan")` est accepté par le constructeur (extension non standard,
+    comme pour `json.loads`, cf. `extract/confiance.py`) mais n'est pas fini :
+    le comparer lève `decimal.InvalidOperation` au lieu de retourner un
+    booléen. `is_finite()` rejette donc `nan`/`inf`/`-inf` avant toute
+    comparaison, avec le même message que hors bornes (vague finale, revue de
+    branche)."""
     try:
         seuil = Decimal(valeur)
     except InvalidOperation:
         raise argparse.ArgumentTypeError(
             f"seuil invalide (nombre attendu) : {valeur!r}"
         ) from None
-    if not (Decimal("0") <= seuil <= Decimal("1")):
+    if not seuil.is_finite() or not (Decimal("0") <= seuil <= Decimal("1")):
         raise argparse.ArgumentTypeError(
             f"seuil doit être compris entre 0 et 1 (reçu {valeur!r})"
         )
