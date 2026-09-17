@@ -17,19 +17,20 @@ Ordre complet du catalogue (CDC §5, « Ordre d'exécution ») :
    seulement si R11 ne s'est *pas* déclenchée pour ce bloc (Ruling R2) et si
    le BL du bloc est reçu, `bloc.bl.statut == "recu"` (Ruling R3 : un bloc
    dont le BL est encore « à vérifier » est marqué reçu, mais ses quantités
-   ne sont pas comparées) : R03 ou R04 (exclusives, écart de quantité), puis
-   R05 (ligne facturée absente du BL), puis R07 ou R08 (exclusives, écart de
-   prix) et R09 (remise absente) — L4-T4 — puis R17 (conditionnement
-   inhabituel) — L4-T3. R13 reste à écrire (L4-T5) ; aucun code ne
-   l'anticipe (YAGNI).
-5. Ruling R7 (L4-T4) : R07/R08/R09 ne dépendent ni du BL rapproché ni de
-   `conversion_impossible` — un prix hors historique est une anomalie même
-   sans bon de livraison. Pour un bloc **sans** BL rapproché (`bloc.bl is
-   None`), elles tournent donc quand même, sur toutes les lignes "article"
-   du bloc — seule exception aux gardes de l'étape 4 (un bloc dont le BL
-   est rapproché mais encore « à vérifier », ou dont le BL rapproché est
-   incohérent (R11), reste soumis aux mêmes gardes que R03-R05/R17, faute
-   d'indication contraire).
+   ne sont pas comparées) : les règles de **quantité** — R03 ou R04
+   (exclusives, écart de quantité), puis R05 (ligne facturée absente du
+   BL), puis R17 (conditionnement inhabituel) — L4-T3.
+5. Puis, pour chaque ligne du bloc, **toujours** — quel que soit l'état du
+   BL du bloc (absent, rapproché mais « à vérifier », ou rapproché mais
+   incohérent, R11 déclenchée) : les règles de **prix** — R07 ou R08
+   (exclusives, écart de prix) et R09 (remise absente) — L4-T4, Ruling R11
+   du contrôleur (fix round 1) : un prix hors historique n'a rien à voir
+   avec le bon de livraison, ces trois règles ne sont donc jamais gardées
+   par Ruling R2 ni Ruling R3 — seules R03/R04/R05/R17 (étape 4) le sont.
+   L'étape 4 (gardée) s'exécute intégralement avant l'étape 5
+   (inconditionnelle) : pour une ligne qui déclenche à la fois une anomalie
+   de quantité et une anomalie de prix, l'anomalie de quantité précède
+   toujours l'anomalie de prix dans le tuple renvoyé.
 6. Enfin, une fois par facture, après tous les blocs (L4-T5) : R13 (avoir
    sans origine) pour chaque couple `(ligne, chantier)` de
    `facture.lignes_negatives_sans_origine`, dans l'ordre de ce tuple — cette
@@ -41,10 +42,14 @@ R01/R02/R12 et restructuré `_evaluer_bloc` en conséquence (revue de L4-T1 :
 la sortie précoce sur R11 aurait sauté R01/R02/R12, contraire à Ruling R2).
 L4-T3 y ajoute les règles de ligne R03/R04/R05/R17, après les règles de
 bloc, sous la double garde Ruling R2 (pas de R11) et Ruling R3 (BL reçu).
-L4-T4 y ajoute R07/R08/R09 (prix et remise), entre R05 et R17, avec
-l'exception Ruling R7 décrite ci-dessus. L4-T5 y ajoute R13 (étape 6
-ci-dessus), additivement : `_evaluer_bloc` n'est pas retouchée (une revue
-des règles de prix est en cours dessus).
+L4-T4 y ajoute R07/R08/R09 (prix et remise), d'abord câblées comme les
+règles de quantité (mêmes gardes, sauf exception pour un bloc sans BL du
+tout) puis, sur ruling du contrôleur (fix round 1, revue de L4-T4) : les
+règles de prix ne comparent jamais rien au BL, elles sont donc sorties de
+`_evaluer_ligne` et évaluées sans aucune garde, dans une passe séparée et
+inconditionnelle sur `bloc.lignes`, après la passe (gardée) des règles de
+quantité — `_evaluer_prix` n'est plus appelée que depuis `_evaluer_bloc`.
+L4-T5 y ajoute R13 (étape 6 ci-dessus), additivement.
 
 `evaluer_suivi` (R06, R14, R15, R16, contrôles différés au temps écoulé,
 L4-D14) est un second point d'entrée, séparé de `evaluer_facture` : ces
@@ -188,13 +193,14 @@ def _evaluer_bloc(
     articles: Mapping[UUID, ArticleControle],
     historiques: Mapping[UUID, HistoriqueArticle],
 ) -> tuple[Anomalie, ...]:
-    """Règles de niveau bloc (L4-T2) : R11 (si un BL est rapproché), puis
-    R01, R02 et R12, **toujours** évaluées (Ruling R2). Puis, sous la double
-    garde Ruling R2 (R11 pas déclenchée) et Ruling R3 (BL reçu), les règles
-    de ligne (L4-T3/L4-T4). Ruling R7 (L4-T4) : un bloc sans BL rapproché du
-    tout échappe à cette double garde pour les seules règles de prix
-    (R07/R08/R09), évaluées alors sur toutes les lignes "article" du
-    bloc — `elif bloc.bl is None`, exclusif du premier cas."""
+    """Règles de niveau bloc (L4-T2), dans l'ordre : R11 (si un BL est
+    rapproché), puis R01, R02 et R12, **toujours** évaluées (Ruling R2).
+    Puis les règles de *quantité* (R03/R04/R05/R17, L4-T3) sur chaque ligne,
+    sous la double garde Ruling R2 (R11 pas déclenchée) et Ruling R3 (BL
+    reçu). Puis, **sans aucune garde** — Ruling R11 du contrôleur (fix round
+    1, L4-T4) : un prix hors historique n'a rien à voir avec le BL — les
+    règles de *prix* (R07/R08/R09) sur chaque ligne du bloc, quel que soit
+    l'état de son BL (absent, à vérifier, ou incohérent)."""
     anomalies: list[Anomalie] = []
 
     anomalie_r11 = None
@@ -210,31 +216,28 @@ def _evaluer_bloc(
     bl_recu = bloc.bl is not None and bloc.bl.statut == "recu"
     if anomalie_r11 is None and bl_recu:
         for rapprochee in bloc.lignes:
-            anomalies.extend(
-                _evaluer_ligne(bloc, rapprochee, articles, historiques, parametres)
-            )
-    elif bloc.bl is None:
-        for rapprochee in bloc.lignes:
-            anomalies.extend(
-                _evaluer_prix(rapprochee.facture, articles, historiques, parametres)
-            )
+            anomalies.extend(_evaluer_quantite(bloc, rapprochee, articles))
+
+    for rapprochee in bloc.lignes:
+        anomalies.extend(
+            _evaluer_prix(rapprochee.facture, articles, historiques, parametres)
+        )
 
     return tuple(anomalies)
 
 
-def _evaluer_ligne(
+def _evaluer_quantite(
     bloc: BlocControle,
     rapprochee: LigneRapprochee,
     articles: Mapping[UUID, ArticleControle],
-    historiques: Mapping[UUID, HistoriqueArticle],
-    parametres: Parametres,
 ) -> tuple[Anomalie, ...]:
-    """Règles de niveau ligne, dans l'ordre du CDC §5 : R03 ou R04
-    (exclusives — au plus l'une des deux peut se déclencher, selon le signe
-    de l'écart), puis R05, puis R07/R08/R09 (prix et remise, L4-T4), puis
-    R17. R03/R04 (ligne appariée) et R05 (ligne non appariée) partagent une
-    garde mutuellement exclusive sur `rapprochee.bl` : au plus une anomalie
-    de quantité par ligne."""
+    """Règles de *quantité* de niveau ligne (L4-T3), dans l'ordre du CDC
+    §5 : R03 ou R04 (exclusives — au plus l'une des deux peut se
+    déclencher, selon le signe de l'écart), puis R05, puis R17. R03/R04
+    (ligne appariée) et R05 (ligne non appariée) partagent une garde
+    mutuellement exclusive sur `rapprochee.bl` : au plus une anomalie de
+    quantité par ligne. N'inclut plus les règles de prix (R07/R08/R09,
+    sorties vers `_evaluer_bloc` — Ruling R11 du contrôleur, fix round 1)."""
     anomalies: list[Anomalie] = []
 
     anomalie_quantite = R03(bloc, rapprochee, articles) or R04(
@@ -248,8 +251,6 @@ def _evaluer_ligne(
         anomalies.append(anomalie_r05)
 
     facture = rapprochee.facture
-    anomalies.extend(_evaluer_prix(facture, articles, historiques, parametres))
-
     article = (
         articles.get(facture.article_id) if facture.article_id is not None else None
     )

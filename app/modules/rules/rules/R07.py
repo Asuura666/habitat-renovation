@@ -11,9 +11,10 @@ facturé, médiane, nombre d'occurrences et écart en pourcentage (CDC §5).
 Aucune anomalie si l'historique est trop pauvre (`mediane_pu` absente,
 occurrences insuffisantes, ou médiane non strictement positive) —
 décisions du contrôleur : pas de bruit au démarrage faute d'historique
-suffisant. `mediane_utilisable` et `ecart_prix_pct` sont partagées avec R08
-(même calcul, seuil différent), à l'image de `mention_pas_de_bon` partagée
-entre R01 et R02.
+suffisant. `mediane_utilisable`, `ecart_prix_pct` et `_QUANTUM_ECART` sont
+partagées avec R08 (même calcul, seuil différent, même arrondi), à l'image
+de `mention_pas_de_bon` partagée entre R01 et R02 (revue L4-T4 : éviter la
+constante d'arrondi dupliquée entre les deux fichiers).
 
 Ne dépend ni du BL rapproché ni de `conversion_impossible` (Ruling R7) :
 seul le prix unitaire compte, jamais une quantité — le câblage dans

@@ -1,14 +1,17 @@
-"""Tests de `evaluer_facture` (L4-T1 à L4-T4) : ordre du CDC §5, Ruling R2,
-Ruling R3, Ruling R7.
+"""Tests de `evaluer_facture` (L4-T1 à L4-T5, fix round 1 sur L4-T4) :
+ordre du CDC §5, Ruling R2, Ruling R3, Ruling R11 du contrôleur.
 
 R10 (document), R11 (BL rapproché par bloc), R01/R02/R12 (niveau bloc,
-toujours évaluées, depuis L4-T2), R03/R04/R05/R17 (niveau ligne, sous la
-double garde Ruling R2 — pas de R11 sur le bloc — et Ruling R3 — BL du bloc
-reçu, depuis L4-T3) et, depuis L4-T4, R07/R08/R09 (prix et remises,
-insérées entre R05 et R17, Ruling R7 : mêmes gardes que R03-R05/R17 **sauf**
-qu'elles tournent aussi sur les lignes d'un bloc sans BL rapproché, faute
-de quantité à comparer) sont enchaînées. Depuis L4-T5, `evaluer_facture`
-ajoute aussi R13 (une fois par facture, après les blocs, dans l'ordre de
+toujours évaluées, depuis L4-T2), R03/R04/R05/R17 (règles de *quantité*, de
+niveau ligne, sous la double garde Ruling R2 — pas de R11 sur le bloc — et
+Ruling R3 — BL du bloc reçu, depuis L4-T3) sont enchaînées, puis R07/R08/R09
+(règles de *prix* et remise) tournent en une passe séparée et
+**inconditionnelle** sur `bloc.lignes` : Ruling R11 du contrôleur (fix
+round 1, revue de L4-T4) — un prix hors historique ne dépend jamais du BL,
+ces trois règles ne sont donc jamais gardées, contrairement à ce que
+L4-T4 avait initialement câblé (Ruling R7, qui ne les exemptait que pour un
+bloc sans BL du tout). Depuis L4-T5, `evaluer_facture` ajoute aussi R13
+(une fois par facture, après les blocs, dans l'ordre de
 `facture.lignes_negatives_sans_origine`) ; `evaluer_suivi` (R06, R14, R15,
 R16, contrôles différés au temps écoulé) est testée séparément, ainsi que
 les scopes `REGLES_FACTURE`/`REGLES_SUIVI` (adjonction du contrôleur,
@@ -373,14 +376,20 @@ def test_evaluer_facture_ligne_r17_evaluee_via_larticle_de_la_facture() -> None:
 
 
 # --------------------------------------------------------------------------
-# Règles de prix et remise (L4-T4) : Ruling R7
+# Règles de prix et remise (L4-T4) : Ruling R11 du contrôleur (fix round 1)
+# — R07/R08/R09 ne sont jamais gardées par Ruling R2/R3, contrairement aux
+# règles de quantité R03/R04/R05/R17. `_evaluer_bloc` les évalue donc en
+# deux passes successives sur `bloc.lignes` : d'abord la passe de quantité
+# (gardée), puis la passe de prix (inconditionnelle) — d'où l'ordre "R17
+# avant R07" ci-dessous quand les deux se déclenchent sur la même ligne.
 # --------------------------------------------------------------------------
 
 
-def test_evaluer_facture_r07_evaluee_entre_r05_et_r17() -> None:
-    """R07 (écart de prix moyen) s'insère entre R05 et R17 dans le
-    traitement d'une ligne appariée sans écart de quantité, sur un bloc
-    dont le BL est reçu (Ruling R3)."""
+def test_evaluer_facture_r17_puis_r07_deux_passes_distinctes() -> None:
+    """Sur une même ligne appariée sans écart de quantité, la passe de
+    quantité (gardée par Ruling R3, ici satisfaite) produit R17 en premier ;
+    la passe de prix (inconditionnelle, toujours après) produit R07
+    ensuite — les deux passes ne s'entrelacent jamais par ligne."""
     document = _document(coherent=True)
     article_id = uuid.uuid4()
     article = _article(id=article_id, ratio=Decimal("10"), valide=True)
@@ -407,9 +416,10 @@ def test_evaluer_facture_r07_evaluee_entre_r05_et_r17() -> None:
         Parametres(),
     )
 
-    assert [a.regle for a in anomalies] == ["R07", "R17"]
+    assert [a.regle for a in anomalies] == ["R17", "R07"]
     assert anomalies[0].ligne_id == ligne_facture.id
-    assert anomalies[0].article_id == article_id
+    assert anomalies[1].ligne_id == ligne_facture.id
+    assert anomalies[1].article_id == article_id
 
 
 def test_evaluer_facture_r08_exclusif_de_r07() -> None:
@@ -441,10 +451,12 @@ def test_evaluer_facture_r08_exclusif_de_r07() -> None:
     assert [a.regle for a in anomalies] == ["R08"]
 
 
-def test_evaluer_facture_r07_r09_et_r17_meme_ligne_dans_lordre() -> None:
-    """R05 (absente ici, ligne appariée), R07/R08 (prix), puis R09
-    (remise), puis R17 (conditionnement) : ordre complet du CDC §5 pour une
-    ligne qui cumule les trois anomalies indépendantes."""
+def test_evaluer_facture_r17_puis_r07_et_r09_meme_ligne_dans_lordre() -> None:
+    """Une ligne qui cumule R17 (quantité) et R07 + R09 (prix) : la passe
+    de quantité produit R17, puis la passe de prix produit R07 (écart de
+    prix) suivi de R09 (remise absente) — ordre interne à `_evaluer_prix`
+    inchangé, seule la position de R17 par rapport aux deux autres a
+    changé (fix round 1, Ruling R11 du contrôleur)."""
     document = _document(coherent=True)
     article_id = uuid.uuid4()
     article = _article(id=article_id, ratio=Decimal("10"), valide=True)
@@ -476,14 +488,18 @@ def test_evaluer_facture_r07_r09_et_r17_meme_ligne_dans_lordre() -> None:
         Parametres(),
     )
 
-    assert [a.regle for a in anomalies] == ["R07", "R09", "R17"]
+    assert [a.regle for a in anomalies] == ["R17", "R07", "R09"]
 
 
 def test_evaluer_facture_prix_evaluee_meme_sur_bloc_sans_bl_rapproche() -> None:
-    """Ruling R7 : un prix hors historique reste une anomalie même sans BL
-    rapproché — la règle tourne alors sur toutes les lignes "article" du
-    bloc, indépendamment de R01/R02 (qui signalent l'absence de BL, pas le
-    prix)."""
+    """Un prix hors historique reste une anomalie même sans BL rapproché du
+    tout — la passe de prix tourne sur toutes les lignes "article" du bloc,
+    indépendamment de R01/R02 (qui signalent l'absence de BL, pas le prix).
+    Ce n'est plus un cas particulier (l'ancienne exception Ruling R7 du
+    L4-T4) mais une instance de la règle générale : la passe de prix est
+    désormais inconditionnelle, quel que soit l'état du BL du bloc (fix
+    round 1, Ruling R11 du contrôleur) — voir aussi les deux tests suivants
+    pour les cas « à vérifier » et R11 déclenchée."""
     document = _document(coherent=True)
     article_id = uuid.uuid4()
     article = _article(id=article_id)
@@ -508,11 +524,13 @@ def test_evaluer_facture_prix_evaluee_meme_sur_bloc_sans_bl_rapproche() -> None:
     assert anomalies[1].ligne_id == ligne_facture.id
 
 
-def test_evaluer_facture_prix_ignoree_quand_bl_a_verifier() -> None:
-    """Un BL rapproché mais encore « à vérifier » n'est pas « sans BL
-    rapproché » (Ruling R7 ne s'applique pas ici) : mêmes gardes que
-    R03-R05/R17 (Ruling R3), donc aucune anomalie de prix tant que le BL
-    n'est pas confirmé reçu."""
+def test_evaluer_facture_prix_evaluee_quand_bl_a_verifier() -> None:
+    """Fix round 1, Ruling R11 du contrôleur : un BL rapproché mais encore
+    « à vérifier » n'empêche plus la passe de prix (elle n'est plus une
+    règle de quantité gardée par Ruling R3) — R07 se déclenche même si le
+    BL n'est pas confirmé reçu. Renommé depuis
+    `test_evaluer_facture_prix_ignoree_quand_bl_a_verifier` (L4-T4), qui
+    asserte l'ancien comportement."""
     document = _document(coherent=True)
     article_id = uuid.uuid4()
     article = _article(id=article_id)
@@ -536,13 +554,56 @@ def test_evaluer_facture_prix_ignoree_quand_bl_a_verifier() -> None:
         Parametres(),
     )
 
-    assert anomalies == ()
+    assert [a.regle for a in anomalies] == ["R07"]
 
 
-def test_evaluer_facture_prix_ignoree_quand_r11_declenchee() -> None:
-    """Ruling R2 : un BL rapproché mais incohérent (R11) saute aussi les
-    règles de prix, comme les autres règles de ligne — il porte bien un BL
-    (`bl is not None`), l'exception Ruling R7 ne s'applique donc pas."""
+def test_evaluer_facture_prix_evaluee_et_quantite_ignoree_quand_bl_a_verifier() -> None:
+    """Preuve conjointe, sur un bloc dont le BL est « à vérifier » et qui
+    porte un véritable écart de quantité (18 sur le BL contre 20 facturés,
+    qui déclencherait R03 si la garde Ruling R3 ne s'appliquait pas) : la
+    passe de quantité reste bloquée (aucun R03) alors que la passe de prix
+    tourne quand même (R07, R08 et R09 se déclenchent tous les trois sur
+    cette même ligne, sans le moindre R03/R04/R05/R17)."""
+    document = _document(coherent=True)
+    article_id = uuid.uuid4()
+    article = _article(id=article_id, ratio=None)
+    ligne_bl = _ligne(article_id=article_id, qte_fact=Decimal("18"))
+    ligne_facture = _ligne(
+        article_id=article_id,
+        qte_fact=Decimal("20"),
+        pu_ht=Decimal("130.00"),
+        remise_pct=None,
+    )
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+    bloc = _bloc(bl=_document(coherent=True, statut="a_verifier"), lignes=(rapprochee,))
+    historique = _historique(
+        article_id=article_id,
+        mediane_pu=Decimal("100.00"),
+        occurrences=3,
+        remise_habituelle=Decimal("10.00"),
+        occurrences_remise=3,
+    )
+
+    anomalies = evaluer_facture(
+        _facture(
+            document,
+            (bloc,),
+            articles={article_id: article},
+            historiques={article_id: historique},
+        ),
+        Parametres(),
+    )
+
+    assert [a.regle for a in anomalies] == ["R08", "R09"]
+    assert all(a.regle not in {"R03", "R04", "R05", "R17"} for a in anomalies)
+
+
+def test_evaluer_facture_prix_evaluee_quand_r11_declenchee() -> None:
+    """Fix round 1, Ruling R11 du contrôleur : un BL rapproché mais
+    incohérent (R11 se déclenche) n'empêche plus la passe de prix — R07 se
+    déclenche quand même, après R11 (règle de bloc). Renommé depuis
+    `test_evaluer_facture_prix_ignoree_quand_r11_declenchee` (L4-T4), qui
+    asserte l'ancien comportement."""
     document = _document(coherent=True)
     article_id = uuid.uuid4()
     article = _article(id=article_id)
@@ -567,7 +628,7 @@ def test_evaluer_facture_prix_ignoree_quand_r11_declenchee() -> None:
         Parametres(),
     )
 
-    assert [a.regle for a in anomalies] == ["R11"]
+    assert [a.regle for a in anomalies] == ["R11", "R07"]
 
 
 def test_evaluer_facture_prix_sans_historique_connu_ne_produit_rien() -> None:
