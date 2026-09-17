@@ -948,7 +948,13 @@ function TableauLignesEdition({
 export function DocumentDetail(): ReactElement {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
-  const [enEdition, setEnEdition] = useState(false);
+  // Fix round 2 (revue L3-T10) : deux drapeaux indépendants — l'en-tête et
+  // les lignes sont deux formulaires distincts, chacun avec son propre
+  // brouillon non enregistré (voir `FormulaireEntete`/`TableauLignesEdition`
+  // plus bas) ; un seul booléen partagé fermait les deux à l'enregistrement
+  // de l'un des deux, perdant silencieusement le brouillon de l'autre.
+  const [enEditionEntete, setEnEditionEntete] = useState(false);
+  const [enEditionLignes, setEnEditionLignes] = useState(false);
   const [archivageOuvert, setArchivageOuvert] = useState(false);
   const [commentaireArchivage, setCommentaireArchivage] = useState("");
 
@@ -960,7 +966,7 @@ export function DocumentDetail(): ReactElement {
   const fournisseurs = useQuery({
     queryKey: CLE_FOURNISSEURS,
     queryFn: listerFournisseurs,
-    enabled: enEdition,
+    enabled: enEditionEntete,
   });
 
   function surEcriture(detail: DocumentDetailApi): void {
@@ -972,19 +978,27 @@ export function DocumentDetail(): ReactElement {
     void queryClient.invalidateQueries({ queryKey: CLE_DOCUMENTS });
   }
 
-  /** Fix round 1 (revue L3-T10) : une correction d'en-tête ou de lignes
-   * réussie referme tout le mode édition, plutôt que de laisser
-   * `FormulaireEntete`/`TableauLignesEdition` montés avec leur état local
-   * d'avant l'écriture (options et lignes déjà envoyées, mais gardées en
-   * mémoire avec leur ancien `id`, notamment `null` pour une ligne qui vient
-   * d'être créée). Un « Modifier » suivant remonte les deux formulaires
-   * (voir la `key` incluant `donnees.id`) à partir du détail à jour renvoyé
-   * par l'API : plus aucun risque de renvoyer une ligne déjà créée comme un
-   * nouvel ajout, et la trace OCR (« Valeur OCR : … — corrigée par … »)
-   * s'affiche tout de suite, sans qu'il faille annuler ou recharger. */
-  function surEcritureEtFermeture(detail: DocumentDetailApi): void {
+  /** Fix round 1 (revue L3-T10), corrigé au fix round 2 : une correction
+   * réussie referme **seulement la section qu'elle concerne**, plutôt que
+   * de laisser `FormulaireEntete`/`TableauLignesEdition` montés avec leur
+   * état local d'avant l'écriture (une ligne tout juste créée gardait
+   * `id: null` en mémoire, prête à être réinsérée par un second clic). Le
+   * « Modifier » suivant de cette section remonte son formulaire (voir la
+   * `key` incluant le drapeau d'édition correspondant) à partir du détail à
+   * jour renvoyé par l'API — l'autre section, si elle est encore ouverte,
+   * n'est jamais touchée : son brouillon non enregistré survit (fix round 2
+   * : un seul drapeau partagé perdait silencieusement le brouillon de la
+   * section non enregistrée). La trace OCR (« Valeur OCR : … — corrigée
+   * par … ») s'affiche tout de suite dans la section refermée, sans qu'il
+   * faille annuler ou recharger. */
+  function surEcritureEtFermetureEntete(detail: DocumentDetailApi): void {
     surEcriture(detail);
-    setEnEdition(false);
+    setEnEditionEntete(false);
+  }
+
+  function surEcritureEtFermetureLignes(detail: DocumentDetailApi): void {
+    surEcriture(detail);
+    setEnEditionLignes(false);
   }
 
   const mutationValidation = useMutation({
@@ -1087,24 +1101,24 @@ export function DocumentDetail(): ReactElement {
 
       <Photo documentId={donnees.id} />
 
-      {donnees.modifiable && !enEdition && (
+      {donnees.modifiable && !enEditionEntete && (
         <button
           type="button"
-          onClick={() => setEnEdition(true)}
+          onClick={() => setEnEditionEntete(true)}
           className="mb-4 rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 outline-none hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-blue-600"
         >
           Modifier
         </button>
       )}
 
-      {enEdition && donnees.modifiable ? (
+      {enEditionEntete && donnees.modifiable ? (
         <FormulaireEntete
-          key={`entete-${donnees.id}-${String(enEdition)}`}
+          key={`entete-${donnees.id}-${String(enEditionEntete)}`}
           documentId={donnees.id}
           donnees={donnees}
           fournisseurs={fournisseurs.data ?? []}
-          onEnregistre={surEcritureEtFermeture}
-          onAnnuler={() => setEnEdition(false)}
+          onEnregistre={surEcritureEtFermetureEntete}
+          onAnnuler={() => setEnEditionEntete(false)}
         />
       ) : (
         <dl className="mb-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1121,24 +1135,35 @@ export function DocumentDetail(): ReactElement {
         </dl>
       )}
 
-      {!enEdition && (
+      {!enEditionEntete && (
         <p className="mb-6 text-xs text-slate-500">
           {donnees.agence_fournisseur !== null && <>Agence : {donnees.agence_fournisseur} · </>}
           Chantier rattaché : {donnees.chantier ?? "non rattaché"}
         </p>
       )}
 
-      <h2 className="mb-3 text-base font-semibold text-slate-900">Lignes ({donnees.lignes.length})</h2>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-base font-semibold text-slate-900">Lignes ({donnees.lignes.length})</h2>
+        {donnees.modifiable && !enEditionLignes && (
+          <button
+            type="button"
+            onClick={() => setEnEditionLignes(true)}
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 outline-none hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-blue-600"
+          >
+            Modifier
+          </button>
+        )}
+      </div>
 
       <ResumeSomme motifs={donnees.motifs} />
 
-      {enEdition && donnees.modifiable ? (
+      {enEditionLignes && donnees.modifiable ? (
         <TableauLignesEdition
-          key={`lignes-${donnees.id}-${String(enEdition)}`}
+          key={`lignes-${donnees.id}-${String(enEditionLignes)}`}
           documentId={donnees.id}
           lignesInitiales={donnees.lignes}
-          onEnregistre={surEcritureEtFermeture}
-          onAnnuler={() => setEnEdition(false)}
+          onEnregistre={surEcritureEtFermetureLignes}
+          onAnnuler={() => setEnEditionLignes(false)}
         />
       ) : (
         <LignesLecture lignes={donnees.lignes} seuil={seuil} lignesSurlignees={lignesAvecMotif} />
