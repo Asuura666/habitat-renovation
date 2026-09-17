@@ -102,6 +102,73 @@ def test_message_texte_renvoie_none() -> None:
     assert lire_update(update) is None
 
 
+def test_expediteur_avec_username_utilise_le_username() -> None:
+    update = {
+        "update_id": 106,
+        "message": {
+            "message_id": 11,
+            "chat": {"id": 16},
+            "from": {"id": 1000, "username": "agent-invente", "first_name": "Prénom"},
+            "document": {"file_id": "doc-invente", "mime_type": "application/pdf"},
+        },
+    }
+
+    resultat = lire_update(update)
+
+    assert resultat is not None
+    assert resultat.expediteur_nom == "agent-invente"
+
+
+def test_expediteur_sans_username_utilise_le_prenom() -> None:
+    update = {
+        "update_id": 107,
+        "message": {
+            "message_id": 12,
+            "chat": {"id": 17},
+            "from": {"id": 1001, "first_name": "Prénom-invente"},
+            "document": {"file_id": "doc-invente", "mime_type": "application/pdf"},
+        },
+    }
+
+    resultat = lire_update(update)
+
+    assert resultat is not None
+    assert resultat.expediteur_nom == "Prénom-invente"
+
+
+def test_expediteur_sans_username_ni_prenom_renvoie_expediteur_nom_none() -> None:
+    update = {
+        "update_id": 108,
+        "message": {
+            "message_id": 13,
+            "chat": {"id": 18},
+            "from": {"id": 1002},
+            "document": {"file_id": "doc-invente", "mime_type": "application/pdf"},
+        },
+    }
+
+    resultat = lire_update(update)
+
+    assert resultat is not None
+    assert resultat.expediteur_nom is None
+
+
+def test_message_sans_from_renvoie_expediteur_nom_none() -> None:
+    update = {
+        "update_id": 109,
+        "message": {
+            "message_id": 14,
+            "chat": {"id": 19},
+            "document": {"file_id": "doc-invente", "mime_type": "application/pdf"},
+        },
+    }
+
+    resultat = lire_update(update)
+
+    assert resultat is not None
+    assert resultat.expediteur_nom is None
+
+
 def test_update_sans_message_renvoie_none() -> None:
     update = {
         "update_id": 105,

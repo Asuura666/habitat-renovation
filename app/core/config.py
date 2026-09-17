@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     n'apparaît dans un `repr()`, un message d'erreur de validation ou un log
     (aucun de ces secrets ne doit jamais être visible ailleurs que dans
     `.env`, décision du contrôleur T6b pour `mistral_api_key`).
+
+    `telegram_chat_bl_id` et `telegram_chat_supervision_id` (L2-T2) : pas des
+    secrets (identifiants de groupe Telegram, pas des jetons), donc des `int`
+    ordinaires — le webhook (`app/modules/ingest/router.py`) n'écrit rien
+    pour tout `chat_id` différent du premier (L2-D6), et les notifications de
+    supervision (L2-D7, L2-D8) partent vers le second.
     """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -35,6 +41,8 @@ class Settings(BaseSettings):
     docs_dir: Path
     telegram_bot_token: SecretStr
     telegram_webhook_secret: SecretStr
+    telegram_chat_bl_id: int
+    telegram_chat_supervision_id: int
     mistral_api_key: SecretStr
     cookie_secure: bool
 

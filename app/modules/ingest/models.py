@@ -40,6 +40,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Identity,
     Integer,
     Numeric,
     Text,
@@ -249,6 +250,15 @@ class Document(Base):
 
     id: Mapped[uuid.UUID] = _id()
     type: Mapped[str] = mapped_column(Text, nullable=False)
+    # Numéro interne lisible (L2-D5/L2-R4, lot 2) : affiché à l'agent
+    # (`Reçu — document n° <numero_interne>`) et dans les lignes de
+    # supervision (L2-D8) — l'`id` UUID n'est jamais montré à un humain.
+    # `Identity()` (BY DEFAULT) plutôt qu'une séquence manuelle : généré
+    # côté base à l'insertion, récupéré par SQLAlchemy au `flush()` (même
+    # mécanisme que `id`, qui utilise déjà `gen_random_uuid()` côté base).
+    numero_interne: Mapped[int] = mapped_column(
+        BigInteger, Identity(), nullable=False, unique=True
+    )
     fournisseur_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("fournisseur.id"), nullable=True
     )
@@ -264,6 +274,11 @@ class Document(Base):
         UUID(as_uuid=True), ForeignKey("utilisateur.id"), nullable=True
     )
     telegram_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Photo Telegram compressée (`photo[]`) plutôt qu'envoyée « en fichier »
+    # (L2-D5/constat 4, lot 2) : renseignée depuis `FichierEntrant.compresse`
+    # par `ingest/service.py::traiter_fichier`. `NULL` pour un document non
+    # issu de Telegram (ex. une facture uploadée, L2-T4).
+    photo_compressee: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     confirme_le: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -272,6 +287,10 @@ class Document(Base):
     )
     statut: Mapped[str] = mapped_column(Text, nullable=False)
     confiance_min: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    # Total HT lu sur la facture (L2-D5/constat 3, lot 2) : lecture directe
+    # pour `GET /api/factures` (L2-T5) et R10 (lot 4), sans recalculer la
+    # somme des lignes à chaque affichage. `NULL` pour un BL/enlèvement.
+    total_ht: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
     ocr_brut: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()

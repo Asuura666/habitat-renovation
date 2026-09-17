@@ -25,6 +25,12 @@ class FichierEntrant:
     mime_type: str | None
     nom_fichier: str | None
     compresse: bool  # True pour une photo Telegram (photo[-1])
+    # L2-T2 : nom Telegram de l'expéditeur (`from.username`, sinon
+    # `from.first_name`), utilisé uniquement pour le message de supervision
+    # « expéditeur non rattaché » (L2-D7) — jamais pour une règle métier.
+    # Défaut `None` pour ne pas casser les constructions existantes qui ne
+    # le renseignent pas.
+    expediteur_nom: str | None = None
 
 
 @dataclass(frozen=True)
@@ -37,8 +43,12 @@ class FichierTelecharge:
 
 class Messagerie(Protocol):
     """Contrat minimal requis par `ingest/service.py` pour traiter un fichier
-    entrant : le télécharger, puis répondre au message d'origine."""
+    entrant : le télécharger, répondre au message d'origine, et (L2-T2)
+    envoyer un message libre à un chat donné (notifications de supervision,
+    L2-D7/L2-D8)."""
 
     async def telecharger(self, fichier: FichierEntrant) -> FichierTelecharge: ...
 
     async def repondre(self, chat_id: int, message_id: int, texte: str) -> None: ...
+
+    async def envoyer(self, chat_id: int, texte: str) -> None: ...

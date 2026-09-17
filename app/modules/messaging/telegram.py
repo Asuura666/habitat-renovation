@@ -69,6 +69,7 @@ def _fichier_depuis_document(
     chat_id: int,
     message_id: int,
     expediteur_id: int | None,
+    expediteur_nom: str | None,
     document: dict[str, Any],
 ) -> FichierEntrant | None:
     mime_type = document.get("mime_type")
@@ -86,6 +87,7 @@ def _fichier_depuis_document(
         mime_type=mime_type,
         nom_fichier=document.get("file_name"),
         compresse=False,
+        expediteur_nom=expediteur_nom,
     )
 
 
@@ -94,6 +96,7 @@ def _fichier_depuis_photo(
     chat_id: int,
     message_id: int,
     expediteur_id: int | None,
+    expediteur_nom: str | None,
     photos: list[Any],
 ) -> FichierEntrant | None:
     if not photos:
@@ -115,7 +118,24 @@ def _fichier_depuis_photo(
         mime_type=None,
         nom_fichier=None,
         compresse=True,
+        expediteur_nom=expediteur_nom,
     )
+
+
+def _expediteur_nom(expediteur: dict[str, Any]) -> str | None:
+    """Nom d'affichage Telegram de l'expéditeur (L2-T2, décision du
+    contrôleur) : `username` (sans le `@`, tel que fourni par l'API) si
+    présent, sinon `first_name`. N'est utilisé que pour le message de
+    supervision « expéditeur non rattaché » (L2-D7) — jamais pour une
+    décision métier (l'identification repose uniquement sur
+    `telegram_user_id`)."""
+    username = expediteur.get("username")
+    if isinstance(username, str):
+        return username
+    first_name = expediteur.get("first_name")
+    if isinstance(first_name, str):
+        return first_name
+    return None
 
 
 def lire_update(update: dict[str, Any]) -> FichierEntrant | None:
@@ -146,17 +166,20 @@ def lire_update(update: dict[str, Any]) -> FichierEntrant | None:
     expediteur_id = expediteur.get("id") if isinstance(expediteur, dict) else None
     if not isinstance(expediteur_id, int):
         expediteur_id = None
+    expediteur_nom = (
+        _expediteur_nom(expediteur) if isinstance(expediteur, dict) else None
+    )
 
     photos = message.get("photo")
     if isinstance(photos, list):
         return _fichier_depuis_photo(
-            update_id, chat_id, message_id, expediteur_id, photos
+            update_id, chat_id, message_id, expediteur_id, expediteur_nom, photos
         )
 
     document = message.get("document")
     if isinstance(document, dict):
         return _fichier_depuis_document(
-            update_id, chat_id, message_id, expediteur_id, document
+            update_id, chat_id, message_id, expediteur_id, expediteur_nom, document
         )
 
     return None
@@ -222,6 +245,19 @@ class TelegramClient:
                     "text": texte,
                     "reply_parameters": {"message_id": message_id},
                 },
+            )
+            reponse.raise_for_status()
+        except httpx.HTTPError:
+            raise ErreurTelegram("Échec de l'appel Telegram sendMessage") from None
+
+    async def envoyer(self, chat_id: int, texte: str) -> None:
+        """Message libre à `chat_id`, sans réponse à un message d'origine
+        (L2-T2) : notifications de supervision (L2-D7, L2-D8), envoyées vers
+        `TELEGRAM_CHAT_SUPERVISION_ID`, jamais vers le groupe BL."""
+        try:
+            reponse = await self._http.post(
+                f"{_BASE_URL}/bot{self._token}/sendMessage",
+                json={"chat_id": chat_id, "text": texte},
             )
             reponse.raise_for_status()
         except httpx.HTTPError:

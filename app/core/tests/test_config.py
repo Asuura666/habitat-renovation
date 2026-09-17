@@ -27,6 +27,8 @@ def _regler_environnement_complet(
     monkeypatch.setenv("DOCS_DIR", str(docs_dir))
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN_INVENTE)
     monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", SECRET_INVENTE)
+    monkeypatch.setenv("TELEGRAM_CHAT_BL_ID", "-1000000000001")
+    monkeypatch.setenv("TELEGRAM_CHAT_SUPERVISION_ID", "-1000000000002")
     monkeypatch.setenv("MISTRAL_API_KEY", CLE_MISTRAL_INVENTEE)
     monkeypatch.setenv("COOKIE_SECURE", "true")
 
@@ -43,6 +45,8 @@ def test_toutes_les_variables_presentes(
     assert settings.docs_dir == docs_dir
     assert settings.telegram_bot_token.get_secret_value() == TOKEN_INVENTE
     assert settings.telegram_webhook_secret.get_secret_value() == SECRET_INVENTE
+    assert settings.telegram_chat_bl_id == -1000000000001
+    assert settings.telegram_chat_supervision_id == -1000000000002
     assert settings.mistral_api_key.get_secret_value() == CLE_MISTRAL_INVENTEE
 
 
@@ -68,6 +72,30 @@ def test_telegram_webhook_secret_manquant_leve_et_nomme_la_variable(
         Settings(_env_file=None)  # type: ignore[call-arg]
 
     assert "telegram_webhook_secret" in str(exc_info.value)
+
+
+def test_telegram_chat_bl_id_manquant_leve_et_nomme_la_variable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+    monkeypatch.delenv("TELEGRAM_CHAT_BL_ID", raising=False)
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert "telegram_chat_bl_id" in str(exc_info.value)
+
+
+def test_telegram_chat_supervision_id_manquant_leve_et_nomme_la_variable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+    monkeypatch.delenv("TELEGRAM_CHAT_SUPERVISION_ID", raising=False)
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert "telegram_chat_supervision_id" in str(exc_info.value)
 
 
 def test_telegram_bot_token_absent_du_repr_de_settings(

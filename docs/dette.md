@@ -83,28 +83,6 @@ aucune entrée tant qu'aucune simplification n'a été prise.
 
 ## T6 — messaging/ingest (webhook Telegram, dédoublonnage, stockage des documents)
 
-- **Accusé Telegram envoyé avant que la persistance soit garantie, aucune
-  notification à l'agent en cas d'échec transitoire.** `webhook_telegram`
-  (`app/modules/ingest/router.py`) répond 200 dès qu'`enregistrer_update`
-  marque l'`update_id` comme vu, **avant même de lancer**
-  `traiter_fichier` (tâche de fond) : Telegram considère alors l'update
-  définitivement livré et ne le renverra jamais, quoi qu'il arrive ensuite.
-  Si `traiter_fichier` (`app/modules/ingest/service.py`) rencontre un échec
-  transitoire ordinaire (échec de téléchargement Telegram, disque plein ou
-  autre `OSError` à l'écriture du fichier, échec de l'insertion du
-  `document` en base), la fonction retourne silencieusement après avoir
-  seulement journalisé l'erreur (`_journaliser_echec`) : **aucune réponse
-  n'est envoyée à l'expéditeur**, ni « reçu » ni message d'erreur — contrairement
-  au cas où l'OCR échoue ou où `numero_bl` n'est pas détecté, qui envoient
-  quand même « reçu » après tentative. La photo/le PDF est donc perdu sans
-  qu'aucun agent Telegram ni administrateur ne soit averti, et sans nouvelle
-  tentative automatique possible (dédoublonnage déjà acquis sur
-  `update_id`). Décision du contrôleur (vague de correction finale du
-  lot 1) : **pas de changement de code au lot 1** — les notifications de
-  supervision de ce type d'échec relèvent de la tâche L2-T2 (lot 2), qui
-  devra les signaler (ex. alerte admin, tableau de bord). Ne couvre pas de
-  mécanisme de reprise ni d'alerte avant le lot 2 ; à surveiller manuellement
-  via les logs applicatifs d'ici là.
 - **Tâche de fond perdue si le process meurt après le 200.** Le webhook
   répond 200 à Telegram dès que `enregistrer_update` marque l'`update_id`
   comme vu, puis lance `traiter_fichier` en tâche de fond
@@ -114,7 +92,13 @@ aucune entrée tant qu'aucune simplification n'a été prise.
   ni enregistré, sans que rien ne le signale automatiquement (seul le log,
   s'il a eu le temps d'être écrit, en garde une trace). Ne couvre pas de
   mécanisme de reprise ; à traiter par une file de tâches durable si ce cas
-  s'avère fréquent en usage réel (hors lot 1).
+  s'avère fréquent en usage réel. Résolu depuis le lot 2 (L2-T2) pour tout
+  échec **transitoire** en cours de traitement (téléchargement, écriture
+  disque, insertion du `document`) : `traiter_fichier` signale désormais un
+  message de supervision et répond à l'agent dans le groupe BL (« Échec de
+  l'enregistrement, renvoyez la photo. », Ruling R22) — seul le cas du
+  process tué entre le 200 et la fin du traitement, ci-dessus, reste sans
+  notification (aucun code n'a la main pour la déclencher).
 - **Fichiers de plus de 20 Mo non téléchargeables.** La Bot API Telegram
   refuse de fournir le chemin de téléchargement (`getFile`) pour un fichier
   de plus de 20 Mo : `TelegramClient.telecharger` lèverait alors
@@ -123,20 +107,6 @@ aucune entrée tant qu'aucune simplification n'a été prise.
   récupéré autrement que par l'absence de réponse « reçu ». Ne couvre pas
   un message d'erreur explicite à l'utilisateur ni une compression côté
   bot ; à revoir si ce cas se présente en usage réel.
-- **Bot ouvert à tout expéditeur jusqu'au lot 2.** Décision D15 du brief T6 :
-  aucune whitelist au lot 1, tout expéditeur Telegram peut déposer un
-  document (`deposant_id` rempli seulement si `telegram_user_id` correspond
-  à un `utilisateur` existant, sinon `NULL`). Ne couvre pas le rejet des
-  expéditeurs non autorisés ; la whitelist arrive au lot 2.
-- **Photo compressée non marquée en base.** `FichierEntrant.compresse`
-  distingue une photo Telegram compressée (`photo[]`) d'un envoi « en
-  fichier » (document non compressé), mais aucune colonne de la section 6
-  du CDC ne permet de conserver cette information : `traiter_fichier`
-  l'utilise seulement pour le comportement de téléchargement, elle est
-  perdue dès l'insertion du `document`. Ne couvre pas la traçabilité a
-  posteriori de « cette photo était compressée » (utile pour juger de la
-  qualité d'une image avant OCR) ; à ajouter par migration si ce besoin
-  apparaît (lot 2/3).
 
 ## T6b — extract/ingest (détection du numéro de BL sur photo, OCR Mistral minimal)
 

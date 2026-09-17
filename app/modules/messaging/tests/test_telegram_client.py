@@ -115,6 +115,46 @@ async def test_repondre_poste_sendmessage_avec_reply_parameters() -> None:
     }
 
 
+async def test_envoyer_poste_sendmessage_sans_reply_parameters() -> None:
+    requetes: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requetes.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = TelegramClient(TOKEN_INVENTE, http)
+        await client.envoyer(chat_id=-100123, texte="ligne de supervision inventee")
+
+    assert len(requetes) == 1
+    assert requetes[0].url.path == f"/bot{TOKEN_INVENTE}/sendMessage"
+    corps = json.loads(requetes[0].content)
+    assert corps == {"chat_id": -100123, "text": "ligne de supervision inventee"}
+
+
+async def test_envoyer_leve_erreur_telegram_si_sendmessage_echoue() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"ok": False})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = TelegramClient(TOKEN_INVENTE, http)
+        with pytest.raises(ErreurTelegram):
+            await client.envoyer(chat_id=-100123, texte="ligne inventee")
+
+
+async def test_erreur_http_pendant_envoyer_ne_contient_pas_le_token() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom", request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = TelegramClient(TOKEN_INVENTE, http)
+        with pytest.raises(ErreurTelegram) as exc_info:
+            await client.envoyer(chat_id=-100123, texte="ligne inventee")
+
+    assert TOKEN_INVENTE not in str(exc_info.value)
+    assert "api.telegram.org" not in str(exc_info.value)
+
+
 async def test_erreur_http_pendant_le_telechargement_ne_contient_pas_le_token() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("boom", request=request)

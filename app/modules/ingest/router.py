@@ -2,12 +2,23 @@
 routeur vit dans `ingest`, pas dans `messaging`, qui ne peut pas importer
 `ingest`).
 
-Déroulé (décisions du contrôleur T6, complété T6b) :
+Déroulé (décisions du contrôleur T6, complété T6b, puis L2-T2) :
 1. En-tête `X-Telegram-Bot-Api-Secret-Token` invalide ou absent -> 403.
 2. `lire_update` renvoie `None` (rien à traiter) -> 200, rien n'est écrit.
-3. `enregistrer_update` renvoie `False` (update déjà vu) -> 200.
-4. Sinon, `traiter_fichier` part en tâche de fond (`BackgroundTasks`) -> 200
-   (téléchargement, écriture, document, OCR Mistral puis réponse « reçu »).
+3. `chat_id` différent de `Settings.telegram_chat_bl_id` (L2-D6) -> 200,
+   rien n'est écrit (même le dédoublonnage est sauté).
+4. `enregistrer_update` renvoie `False` (update déjà vu) -> 200.
+5. `service.utilisateur_rattache` (liste blanche, L2-D7) : expéditeur non
+   rattaché (absent ou compte inactif) -> `signaler_expediteur_inconnu` part
+   en tâche de fond (notification de supervision, aucune écriture ni
+   téléchargement) -> 200.
+6. Sinon, `traiter_fichier` part en tâche de fond (`BackgroundTasks`) -> 200
+   (téléchargement, écriture, document, OCR Mistral, ligne de supervision
+   puis réponse « reçu »).
+
+Le routeur reste mince : aucune règle métier, seulement cet enchaînement
+(décision du contrôleur, L2-T2) — `ingest/service.py` décide de tout le
+reste (qui est rattaché, ce qui est écrit, ce qui est envoyé).
 
 La messagerie de production est un `TelegramClient` construit sur le
 `httpx.AsyncClient` du lifespan (`app.state.http`), fournie via une
@@ -28,7 +39,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.modules.ingest.mistral import ocr_document
-from app.modules.ingest.service import enregistrer_update, traiter_fichier
+from app.modules.ingest.service import (
+    enregistrer_update,
+    signaler_expediteur_inconnu,
+    traiter_fichier,
+    utilisateur_rattache,
+)
 from app.modules.messaging.base import Messagerie
 from app.modules.messaging.telegram import TelegramClient, lire_update, secret_valide
 
@@ -92,11 +108,33 @@ async def webhook_telegram(
     if entrant is None:
         return Response(status_code=200)
 
+    if entrant.chat_id != settings.telegram_chat_bl_id:
+        # L2-D6 : seul le groupe BL configuré est traité, tout autre chat
+        # est ignoré sans rien écrire (ni dédoublonnage, ni document).
+        return Response(status_code=200)
+
     nouveau = await enregistrer_update(session, entrant.update_id)
     if not nouveau:
         return Response(status_code=200)
 
+    deposant = await utilisateur_rattache(session, entrant.expediteur_id)
+    if deposant is None:
+        background_tasks.add_task(
+            signaler_expediteur_inconnu,
+            entrant,
+            messagerie,
+            settings.telegram_chat_supervision_id,
+        )
+        return Response(status_code=200)
+
     background_tasks.add_task(
-        traiter_fichier, entrant, messagerie, sessions, settings.docs_dir, ocr
+        traiter_fichier,
+        entrant,
+        messagerie,
+        sessions,
+        settings.docs_dir,
+        ocr,
+        deposant,
+        settings.telegram_chat_supervision_id,
     )
     return Response(status_code=200)
