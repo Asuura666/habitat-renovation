@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.extract.verification import CodeMotif
+from app.modules.ingest import extraction_bl as ingest_extraction_bl
 from app.modules.ingest.corrections import (
     CorrectionEntete,
     DocumentNonModifiable,
@@ -940,6 +941,88 @@ async def test_relancer_extraction_remplace_valeurs_reste_a_verifier(
     assert journal.utilisateur_id == admin.id
     assert journal.avant is not None
     assert journal.avant["numero"] == "ANCIEN-NUMERO"
+    assert journal.avant["nb_lignes"] == "0"
+    assert journal.apres is None
+
+
+async def test_relancer_extraction_journal_survit_a_la_reprise_sur_doublon(
+    db_session: AsyncSession,
+    admin: Utilisateur,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fix round 1 (revue de cette tâche) : si l'extraction relancée
+    déclenche la reprise sur `IntegrityError` d'`enregistrer_extraction_bl`
+    (course sur un doublon de numéro, `_avec_reprise_doublon`), le
+    `rollback()` interne à cette reprise ne doit jamais emporter avec lui le
+    journal `extraction_relancee` — il doit rester exactement une seule
+    entrée, portant les valeurs d'avant la relance. Même mécanisme de
+    simulation qu'`app/modules/ingest/tests/test_extraction_bl.py
+    ::test_enregistrer_extraction_bl_doublon_concurrent_rejoue_apres_erreur`
+    (`_numero_interne_doublon` ment une fois)."""
+    fournisseur = await _creer_fournisseur(
+        db_session, nom="Peintures Exemple", aliases=["Peintures Exemple SAS"]
+    )
+    concurrent = await _creer_document(db_session, statut="a_verifier")
+    resultat_concurrent = await ingest_extraction_bl.enregistrer_extraction_bl(
+        db_session, concurrent.id, _reponse_synthetique()
+    )
+    assert resultat_concurrent.statut == "recu"
+    assert resultat_concurrent.numero == NUMERO_BL_SYNTHETIQUE
+
+    chemin = tmp_path / "photo.jpg"
+    chemin.write_bytes(b"contenu-invente")
+    document = await _creer_document(
+        db_session,
+        statut="a_verifier",
+        fournisseur=fournisseur,
+        numero="ANCIEN-NUMERO-RELANCE",
+        fichier_path=str(chemin),
+    )
+
+    doublon_reel = ingest_extraction_bl._numero_interne_doublon
+    appels = 0
+
+    async def _doublon_ment_une_fois(
+        session: AsyncSession,
+        document_id: uuid.UUID,
+        fournisseur_id: uuid.UUID | None,
+        numero: str,
+    ) -> int | None:
+        nonlocal appels
+        appels += 1
+        if appels == 1:
+            return None
+        return await doublon_reel(session, document_id, fournisseur_id, numero)
+
+    monkeypatch.setattr(
+        ingest_extraction_bl, "_numero_interne_doublon", _doublon_ment_une_fois
+    )
+
+    detail = await relancer_extraction(
+        db_session, document.id, tmp_path, _ocr_synthetique, auteur_id=admin.id
+    )
+
+    assert appels == 2
+    assert detail.statut == "a_verifier"
+    # Doublon détecté à la reprise : le numéro de l'extraction relancée
+    # (celui du document concurrent) n'est pas écrit.
+    assert detail.champs["numero"].valeur is None
+
+    journaux = await _tous_journaux(db_session, document.id, "extraction_relancee")
+    assert len(journaux) == 1
+    journal = journaux[0]
+    # `journal` et `admin` sont tous deux expirés par les multiples
+    # `commit()`/`rollback()` internes à la reprise sur doublon
+    # d'`enregistrer_extraction_bl` (`expire_on_commit`, comportement par
+    # défaut de la session) : rafraîchis explicitement avant lecture, comme
+    # `relancer_extraction` le fait déjà pour `document` — sans quoi un accès
+    # synchrone à un attribut expiré hors d'un `await` lève `MissingGreenlet`.
+    await db_session.refresh(journal)
+    await db_session.refresh(admin)
+    assert journal.utilisateur_id == admin.id
+    assert journal.avant is not None
+    assert journal.avant["numero"] == "ANCIEN-NUMERO-RELANCE"
     assert journal.avant["nb_lignes"] == "0"
     assert journal.apres is None
 

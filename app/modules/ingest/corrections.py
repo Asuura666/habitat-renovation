@@ -1008,6 +1008,21 @@ async def relancer_extraction(
     *,
     auteur_id: uuid.UUID,
 ) -> DocumentDetail:
+    """Relance l'extraction d'un BL (L3-D15).
+
+    Fix round 1 (revue de cette tâche) : le journal `extraction_relancee`
+    est ajouté et commité **après** `enregistrer_extraction_bl`, dans une
+    seconde transaction — jamais avant, et jamais dans la même transaction
+    que son commit. `enregistrer_extraction_bl` peut faire un `rollback()`
+    interne (`_avec_reprise_doublon`, course sur un doublon de numéro) avant
+    de rejouer son écriture une fois : un `rollback()` annule tout objet en
+    attente dans la session, y compris ce journal s'il avait été ajouté
+    avant l'appel — il disparaîtrait alors silencieusement même si
+    l'extraction elle-même réussit. Écrire le journal une fois l'extraction
+    déjà commitée élimine ce risque ; la seule façon de le perdre devient un
+    échec de la base entre les deux commits, qui remonte alors comme une
+    erreur au routeur (jamais une réussite silencieuse sans journal).
+    """
     document = await _document_pour_ecriture(session, document_id)
     if document.statut != "a_verifier":
         raise DocumentNonModifiable(str(document_id))
@@ -1030,11 +1045,17 @@ async def relancer_extraction(
     if not isinstance(reponse, dict) or not isinstance(reponse.get("pages"), list):
         raise LectureImpossible(_MESSAGE_LECTURE_IMPOSSIBLE)
 
+    # Capturé avant toute écriture (jamais mutée entre-temps) : ces valeurs
+    # sont celles du journal `avant`, écrit seulement une fois l'extraction
+    # elle-même commitée (voir le docstring ci-dessus).
     nb_lignes_avant = await _nombre_lignes(session, document_id)
     avant = {
         **_valeurs_document_pour_journal(document),
         "nb_lignes": str(nb_lignes_avant),
     }
+
+    await enregistrer_extraction_bl(session, document_id, reponse, relance=True)
+
     session.add(
         Journal(
             utilisateur_id=auteur_id,
@@ -1045,8 +1066,7 @@ async def relancer_extraction(
             apres=None,
         )
     )
-
-    await enregistrer_extraction_bl(session, document_id, reponse, relance=True)
+    await session.commit()
 
     await session.refresh(document)
     return await _charger_detail(session, document, role="admin")
