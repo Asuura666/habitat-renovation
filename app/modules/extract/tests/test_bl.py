@@ -368,6 +368,90 @@ def test_nombre_bl_valeurs_invalides(brut: str | None) -> None:
 
 
 # --------------------------------------------------------------------------
+# nombre_bl — marqueur de devise (L3-T6b, fix round 1, constat 11 : un bon
+# d'enlèvement réel a renvoyé `total_ht` sous la forme « <nombre> € »)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("brut", "attendu"),
+    [
+        ("45,70 €", Decimal("45.70")),
+        ("45,70€", Decimal("45.70")),
+        ("€ 45,70", Decimal("45.70")),
+        ("€45,70", Decimal("45.70")),
+        ("45,70 EUR", Decimal("45.70")),
+        ("45,70EUR", Decimal("45.70")),
+        ("EUR 45,70", Decimal("45.70")),
+        ("EUR45,70", Decimal("45.70")),
+        ("45,70 eur", Decimal("45.70")),
+        ("45,70 Eur", Decimal("45.70")),
+        ("1 234,56 €", Decimal("1234.56")),
+        ("-2,5 €", Decimal("-2.5")),
+    ],
+)
+def test_nombre_bl_devise_valeurs_valides(brut: str, attendu: Decimal) -> None:
+    assert nombre_bl(brut) == attendu
+
+
+@pytest.mark.parametrize(
+    "brut",
+    [
+        "45,70 $",
+        "€",
+        "EUR",
+        " € ",
+        "45,70 €€",
+        "€45,70€",
+        "45,70€EUR",
+        "45,70 € EUR",
+    ],
+)
+def test_nombre_bl_devise_valeurs_invalides(brut: str) -> None:
+    assert nombre_bl(brut) is None
+
+
+def test_analyser_bl_total_ht_devise_convertit_et_confiance_non_nulle() -> None:
+    """L3-T6b, fix round 1 : le montant annoté « <montant> € » doit à la
+    fois se convertir (`nombre_bl`) et se retrouver dans le texte OCR tel
+    qu'imprimé pour sa confiance (`confiance_valeur`) — la valeur *et* la
+    confiance passent par le même texte annoté, avec son marqueur de devise.
+    Donnée entièrement inventée."""
+    annotation: dict[str, Any] = {
+        "fournisseur": "FOURNISSEUR INVENTE",
+        "numero": "BL0001",
+        "date_doc": "15/01/2026",
+        "chantier_brut": "CHANTIER INVENTE",
+        "total_ht": "45,70 €",
+        "lignes": [],
+    }
+    reponse: dict[str, Any] = {
+        "document_annotation": annotation,
+        "pages": [
+            {
+                "markdown": "Total HT : 45,70 €",
+                "confidence_scores": {
+                    "word_confidence_scores": [
+                        {"text": "Total", "confidence": 0.99, "start_index": 0},
+                        {"text": " HT", "confidence": 0.99, "start_index": 5},
+                        {"text": " :", "confidence": 0.99, "start_index": 7},
+                        {"text": " 45,70", "confidence": 0.97, "start_index": 9},
+                        {"text": " €", "confidence": 0.93, "start_index": 15},
+                    ]
+                },
+            }
+        ],
+    }
+
+    extrait = analyser_bl(reponse)
+
+    assert extrait.total_ht.valeur == Decimal("45.70")
+    # Minimum des deux mots recouvrant « 45,70 € » dans le texte OCR :
+    # jamais 0 (valeur introuvable) ni `None` (pas de score disponible).
+    assert extrait.total_ht.confiance == Decimal("0.93")
+
+
+# --------------------------------------------------------------------------
 # date_bl
 # --------------------------------------------------------------------------
 

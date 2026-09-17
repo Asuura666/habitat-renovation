@@ -228,6 +228,33 @@ def test_valeur_illisible_ne_declenche_pas_si_convertible() -> None:
     assert CodeMotif.VALEUR_ILLISIBLE not in _codes(motifs)
 
 
+def test_valeur_illisible_ne_declenche_pas_pour_total_ht_avec_symbole_euro() -> None:
+    """L3-T6b, fix round 1 (constat 11, gap confirmé par le contrôleur) :
+    un bon d'enlèvement réel a renvoyé `total_ht` sous la forme
+    « <montant> € » — `nombre_bl` (bl.py) doit maintenant le convertir, donc
+    plus de `VALEUR_ILLISIBLE` sur `total_ht` en bout de chaîne complète
+    `analyser_bl` -> `bl_a_verifier` -> `verifier_bl`. Donnée inventée."""
+    annotation: dict[str, Any] = {
+        "fournisseur": "FOURNISSEUR INVENTE",
+        "numero": "BL0001",
+        "date_doc": "15/01/2026",
+        "chantier_brut": "CHANTIER INVENTE",
+        "total_ht": "45,70 €",
+        "lignes": [],
+    }
+    extrait = analyser_bl({"document_annotation": annotation})
+
+    motifs = verifier_bl(
+        bl_a_verifier(extrait),
+        seuil_confiance=SEUIL_CONFIANCE_DEFAUT,
+        tolerance=TOLERANCE_TOTAL_DEFAUT,
+    )
+
+    assert not any(
+        m.code is CodeMotif.VALEUR_ILLISIBLE and m.champ == "total_ht" for m in motifs
+    )
+
+
 # --------------------------------------------------------------------------
 # CONFIANCE_FAIBLE
 # --------------------------------------------------------------------------

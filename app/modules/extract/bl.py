@@ -295,13 +295,46 @@ class AnnotationIllisible(Exception):
 _ESPACES_MILLIERS = (" ", "\u202f", "\xa0")
 _NOMBRE_BL_RE = re.compile(r"^-?\d+(?:[.,]\d+)?$")
 
+# L3-T6b, fix round 1 (constat 11, gap confirmé par le contrôleur) : un bon
+# d'enlèvement réel a renvoyé `total_ht` sous la forme « <nombre> € » --
+# `nombre_bl` refusait ce texte, ce qui mettait un document par ailleurs bien
+# lu « à vérifier » (`VALEUR_ILLISIBLE`). Un seul marqueur, en tête ou en
+# queue du nombre (jamais les deux) : `€` ou `EUR`, insensible à la casse.
+_MARQUEURS_DEVISE = ("EUR", "€")
+
+
+def _sans_marqueur_devise(texte: str) -> str | None:
+    """Retire un marqueur de devise optionnel unique, en tête ou en queue
+    (jamais les deux), de `texte` (déjà débarrassé de ses espaces par
+    `nombre_bl` : « 45,70 € » et « 45,70€ » sont donc indiscernables ici).
+
+    `None` si `texte` est le marqueur seul (aucun nombre à convertir).
+    Si un marqueur apparaît des deux côtés (ex. « 45,70€€ », « €45,70€ »),
+    un seul est retiré ; le `€`/`EUR` résiduel fait ensuite échouer
+    `_NOMBRE_BL_RE` normalement, sans logique dédiée ici. Aucun marqueur
+    reconnu -> `texte` inchangé (ex. « 45,70$ », refusé plus loin)."""
+    majuscule = texte.upper()
+    for marqueur in _MARQUEURS_DEVISE:
+        taille = len(marqueur)
+        commence = majuscule.startswith(marqueur)
+        finit = majuscule.endswith(marqueur)
+        if commence and finit and len(texte) == taille:
+            return None
+        if commence:
+            return texte[taille:]
+        if finit:
+            return texte[: len(texte) - taille]
+    return texte
+
 
 def nombre_bl(brut: str | None) -> Decimal | None:
-    """Convertit un nombre annoté (« 1 234,56 », « 31.50 », « 4 », « -2,5 »)
-    en `Decimal`. Accepte les espaces de milliers (normale, insécable, fine
-    insécable) et un seul séparateur décimal (`,` ou `.`). Tout autre texte
-    (deux séparateurs, lettres, etc.) -> `None`, jamais de `float`
-    intermédiaire, jamais deviné.
+    """Convertit un nombre annoté (« 1 234,56 », « 31.50 », « 4 », « -2,5 »,
+    « 45,70 € », « 45,70€ », « € 45,70 », « 45,70 EUR ») en `Decimal`.
+    Accepte les espaces de milliers (normale, insécable, fine insécable), un
+    seul séparateur décimal (`,` ou `.`) et un marqueur de devise optionnel
+    unique (`€`/`EUR`, L3-T6b fix round 1). Tout autre texte (deux
+    séparateurs, lettres, devise étrangère, deux marqueurs, etc.) -> `None`,
+    jamais de `float` intermédiaire, jamais deviné.
     """
     if brut is None:
         return None
@@ -310,6 +343,10 @@ def nombre_bl(brut: str | None) -> Decimal | None:
         return None
     for espace in _ESPACES_MILLIERS:
         texte = texte.replace(espace, "")
+    sans_devise = _sans_marqueur_devise(texte)
+    if sans_devise is None:
+        return None
+    texte = sans_devise
     if _NOMBRE_BL_RE.match(texte) is None:
         return None
     return Decimal(texte.replace(",", "."))
