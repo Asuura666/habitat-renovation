@@ -70,16 +70,28 @@ docs/
 ## Où en est le projet
 
 Lots 1 (Socle) et 2 (Collecte) faits et fusionnés dans `main` le 17/09/2026.
-**Avant tout travail, lire `docs/passation-lots-1-2.md`** : état, décisions
-(validées et prises en autonomie), questions ouvertes, méthode utilisée,
-pièges rencontrés et point de départ du lot 3. Recettes :
-`docs/lot-1-recette.md`, `docs/lot-2-recette.md` ; dette : `docs/dette.md`.
+Lot 3 (Extraction) fait sur la branche `lot-3-extraction` (dépôt
+`/home/debian/habitat_reno`), **pas encore fusionné dans `main`**.
+**Avant tout travail, lire `docs/passation-lot-3.md`** (état, décisions,
+questions ouvertes, méthode, pièges rencontrés, point de départ du lot 4) et
+`docs/passation-lots-1-2.md` pour les lots précédents. Recettes :
+`docs/lot-1-recette.md`, `docs/lot-2-recette.md`, `docs/lot-3-recette.md` ;
+dette : `docs/dette.md`.
 
 Points à retenir :
 - La facture fournie est un scan : les factures sont lues via l'OCR Mistral
   puis `extract/unikalo.py` (décision R16, à valider par Ilane).
-- Point ouvert L2-R10 à corriger avant tout travail front : le contrôle
-  d'origine (`app/core/origine.py`) bloque les POST via `npm run dev`.
+- **Point de revue non refermé sur `lot-3-extraction`** : L3-T10 (`web:
+  détail et correction d'un document`) a un tour de correction dispatché
+  dont le résultat n'était pas connu à la clôture de `docs/lot-3-recette.md`
+  — vérifier `progress.md`/`git log` avant de repartir de cette branche
+  (`docs/passation-lot-3.md` §1).
+- **Lot 3 bloqué sur des fichiers manquants** : seules 4 photos réelles de
+  BL sont disponibles (30 dont 10 dégradées exigées par le CDC §10) ; le
+  parseur de facture Point.P n'est pas construit (aucun document
+  disponible). Marche à suivre dès réception : `docs/protocole-mesure-ocr.md`.
+- L2-R10 (contrôle d'origine bloquant les POST via `npm run dev`) est
+  résolu depuis le lot 3 (L3-D21, proxy Vite qui réécrit `Origin`).
 - Ne jamais lancer `pre-commit install` depuis un worktree (hooks partagés).
 
 ## Méthode

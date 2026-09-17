@@ -4,6 +4,30 @@ Ce fichier liste les simplifications assumées (solution plus simple que
 l'idéal, avec ce qu'elle ne couvre pas) au fil des tâches ; il ne contient
 aucune entrée tant qu'aucune simplification n'a été prise.
 
+## Résolu au lot 3
+
+Trois points de dette/blocage antérieurs, fermés par le lot 3 (Extraction) :
+
+- **« Confiance réduite » (CDC §4.2) jamais renseignée sur une facture**
+  (dette L2-T4, Ruling L2-R5) — **résolu par L3-D16** :
+  `ingest/factures.py::deposer_facture` appelle désormais l'OCR Mistral avec
+  `confidence_scores_granularity: "page"` et calcule
+  `document.confiance_min` (plus petit score de page) ; `confiance_reduite`
+  est exposée par l'API comme `ocr_brut IS NOT NULL`. Voir l'entrée
+  d'origine ci-dessous (conservée pour l'historique).
+- **Pas de nouvelle tentative après un échec d'OCR** (dette T6b) —
+  **résolu par L3-D15** : `POST /api/documents/{id}/extraction`
+  (« Relancer l'extraction », admin, document `a_verifier`) relit le
+  fichier et rappelle l'OCR. Reste vrai : la relance est **manuelle**,
+  déclenchée par l'admin depuis l'écran — aucune nouvelle tentative
+  **automatique** planifiée. Voir l'entrée d'origine ci-dessous.
+- **L2-R10 — contrôle d'origine bloquant les POST via `npm run dev`**
+  (point ouvert du lot 2, jamais formalisé dans ce fichier) — **résolu par
+  L3-D21** : `web/vite.config.mts` réécrit l'en-tête `Origin` de la requête
+  proxyée vers l'origine de l'API cible ; le contrôle serveur
+  (`app/core/origine.py`) reste strict et inchangé, un test « derrière un
+  vrai proxy » (`ProxyHeadersMiddleware`) a été ajouté (L3-T0).
+
 ## T5 — extract (parseur de facture Unikalo sur réponse OCR)
 
 - **R16 — lecture native pdfplumber reportée.** La seule facture Unikalo
@@ -110,7 +134,9 @@ aucune entrée tant qu'aucune simplification n'a été prise.
 
 ## T6b — extract/ingest (détection du numéro de BL sur photo, OCR Mistral minimal)
 
-- **Pas de nouvelle tentative automatique après un échec d'OCR.** Si l'appel
+- **Pas de nouvelle tentative automatique après un échec d'OCR — résolu au
+  lot 3, voir « Résolu au lot 3 » ci-dessus (L3-D15).** Entrée d'origine,
+  conservée pour l'historique : si l'appel
   à l'API Mistral OCR échoue (réseau, timeout, statut HTTP), le document
   reste `recu` sans `numero` ni `ocr_brut`, et rien ne relance
   automatiquement l'OCR plus tard. Ne couvre pas un mécanisme de reprise :
@@ -222,16 +248,18 @@ aucune entrée tant qu'aucune simplification n'a été prise.
 
 ## L2-T4 — ingest/api (dépôt de facture PDF Unikalo)
 
-- **`confiance_min` jamais renseignée (Ruling L2-R5, constat important).**
-  Le CDC §4.2 prévoit qu'une facture lue par OCR porte une « confiance
-  réduite » par champ. La colonne `document.confiance_min` existe (lot 2,
-  L2-D5) mais `deposer_facture` ne la renseigne jamais : toutes les
-  factures déposées passent par l'OCR (aucune lecture native disponible,
-  cf. dette T5) et aucune n'est donc marquée « confiance réduite » —
-  `confiance_min` reste `NULL` pour toutes. Ne couvre pas le calcul d'un
-  score de confiance par champ ni son report sur le document ; décision
-  explicite du contrôleur : ce calcul est défini et implémenté au lot 3
-  (Extraction), pas au lot 2.
+- **`confiance_min` jamais renseignée (Ruling L2-R5, constat important) —
+  résolu au lot 3, voir « Résolu au lot 3 » ci-dessus (L3-D16).** Entrée
+  d'origine, conservée pour l'historique : le CDC §4.2 prévoit qu'une
+  facture lue par OCR porte une « confiance réduite » par champ. La colonne
+  `document.confiance_min` existe (lot 2, L2-D5) mais `deposer_facture` ne
+  la renseignait jamais : toutes les factures déposées passent par l'OCR
+  (aucune lecture native disponible, cf. dette T5) et aucune n'était donc
+  marquée « confiance réduite » — `confiance_min` restait `NULL` pour
+  toutes. Ne couvrait pas le calcul d'un score de confiance par champ ni
+  son report sur le document ; décision explicite du contrôleur au lot 2 :
+  ce calcul serait défini et implémenté au lot 3 (Extraction), pas au lot
+  2 — fait (L3-D16, `confidence_scores_granularity: "page"`).
 - **Avoirs non distingués des factures (Ruling L2-R5, constat important).**
   Le CDC §4.2 parle d'un dépôt « de facture ou d'avoir », mais
   `deposer_facture` écrit toujours `document.type = "facture"`, quel que
@@ -290,3 +318,80 @@ Aucun de ces trois cas n'a de test dédié (comportement inchangé, pas une
 régression de ce tour) : les isoler proprement demanderait de distinguer
 « l'appel réseau a réussi mais l'écriture locale échoue » de tous les
 autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
+
+## L3-T11 — livrable du lot (CDC §10 non mesuré)
+
+- **Rapport de taux d'erreur OCR non mesuré sur 30 photos réelles (L3-D20,
+  constat 1 du plan lot 3).** Seules 4 photos réelles sont disponibles au
+  17/09/2026 (3 Unikalo, 1 bon d'enlèvement Point.P), contre 30 dont 10
+  dégradées exigées par le CDC §10. L'outil de mesure (`rapport-ocr`,
+  `docs/protocole-mesure-ocr.md`) est prêt et a été exécuté sur les 4
+  photos disponibles (résultat en comptes/taux uniquement dans
+  `docs/lot-3-recette.md` §4), mais l'échantillon est 6 à 7 fois trop petit
+  pour conclure sur les seuils du CDC ni pour recaler le seuil de
+  confiance provisoire (0,80, L3-D4). Ne couvre pas le livrable exigé par
+  le CDC ; à faire dès réception des 30 photos (`docs/protocole-mesure-ocr.md`,
+  une seule commande une fois les fichiers réunis).
+
+## L3-D23 — extract/ingest (parseur de facture Point.P)
+
+- **Parseur de facture Point.P non construit.** Aucun document de facture
+  Point.P n'est disponible (constat 1 du plan lot 3) : seul un bon
+  d'enlèvement Point.P a pu être testé, et il passe par la même extraction
+  qu'un BL (annotation Mistral, L3-D1), jamais par un parseur dédié comme
+  `extract/unikalo.py` pour les factures Unikalo. Ne couvre pas le dépôt
+  d'une facture Point.P (aucune route ne le reconnaît, comportement non
+  vérifié) ; à construire dès réception d'un exemple réel — bloque aussi
+  tout rapprochement lot 4 avec ce fournisseur.
+
+## L3-D17 — ingest/web (correction d'une facture scannée)
+
+- **Pas d'écran de correction pour une facture « à vérifier ».** Le lot 3
+  calcule les motifs d'incohérence d'une facture (somme des blocs ≠ total
+  HT, L3-D16) et l'affiche dans l'écran « À traiter », mais ne permet pas
+  de corriger une valeur à l'écran (contrairement à un BL, `PATCH`/`PUT`
+  sur `/api/documents/{id}`) : une facture « à vérifier » renvoie
+  uniquement vers son détail en lecture. Le CDC suppose des factures en
+  PDF natif, jamais rencontré ce lot-ci (toutes scannées, cf. dette T5).
+  Ne couvre pas la correction d'une facture scannée à l'écran ; question
+  posée à Ilane (Q5 du plan lot 3) — à construire si la réponse le
+  confirme nécessaire.
+
+## L3-D11 — ingest (fusion de documents BL multi-pages)
+
+- **Fusion de deux documents pour un même BL non construite.** Le CDC §4.1
+  évoque un BL sur deux pages sans préciser à quel lot le traiter (aucune
+  tâche du plan ne le cite explicitement). Provisoirement : un numéro déjà
+  porté par un autre document du même fournisseur met le second document
+  « à vérifier » (motif `numero_en_double`, numéro non écrit) et l'admin
+  peut l'archiver manuellement, mais rien ne fusionne automatiquement les
+  deux pages en un seul document logique (lignes, total). Ne couvre pas la
+  fusion ; question posée à Ilane (Q6 du plan lot 3) — à construire au lot
+  qu'elle désignera (candidat : lot 4, avec le rapprochement).
+
+## L3-T8b — api (sélection des alias chantier en attente)
+
+- **Une requête SQL par alias en attente, pas un lot unique.**
+  `a_traiter.py::_lister_alias_en_attente` appelle
+  `referentiels.candidats_alias` une fois par alias en attente pour compter
+  ses documents/blocs correspondants, plutôt qu'une passe batchée par
+  fournisseur — choix délibéré pour garder une seule définition de la
+  sélection alias-matching, partagée avec `valider_alias` (jamais deux
+  implémentations divergentes de la même règle). Acceptable au volume du
+  CDC §9 (500 documents/mois, donc très peu d'alias en attente
+  simultanément) ; ne couvre pas un très grand nombre d'alias en attente
+  sans dégradation de performance — à revoir (passe batchée dédiée) si ce
+  volume change.
+
+## L3-T10 — web (état du détail document non réinitialisé entre deux documents)
+
+- **`DocumentDetail` ne réinitialise pas son état local en changeant de
+  document sans repasser par une liste.** La page étant montée une seule
+  fois par le routeur pour toute la route `/documents/:id`, l'état local
+  (mode édition ouvert, formulaire d'archivage déplié) reste celui du
+  document précédent si l'admin navigue directement d'un document à un
+  autre sans repasser par un lien de liste (« À traiter », « BL déposés »).
+  Le contenu affiché reste correct (sous-formulaires remontés via une `key`
+  incluant l'id), seul le mode reste celui d'avant. Ne couvre pas ce cas ;
+  non corrigé faute de lien de ce type dans l'app aujourd'hui — à traiter
+  si un tel lien apparaît (ex. suivant/précédent dans une liste).
