@@ -54,11 +54,15 @@ def _normaliser_numero(numero: str) -> str:
 
 
 async def documents_bl_par_numeros(
-    session: AsyncSession, numeros: Iterable[str]
+    session: AsyncSession,
+    numeros: Iterable[str],
+    *,
+    fournisseur_id: uuid.UUID | None = None,
 ) -> dict[str, uuid.UUID]:
     """Correspondance numéro de BL -> `id` du `document` reçu (BL ou
     enlèvement), factorisée pour être partagée par `blocs_avec_reception`
-    (CLI `bl-non-recus`, T7) et `facture_detail`/`lister_factures` (L2-T5).
+    (CLI `bl-non-recus`, T7), `facture_detail`/`lister_factures` (L2-T5) et
+    `ingest.rapprochement` (L4-T7, `fournisseur_id` renseigné).
 
     Clé = numéro normalisé (`_normaliser_numero`, décision du contrôleur
     T7/L2-T5). Ne considère que les documents de type `bl`/`enlevement`, de
@@ -66,6 +70,11 @@ async def documents_bl_par_numeros(
     la lecture, jamais persistée dans `bloc_facture.bl_document_id`). En cas
     de plusieurs documents pour un même numéro normalisé (décision du
     contrôleur L2-T5), le plus ancien (`created_at` croissant) fait foi.
+
+    `fournisseur_id` (L4-D5, ajouté pour `ingest.rapprochement`) restreint en
+    plus aux documents de ce fournisseur — `None` (défaut, tous les appelants
+    du lot 2/3) conserve le comportement historique, sans filtre fournisseur
+    (un seul fournisseur existait alors).
 
     Une seule requête, filtrée en SQL sur les numéros normalisés
     (`upper(btrim(...))`) plutôt qu'en récupérant tous les documents reçus
@@ -84,16 +93,18 @@ async def documents_bl_par_numeros(
     if not normalises:
         return {}
 
+    conditions = [
+        Document.type.in_(("bl", "enlevement")),
+        Document.statut != "archive",
+        Document.numero.is_not(None),
+        func.upper(func.btrim(Document.numero, _CARACTERES_DE_BORD)).in_(normalises),
+    ]
+    if fournisseur_id is not None:
+        conditions.append(Document.fournisseur_id == fournisseur_id)
+
     resultat = await session.execute(
         select(Document.numero, Document.id)
-        .where(
-            Document.type.in_(("bl", "enlevement")),
-            Document.statut != "archive",
-            Document.numero.is_not(None),
-            func.upper(func.btrim(Document.numero, _CARACTERES_DE_BORD)).in_(
-                normalises
-            ),
-        )
+        .where(*conditions)
         .order_by(Document.created_at.asc())
     )
     documents_par_numero: dict[str, uuid.UUID] = {}
@@ -282,9 +293,15 @@ class LigneFactureLue:
 
 @dataclass(frozen=True)
 class BlocFactureLu:
-    """Un bloc, avec ses lignes et son indicateur « BL reçu » calculé à la
-    lecture (L2-D12, jamais persisté dans `bl_document_id`). `chantier_id`
-    (L3-T7) : résolu par `ingest/factures.py::deposer_facture`."""
+    """Un bloc, avec ses lignes et son indicateur « BL reçu ». `chantier_id`
+    (L3-T7) : résolu par `ingest/factures.py::deposer_facture`.
+
+    `statut_rapprochement`/`bl_document_id` (L4-T7) : valeurs persistées par
+    `ingest.rapprochement.rapprocher_facture`, exposées telles quelles dès
+    qu'un rapprochement a tourné pour cette facture. `bl_recu`/`bl_document_id`
+    retombent sur le calcul à la volée (L2-D12, correspondance par numéro
+    normalisé) tant qu'aucun rapprochement n'a encore renseigné
+    `statut_rapprochement` — jamais les deux mélangés pour un même bloc."""
 
     id: uuid.UUID
     numero_bl: str | None
@@ -296,6 +313,7 @@ class BlocFactureLu:
     montant_ht: Decimal
     bl_recu: bool
     bl_document_id: uuid.UUID | None
+    statut_rapprochement: str | None
     lignes: list[LigneFactureLue]
 
 
@@ -384,11 +402,20 @@ async def facture_detail(session: AsyncSession, facture_id: uuid.UUID) -> Factur
 
     blocs: list[BlocFactureLu] = []
     for bloc in blocs_db:
-        bl_document_id = (
+        bl_document_id_calcule = (
             documents_par_numero.get(_normaliser_numero(bloc.numero_bl))
             if bloc.numero_bl is not None
             else None
         )
+        # L4-T7 : le statut persisté par `ingest.rapprochement.rapprocher_facture`
+        # fait foi dès qu'il est renseigné ; sinon, calcul à la volée inchangé
+        # (L2-D12) — jamais les deux mélangés pour un même bloc.
+        if bloc.statut_rapprochement is not None:
+            bl_recu = bloc.statut_rapprochement == "recu"
+            bl_document_id = bloc.bl_document_id
+        else:
+            bl_recu = bl_document_id_calcule is not None
+            bl_document_id = bl_document_id_calcule
         blocs.append(
             BlocFactureLu(
                 id=bloc.id,
@@ -406,8 +433,9 @@ async def facture_detail(session: AsyncSession, facture_id: uuid.UUID) -> Factur
                     ),
                     Decimal("0"),
                 ),
-                bl_recu=bl_document_id is not None,
+                bl_recu=bl_recu,
                 bl_document_id=bl_document_id,
+                statut_rapprochement=bloc.statut_rapprochement,
                 lignes=[
                     LigneFactureLue(
                         ordre=ligne.ordre,

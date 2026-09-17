@@ -388,7 +388,10 @@ async def test_depot_reussi_cree_fournisseur_document_blocs_lignes_et_journal(
     journaux = (
         (
             await db_session.execute(
-                select(Journal).where(Journal.cible_id == str(document.id))
+                select(Journal).where(
+                    Journal.cible_id == str(document.id),
+                    Journal.action == "facture_deposee",
+                )
             )
         )
         .scalars()
@@ -630,7 +633,10 @@ async def test_depot_total_incoherent_a_verifier_motif_somme_incoherente(
 
     journal = (
         await db_session.execute(
-            select(Journal).where(Journal.cible_id == str(resultat.id))
+            select(Journal).where(
+                Journal.cible_id == str(resultat.id),
+                Journal.action == "facture_deposee",
+            )
         )
     ).scalar_one()
     assert journal.apres is not None
@@ -709,7 +715,10 @@ async def test_depot_bloc_avec_chantier_cree_une_demande_dalias(
 
     journal = (
         await db_session.execute(
-            select(Journal).where(Journal.cible_id == str(resultat.id))
+            select(Journal).where(
+                Journal.cible_id == str(resultat.id),
+                Journal.action == "facture_deposee",
+            )
         )
     ).scalar_one()
     assert journal.apres is not None
@@ -758,7 +767,10 @@ async def test_depot_bloc_avec_alias_valide_propage_le_chantier_id(
 
     journal = (
         await db_session.execute(
-            select(Journal).where(Journal.cible_id == str(resultat.id))
+            select(Journal).where(
+                Journal.cible_id == str(resultat.id),
+                Journal.action == "facture_deposee",
+            )
         )
     ).scalar_one()
     assert journal.apres is not None
@@ -806,7 +818,10 @@ async def test_depot_ligne_article_avec_code_cree_article_avec_ratio_propose(
 
     journal = (
         await db_session.execute(
-            select(Journal).where(Journal.cible_id == str(resultat.id))
+            select(Journal).where(
+                Journal.cible_id == str(resultat.id),
+                Journal.action == "facture_deposee",
+            )
         )
     ).scalar_one()
     assert journal.apres is not None
@@ -847,7 +862,10 @@ async def test_depot_ligne_eco_avec_code_ne_cree_pas_darticle(
 
     journal = (
         await db_session.execute(
-            select(Journal).where(Journal.cible_id == str(resultat.id))
+            select(Journal).where(
+                Journal.cible_id == str(resultat.id),
+                Journal.action == "facture_deposee",
+            )
         )
     ).scalar_one()
     assert journal.apres is not None

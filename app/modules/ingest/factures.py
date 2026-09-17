@@ -47,6 +47,7 @@ from app.modules.ingest.extraction_bl import CLE_TOLERANCE_TOTAL_HT
 from app.modules.ingest.lecture import _normaliser_numero, documents_bl_par_numeros
 from app.modules.ingest.mistral import ErreurOCR
 from app.modules.ingest.models import BlocFacture, Document, Fournisseur, Journal, Ligne
+from app.modules.ingest.rapprochement import rapprocher_facture_sans_echec
 from app.modules.ingest.referentiels import (
     lire_parametre_decimal,
     rattacher_article,
@@ -506,6 +507,11 @@ async def deposer_facture(
         await session.rollback()
         await asyncio.to_thread(_supprimer_si_existe, chemin_final)
         raise
+
+    # L4-T7 (décision du contrôleur) : rapprochement déclenché juste après
+    # le dépôt, encapsulé (`rapprocher_facture_sans_echec`) — un échec du
+    # rapprochement ne doit jamais faire échouer le dépôt, déjà commité.
+    await rapprocher_facture_sans_echec(session, document_id)
 
     return FactureDeposee(
         id=document_id, numero=facture.numero, nb_blocs=len(facture.blocs)

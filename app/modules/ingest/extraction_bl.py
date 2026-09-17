@@ -80,6 +80,7 @@ from app.modules.extract.verification import (
     verifier_bl,
 )
 from app.modules.ingest.models import Document, Journal, Ligne
+from app.modules.ingest.rapprochement import rapprocher_factures_du_bl
 from app.modules.ingest.referentiels import (
     charger_agences,
     charger_fournisseurs,
@@ -273,6 +274,20 @@ async def _avec_reprise_doublon(
         return await executer()
 
 
+async def _rapprocher_si_numero(
+    session: AsyncSession, document_id: uuid.UUID, resultat: ResultatExtraction
+) -> None:
+    """L4-T7 (décision du contrôleur) : une extraction qui résout un numéro
+    de BL (chemin normal ou annotation illisible dont le motif déterministe
+    `detecter_numero_bl` a quand même donné un numéro) peut faire
+    correspondre une ou plusieurs factures déjà déposées — rejeu encapsulé
+    (`rapprocher_factures_du_bl`), ne fait jamais échouer l'extraction
+    elle-même (déjà commitée). Rien si `resultat.numero` est absent (aucun
+    numéro à chercher)."""
+    if resultat.numero is not None:
+        await rapprocher_factures_du_bl(session, document_id)
+
+
 async def enregistrer_extraction_bl(
     session: AsyncSession,
     document_id: uuid.UUID,
@@ -312,19 +327,23 @@ async def enregistrer_extraction_bl(
     try:
         extrait = analyser_bl(reponse)
     except AnnotationIllisible:
-        return await _avec_reprise_doublon(
+        resultat = await _avec_reprise_doublon(
             session,
             document_id,
             lambda: _enregistrer_annotation_illisible(session, document, reponse),
         )
+        await _rapprocher_si_numero(session, document_id, resultat)
+        return resultat
 
-    return await _avec_reprise_doublon(
+    resultat = await _avec_reprise_doublon(
         session,
         document_id,
         lambda: _extraire_et_committer(
             session, document, document_id, extrait, reponse, seuil, tolerance, relance
         ),
     )
+    await _rapprocher_si_numero(session, document_id, resultat)
+    return resultat
 
 
 async def _extraire_et_committer(

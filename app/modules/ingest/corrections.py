@@ -80,6 +80,7 @@ from app.modules.ingest.models import (
     Ligne,
     Utilisateur,
 )
+from app.modules.ingest.rapprochement import rapprocher_factures_du_bl
 from app.modules.ingest.referentiels import (
     lire_parametre_decimal,
     rattacher_article,
@@ -949,6 +950,13 @@ async def valider_document(
     )
     await session.commit()
     await session.refresh(document)
+
+    # L4-T7 (décision du contrôleur) : la validation d'un BL peut le faire
+    # correspondre à un ou plusieurs blocs de facture déjà déposés (photo
+    # arrivée après la facture) — rejeu encapsulé, ne fait jamais échouer la
+    # validation elle-même (déjà commitée).
+    await rapprocher_factures_du_bl(session, document_id)
+
     return await _charger_detail(session, document, role="admin")
 
 

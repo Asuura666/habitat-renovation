@@ -405,7 +405,10 @@ async def test_depot_valide_renvoie_201_et_journal_ecrit(
     journaux = (
         (
             await db_session.execute(
-                select(Journal).where(Journal.cible_id == str(document.id))
+                select(Journal).where(
+                    Journal.cible_id == str(document.id),
+                    Journal.action == "facture_deposee",
+                )
             )
         )
         .scalars()
