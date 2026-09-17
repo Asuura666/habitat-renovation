@@ -42,6 +42,27 @@ from app.modules.rules.modeles import Gravite
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
 
+# Ensemble exact que `rapprocher_facture` (L4-T7) passera en pratique à
+# `portee_regles` (Ruling R8, fix round 1) : toutes les règles que
+# `evaluer_facture` peut produire (CDC §5, hors R06/R14/R15/R16 qui ne
+# viennent que des contrôles différés, L4-D14). Réutilisé par les tests
+# ci-dessous plutôt que de deviner un sous-ensemble à chaque appel.
+REGLES_FACTURE: tuple[str, ...] = (
+    "R01",
+    "R02",
+    "R03",
+    "R04",
+    "R05",
+    "R07",
+    "R08",
+    "R09",
+    "R10",
+    "R11",
+    "R12",
+    "R13",
+    "R17",
+)
+
 
 # --------------------------------------------------------------------------
 # Aides de construction (données inventées)
@@ -227,7 +248,10 @@ async def test_synchroniser_anomalies_upsert_sans_doublon_sur_rejeu(
         regle="R10", document_id=facture.id, detail={"ecart": "1.00"}
     )
     nb1 = await synchroniser_anomalies(
-        db_session, anomalies=[premiere], portee_document_id=facture.id
+        db_session,
+        anomalies=[premiere],
+        portee_document_id=facture.id,
+        portee_regles=REGLES_FACTURE,
     )
     await db_session.commit()
 
@@ -242,7 +266,10 @@ async def test_synchroniser_anomalies_upsert_sans_doublon_sur_rejeu(
         detail={"ecart": "2.00"},
     )
     nb2 = await synchroniser_anomalies(
-        db_session, anomalies=[rejouee], portee_document_id=facture.id
+        db_session,
+        anomalies=[rejouee],
+        portee_document_id=facture.id,
+        portee_regles=REGLES_FACTURE,
     )
     await db_session.commit()
 
@@ -281,6 +308,7 @@ async def test_synchroniser_anomalies_met_a_jour_article_id_sur_rejeu(
             )
         ],
         portee_document_id=facture.id,
+        portee_regles=REGLES_FACTURE,
     )
     await db_session.commit()
 
@@ -296,6 +324,7 @@ async def test_synchroniser_anomalies_met_a_jour_article_id_sur_rejeu(
             )
         ],
         portee_document_id=facture.id,
+        portee_regles=REGLES_FACTURE,
     )
     await db_session.commit()
 
@@ -323,6 +352,7 @@ async def test_synchroniser_anomalies_leve_une_anomalie_disparue_avec_journal(
             _anomalie_pure(regle="R10", document_id=facture.id, detail={"a": "1"})
         ],
         portee_document_id=facture.id,
+        portee_regles=REGLES_FACTURE,
     )
     await db_session.commit()
     # Une anomalie d'une AUTRE facture, même règle : ne doit jamais être
@@ -333,6 +363,7 @@ async def test_synchroniser_anomalies_leve_une_anomalie_disparue_avec_journal(
             _anomalie_pure(regle="R10", document_id=autre_facture.id, detail={"a": "1"})
         ],
         portee_document_id=autre_facture.id,
+        portee_regles=REGLES_FACTURE,
     )
     await db_session.commit()
 
@@ -343,7 +374,10 @@ async def test_synchroniser_anomalies_leve_une_anomalie_disparue_avec_journal(
     ).scalar_one()
 
     nb = await synchroniser_anomalies(
-        db_session, anomalies=[], portee_document_id=facture.id
+        db_session,
+        anomalies=[],
+        portee_document_id=facture.id,
+        portee_regles=REGLES_FACTURE,
     )
     await db_session.commit()
 
@@ -397,7 +431,10 @@ async def test_synchroniser_anomalies_leve_via_bloc_sans_document_id(
     await db_session.commit()
 
     nb = await synchroniser_anomalies(
-        db_session, anomalies=[], portee_document_id=facture.id
+        db_session,
+        anomalies=[],
+        portee_document_id=facture.id,
+        portee_regles=REGLES_FACTURE,
     )
     await db_session.commit()
 
@@ -424,6 +461,7 @@ async def test_synchroniser_anomalies_ne_touche_jamais_une_anomalie_traitee(
             _anomalie_pure(regle="R10", document_id=facture.id, detail={"a": "1"})
         ],
         portee_document_id=facture.id,
+        portee_regles=REGLES_FACTURE,
     )
     await db_session.commit()
 
@@ -443,6 +481,7 @@ async def test_synchroniser_anomalies_ne_touche_jamais_une_anomalie_traitee(
             _anomalie_pure(regle="R10", document_id=facture.id, detail={"a": "2"})
         ],
         portee_document_id=facture.id,
+        portee_regles=REGLES_FACTURE,
     )
     await db_session.commit()
 
@@ -453,7 +492,10 @@ async def test_synchroniser_anomalies_ne_touche_jamais_une_anomalie_traitee(
 
     # Rejeu SANS la reproduire du tout : ne doit pas non plus la supprimer.
     await synchroniser_anomalies(
-        db_session, anomalies=[], portee_document_id=facture.id
+        db_session,
+        anomalies=[],
+        portee_document_id=facture.id,
+        portee_regles=REGLES_FACTURE,
     )
     await db_session.commit()
 
@@ -503,6 +545,7 @@ async def test_synchroniser_anomalies_regle_90_jours_bloque_si_recente(
             )
         ],
         portee_document_id=nouvelle_facture.id,
+        portee_regles=REGLES_FACTURE,
     )
     await db_session.commit()
 
@@ -556,6 +599,7 @@ async def test_synchroniser_anomalies_regle_90_jours_regenere_si_ancienne(
             )
         ],
         portee_document_id=nouvelle_facture.id,
+        portee_regles=REGLES_FACTURE,
     )
     await db_session.commit()
 
@@ -607,6 +651,7 @@ async def test_synchroniser_anomalies_utilise_le_parametre_duree_ignorance(
             )
         ],
         portee_document_id=nouvelle_facture.id,
+        portee_regles=REGLES_FACTURE,
     )
     await db_session.commit()
 
@@ -623,6 +668,79 @@ async def test_synchroniser_anomalies_leve_erreur_sans_aucune_portee(
 ) -> None:
     with pytest.raises(ValueError):
         await synchroniser_anomalies(db_session, anomalies=[])
+
+
+async def test_synchroniser_anomalies_leve_erreur_si_portee_document_sans_regles(
+    db_session: AsyncSession,
+) -> None:
+    """Ruling R8 (fix round 1) : `portee_regles` est obligatoire même quand
+    `portee_document_id` est fourni — une portée facture sans son ensemble
+    de règles ne borne rien, elle est refusée."""
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_document(db_session, fournisseur=fournisseur, numero="F1")
+
+    with pytest.raises(ValueError):
+        await synchroniser_anomalies(
+            db_session, anomalies=[], portee_document_id=facture.id
+        )
+
+
+async def test_synchroniser_anomalies_ne_leve_pas_une_regle_de_suivi_hors_portee(
+    db_session: AsyncSession,
+) -> None:
+    """Ruling R8 (fix round 1, constat Important de la revue) : un rejeu de
+    `rapprocher_facture`, qui ne recalcule que les règles de
+    `evaluer_facture` (`REGLES_FACTURE`, jamais R06/R14/R15/R16, produites
+    seulement par les contrôles différés, L4-D14), ne doit jamais lever une
+    anomalie de suivi (R06) attachée au même bloc de la même facture — ni la
+    supprimer, ni journaliser de `anomalie_levee` pour elle."""
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_document(db_session, fournisseur=fournisseur, numero="F1")
+    bloc = await _creer_bloc(db_session, facture=facture)
+
+    anomalie_suivi = Anomalie(
+        regle="R06",
+        gravite="basse",
+        document_id=facture.id,
+        bloc_id=bloc.id,
+        detail={"article": "ART1"},
+        statut="ouverte",
+    )
+    db_session.add(anomalie_suivi)
+    await db_session.commit()
+    await db_session.refresh(anomalie_suivi)
+
+    # Rejeu de rapprochement classique : ne recalcule que les règles
+    # « facture », jamais R06.
+    nb = await synchroniser_anomalies(
+        db_session,
+        anomalies=[
+            _anomalie_pure(regle="R10", document_id=facture.id, detail={"a": "1"})
+        ],
+        portee_document_id=facture.id,
+        portee_regles=REGLES_FACTURE,
+    )
+    await db_session.commit()
+
+    toujours_la = await db_session.get(Anomalie, anomalie_suivi.id)
+    ok = toujours_la is not None and toujours_la.statut == "ouverte"
+    assert ok, "l'anomalie de suivi (R06) hors portée ne doit jamais être supprimée"
+
+    journal_leve = (
+        await db_session.execute(
+            select(Journal).where(
+                Journal.action == "anomalie_levee",
+                Journal.cible_id == str(anomalie_suivi.id),
+            )
+        )
+    ).scalar_one_or_none()
+    assert journal_leve is None, (
+        "aucun journal `anomalie_levee` pour une règle hors portée"
+    )
+
+    # Le compte renvoyé ne porte que sur la portée (règles facture) : R06
+    # n'y entre jamais, seule la R10 nouvellement créée compte.
+    assert nb == 1
 
 
 async def test_synchroniser_anomalies_portee_suivi_restreint_aux_regles_donnees(

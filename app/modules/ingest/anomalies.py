@@ -23,22 +23,24 @@ Décisions du contrôleur (L4-T8) :
 - Anomalie levée (L4-D12) : une anomalie `ouverte` de la portée qui n'est
   plus produite par le rejeu est supprimée, avec un journal `anomalie_levee`
   (`utilisateur_id=NULL`, `avant = {regle, gravite, detail}`, `apres=None`).
-- Portée (décision du contrôleur) : `portee_document_id` (une facture)
-  et/ou `portee_regles` (un ensemble de règles, pour les contrôles différés
-  du L4-T11, « suivi », sans facture). Au moins l'un des deux est requis :
-  sans aucun des deux, aucun périmètre de suppression ne serait défini, et
-  un rejeu supprimerait potentiellement toutes les anomalies ouvertes de la
-  base (`ValueError`, défense en profondeur — jamais atteint par un appelant
-  qui respecte le contrat). Quand `portee_document_id` est fourni, les
-  anomalies concernées sont celles dont `document_id` est la portée **ou**
-  dont le `bloc_id` appartient à cette facture (littéralement ce que
-  demande le contrôleur : robuste même si une anomalie de bloc ne portait
-  pas `document_id`). Quand `portee_regles` est fourni, la suppression est
-  en plus restreinte à ces règles — utilisé **seul**, sans
-  `portee_document_id`, par les contrôles différés qui recalculent
-  R06/R14/R15/R16 sur toute la base à chaque passage (L4-D14) : la portée
-  est alors « toutes les anomalies ouvertes de ces règles », sans filtre de
-  document.
+- Portée (décision du contrôleur, **Ruling R8** — fix round 1 de la revue de
+  cette tâche) : `portee_regles` est **obligatoire** dès qu'un balayage de
+  suppression a lieu, c'est-à-dire à chaque appel (`ValueError` si absent
+  ou vide, quel que soit `portee_document_id`). Le balayage ne considère
+  donc **jamais** une règle qui n'a pas été effectivement recalculée par cet
+  appel : sans cette contrainte, un rejeu de `rapprocher_facture` (qui ne
+  recalcule que les règles de `evaluer_facture`, jamais R06/R14/R15/R16,
+  L4-D14) supprimerait silencieusement une anomalie de suivi valide
+  attachée à la même facture/bloc — constat de la revue (Important).
+  `rapprocher_facture` (L4-T7) doit donc passer l'ensemble exact des règles
+  que `evaluer_facture` peut produire (`R01, R02, R03, R04, R05, R07, R08,
+  R09, R10, R11, R12, R13, R17`) ; les contrôles différés (L4-T11) passent
+  `{R06, R14, R15, R16}`. Le balayage effectif est toujours « (`document_id`
+  est la portée **ou** `bloc_id` appartient à cette facture, si
+  `portee_document_id` est fourni) **ET** `regle` ∈ `portee_regles` » —
+  `portee_document_id` seul (sans facture, pour la portée « suivi » du
+  L4-T11) retire le premier facteur : la portée devient alors « toutes les
+  anomalies ouvertes de ces règles », sans filtre de document.
 - Règle des 90 jours (L4-D13) : au moment d'insérer une anomalie **neuve**
   (clé absente de la base) portant un `article_id`, si une anomalie de même
   règle et même article, dont le document appartient au même fournisseur,
@@ -174,12 +176,18 @@ async def _bloquee_par_ignorance(
 
 def _conditions_portee(
     portee_document_id: uuid.UUID | None,
-    portee_regles: Sequence[str] | None,
+    portee_regles: Sequence[str],
 ) -> list[Any]:
-    """Conditions SQL de la portée (voir docstring de module) : `statut =
-    'ouverte'` toujours, plus la portée facture (`document_id` ou bloc de
-    cette facture) et/ou la portée règles."""
-    conditions: list[Any] = [Anomalie.statut == "ouverte"]
+    """Conditions SQL de la portée (voir docstring de module, Ruling R8) :
+    `statut = 'ouverte'` toujours, `regle` ∈ `portee_regles` toujours (le
+    balayage ne considère jamais une règle qui n'a pas été recalculée),
+    plus la portée facture (`document_id` ou bloc de cette facture) quand
+    `portee_document_id` est fourni. `portee_regles` est déjà validé non
+    vide par l'appelant (`synchroniser_anomalies`)."""
+    conditions: list[Any] = [
+        Anomalie.statut == "ouverte",
+        Anomalie.regle.in_(tuple(portee_regles)),
+    ]
     if portee_document_id is not None:
         blocs_de_la_facture = select(BlocFacture.id).where(
             BlocFacture.facture_id == portee_document_id
@@ -190,8 +198,6 @@ def _conditions_portee(
                 Anomalie.bloc_id.in_(blocs_de_la_facture.scalar_subquery()),
             )
         )
-    if portee_regles:
-        conditions.append(Anomalie.regle.in_(tuple(portee_regles)))
     return conditions
 
 
@@ -205,13 +211,21 @@ async def synchroniser_anomalies(
     """Persiste `anomalies` (upsert par clé d'identité, L4-D11) et lève les
     anomalies `ouverte` de la portée qui ne sont plus produites (L4-D12).
 
+    `portee_regles` est **obligatoire** (Ruling R8, fix round 1) : le
+    balayage de suppression ne doit jamais considérer une règle qui n'a pas
+    été effectivement recalculée par cet appel (voir docstring de module).
+    L'appelant passe l'ensemble exact des règles qu'il vient de
+    recalculer — jamais un sous-ensemble arbitraire.
+
     Ne commite jamais (voir docstring de module) : c'est l'appelant qui
     décide du périmètre de la transaction. Renvoie le nombre d'anomalies
     `ouverte` de la portée après synchronisation.
     """
-    if portee_document_id is None and not portee_regles:
+    if not portee_regles:
         raise ValueError(
-            "synchroniser_anomalies : portee_document_id ou portee_regles requis"
+            "synchroniser_anomalies : portee_regles requis (le balayage de "
+            "suppression doit être borné aux règles réellement recalculées, "
+            "Ruling R8)"
         )
 
     cles_produites = {
@@ -221,7 +235,11 @@ async def synchroniser_anomalies(
     duree_ignorance = await lire_parametre_decimal(
         session, CLE_DUREE_IGNORANCE_J, DUREE_IGNORANCE_DEFAUT
     )
-    seuil_ignorance = datetime.now(UTC) - timedelta(days=float(duree_ignorance))
+    # `duree_ignorance_j` est un nombre entier de jours (comme les autres
+    # délais de `rules.modeles.Parametres`, ex. `delai_alias_non_resolu_h`) :
+    # `int(...)` plutôt que `float(...)` (règle globale « Decimal, jamais
+    # float », fix round 1).
+    seuil_ignorance = datetime.now(UTC) - timedelta(days=int(duree_ignorance))
 
     # Fournisseur de chaque document impliqué (une seule requête), pour la
     # règle des 90 jours ci-dessous.
@@ -320,9 +338,7 @@ async def synchroniser_anomalies(
 
     return (
         await session.execute(
-            select(func.count())
-            .select_from(Anomalie)
-            .where(*_conditions_portee(portee_document_id, portee_regles))
+            select(func.count()).select_from(Anomalie).where(*conditions_portee)
         )
     ).scalar_one()
 
