@@ -1,9 +1,11 @@
-"""Tests de `evaluer_facture` (L4-T1, L4-T2) : ordre du CDC §5, Ruling R2.
+"""Tests de `evaluer_facture` (L4-T1 à L4-T3) : ordre du CDC §5, Ruling R2,
+Ruling R3.
 
-R10 (document), R11 (BL rapproché par bloc) et, depuis L4-T2, R01/R02/R12
-(niveau bloc, toujours évaluées) sont enchaînées ; les règles de ligne
-(R03-R09/R13/R17) n'existent pas encore (L4-T3 à L4-T5). Données
-inventées."""
+R10 (document), R11 (BL rapproché par bloc), R01/R02/R12 (niveau bloc,
+toujours évaluées, depuis L4-T2) et, depuis L4-T3, R03/R04/R05/R17 (niveau
+ligne, sous la double garde Ruling R2 — pas de R11 sur le bloc — et Ruling
+R3 — BL du bloc reçu) sont enchaînées. R07, R08, R09, R13 (niveau ligne) et
+R14-R16 (suivi) n'existent pas encore (L4-T4/T5/T11). Données inventées."""
 
 from __future__ import annotations
 
@@ -14,9 +16,12 @@ from typing import Any
 
 from app.modules.rules.engine import evaluer_facture
 from app.modules.rules.modeles import (
+    ArticleControle,
     BlocControle,
     DocumentControle,
     FactureControlee,
+    LigneControlee,
+    LigneRapprochee,
     Parametres,
 )
 
@@ -64,14 +69,51 @@ def _bloc(**overrides: Any) -> BlocControle:
     return BlocControle(**base)
 
 
+def _ligne(**overrides: Any) -> LigneControlee:
+    base: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "ordre": 1,
+        "code": "ART001",
+        "designation": "ARTICLE INVENTE",
+        "article_id": uuid.uuid4(),
+        "qte_conditionnements": Decimal("2"),
+        "qte_facturee": Decimal("20"),
+        "qte_fact": Decimal("20"),
+        "unite": "kg",
+        "pu_ht": Decimal("1.50"),
+        "remise_pct": None,
+        "montant_ht": Decimal("30.00"),
+        "type_ligne": "article",
+        "conversion_impossible": False,
+    }
+    base.update(overrides)
+    return LigneControlee(**base)
+
+
+def _article(**overrides: Any) -> ArticleControle:
+    base: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "code": "ART001",
+        "libelle": "Article inventé",
+        "unite_cdt": "seau",
+        "unite_fact": "kg",
+        "ratio": Decimal("10"),
+        "valide": True,
+    }
+    base.update(overrides)
+    return ArticleControle(**base)
+
+
 def _facture(
-    document: DocumentControle, blocs: tuple[BlocControle, ...] = ()
+    document: DocumentControle,
+    blocs: tuple[BlocControle, ...] = (),
+    articles: dict[uuid.UUID, ArticleControle] | None = None,
 ) -> FactureControlee:
     return FactureControlee(
         document=document,
         fournisseur="FOURNISSEUR INVENTE",
         blocs=blocs,
-        articles={},
+        articles=articles or {},
         historiques={},
         lignes_negatives_sans_origine=(),
     )
@@ -204,3 +246,98 @@ def test_evaluer_facture_r11_par_bloc_dans_lordre_des_blocs() -> None:
     assert anomalies[0].document_id == bl_incoherent_1.id
     assert anomalies[1].document_id == bl_incoherent_3.id
     assert all(a.detail for a in anomalies)  # detail jamais vide
+
+
+# --------------------------------------------------------------------------
+# Règles de ligne (L4-T3) : Ruling R2 (pas de R11), Ruling R3 (BL reçu)
+# --------------------------------------------------------------------------
+
+
+def test_evaluer_facture_ligne_evaluee_quand_bl_recu() -> None:
+    """Bloc dont le BL est reçu et cohérent : la ligne en écart positif
+    produit R03 (Ruling R3 : les quantités sont comparées)."""
+    document = _document(coherent=True)
+    ligne_bl = _ligne(qte_fact=Decimal("18"))
+    ligne_facture = _ligne(article_id=ligne_bl.article_id, qte_fact=Decimal("20"))
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+    bloc = _bloc(bl=_document(coherent=True, statut="recu"), lignes=(rapprochee,))
+
+    anomalies = evaluer_facture(_facture(document, (bloc,)), Parametres())
+
+    assert [a.regle for a in anomalies] == ["R03"]
+    assert anomalies[0].ligne_id == ligne_facture.id
+
+
+def test_evaluer_facture_ligne_ignoree_quand_bl_a_verifier() -> None:
+    """Ruling R3 : un BL encore « à vérifier » est marqué reçu sur le bloc
+    (`bl` non `None`), mais ses lignes ne sont pas comparées : aucune
+    anomalie de ligne, même en présence d'un écart de quantité."""
+    document = _document(coherent=True)
+    ligne_bl = _ligne(qte_fact=Decimal("18"))
+    ligne_facture = _ligne(article_id=ligne_bl.article_id, qte_fact=Decimal("20"))
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+    bloc = _bloc(bl=_document(coherent=True, statut="a_verifier"), lignes=(rapprochee,))
+
+    anomalies = evaluer_facture(_facture(document, (bloc,)), Parametres())
+
+    assert anomalies == ()
+
+
+def test_evaluer_facture_ligne_ignoree_quand_r11_declenchee() -> None:
+    """Ruling R2 : quand R11 se déclenche pour un bloc (BL incohérent), ses
+    règles de ligne sont sautées même si le BL est par ailleurs `statut`
+    "recu" et porte un écart de quantité."""
+    document = _document(coherent=True)
+    ligne_bl = _ligne(qte_fact=Decimal("18"))
+    ligne_facture = _ligne(article_id=ligne_bl.article_id, qte_fact=Decimal("20"))
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+    bl_incoherent = _document(coherent=False, statut="recu")
+    bloc = _bloc(bl=bl_incoherent, lignes=(rapprochee,))
+
+    anomalies = evaluer_facture(_facture(document, (bloc,)), Parametres())
+
+    assert [a.regle for a in anomalies] == ["R11"]
+
+
+def test_evaluer_facture_lignes_ordre_bloc_puis_ligne() -> None:
+    """Les anomalies de ligne (L4-T3) sont renvoyées après les anomalies de
+    bloc (R01/R02/R12, L4-T2) — ici un doublon (R12) puis un écart positif
+    de quantité (R03) dans le même bloc."""
+    document = _document(coherent=True)
+    ligne_bl = _ligne(qte_fact=Decimal("18"))
+    ligne_facture = _ligne(article_id=ligne_bl.article_id, qte_fact=Decimal("20"))
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+    bloc = _bloc(
+        bl=_document(coherent=True, statut="recu"),
+        lignes=(rapprochee,),
+        autre_facture_numero="FAC-AUTRE-INVENTEE",
+        autre_facture_id=uuid.uuid4(),
+    )
+
+    anomalies = evaluer_facture(_facture(document, (bloc,)), Parametres())
+
+    assert [a.regle for a in anomalies] == ["R12", "R03"]
+
+
+def test_evaluer_facture_ligne_r17_evaluee_via_larticle_de_la_facture() -> None:
+    """R17 est évaluée pour chaque ligne du bloc à partir de l'article
+    trouvé dans `facture.articles` (par `article_id` de la ligne facturée),
+    même quand la ligne est par ailleurs sans écart de quantité (R03/R04)."""
+    document = _document(coherent=True)
+    article_id = uuid.uuid4()
+    article = _article(id=article_id, ratio=Decimal("10"), valide=True)
+    ligne_bl = _ligne(article_id=article_id, qte_fact=Decimal("20"))
+    ligne_facture = _ligne(
+        article_id=article_id,
+        qte_fact=Decimal("20"),
+        qte_conditionnements=Decimal("2.5"),
+    )
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+    bloc = _bloc(bl=_document(coherent=True, statut="recu"), lignes=(rapprochee,))
+
+    anomalies = evaluer_facture(
+        _facture(document, (bloc,), articles={article_id: article}), Parametres()
+    )
+
+    assert [a.regle for a in anomalies] == ["R17"]
+    assert anomalies[0].article_id == article_id
