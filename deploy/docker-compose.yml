@@ -62,6 +62,21 @@ services:
       - "traefik.http.routers.api.entrypoints=websecure"
       - "traefik.http.routers.api.tls.certresolver=letsencrypt"
       - "traefik.http.services.api.loadbalancer.server.port=8000"
+      # Point 4 (vague finale du lot 2) : en-têtes de sécurité HTTP, en
+      # défense en profondeur en plus de l'application (voir
+      # `app/core/origine.py` pour le contrôle d'origine). CSP compatible
+      # avec le build Vite servi en même origine (`app/core/front.py`) :
+      # aucun script/style externe, aucun script inline (vérifié sur le
+      # build réel — `web/dist/index.html` ne référence que des fichiers
+      # `/assets/*` hachés du même service, `style-src 'unsafe-inline'`
+      # gardé par prudence, aucun style inline utilisé aujourd'hui).
+      - "traefik.http.routers.api.middlewares=entetes-securite"
+      - "traefik.http.middlewares.entetes-securite.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.entetes-securite.headers.frameDeny=true"
+      - "traefik.http.middlewares.entetes-securite.headers.referrerPolicy=same-origin"
+      - "traefik.http.middlewares.entetes-securite.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.entetes-securite.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.entetes-securite.headers.contentSecurityPolicy=default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
 
   postgres:
     image: postgres:18
