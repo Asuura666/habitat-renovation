@@ -1,11 +1,14 @@
-"""Tests de `evaluer_facture` (L4-T1 à L4-T3) : ordre du CDC §5, Ruling R2,
-Ruling R3.
+"""Tests de `evaluer_facture` (L4-T1 à L4-T4) : ordre du CDC §5, Ruling R2,
+Ruling R3, Ruling R7.
 
 R10 (document), R11 (BL rapproché par bloc), R01/R02/R12 (niveau bloc,
-toujours évaluées, depuis L4-T2) et, depuis L4-T3, R03/R04/R05/R17 (niveau
-ligne, sous la double garde Ruling R2 — pas de R11 sur le bloc — et Ruling
-R3 — BL du bloc reçu) sont enchaînées. R07, R08, R09, R13 (niveau ligne) et
-R14-R16 (suivi) n'existent pas encore (L4-T4/T5/T11). Données inventées."""
+toujours évaluées, depuis L4-T2), R03/R04/R05/R17 (niveau ligne, sous la
+double garde Ruling R2 — pas de R11 sur le bloc — et Ruling R3 — BL du bloc
+reçu, depuis L4-T3) et, depuis L4-T4, R07/R08/R09 (prix et remises,
+insérées entre R05 et R17, Ruling R7 : mêmes gardes que R03-R05/R17 **sauf**
+qu'elles tournent aussi sur les lignes d'un bloc sans BL rapproché, faute
+de quantité à comparer) sont enchaînées. R13 (niveau ligne) et R14-R16
+(suivi) n'existent pas encore (L4-T5/T11). Données inventées."""
 
 from __future__ import annotations
 
@@ -20,6 +23,7 @@ from app.modules.rules.modeles import (
     BlocControle,
     DocumentControle,
     FactureControlee,
+    HistoriqueArticle,
     LigneControlee,
     LigneRapprochee,
     Parametres,
@@ -104,17 +108,30 @@ def _article(**overrides: Any) -> ArticleControle:
     return ArticleControle(**base)
 
 
+def _historique(**overrides: Any) -> HistoriqueArticle:
+    base: dict[str, Any] = {
+        "article_id": uuid.uuid4(),
+        "mediane_pu": None,
+        "occurrences": 0,
+        "remise_habituelle": None,
+        "occurrences_remise": 0,
+    }
+    base.update(overrides)
+    return HistoriqueArticle(**base)
+
+
 def _facture(
     document: DocumentControle,
     blocs: tuple[BlocControle, ...] = (),
     articles: dict[uuid.UUID, ArticleControle] | None = None,
+    historiques: dict[uuid.UUID, HistoriqueArticle] | None = None,
 ) -> FactureControlee:
     return FactureControlee(
         document=document,
         fournisseur="FOURNISSEUR INVENTE",
         blocs=blocs,
         articles=articles or {},
-        historiques={},
+        historiques=historiques or {},
         lignes_negatives_sans_origine=(),
     )
 
@@ -341,3 +358,222 @@ def test_evaluer_facture_ligne_r17_evaluee_via_larticle_de_la_facture() -> None:
 
     assert [a.regle for a in anomalies] == ["R17"]
     assert anomalies[0].article_id == article_id
+
+
+# --------------------------------------------------------------------------
+# Règles de prix et remise (L4-T4) : Ruling R7
+# --------------------------------------------------------------------------
+
+
+def test_evaluer_facture_r07_evaluee_entre_r05_et_r17() -> None:
+    """R07 (écart de prix moyen) s'insère entre R05 et R17 dans le
+    traitement d'une ligne appariée sans écart de quantité, sur un bloc
+    dont le BL est reçu (Ruling R3)."""
+    document = _document(coherent=True)
+    article_id = uuid.uuid4()
+    article = _article(id=article_id, ratio=Decimal("10"), valide=True)
+    ligne_bl = _ligne(article_id=article_id, qte_fact=Decimal("20"))
+    ligne_facture = _ligne(
+        article_id=article_id,
+        qte_fact=Decimal("20"),
+        qte_conditionnements=Decimal("2.5"),
+        pu_ht=Decimal("110.00"),
+    )
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+    bloc = _bloc(bl=_document(coherent=True, statut="recu"), lignes=(rapprochee,))
+    historique = _historique(
+        article_id=article_id, mediane_pu=Decimal("100.00"), occurrences=3
+    )
+
+    anomalies = evaluer_facture(
+        _facture(
+            document,
+            (bloc,),
+            articles={article_id: article},
+            historiques={article_id: historique},
+        ),
+        Parametres(),
+    )
+
+    assert [a.regle for a in anomalies] == ["R07", "R17"]
+    assert anomalies[0].ligne_id == ligne_facture.id
+    assert anomalies[0].article_id == article_id
+
+
+def test_evaluer_facture_r08_exclusif_de_r07() -> None:
+    """Un écart de prix fort (> 15 %) produit R08, pas R07 (exclusivité,
+    câblage identique au calcul R03/R04)."""
+    document = _document(coherent=True)
+    article_id = uuid.uuid4()
+    article = _article(id=article_id, ratio=None)
+    ligne_bl = _ligne(article_id=article_id, qte_fact=Decimal("20"))
+    ligne_facture = _ligne(
+        article_id=article_id, qte_fact=Decimal("20"), pu_ht=Decimal("130.00")
+    )
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+    bloc = _bloc(bl=_document(coherent=True, statut="recu"), lignes=(rapprochee,))
+    historique = _historique(
+        article_id=article_id, mediane_pu=Decimal("100.00"), occurrences=3
+    )
+
+    anomalies = evaluer_facture(
+        _facture(
+            document,
+            (bloc,),
+            articles={article_id: article},
+            historiques={article_id: historique},
+        ),
+        Parametres(),
+    )
+
+    assert [a.regle for a in anomalies] == ["R08"]
+
+
+def test_evaluer_facture_r07_r09_et_r17_meme_ligne_dans_lordre() -> None:
+    """R05 (absente ici, ligne appariée), R07/R08 (prix), puis R09
+    (remise), puis R17 (conditionnement) : ordre complet du CDC §5 pour une
+    ligne qui cumule les trois anomalies indépendantes."""
+    document = _document(coherent=True)
+    article_id = uuid.uuid4()
+    article = _article(id=article_id, ratio=Decimal("10"), valide=True)
+    ligne_bl = _ligne(article_id=article_id, qte_fact=Decimal("20"))
+    ligne_facture = _ligne(
+        article_id=article_id,
+        qte_fact=Decimal("20"),
+        qte_conditionnements=Decimal("2.5"),
+        pu_ht=Decimal("110.00"),
+        remise_pct=None,
+    )
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+    bloc = _bloc(bl=_document(coherent=True, statut="recu"), lignes=(rapprochee,))
+    historique = _historique(
+        article_id=article_id,
+        mediane_pu=Decimal("100.00"),
+        occurrences=3,
+        remise_habituelle=Decimal("10.00"),
+        occurrences_remise=3,
+    )
+
+    anomalies = evaluer_facture(
+        _facture(
+            document,
+            (bloc,),
+            articles={article_id: article},
+            historiques={article_id: historique},
+        ),
+        Parametres(),
+    )
+
+    assert [a.regle for a in anomalies] == ["R07", "R09", "R17"]
+
+
+def test_evaluer_facture_prix_evaluee_meme_sur_bloc_sans_bl_rapproche() -> None:
+    """Ruling R7 : un prix hors historique reste une anomalie même sans BL
+    rapproché — la règle tourne alors sur toutes les lignes "article" du
+    bloc, indépendamment de R01/R02 (qui signalent l'absence de BL, pas le
+    prix)."""
+    document = _document(coherent=True)
+    article_id = uuid.uuid4()
+    article = _article(id=article_id)
+    ligne_facture = _ligne(article_id=article_id, pu_ht=Decimal("110.00"))
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=None, methode=None)
+    bloc = _bloc(bl=None, lignes=(rapprochee,))
+    historique = _historique(
+        article_id=article_id, mediane_pu=Decimal("100.00"), occurrences=3
+    )
+
+    anomalies = evaluer_facture(
+        _facture(
+            document,
+            (bloc,),
+            articles={article_id: article},
+            historiques={article_id: historique},
+        ),
+        Parametres(),
+    )
+
+    assert [a.regle for a in anomalies] == ["R01", "R07"]
+    assert anomalies[1].ligne_id == ligne_facture.id
+
+
+def test_evaluer_facture_prix_ignoree_quand_bl_a_verifier() -> None:
+    """Un BL rapproché mais encore « à vérifier » n'est pas « sans BL
+    rapproché » (Ruling R7 ne s'applique pas ici) : mêmes gardes que
+    R03-R05/R17 (Ruling R3), donc aucune anomalie de prix tant que le BL
+    n'est pas confirmé reçu."""
+    document = _document(coherent=True)
+    article_id = uuid.uuid4()
+    article = _article(id=article_id)
+    ligne_bl = _ligne(article_id=article_id, qte_fact=Decimal("20"))
+    ligne_facture = _ligne(
+        article_id=article_id, qte_fact=Decimal("20"), pu_ht=Decimal("110.00")
+    )
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+    bloc = _bloc(bl=_document(coherent=True, statut="a_verifier"), lignes=(rapprochee,))
+    historique = _historique(
+        article_id=article_id, mediane_pu=Decimal("100.00"), occurrences=3
+    )
+
+    anomalies = evaluer_facture(
+        _facture(
+            document,
+            (bloc,),
+            articles={article_id: article},
+            historiques={article_id: historique},
+        ),
+        Parametres(),
+    )
+
+    assert anomalies == ()
+
+
+def test_evaluer_facture_prix_ignoree_quand_r11_declenchee() -> None:
+    """Ruling R2 : un BL rapproché mais incohérent (R11) saute aussi les
+    règles de prix, comme les autres règles de ligne — il porte bien un BL
+    (`bl is not None`), l'exception Ruling R7 ne s'applique donc pas."""
+    document = _document(coherent=True)
+    article_id = uuid.uuid4()
+    article = _article(id=article_id)
+    ligne_bl = _ligne(article_id=article_id, qte_fact=Decimal("20"))
+    ligne_facture = _ligne(
+        article_id=article_id, qte_fact=Decimal("20"), pu_ht=Decimal("110.00")
+    )
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+    bl_incoherent = _document(coherent=False, statut="recu")
+    bloc = _bloc(bl=bl_incoherent, lignes=(rapprochee,))
+    historique = _historique(
+        article_id=article_id, mediane_pu=Decimal("100.00"), occurrences=3
+    )
+
+    anomalies = evaluer_facture(
+        _facture(
+            document,
+            (bloc,),
+            articles={article_id: article},
+            historiques={article_id: historique},
+        ),
+        Parametres(),
+    )
+
+    assert [a.regle for a in anomalies] == ["R11"]
+
+
+def test_evaluer_facture_prix_sans_historique_connu_ne_produit_rien() -> None:
+    """Un article résolu mais absent de `facture.historiques` (jamais
+    mesuré) ne fait pas planter le moteur : simplement aucune anomalie de
+    prix pour cette ligne."""
+    document = _document(coherent=True)
+    article_id = uuid.uuid4()
+    article = _article(id=article_id, ratio=None)
+    ligne_bl = _ligne(article_id=article_id, qte_fact=Decimal("20"))
+    ligne_facture = _ligne(
+        article_id=article_id, qte_fact=Decimal("20"), pu_ht=Decimal("110.00")
+    )
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+    bloc = _bloc(bl=_document(coherent=True, statut="recu"), lignes=(rapprochee,))
+
+    anomalies = evaluer_facture(
+        _facture(document, (bloc,), articles={article_id: article}), Parametres()
+    )
+
+    assert anomalies == ()
