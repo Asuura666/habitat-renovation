@@ -23,6 +23,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.ingest import extraction_bl as ingest_extraction_bl
 from app.modules.ingest.extraction_bl import (
     enregistrer_echec_ocr,
     enregistrer_extraction_bl,
@@ -408,6 +409,79 @@ async def test_enregistrer_extraction_bl_doublon_numero_meme_fournisseur(
     assert motif["detail"] == {
         "numero": NUMERO_BL_SYNTHETIQUE,
         "numero_interne_existant": str(premier.numero_interne),
+    }
+
+
+# --------------------------------------------------------------------------
+# Fix round 1, finding 3 : doublon détecté-puis-agi non sûr en concurrence.
+# Deux dépôts du même numéro/fournisseur, traités en même temps, peuvent
+# tous les deux passer `_numero_interne_doublon` avant qu'aucun n'ait
+# committé. Simulé de façon déterministe en forçant `_numero_interne_doublon`
+# à répondre « aucun doublon » au premier appel (alors que le document
+# concurrent est déjà committé en base) : le commit lève `IntegrityError`,
+# rattrapée puis rejouée une fois — cette seconde fois, le doublon (bien
+# réel) est détecté normalement.
+# --------------------------------------------------------------------------
+
+
+async def test_enregistrer_extraction_bl_doublon_concurrent_rejoue_apres_erreur(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _creer_fournisseur_peintures_exemple(db_session)
+    concurrent = await _creer_document(db_session)
+    resultat_concurrent = await enregistrer_extraction_bl(
+        db_session, concurrent.id, _reponse_synthetique()
+    )
+    assert resultat_concurrent.statut == "recu"
+    assert resultat_concurrent.numero == NUMERO_BL_SYNTHETIQUE
+
+    document = await _creer_document(db_session)
+
+    doublon_reel = ingest_extraction_bl._numero_interne_doublon
+    appels = 0
+
+    async def _doublon_ment_une_fois(
+        session: AsyncSession,
+        document_id: Any,
+        fournisseur_id: Any,
+        numero: str,
+    ) -> int | None:
+        nonlocal appels
+        appels += 1
+        if appels == 1:
+            # Simule la course : le contrôle applicatif ne voit pas encore
+            # le document concurrent (pourtant déjà committé ci-dessus,
+            # dans un test réel ce serait une transaction concurrente non
+            # encore validée au moment du contrôle).
+            return None
+        return await doublon_reel(session, document_id, fournisseur_id, numero)
+
+    monkeypatch.setattr(
+        ingest_extraction_bl, "_numero_interne_doublon", _doublon_ment_une_fois
+    )
+
+    resultat = await enregistrer_extraction_bl(
+        db_session, document.id, _reponse_synthetique()
+    )
+
+    assert appels == 2
+    assert resultat.statut == "a_verifier"
+    assert resultat.numero is None
+
+    await db_session.refresh(document)
+    await db_session.refresh(concurrent)
+    assert document.numero is None
+    assert document.statut == "a_verifier"
+    # Le document concurrent, déjà committé avant la course, reste intact.
+    assert concurrent.numero == NUMERO_BL_SYNTHETIQUE
+    assert concurrent.statut == "recu"
+
+    motif = next(m for m in _motifs(document) if m["code"] == "numero_en_double")
+    assert motif["champ"] == "numero"
+    assert motif["detail"] == {
+        "numero": NUMERO_BL_SYNTHETIQUE,
+        "numero_interne_existant": str(concurrent.numero_interne),
     }
 
 

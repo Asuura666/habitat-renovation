@@ -27,6 +27,18 @@ l'annotation) reste la seule source du numéro dans ce cas (L3-D3).
 Aucun fournisseur, aucune agence, aucun chantier n'est jamais créé
 automatiquement à partir du texte OCR (Q7/L3-D8, L3-D7) — seuls les articles
 le sont (L3-D9, non validés).
+
+Concurrence (fix round 1, finding 3) : deux dépôts du même numéro pour le
+même fournisseur, traités en même temps, peuvent tous les deux passer
+`_numero_interne_doublon` avant que l'un des deux commit — le second lève
+alors `IntegrityError` sur `UniqueConstraint("fournisseur_id", "numero")`
+plutôt que de produire le motif applicatif `NUMERO_EN_DOUBLE`.
+`enregistrer_extraction_bl` rejoue alors l'extraction une seule fois après
+`rollback` : la ligne concurrente est désormais visible en base,
+`_numero_interne_doublon` la trouve et pose `NUMERO_EN_DOUBLE` normalement.
+Un second `IntegrityError` (course encore plus improbable) n'est pas
+rattrapé : il remonte à `depot_telegram._executer_ocr`, dont le garde-fou
+R5 prend le relais (`enregistrer_echec_ocr`).
 """
 
 from __future__ import annotations
@@ -37,6 +49,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.extract.bl import (
@@ -233,6 +246,12 @@ async def enregistrer_extraction_bl(
     `relance` (L3-D15, `POST /api/documents/{id}/extraction`) : le document
     reste `a_verifier` même sans aucun motif — seul « Valider »
     (`ingest/corrections.py`, L3-T8a) le repasse `recu`.
+
+    Finding 3 (fix round 1) : la résolution des référentiels et l'écriture
+    (`_extraire_et_committer`) sont rejouées une seule fois si le commit lève
+    `IntegrityError` (course entre deux dépôts concurrents du même numéro
+    pour le même fournisseur, cf. docstring du module) ; un second échec
+    remonte tel quel.
     """
     document = await session.get(Document, document_id)
     if document is None:
@@ -253,6 +272,38 @@ async def enregistrer_extraction_bl(
     except AnnotationIllisible:
         return await _enregistrer_annotation_illisible(session, document, reponse)
 
+    try:
+        return await _extraire_et_committer(
+            session, document, document_id, extrait, reponse, seuil, tolerance, relance
+        )
+    except IntegrityError:
+        # Finding 3 (fix round 1) : rejoue une seule fois après rollback —
+        # la ligne concurrente est alors visible, le doublon est détecté
+        # normalement (motif `NUMERO_EN_DOUBLE`) au lieu d'un second échec
+        # brut. Les lignes supprimées avant la première tentative ont, elles
+        # aussi, été annulées par le rollback : on les resupprime avant de
+        # rejouer (un `DELETE` sans ligne à supprimer ne fait rien).
+        await session.rollback()
+        await session.execute(delete(Ligne).where(Ligne.document_id == document_id))
+        return await _extraire_et_committer(
+            session, document, document_id, extrait, reponse, seuil, tolerance, relance
+        )
+
+
+async def _extraire_et_committer(
+    session: AsyncSession,
+    document: Document,
+    document_id: uuid.UUID,
+    extrait: BLExtrait,
+    reponse: dict[str, Any],
+    seuil: Decimal,
+    tolerance: Decimal,
+    relance: bool,
+) -> ResultatExtraction:
+    """Résolution des référentiels, calcul des motifs, écriture des colonnes
+    et des lignes, puis commit (finding 3, fix round 1) : isolé du reste
+    d'`enregistrer_extraction_bl` pour être rejouable une fois par son
+    appelant si le commit lève `IntegrityError`."""
     referentiel = await charger_fournisseurs(session)
     resolution_fournisseur = resoudre_fournisseur(
         siret=extrait.siret.brut,

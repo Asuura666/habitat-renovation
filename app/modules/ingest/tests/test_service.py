@@ -5,6 +5,8 @@ réelle, `docs_dir` temporaire, fausse `Messagerie`). Toutes les valeurs
 from __future__ import annotations
 
 import asyncio
+import copy
+import json
 import logging
 import re
 import uuid
@@ -25,7 +27,13 @@ from app.modules.ingest.depot_telegram import (
     traiter_fichier,
     utilisateur_rattache,
 )
-from app.modules.ingest.models import Document, Journal, TelegramUpdate, Utilisateur
+from app.modules.ingest.models import (
+    Document,
+    Fournisseur,
+    Journal,
+    TelegramUpdate,
+    Utilisateur,
+)
 from app.modules.messaging.base import (
     PREFIXE_ECART_CONSTATE,
     PREFIXE_QUANTITES_VERIFIEES,
@@ -43,6 +51,22 @@ _RE_LIGNE_SUPERVISION = re.compile(
     r"^Document n° (?P<numero_interne>\d+) · BL (?P<bl>.+) · fournisseur — · "
     r"chantier — · (?P<deposant>.+) · (?P<heure>\d{2}:\d{2}) · (?P<statut>\w+)$"
 )
+
+# Fix round 1, finding 2 : donnée synthétique complète (annotation + scores
+# de confiance), pour un test bout en bout où fournisseur et chantier sont
+# réellement résolus dans la ligne de supervision (tous les autres faux OCR
+# de ce fichier n'ont pas d'annotation, donc toujours « fournisseur — ·
+# chantier — » — voir `app/modules/ingest/tests/test_extraction_bl.py` pour
+# le détail de cette donnée).
+_DONNEES_SYNTHETIQUES = (
+    Path(__file__).resolve().parent.parent.parent
+    / "extract"
+    / "tests"
+    / "donnees"
+    / "bl_synthetique.mistral-ocr.json"
+)
+with _DONNEES_SYNTHETIQUES.open(encoding="utf-8") as _fichier:
+    _REPONSE_SYNTHETIQUE_BASE: dict[str, Any] = json.load(_fichier)
 
 
 def _parse_ligne_supervision(texte: str) -> re.Match[str]:
@@ -67,6 +91,14 @@ async def _ocr_avec_numero_bl(contenu: bytes, mime: str) -> dict[str, Any]:
     par les tests qui ne portent pas sur l'OCR lui-même (le document doit
     rester `recu`)."""
     return {"pages": [{"markdown": f"LIVRAISON N°{NUMERO_BL_INVENTE}"}]}
+
+
+async def _ocr_avec_annotation_complete(contenu: bytes, mime: str) -> dict[str, Any]:
+    """Faux OCR (fix round 1, finding 2) : renvoie la donnée synthétique
+    complète (annotation Mistral + scores de confiance), pour un test bout
+    en bout où fournisseur et chantier sont réellement résolus dans la ligne
+    de supervision — jamais mutée en place (`copy.deepcopy`)."""
+    return copy.deepcopy(_REPONSE_SYNTHETIQUE_BASE)
 
 
 async def _ocr_sans_numero_bl(contenu: bytes, mime: str) -> dict[str, Any]:
@@ -863,6 +895,78 @@ async def test_traiter_fichier_extraction_bl_leve_document_a_verifier_ocr_echec(
     assert document.motifs == [{"code": "ocr_echec", "champ": None, "detail": {}}]
     assert str(entrant.update_id) in caplog.text
     assert "contenu-invente-du-fichier" not in caplog.text
+
+
+# --------------------------------------------------------------------------
+# Fix round 1, finding 2 : ligne de supervision avec fournisseur et chantier
+# réellement résolus. Tous les tests ci-dessus utilisent un faux OCR sans
+# annotation (`_ocr_avec_numero_bl`/`_ocr_sans_numero_bl`), donc la ligne de
+# supervision n'y affiche jamais que les deux placeholders « — » : ils ne
+# couvraient pas la moitié utile du format T6.
+# --------------------------------------------------------------------------
+
+
+def test_ligne_supervision_avec_fournisseur_et_chantier_resolus() -> None:
+    """Test unitaire direct de `_ligne_supervision` (T6) : fournisseur et
+    chantier apparaissent tels quels quand ils sont fournis, sans retomber
+    sur les placeholders « — »."""
+    texte = ingest_depot_telegram._ligne_supervision(
+        42,
+        NUMERO_BL_INVENTE,
+        "Peintures Exemple",
+        "MAISON TEST (9900000001)",
+        "recu",
+        "Agent Testeur",
+    )
+
+    match = re.match(
+        r"^Document n° 42 · BL " + re.escape(NUMERO_BL_INVENTE) + r" · "
+        r"fournisseur Peintures Exemple · "
+        r"chantier MAISON TEST \(9900000001\) · Agent Testeur · "
+        r"(?P<heure>\d{2}:\d{2}) · recu$",
+        texte,
+    )
+    assert match is not None, f"ligne de supervision inattendue : {texte!r}"
+
+
+async def test_traiter_fichier_ligne_supervision_fournisseur_et_chantier_resolus(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    tmp_path: Path,
+) -> None:
+    """Bout en bout (`traiter_fichier`) : fournisseur défini en base
+    (« Peintures Exemple », alias « Peintures Exemple SAS ») + annotation
+    synthétique complète (`_ocr_avec_annotation_complete`) -> le document
+    part `recu` et la ligne de supervision affiche le nom du fournisseur du
+    référentiel et le chantier brut lu, jamais les placeholders « — »."""
+    db_session.add(
+        Fournisseur(nom="Peintures Exemple", aliases=["Peintures Exemple SAS"])
+    )
+    await db_session.commit()
+    utilisateur = await _creer_utilisateur(db_session, telegram_user_id=9041)
+    deposant = _deposant_depuis(utilisateur)
+    messagerie = MessagerieFactice()
+    entrant = _entrant(update_id=41)
+
+    await traiter_fichier(
+        entrant,
+        messagerie,
+        sessions_test,
+        tmp_path,
+        _ocr_avec_annotation_complete,
+        deposant,
+        CHAT_SUPERVISION_INVENTE,
+    )
+
+    document = (await db_session.execute(select(Document))).scalar_one()
+    assert document.statut == "recu"
+
+    assert len(messagerie.supervisions) == 1
+    texte = messagerie.supervisions[0][1]
+    assert "fournisseur Peintures Exemple" in texte
+    assert "chantier MAISON TEST (9900000001)" in texte
+    assert "fournisseur —" not in texte
+    assert "chantier —" not in texte
 
 
 # --------------------------------------------------------------------------
