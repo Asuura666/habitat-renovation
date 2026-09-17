@@ -25,7 +25,7 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi_users.password import PasswordHelper
 from httpx import ASGITransport
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.auth import (
@@ -737,3 +737,74 @@ async def test_desactiver_utilisateur_email_inconnu_leve_utilisateur_introuvable
         await desactiver_utilisateur(
             db_session, "personne.na.jamais.existe.cli@example.invalid"
         )
+
+
+# ---------------------------------------------------------------------------
+# Correction — tour de correction 1/5 : e-mail insensible à la casse
+# ---------------------------------------------------------------------------
+
+
+async def test_creer_utilisateur_email_casse_differente_refuse_et_stocke_en_minuscules(
+    db_session: AsyncSession,
+) -> None:
+    """Constat de revue (Important) : sans normalisation, `Agent.Casse@...`
+    et `agent.casse@...` étaient acceptés comme deux comptes distincts par
+    `creer_utilisateur` (comparaison sensible à la casse), alors que
+    `SQLAlchemyUserDatabase.get_by_email` (login) les traite comme un seul
+    compte via `func.lower` des deux côtés — `MultipleResultsFound` au
+    login pour l'un ou l'autre. `creer_utilisateur` normalise désormais
+    (`strip()` + minuscules) avant l'écriture et la vérification
+    d'unicité."""
+    premier = await creer_utilisateur(
+        db_session,
+        email="Agent.Casse@Example.INVALID",
+        nom="Premier",
+        role="agent",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    assert premier.email == "agent.casse@example.invalid"
+
+    with pytest.raises(EmailDejaUtilise):
+        await creer_utilisateur(
+            db_session,
+            email="agent.casse@example.invalid",
+            nom="Second",
+            role="agent",
+            agence="Toulouse",
+            mot_de_passe=_MOT_DE_PASSE_VALIDE,
+        )
+
+    lignes = (
+        (
+            await db_session.execute(
+                select(Utilisateur).where(
+                    func.lower(Utilisateur.email) == "agent.casse@example.invalid"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(lignes) == 1
+    assert lignes[0].nom == "Premier"
+
+
+async def test_desactiver_utilisateur_casse_differente_trouve(
+    db_session: AsyncSession,
+) -> None:
+    await creer_utilisateur(
+        db_session,
+        email="agent.desactive.casse@example.invalid",
+        nom="À désactiver",
+        role="agent",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+
+    desactive = await desactiver_utilisateur(
+        db_session, "Agent.Desactive.Casse@EXAMPLE.invalid"
+    )
+
+    assert desactive.email == "agent.desactive.casse@example.invalid"
+    assert desactive.is_active is False

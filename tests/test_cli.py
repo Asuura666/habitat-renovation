@@ -408,6 +408,7 @@ def test_utilisateur_creer_telegram_id_deja_attribue_code_2(
     db_engine: AsyncEngine,
     _env_bl_test: None,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     email_1 = "cli.utilisateur.telegram1@example.invalid"
     email_2 = "cli.utilisateur.telegram2@example.invalid"
@@ -446,8 +447,11 @@ def test_utilisateur_creer_telegram_id_deja_attribue_code_2(
                 "555000222",
             ]
         )
+        sortie = capsys.readouterr()
 
         assert second == 2
+        assert _MOT_DE_PASSE_CLI not in sortie.out
+        assert _MOT_DE_PASSE_CLI not in sortie.err
         assert asyncio.run(_relire_utilisateur(db_engine, email_2)) is None
     finally:
         asyncio.run(_supprimer_utilisateur(db_engine, email_1))

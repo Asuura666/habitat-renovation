@@ -63,7 +63,7 @@ from fastapi_users_db_sqlalchemy import SQLAlchemyUserDatabase
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDatabase
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -309,10 +309,21 @@ async def creer_utilisateur(
 
     Les vérifications d'unicité ci-dessous sont de simples `SELECT` avant
     l'écriture, non atomiques avec elle (`email` reste protégé par la
-    contrainte `UNIQUE` de la table en dernier recours ; `telegram_user_id`
-    n'en a pas — L2-T1b n'ajoute pas de migration). Acceptable pour une
-    commande d'exploitation qu'un seul administrateur exécute à la fois,
-    jamais deux créations concurrentes du même compte.
+    contrainte `UNIQUE` de la table en dernier recours, mais celle-ci reste
+    sensible à la casse en base — voir `docs/dette.md` ; `telegram_user_id`
+    n'a aucune protection en base — L2-T1b n'ajoute pas de migration).
+    Acceptable pour une commande d'exploitation qu'un seul administrateur
+    exécute à la fois, jamais deux créations concurrentes du même compte.
+
+    `email` est normalisé (`strip()` + minuscules) avant toute vérification
+    et avant l'écriture (constat de revue, tour de correction 1/5) : c'est
+    la même comparaison, insensible à la casse, que
+    `SQLAlchemyUserDatabase.get_by_email` applique en lecture pour le login
+    (`func.lower` des deux côtés). Sans cette normalisation, créer
+    `Agent@Ex.invalid` alors que `agent@ex.invalid` existe déjà passait la
+    vérification d'unicité (sensible à la casse) mais faisait ensuite
+    échouer le login des deux comptes en 500 (`MultipleResultsFound`,
+    `get_by_email` les traitant comme un seul compte).
     """
     if role not in ROLES_VALIDES:
         raise RoleInvalide(f"rôle invalide : {role!r} (attendu admin ou agent)")
@@ -321,11 +332,17 @@ async def creer_utilisateur(
             f"mot de passe trop court (minimum {LONGUEUR_MOT_DE_PASSE_MIN} caractères)"
         )
 
+    email_normalise = email.strip().lower()
+
     email_pris = (
-        await session.execute(select(Utilisateur.id).where(Utilisateur.email == email))
+        await session.execute(
+            select(Utilisateur.id).where(
+                func.lower(Utilisateur.email) == email_normalise
+            )
+        )
     ).first()
     if email_pris is not None:
-        raise EmailDejaUtilise(f"e-mail déjà utilisé : {email}")
+        raise EmailDejaUtilise(f"e-mail déjà utilisé : {email_normalise}")
 
     if telegram_user_id is not None:
         telegram_pris = (
@@ -341,7 +358,7 @@ async def creer_utilisateur(
             )
 
     utilisateur = Utilisateur(
-        email=email,
+        email=email_normalise,
         nom=nom,
         hashed_password=_password_helper.hash(mot_de_passe),
         role=role,
@@ -359,7 +376,7 @@ async def creer_utilisateur(
             cible_id=str(utilisateur.id),
             avant=None,
             apres={
-                "email": email,
+                "email": email_normalise,
                 "nom": nom,
                 "role": role,
                 "agence": agence,
@@ -381,9 +398,16 @@ async def desactiver_utilisateur(session: AsyncSession, email: str) -> Utilisate
     `UtilisateurIntrouvable` si `email` ne correspond à aucun compte.
     Journalise `utilisateur_desactive` (mêmes conventions que
     `creer_utilisateur` ci-dessus : `utilisateur_id` NULL, pas de hash).
+
+    `email` est normalisé (`strip()` + minuscules) avant la recherche, pour
+    retrouver un compte quelle que soit la casse saisie (même normalisation
+    que `creer_utilisateur`, tour de correction 1/5).
     """
+    email_normalise = email.strip().lower()
     utilisateur = (
-        await session.execute(select(Utilisateur).where(Utilisateur.email == email))
+        await session.execute(
+            select(Utilisateur).where(func.lower(Utilisateur.email) == email_normalise)
+        )
     ).scalar_one_or_none()
     if utilisateur is None:
         raise UtilisateurIntrouvable(f"utilisateur introuvable : {email}")

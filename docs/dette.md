@@ -149,6 +149,38 @@ aucune entrée tant qu'aucune simplification n'a été prise.
   BL identique lu à la fois sur la facture et sur une photo) ; la
   normalisation plus poussée, si nécessaire, relève du lot 3.
 
+## L2-T1b — auth (commandes de gestion des utilisateurs)
+
+- **Unicité de l'e-mail toujours sensible à la casse en base.**
+  `creer_utilisateur` (`app/core/auth.py`) normalise l'e-mail (`strip()` +
+  minuscules) avant d'écrire et vérifie son unicité par
+  `func.lower(Utilisateur.email) == email_normalise` (tour de correction
+  1/5, constat Important : sans cette normalisation, créer un compte avec
+  une casse différente d'un compte existant passait la vérification
+  d'unicité mais faisait ensuite échouer le login des deux comptes en 500,
+  `MultipleResultsFound` — `SQLAlchemyUserDatabase.get_by_email`, utilisée
+  par le login, compare elle aussi via `func.lower` des deux côtés). La
+  contrainte `UNIQUE` de la colonne `email` reste cependant sensible à la
+  casse **en base** (pas de migration au lot 2, décision du contrôleur) :
+  elle ne protège donc pas contre une insertion qui contournerait
+  `creer_utilisateur` — seule la CLI (`utilisateur-creer`) écrit des comptes
+  aujourd'hui, et elle normalise systématiquement. Ne couvre pas un index
+  fonctionnel `lower(email)` en base ; à ajouter par migration si un autre
+  point d'écriture sur `utilisateur` apparaît (ex. une route d'inscription).
+- **Import différé de `app.core.auth` dans `app/cli.py`.** `app/core/auth.py`
+  appelle `get_settings()` au niveau module (comme `app.main`) : un import
+  en tête de `app/cli.py` ferait donc échouer tout `python -m app.cli ...`
+  (y compris `bl-non-recus`) dès qu'une variable d'environnement manque,
+  avant même l'analyse des arguments — régression détectée pendant L2-T1b
+  (`test_bl_non_recus_fichier_inexistant_code_2_sans_configuration` passait
+  au rouge). Contourné par un import dans le corps de
+  `_utilisateur_creer`/`_utilisateur_desactiver`, plutôt qu'en tête de
+  fichier. Ne couvre pas la cause racine (`get_settings()` appelée à
+  l'import de `app.core.auth`) ; à rendre paresseuse (ex. propriété calculée
+  à la demande plutôt qu'une variable de module) si une autre commande CLI
+  doit un jour importer ce module sans dépendre de la configuration
+  complète.
+
 ## L2-T3 — messaging/ingest (numéro interne et boutons de confirmation)
 
 - **Clic non autorisé signalé sans nom Telegram.** `ClicBouton`
