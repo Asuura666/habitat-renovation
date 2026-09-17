@@ -36,15 +36,15 @@ localStorage pour l'auth.
 app/
   core/        config (fail-fast : variable manquante = refus de démarrer), db, auth, middleware
   modules/
-    ingest/    router, service d'orchestration, models, tests
-    extract/   pdf.py, ocr.py, tests            ← PUR
+    ingest/    router, orchestration (commun, depot_telegram, factures, lecture), mistral, models, tests
+    extract/   facture.py, ocr.py, unikalo.py (un parseur par fournisseur), tests   ← PUR
     normalize/ fournisseur, chantier, article, unites, tests   ← PUR
     rules/     engine.py, rules/R01.py … R17.py, tests           ← PUR
     api/       routers JSON consommés par le front
     messaging/ base.py (interface), telegram.py, tests
     jobs/      drive_sync, bilan, rappels
   main.py
-web/           front (ne pas créer avant le lot 2)
+web/           front React (lot 2)
 migrations/    alembic
 deploy/        docker-compose.yml, traefik, backup.sh, restore.sh, deploy.sh
 docs/
@@ -55,8 +55,9 @@ docs/
 - `extract`, `normalize`, `rules` n'importent ni FastAPI, ni SQLAlchemy, ni
   httpx. Entrées et sorties en dataclasses. Leurs tests tournent sans base ni
   réseau.
-- Aucun module métier n'importe un autre module métier. `ingest/service.py`
-  est le seul orchestrateur.
+- Aucun module métier n'importe un autre module métier. Le paquet `ingest`
+  est le seul orchestrateur ; `api` et `jobs` (couches d'entrée) n'importent
+  que `ingest` et `app.core` (décision L2-D3).
 - Aucune règle métier dans le front ni dans les routers : le router valide,
   appelle un service, sérialise.
 - Chaque règle `Rxx` est une fonction pure qui reçoit des dataclasses et
@@ -66,11 +67,20 @@ docs/
 - Ces règles sont vérifiées par `tests/test_frontieres.py` (analyse statique
   des imports via `ast`).
 
-## Périmètre en cours : lot 1 (Socle) uniquement
+## Où en est le projet
 
-Ne pas commencer le front, ni les règles, ni le Drive, ni l'auth. L'OCR
-n'entre au lot 1 que pour la détection du numéro de BL (tâche T6b, validée
-par Ilane).
+Lots 1 (Socle) et 2 (Collecte) faits et fusionnés dans `main` le 17/09/2026.
+**Avant tout travail, lire `docs/passation-lots-1-2.md`** : état, décisions
+(validées et prises en autonomie), questions ouvertes, méthode utilisée,
+pièges rencontrés et point de départ du lot 3. Recettes :
+`docs/lot-1-recette.md`, `docs/lot-2-recette.md` ; dette : `docs/dette.md`.
+
+Points à retenir :
+- La facture fournie est un scan : les factures sont lues via l'OCR Mistral
+  puis `extract/unikalo.py` (décision R16, à valider par Ilane).
+- Point ouvert L2-R10 à corriger avant tout travail front : le contrôle
+  d'origine (`app/core/origine.py`) bloque les POST via `npm run dev`.
+- Ne jamais lancer `pre-commit install` depuis un worktree (hooks partagés).
 
 ## Méthode
 
