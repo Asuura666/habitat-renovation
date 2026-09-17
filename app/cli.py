@@ -19,16 +19,23 @@
   `utilisateur-creer` : l'écriture est déléguée à `definir_fournisseur`
   (`app.modules.ingest.referentiels`), cette CLI ne fait que construire ses
   dépendances et les brancher.
-- `python -m app.cli rapport-ocr` (L3-T11, L3-D20) : mesure le taux d'erreur
-  OCR sur un dossier de photos de BL annotées à la main (fichiers
-  `<nom>.attendu.json`, cache `<nom>.mistral-ocr.json`) et écrit le rapport
-  Markdown demandé (`--sortie`). Toute la logique (comparaison, agrégation,
-  rendu) est déléguée à `app.modules.ingest.rapport_ocr` ; cette CLI ne fait
-  que construire l'OCR réel de `--appeler-ocr` (mêmes options et délai que
-  `ingest/router.py::get_ocr`, `OPTIONS_OCR_BL` d'`extract.bl`,
-  `DELAI_OCR_BL` d'`ingest.router`) sur un client HTTP qu'elle ouvre et
-  ferme elle-même — jamais sur un document client (R17, protocole détaillé
-  dans `docs/protocole-mesure-ocr.md`).
+- `python -m app.cli rapport-ocr` (L3-T11, L3-D20 ; `--seuil` fix round 1,
+  finding 2/ruling R13) : mesure le taux d'erreur OCR sur un dossier de
+  photos de BL annotées à la main (fichiers `<nom>.attendu.json`, cache
+  `<nom>.mistral-ocr.json`) et écrit le rapport Markdown demandé
+  (`--sortie`). `--seuil` (défaut `SEUIL_CONFIANCE_DEFAUT`, entre 0 et 1,
+  sinon `SystemExit(2)` via `argparse`) permet de recaler le seuil de
+  confiance sans modifier de code (`docs/protocole-mesure-ocr.md` §6). Un
+  `<nom>.attendu.json` invalide ou un échec OCR (cache invalide ou appel en
+  échec) sont isolés par document (fix round 1, finding 1) : la commande
+  continue sur les autres photos plutôt que d'échouer entièrement. Toute la
+  logique (comparaison, agrégation, rendu) est déléguée à
+  `app.modules.ingest.rapport_ocr` ; cette CLI ne fait que construire l'OCR
+  réel de `--appeler-ocr` (mêmes options et délai que `ingest/router
+  .py::get_ocr`, `OPTIONS_OCR_BL` d'`extract.bl`, `DELAI_OCR_BL`
+  d'`ingest.router`) sur un client HTTP qu'elle ouvre et ferme elle-même —
+  jamais sur un document client (R17, protocole détaillé dans
+  `docs/protocole-mesure-ocr.md`).
 
 N'importe que `app.core` (config, db, auth) et `app.modules.ingest`
 (`factures.py`, `mistral.py` — depuis le découpage de l'ancien
@@ -58,6 +65,7 @@ import argparse
 import asyncio
 import getpass
 import sys
+from decimal import Decimal, InvalidOperation
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -269,13 +277,35 @@ async def _fournisseur_definir(
     return 0
 
 
-async def _rapport_ocr(*, dossier: Path, sortie: Path, appeler_ocr: bool) -> int:
-    """Implémentation de `rapport-ocr` (L3-T11, L3-D20) : mesure le taux
-    d'erreur OCR sur `dossier` (photos + `<nom>.attendu.json`) et écrit le
-    rapport Markdown dans `sortie`. Toute la comparaison/agrégation est
-    déléguée à `app.modules.ingest.rapport_ocr` (module pur/orchestré, sans
-    FastAPI ni SQLAlchemy) : cette CLI ne fait que construire l'OCR réel et
-    brancher les dépendances.
+def _seuil_decimal(valeur: str) -> Decimal:
+    """Type argparse de `--seuil` (fix round 1, finding 2 / ruling R13) :
+    `Decimal` compris entre 0 et 1 inclus, sinon `argparse.ArgumentTypeError`
+    — argparse affiche alors un message d'erreur clair et quitte avec le
+    code 2, même mécanique que `--role` de `utilisateur-creer` (`choices`,
+    `test_utilisateur_creer_role_invalide_rejete_par_argparse_systemexit_2`)."""
+    try:
+        seuil = Decimal(valeur)
+    except InvalidOperation:
+        raise argparse.ArgumentTypeError(
+            f"seuil invalide (nombre attendu) : {valeur!r}"
+        ) from None
+    if not (Decimal("0") <= seuil <= Decimal("1")):
+        raise argparse.ArgumentTypeError(
+            f"seuil doit être compris entre 0 et 1 (reçu {valeur!r})"
+        )
+    return seuil
+
+
+async def _rapport_ocr(
+    *, dossier: Path, sortie: Path, appeler_ocr: bool, seuil: Decimal
+) -> int:
+    """Implémentation de `rapport-ocr` (L3-T11, L3-D20 ; `--seuil` fix
+    round 1, finding 2/ruling R13) : mesure le taux d'erreur OCR sur
+    `dossier` (photos + `<nom>.attendu.json`) et écrit le rapport Markdown
+    dans `sortie`. Toute la comparaison/agrégation est déléguée à
+    `app.modules.ingest.rapport_ocr` (module pur/orchestré, sans FastAPI ni
+    SQLAlchemy) : cette CLI ne fait que construire l'OCR réel et brancher
+    les dépendances.
 
     Sans `--appeler-ocr`, seul le cache `<nom>.mistral-ocr.json` de chaque
     photo est utilisé (aucun appel réseau) : une photo sans cache part dans
@@ -286,16 +316,21 @@ async def _rapport_ocr(*, dossier: Path, sortie: Path, appeler_ocr: bool) -> int
     jamais sur un document client (décision du contrôleur,
     `docs/protocole-mesure-ocr.md`).
 
-    Codes de sortie : 2 si `dossier` n'existe pas ou ne contient aucun BL
-    attendu (aucun `<nom>.attendu.json` apparié à une photo) — message court
-    sur stderr, rien n'est écrit dans `sortie` ; sinon 0, rapport écrit,
-    seuls des comptes et des taux affichés sur stdout (jamais une valeur
-    attendue ou lue)."""
+    `mesurer_dossier` isole désormais les fichiers invalides par document
+    (fix round 1, finding 1) : un `<nom>.attendu.json` invalide ou un échec
+    OCR (cache invalide ou appel en échec) n'interrompent plus la commande,
+    ils sont comptés séparément (stdout) et listés (rapport Markdown).
+
+    Codes de sortie : 2 si `dossier` n'existe pas, ou si aucune photo n'y a
+    été trouvée du tout (ni mesurée, ni sans OCR, ni en attendu/OCR invalide
+    — un dossier réellement vide, ou sans aucun `<nom>.attendu.json`) —
+    message court sur stderr, rien n'est écrit dans `sortie` ; sinon 0,
+    rapport écrit, seuls des comptes et des taux affichés sur stdout (jamais
+    une valeur attendue ou lue)."""
     if not await asyncio.to_thread(dossier.is_dir):
         print(f"dossier introuvable : {dossier}", file=sys.stderr)
         return 2
 
-    seuil = SEUIL_CONFIANCE_DEFAUT
     tolerance = TOLERANCE_TOTAL_DEFAUT
 
     if appeler_ocr:
@@ -321,7 +356,12 @@ async def _rapport_ocr(*, dossier: Path, sortie: Path, appeler_ocr: bool) -> int
             dossier, ocr=None, seuil=seuil, tolerance=tolerance
         )
 
-    if rapport.nb_documents == 0 and not rapport.documents_sans_ocr:
+    if (
+        rapport.nb_documents == 0
+        and not rapport.documents_sans_ocr
+        and not rapport.attendus_invalides
+        and not rapport.echecs_ocr
+    ):
         print(
             f"aucun BL attendu (<nom>.attendu.json) trouvé dans {dossier}",
             file=sys.stderr,
@@ -339,6 +379,10 @@ async def _rapport_ocr(*, dossier: Path, sortie: Path, appeler_ocr: bool) -> int
     print(f"  erreurs silencieuses : {rapport.nb_erreurs_silencieuses}")
     if rapport.documents_sans_ocr:
         print(f"  documents sans réponse OCR : {len(rapport.documents_sans_ocr)}")
+    if rapport.attendus_invalides:
+        print(f"  attendus invalides : {len(rapport.attendus_invalides)}")
+    if rapport.echecs_ocr:
+        print(f"  échecs OCR : {len(rapport.echecs_ocr)}")
     print(f"rapport écrit : {sortie}")
     return 0
 
@@ -409,6 +453,16 @@ def _construire_parser() -> argparse.ArgumentParser:
         "--sortie", required=True, type=Path, help="chemin du rapport Markdown à écrire"
     )
     parser_rapport_ocr.add_argument(
+        "--seuil",
+        type=_seuil_decimal,
+        default=SEUIL_CONFIANCE_DEFAUT,
+        help=(
+            "seuil de confiance OCR entre 0 et 1 (défaut : "
+            f"{SEUIL_CONFIANCE_DEFAUT}) — voir docs/protocole-mesure-ocr.md §6 "
+            "pour le calage"
+        ),
+    )
+    parser_rapport_ocr.add_argument(
         "--appeler-ocr",
         dest="appeler_ocr",
         action="store_true",
@@ -450,7 +504,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.commande == "rapport-ocr":
         return asyncio.run(
             _rapport_ocr(
-                dossier=args.dossier, sortie=args.sortie, appeler_ocr=args.appeler_ocr
+                dossier=args.dossier,
+                sortie=args.sortie,
+                appeler_ocr=args.appeler_ocr,
+                seuil=args.seuil,
             )
         )
     raise AssertionError(f"commande inconnue : {args.commande}")  # pragma: no cover

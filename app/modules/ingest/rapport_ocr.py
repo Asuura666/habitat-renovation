@@ -30,6 +30,19 @@ Décisions du contrôleur (fiche L3-T11) :
 - Le rapport Markdown peut contenir des valeurs attendues et lues (destiné
   au client, écrit là où l'utilisateur le demande) ; la sortie standard de
   la CLI n'affiche que des comptes et des taux (`app/cli.py::_rapport_ocr`).
+
+Fix round 1 (revue de tâche, finding 1) : isolation par document. Un
+`<nom>.attendu.json` invalide (JSON illisible ou `ValueError` de
+`lire_attendu`), une réponse en cache invalide (JSON illisible ou JSON qui
+n'est pas un objet) ou un échec d'appel `ocr` (n'importe quelle exception,
+réseau ou applicative) ne font plus jamais échouer tout le lot : le
+document est classé (`RapportOCR.attendus_invalides` /
+`RapportOCR.echecs_ocr`, noms de fichiers seulement) et la mesure continue
+sur les documents suivants. Le cache n'est jamais écrit après un échec
+d'appel `ocr` (décision de la revue). Ce que cette isolation ne couvre pas
+volontairement (erreur de listage du dossier, échec d'écriture du cache
+après un appel `ocr` réussi) est documenté dans `docs/dette.md` (section
+L3-T11).
 """
 
 from __future__ import annotations
@@ -116,6 +129,11 @@ class RapportOCR:
     confiances_justes: tuple[Decimal, ...]
     confiances_fausses: tuple[Decimal, ...]
     documents_sans_ocr: tuple[str, ...]
+    # Fix round 1 (finding 1) : documents exclus de la mesure par un
+    # problème de fichier, jamais par une valeur fausse — noms de fichiers
+    # seulement, jamais leur contenu.
+    attendus_invalides: tuple[str, ...]  # <nom>.attendu.json illisible/mal formé
+    echecs_ocr: tuple[str, ...]  # cache illisible/non-objet, ou appel `ocr` en échec
 
 
 # Ordre de la fiche L3-T11 (différent de `verification.CHAMPS_OBLIGATOIRES_BL`,
@@ -431,6 +449,8 @@ def agreger(
     documents_sans_ocr: Sequence[str],
     *,
     seuil: Decimal,
+    attendus_invalides: Sequence[str] = (),
+    echecs_ocr: Sequence[str] = (),
 ) -> RapportOCR:
     nb_documents = len(comparaisons)
     nb_degrades = sum(1 for comp in comparaisons if comp.degradee)
@@ -489,6 +509,8 @@ def agreger(
         confiances_justes=tuple(sorted(confiances_justes)),
         confiances_fausses=tuple(sorted(confiances_fausses)),
         documents_sans_ocr=tuple(documents_sans_ocr),
+        attendus_invalides=tuple(attendus_invalides),
+        echecs_ocr=tuple(echecs_ocr),
     )
 
 
@@ -517,21 +539,42 @@ def _distribution(valeurs: Sequence[Decimal]) -> str:
 
 def rapport_markdown(rapport: RapportOCR, comparaisons: Sequence[ComparaisonBL]) -> str:
     """Rapport Markdown destiné au client (peut contenir des valeurs
-    attendues et lues, décision de la fiche) : synthèse avec les objectifs
-    CDC §10, détail par document, lignes fausses à confiance haute,
-    distribution des confiances justes/fausses."""
+    attendues et lues, décision de la fiche) : documents non mesurés,
+    synthèse avec les objectifs CDC §10, détail par document, lignes
+    fausses à confiance haute, distribution des confiances justes/fausses.
+
+    Fix round 1 (finding 2, ruling R13) : dans la synthèse, seules les
+    lignes « Documents avec les 4 champs justes » (≥ 95 %), « Lignes
+    justes » (≥ 90 %) et « Erreurs silencieuses » (0) portent un objectif
+    CDC — les quatre lignes par champ sont indicatives (elles composent le
+    premier taux, mais aucune n'a individuellement d'objectif CDC séparé)."""
     lignes: list[str] = ["# Rapport de mesure du taux d'erreur OCR", ""]
 
     lignes.append(
         f"Documents mesurés : {rapport.nb_documents} "
         f"(dont {rapport.nb_degrades} dégradés)."
     )
-    if rapport.documents_sans_ocr:
-        lignes.append(
-            "Documents sans réponse OCR (aucun cache, aucun appel demandé, "
-            f"exclus des taux) : {', '.join(rapport.documents_sans_ocr)}."
-        )
     lignes.append("")
+
+    if rapport.documents_sans_ocr or rapport.attendus_invalides or rapport.echecs_ocr:
+        lignes.append("## Documents non mesurés")
+        lignes.append("")
+        if rapport.documents_sans_ocr:
+            lignes.append(
+                "- Sans réponse OCR (aucun cache, aucun appel demandé) : "
+                f"{', '.join(rapport.documents_sans_ocr)}"
+            )
+        if rapport.attendus_invalides:
+            lignes.append(
+                "- Attendu invalide (`<nom>.attendu.json` illisible ou mal "
+                f"formé) : {', '.join(rapport.attendus_invalides)}"
+            )
+        if rapport.echecs_ocr:
+            lignes.append(
+                "- Échec OCR (cache illisible/non-objet, ou appel à l'OCR en "
+                f"échec) : {', '.join(rapport.echecs_ocr)}"
+            )
+        lignes.append("")
 
     lignes.append("## Synthèse")
     lignes.append("")
@@ -539,9 +582,9 @@ def rapport_markdown(rapport: RapportOCR, comparaisons: Sequence[ComparaisonBL])
     lignes.append("| --- | --- | --- | --- |")
     for champ in CHAMPS_COMPARES:
         taux = rapport.taux_champs[champ]
-        atteint = "oui" if taux >= _CDC_SEUIL_CHAMPS else "non"
         lignes.append(
-            f"| Champ « {champ} » juste | {_pourcentage(taux)} | ≥ 95 % | {atteint} |"
+            f"| Champ « {champ} » juste (indicatif) | {_pourcentage(taux)} "
+            "| (indicatif) | — |"
         )
     atteint_4 = "oui" if rapport.taux_documents_4_champs >= _CDC_SEUIL_CHAMPS else "non"
     lignes.append(
@@ -619,19 +662,23 @@ _MIME_PAR_EXTENSION: dict[str, str] = {
 
 @dataclass(frozen=True)
 class _EntreeDossier:
-    """Une photo appariée à son `<nom>.attendu.json`, avec la réponse déjà
-    en cache si elle existe — construit en un seul passage synchrone (`Path
-    .iterdir`/`.read_text`) exécuté dans un thread (`asyncio.to_thread`) pour
-    ne jamais bloquer la boucle asyncio depuis `mesurer_dossier`."""
+    """Une photo appariée à son `<nom>.attendu.json` — chemins seulement,
+    aucune lecture de contenu ici (fix round 1, finding 1) : chaque lecture
+    et son décodage JSON sont isolés dans la boucle de `mesurer_dossier`,
+    pour qu'un fichier invalide n'interrompe jamais la mesure des autres
+    documents."""
 
     nom: str
     chemin_photo: Path
+    chemin_attendu: Path
     chemin_cache: Path
-    attendu_donnees: Any
-    reponse_cache: dict[str, Any] | None
 
 
 def _lister_entrees(dossier: Path) -> list[_EntreeDossier]:
+    """Photos de `dossier` appariées à un `<nom>.attendu.json` existant
+    (aucune lecture de contenu, décision fix round 1 ci-dessus). Une erreur
+    de listage du dossier lui-même (permissions, dossier disparu) n'est pas
+    isolée : voir `docs/dette.md` (section L3-T11)."""
     entrees: list[_EntreeDossier] = []
     for photo in sorted(dossier.iterdir()):
         if not photo.is_file() or photo.suffix.lower() not in _EXTENSIONS_PHOTO:
@@ -640,21 +687,45 @@ def _lister_entrees(dossier: Path) -> list[_EntreeDossier]:
         chemin_attendu = photo.with_name(f"{nom}.attendu.json")
         if not chemin_attendu.is_file():
             continue
-        attendu_donnees = json.loads(chemin_attendu.read_text(encoding="utf-8"))
         chemin_cache = photo.with_name(f"{nom}.mistral-ocr.json")
-        reponse_cache = (
-            json.loads(chemin_cache.read_text(encoding="utf-8"))
-            if chemin_cache.is_file()
-            else None
-        )
-        entrees.append(
-            _EntreeDossier(nom, photo, chemin_cache, attendu_donnees, reponse_cache)
-        )
+        entrees.append(_EntreeDossier(nom, photo, chemin_attendu, chemin_cache))
     return entrees
+
+
+def _lire_json(chemin: Path) -> Any:
+    """Lit et décode `chemin` en JSON. Lève `OSError` (fichier illisible)
+    ou `ValueError` (dont `json.JSONDecodeError`, encodage invalide) —
+    laissé à l'appelant de classer l'échec (fix round 1 : isolation par
+    document, jamais une exception qui remonte jusqu'à `mesurer_dossier`)."""
+    return json.loads(chemin.read_text(encoding="utf-8"))
 
 
 def _ecrire_cache(chemin: Path, reponse: Mapping[str, Any]) -> None:
     chemin.write_text(json.dumps(reponse, ensure_ascii=False), encoding="utf-8")
+
+
+async def _lire_attendu_isole(entree: _EntreeDossier) -> BLAttendu | None:
+    """`None` si `<nom>.attendu.json` est illisible, mal encodé, JSON
+    invalide, ou rejeté par `lire_attendu` (fix round 1, finding 1) —
+    l'appelant classe alors le document dans `attendus_invalides`."""
+    try:
+        donnees = await asyncio.to_thread(_lire_json, entree.chemin_attendu)
+        return lire_attendu(donnees, entree.nom)
+    except (OSError, ValueError):
+        return None
+
+
+async def _reponse_cache_isolee(entree: _EntreeDossier) -> dict[str, Any] | None:
+    """Réponse déjà en cache, ou `None` si le fichier est illisible, mal
+    encodé, JSON invalide, ou si le JSON décodé n'est pas un objet (fix
+    round 1, finding 1) — l'appelant classe alors le document dans
+    `echecs_ocr`. Distinct de « pas de cache du tout » : voir l'appelant
+    (`chemin_cache.is_file()` vérifié avant l'appel)."""
+    try:
+        donnees = await asyncio.to_thread(_lire_json, entree.chemin_cache)
+    except (OSError, ValueError):
+        return None
+    return donnees if isinstance(donnees, dict) else None
 
 
 async def mesurer_dossier(
@@ -668,8 +739,14 @@ async def mesurer_dossier(
     |*.webp|*.heic|*.pdf` ayant un `<nom>.attendu.json`, décision de la
     fiche). Pour chaque photo : le cache `<nom>.mistral-ocr.json` est lu
     s'il existe ; sinon `ocr` est appelé si fourni (réponse écrite dans le
-    cache) ; sinon le document est listé dans `documents_sans_ocr`, exclu
-    du calcul des taux.
+    cache, jamais si l'appel échoue) ; sinon le document est listé dans
+    `documents_sans_ocr`, exclu du calcul des taux.
+
+    Fix round 1 (finding 1) : un `<nom>.attendu.json` invalide part dans
+    `RapportOCR.attendus_invalides` ; une réponse en cache invalide ou un
+    appel `ocr` en échec partent dans `RapportOCR.echecs_ocr` — dans les
+    deux cas, la mesure continue sur les documents suivants (isolation par
+    document, jamais un `traceback` qui interrompt tout le lot).
 
     Jamais appelé sur les photos réelles ni sur un appel Mistral réel par ce
     dépôt (R17, décision du contrôleur) : `ocr` n'est construit que par
@@ -678,18 +755,37 @@ async def mesurer_dossier(
 
     comparaisons: list[ComparaisonBL] = []
     documents_sans_ocr: list[str] = []
+    attendus_invalides: list[str] = []
+    echecs_ocr: list[str] = []
 
     for entree in entrees:
-        attendu = lire_attendu(entree.attendu_donnees, entree.nom)
+        attendu = await _lire_attendu_isole(entree)
+        if attendu is None:
+            attendus_invalides.append(entree.nom)
+            continue
 
-        if entree.reponse_cache is not None:
-            reponse = entree.reponse_cache
+        a_un_cache = await asyncio.to_thread(entree.chemin_cache.is_file)
+        if a_un_cache:
+            reponse_cache = await _reponse_cache_isolee(entree)
+            if reponse_cache is None:
+                echecs_ocr.append(entree.nom)
+                continue
+            reponse = reponse_cache
         elif ocr is not None:
             contenu = await asyncio.to_thread(entree.chemin_photo.read_bytes)
             mime = _MIME_PAR_EXTENSION.get(
                 entree.chemin_photo.suffix.lower(), "application/octet-stream"
             )
-            reponse = await ocr(contenu, mime)
+            try:
+                reponse = await ocr(contenu, mime)
+            except Exception:
+                # Isolation par document (fix round 1, finding 1) : n'importe
+                # quelle exception de l'appel `ocr` injecté (réseau, `ErreurOCR`
+                # applicative) classe seulement ce document en échec, sans
+                # jamais interrompre la mesure des documents suivants ni
+                # laisser remonter une exception hors de cette fonction.
+                echecs_ocr.append(entree.nom)
+                continue
             await asyncio.to_thread(_ecrire_cache, entree.chemin_cache, reponse)
         else:
             documents_sans_ocr.append(entree.nom)
@@ -705,5 +801,11 @@ async def mesurer_dossier(
             comparer_bl(extrait, attendu, seuil=seuil, tolerance=tolerance)
         )
 
-    rapport = agreger(comparaisons, documents_sans_ocr, seuil=seuil)
+    rapport = agreger(
+        comparaisons,
+        documents_sans_ocr,
+        seuil=seuil,
+        attendus_invalides=attendus_invalides,
+        echecs_ocr=echecs_ocr,
+    )
     return rapport, comparaisons

@@ -115,11 +115,21 @@ uv run python -m app.cli rapport-ocr tests/fixtures/bl --sortie tests/fixtures/b
 ```
 
 Relances suivantes (après correction d'un `<nom>.attendu.json`, ou pour
-essayer un autre seuil de confiance) : le cache déjà écrit est réutilisé,
-aucun nouvel appel réseau n'est fait, donc **sans** `--appeler-ocr` :
+essayer un autre seuil de confiance, §6) : le cache déjà écrit est
+réutilisé, aucun nouvel appel réseau n'est fait, donc **sans**
+`--appeler-ocr` :
 
 ```bash
 uv run python -m app.cli rapport-ocr tests/fixtures/bl --sortie tests/fixtures/bl/rapport.md
+```
+
+`--seuil DECIMAL` (défaut `0.80`, doit être compris entre 0 et 1 sinon la
+commande refuse de démarrer avec un message clair) change le seuil de
+confiance utilisé pour la mesure (motif `confiance_faible`, lignes fausses
+à confiance haute, §6) — voir §6 pour l'utiliser afin de recaler le seuil :
+
+```bash
+uv run python -m app.cli rapport-ocr tests/fixtures/bl --sortie tests/fixtures/bl/rapport-seuil-070.md --seuil 0.70
 ```
 
 La sortie standard n'affiche que des comptes et des taux (jamais une valeur
@@ -137,9 +147,27 @@ lue ou attendue) :
 rapport écrit : tests/fixtures/bl/rapport.md
 ```
 
-Codes de sortie : `2` si le dossier n'existe pas ou ne contient aucune
-photo appariée à un `<nom>.attendu.json` (rien n'est écrit dans
-`--sortie`) ; `0` sinon, rapport écrit.
+Si des fichiers posent problème, deux lignes supplémentaires apparaissent
+(comptes seulement, jamais un nom de champ ou une valeur) :
+
+```
+  attendus invalides : 1
+  échecs OCR : 2
+```
+
+Un `<nom>.attendu.json` illisible ou mal formé, une réponse en cache
+illisible, ou un appel OCR en échec (réseau, timeout) **n'interrompent
+plus la mesure** : le document concerné est simplement exclu et listé
+(nom de fichier seulement) dans la section « Documents non mesurés » du
+rapport Markdown — corriger le fichier en cause et relancer la commande
+(le cache des autres photos n'est jamais perdu).
+
+Codes de sortie : `2` si le dossier n'existe pas, ou s'il ne contient
+strictement aucune photo appariée à un `<nom>.attendu.json` (rien n'est
+écrit dans `--sortie`) — un dossier dont toutes les photos ont un problème
+(attendu invalide, échec OCR) écrit quand même un rapport, code `0` ;
+`--seuil` hors de `[0, 1]` ou non numérique refuse également avec le code
+`2`, avant tout accès au dossier.
 
 Pour ajouter une photo supplémentaire à un lot déjà mesuré : déposer la
 photo et son `<nom>.attendu.json`, relancer avec `--appeler-ocr` (seule la
@@ -150,9 +178,19 @@ rappelées.
 
 Le rapport Markdown (`--sortie`) contient, dans l'ordre :
 
-1. **Synthèse** : les quatre critères du CDC (tableau en tête de ce
-   document) avec la valeur mesurée et si l'objectif est atteint.
-2. **Détail par document** : nom, dégradée ou non, champs faux, lignes
+1. **Documents non mesurés** (absente si tout s'est bien passé) : trois
+   catégories, noms de fichiers seulement — sans réponse OCR (aucun cache,
+   `--appeler-ocr` pas utilisé), attendu invalide, échec OCR (§5). À traiter
+   avant de lire la suite : ces documents ne comptent dans aucun taux.
+2. **Synthèse** : un tableau à quatre lignes portant un objectif CDC
+   (« Documents avec les 4 champs justes » ≥ 95 %, « Lignes justes » ≥
+   90 %, « Erreurs silencieuses » = 0) précédées de quatre lignes
+   **indicatives** (une par champ : numéro, fournisseur, date, chantier
+   brut — colonne Objectif « (indicatif) », pas de colonne Atteint) : ces
+   quatre lignes détaillent ce qui compose le taux « 4 champs justes »
+   mais n'ont individuellement aucun objectif CDC séparé — ne pas les lire
+   comme un objectif à 95 % chacune.
+3. **Détail par document** : nom, dégradée ou non, champs faux, lignes
    justes/total, motifs `verifier_bl` posés (`champ_absent`,
    `confiance_faible`, `somme_incoherente`, `total_absent`,
    `lignes_absentes`, `numero_incoherent`, `annotation_illisible`) et si le
@@ -163,28 +201,66 @@ Le rapport Markdown (`--sortie`) contient, dans l'ordre :
    `extract/verification.py` ne détecte pas encore (ex. un chantier faux
    lu avec une confiance élevée — aucune règle actuelle ne compare un
    chantier à un référentiel, seule sa présence/confiance compte).
-3. **Lignes fausses à confiance haute** : une ligne dont la quantité ou le
+4. **Lignes fausses à confiance haute** : une ligne dont la quantité ou le
    code sont faux mais dont la confiance OCR est **supérieure ou égale au
-   seuil utilisé pour la mesure** (`SEUIL_CONFIANCE_DEFAUT`, 0,80 par
-   défaut, L3-D4). Une entrée ici signale un cas où le seuil actuel
-   n'aurait pas mis le document « à vérifier » alors que la valeur est
-   fausse : chaque entrée doit être regardée à l'œil (rouvrir la photo) et
-   documentée (nouveau motif nécessaire ? seuil à remonter ? erreur
-   d'annotation ponctuelle sans mise en cause du seuil ?).
-4. **Distribution des confiances** (min, médiane, max) des valeurs justes
-   et des valeurs fausses, séparément. Sert à recaler le seuil (Q3 du plan
-   du lot 3, provisoire à 0,80) : si les confiances des valeurs **fausses**
-   chevauchent largement celles des valeurs **justes**, le seuil ne sépare
-   pas bien les deux populations et doit être discuté avec Ilane avant
-   d'être changé (`parametre.seuil_confiance_ocr`, écran de paramétrage au
-   lot 5 ; en CLI en attendant : `fournisseur-definir` ne le touche pas,
-   voir `ingest/referentiels.py::lire_parametre_decimal`).
+   seuil utilisé pour la mesure** (`--seuil`, 0,80 par défaut, L3-D4). Une
+   entrée ici signale un cas où le seuil actuel n'aurait pas mis le
+   document « à vérifier » alors que la valeur est fausse : chaque entrée
+   doit être regardée à l'œil (rouvrir la photo) et documentée (nouveau
+   motif nécessaire ? seuil à remonter ? erreur d'annotation ponctuelle
+   sans mise en cause du seuil ?).
+5. **Distribution des confiances** (min, médiane, max) des valeurs justes
+   et des valeurs fausses, séparément (calage du seuil, ci-dessous).
 
 Le rapport peut contenir des valeurs attendues et lues (numéros, noms de
 chantier…) : c'est voulu, il est destiné au client. Ne jamais le coller
 dans un message, un ticket ou une conversation qui sort du binôme
 contrôleur/Ilane sans réflexion préalable (mêmes précautions que pour les
 photos elles-mêmes).
+
+### Recaler le seuil de confiance (ruling R13)
+
+Le seuil provisoire est `0,80` (Q3 du plan du lot 3, `SEUIL_CONFIANCE_DEFAUT`).
+Chemin concret pour le recaler à partir des 30 photos, **sans appel réseau
+supplémentaire** (le cache `<nom>.mistral-ocr.json` de chaque photo est déjà
+écrit après le premier passage, §5) :
+
+1. Relancer la commande **sans** `--appeler-ocr`, une fois par valeur de
+   seuil à comparer (ex. `0.60`, `0.70`, `0.80`, `0.90`), chacune dans un
+   fichier de sortie différent :
+   ```bash
+   for s in 0.60 0.70 0.80 0.90; do
+     uv run python -m app.cli rapport-ocr tests/fixtures/bl \
+       --sortie "tests/fixtures/bl/rapport-seuil-${s}.md" --seuil "$s"
+   done
+   ```
+2. Comparer, pour chaque valeur, les trois lignes à objectif de la
+   synthèse (§6.2) : **« Documents avec les 4 champs justes »**, **«
+   Erreurs silencieuses »** (jamais > 0, quel que soit le seuil : un seuil
+   plus haut ne doit jamais faire apparaître une erreur silencieuse — sinon
+   c'est un signe que la règle de confiance elle-même a un trou, pas
+   seulement le seuil) et la section « Lignes fausses à confiance haute »
+   (§6.4) : un seuil plus bas réduit son nombre d'entrées mais laisse
+   passer plus de documents sans motif `confiance_faible`.
+3. Regarder la section « Distribution des confiances » (§6.5) sur le
+   rapport à seuil par défaut : si les confiances des valeurs **fausses**
+   chevauchent largement celles des valeurs **justes**, aucun seuil ne
+   séparera bien les deux populations — c'est un signal à documenter (`docs/
+   dette.md`) plutôt qu'un seuil à choisir dans le noir.
+4. Choisir la valeur qui maximise « documents 4 champs justes » sans faire
+   apparaître d'erreur silencieuse ni dégrader excessivement « lignes
+   fausses à confiance haute » (un seuil trop bas laisse passer des
+   erreurs, un seuil trop haut sur-signale des documents corrects).
+5. Reporter la valeur choisie dans le paramètre applicatif
+   `seuil_confiance_ocr` (table `parametre`, lu par
+   `ingest/referentiels.py::lire_parametre_decimal`, valeur par défaut
+   `SEUIL_CONFIANCE_DEFAUT` si absente) : à faire depuis l'écran de
+   paramétrage une fois construit (lot 5), ou directement en base
+   (`UPDATE parametre SET valeur = '<seuil choisi>' WHERE cle =
+   'seuil_confiance_ocr'`, ou `INSERT` si la ligne n'existe pas encore) en
+   attendant. `--seuil` de la CLI ne change **que** cette mesure : il ne
+   modifie jamais ce paramètre applicatif, qui gouverne le comportement
+   réel de `ingest.extraction_bl` sur les prochains dépôts.
 
 ## 7. Ce que cet outil ne mesure pas
 

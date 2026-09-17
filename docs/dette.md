@@ -254,3 +254,39 @@ aucune entrée tant qu'aucune simplification n'a été prise.
   le classement des fichiers téléchargés par l'utilisateur ; à ajouter
   (paramètre `filename` de `FileResponse`) si signalé comme gênant en
   usage réel.
+
+## L3-T11 — ingest (outil de mesure du taux d'erreur OCR)
+
+Fix round 1 (isolation par document, finding 1) : `mesurer_dossier` isole
+maintenant un `<nom>.attendu.json` invalide et un échec OCR (cache
+invalide ou appel `ocr` en échec) par document, sans jamais interrompre la
+mesure des autres photos. Restent volontairement non isolés (rares,
+purement liés au système de fichiers, jamais déclenchés par le contenu
+d'une photo ou d'un attendu) :
+
+- **Erreur de listage du dossier** (`_lister_entrees` : `Path.iterdir`,
+  `.is_file()`). Un dossier supprimé pendant le scan, ou des permissions
+  insuffisantes sur `tests/fixtures/bl/`, ferait toujours planter toute la
+  commande avec un `traceback` Python plutôt qu'un message clair. Ne
+  couvre pas ce cas ; à traiter si rencontré en pratique (message clair +
+  code de sortie dédié).
+- **Échec de lecture d'une photo** (`entree.chemin_photo.read_bytes()`,
+  juste avant l'appel `ocr`) : une photo illisible (permissions, disque
+  corrompu) ferait échouer la commande entière au lieu de classer
+  seulement ce document en `echecs_ocr`. Rare en pratique (les photos sont
+  déposées une fois puis relues, jamais modifiées entre deux passages).
+- **Échec d'écriture du cache après un appel OCR réussi**
+  (`_ecrire_cache`, disque plein ou permissions insuffisantes sur
+  `tests/fixtures/bl/`) : l'appel Mistral aurait déjà eu lieu (coût réel)
+  mais son résultat serait perdu et la commande planterait quand même,
+  perdant aussi les résultats déjà accumulés pour les autres photos du
+  lot. Cas jugé assez rare (même répertoire que les photos déjà présentes,
+  donc déjà accessible en écriture) pour ne pas complexifier
+  `mesurer_dossier` davantage dans ce tour ; à isoler (comme `echecs_ocr`)
+  si rencontré en pratique, avec une note explicite que l'appel a
+  malgré tout été facturé/consommé côté Mistral.
+
+Aucun de ces trois cas n'a de test dédié (comportement inchangé, pas une
+régression de ce tour) : les isoler proprement demanderait de distinguer
+« l'appel réseau a réussi mais l'écriture locale échoue » de tous les
+autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.

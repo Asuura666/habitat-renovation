@@ -803,3 +803,216 @@ async def test_mesurer_dossier_extension_non_photo_ignoree(tmp_path: Path) -> No
     assert rapport.nb_documents == 0
     assert rapport.documents_sans_ocr == ()
     assert comparaisons == []
+
+
+# --------------------------------------------------------------------------
+# mesurer_dossier — isolation par document (fix round 1, finding 1)
+# --------------------------------------------------------------------------
+
+
+async def test_mesurer_dossier_attendu_json_illisible_isole(tmp_path: Path) -> None:
+    nom = "photo-attendu-illisible"
+    (tmp_path / f"{nom}.jpg").write_bytes(b"contenu invente")
+    (tmp_path / f"{nom}.attendu.json").write_text(
+        "{ceci n'est pas du JSON valide", encoding="utf-8"
+    )
+
+    rapport, comparaisons = await mesurer_dossier(
+        tmp_path,
+        ocr=None,
+        seuil=SEUIL_CONFIANCE_DEFAUT,
+        tolerance=TOLERANCE_TOTAL_DEFAUT,
+    )
+
+    assert rapport.nb_documents == 0
+    assert rapport.attendus_invalides == (nom,)
+    assert rapport.echecs_ocr == ()
+    assert comparaisons == []
+
+
+async def test_mesurer_dossier_attendu_json_mal_forme_isole(tmp_path: Path) -> None:
+    """JSON valide mais rejeté par `lire_attendu` (clé obligatoire
+    manquante) : même catégorie que le JSON illisible."""
+    nom = "photo-attendu-mal-forme"
+    (tmp_path / f"{nom}.jpg").write_bytes(b"contenu invente")
+    (tmp_path / f"{nom}.attendu.json").write_text(
+        json.dumps({"numero": "BL1", "fournisseur": "F"}), encoding="utf-8"
+    )
+
+    rapport, comparaisons = await mesurer_dossier(
+        tmp_path,
+        ocr=None,
+        seuil=SEUIL_CONFIANCE_DEFAUT,
+        tolerance=TOLERANCE_TOTAL_DEFAUT,
+    )
+
+    assert rapport.nb_documents == 0
+    assert rapport.attendus_invalides == (nom,)
+    assert comparaisons == []
+
+
+async def test_mesurer_dossier_cache_json_illisible_isole_en_echec_ocr(
+    tmp_path: Path,
+) -> None:
+    nom = "photo-cache-illisible"
+    (tmp_path / f"{nom}.jpg").write_bytes(b"contenu invente")
+    (tmp_path / f"{nom}.attendu.json").write_text(
+        json.dumps(_attendu_bl_synthetique()), encoding="utf-8"
+    )
+    (tmp_path / f"{nom}.mistral-ocr.json").write_text(
+        "{ceci n'est pas du JSON valide", encoding="utf-8"
+    )
+
+    rapport, comparaisons = await mesurer_dossier(
+        tmp_path,
+        ocr=None,
+        seuil=SEUIL_CONFIANCE_DEFAUT,
+        tolerance=TOLERANCE_TOTAL_DEFAUT,
+    )
+
+    assert rapport.nb_documents == 0
+    assert rapport.echecs_ocr == (nom,)
+    assert rapport.attendus_invalides == ()
+    assert comparaisons == []
+
+
+async def test_mesurer_dossier_cache_json_non_objet_isole_en_echec_ocr(
+    tmp_path: Path,
+) -> None:
+    """Cache JSON valide mais dont le contenu décodé n'est pas un objet
+    (ici une liste) : même catégorie que le JSON illisible."""
+    nom = "photo-cache-non-objet"
+    (tmp_path / f"{nom}.jpg").write_bytes(b"contenu invente")
+    (tmp_path / f"{nom}.attendu.json").write_text(
+        json.dumps(_attendu_bl_synthetique()), encoding="utf-8"
+    )
+    (tmp_path / f"{nom}.mistral-ocr.json").write_text(
+        json.dumps(["pas", "un", "objet"]), encoding="utf-8"
+    )
+
+    rapport, comparaisons = await mesurer_dossier(
+        tmp_path,
+        ocr=None,
+        seuil=SEUIL_CONFIANCE_DEFAUT,
+        tolerance=TOLERANCE_TOTAL_DEFAUT,
+    )
+
+    assert rapport.nb_documents == 0
+    assert rapport.echecs_ocr == (nom,)
+    assert comparaisons == []
+
+
+async def test_mesurer_dossier_appel_ocr_en_echec_isole_et_cache_jamais_ecrit(
+    tmp_path: Path,
+) -> None:
+    nom = "photo-ocr-en-echec"
+    (tmp_path / f"{nom}.jpg").write_bytes(b"contenu invente")
+    (tmp_path / f"{nom}.attendu.json").write_text(
+        json.dumps(_attendu_bl_synthetique()), encoding="utf-8"
+    )
+
+    async def _ocr_en_echec(contenu: bytes, mime: str) -> dict[str, Any]:
+        raise RuntimeError("échec factice d'appel OCR (réseau, timeout...)")
+
+    rapport, comparaisons = await mesurer_dossier(
+        tmp_path,
+        ocr=_ocr_en_echec,
+        seuil=SEUIL_CONFIANCE_DEFAUT,
+        tolerance=TOLERANCE_TOTAL_DEFAUT,
+    )
+
+    assert rapport.nb_documents == 0
+    assert rapport.echecs_ocr == (nom,)
+    assert comparaisons == []
+    assert not (tmp_path / f"{nom}.mistral-ocr.json").exists()
+
+
+async def test_mesurer_dossier_isolation_documents_valides_toujours_mesures(
+    tmp_path: Path,
+) -> None:
+    """Un lot mêlant un document valide et un document de chaque catégorie
+    d'échec : le document valide est mesuré normalement, les autres sont
+    classés sans jamais interrompre la boucle (fix round 1, finding 1)."""
+    (tmp_path / "photo-ok.jpg").write_bytes(b"contenu invente")
+    (tmp_path / "photo-ok.attendu.json").write_text(
+        json.dumps(_attendu_bl_synthetique()), encoding="utf-8"
+    )
+    (tmp_path / "photo-ok.mistral-ocr.json").write_text(
+        json.dumps(_reponse_synthetique()), encoding="utf-8"
+    )
+
+    (tmp_path / "photo-attendu-ko.jpg").write_bytes(b"contenu invente")
+    (tmp_path / "photo-attendu-ko.attendu.json").write_text(
+        "pas du JSON", encoding="utf-8"
+    )
+
+    (tmp_path / "photo-cache-ko.jpg").write_bytes(b"contenu invente")
+    (tmp_path / "photo-cache-ko.attendu.json").write_text(
+        json.dumps(_attendu_bl_synthetique()), encoding="utf-8"
+    )
+    (tmp_path / "photo-cache-ko.mistral-ocr.json").write_text(
+        "pas du JSON", encoding="utf-8"
+    )
+
+    rapport, comparaisons = await mesurer_dossier(
+        tmp_path,
+        ocr=None,
+        seuil=SEUIL_CONFIANCE_DEFAUT,
+        tolerance=TOLERANCE_TOTAL_DEFAUT,
+    )
+
+    assert rapport.nb_documents == 1
+    assert comparaisons[0].nom == "photo-ok"
+    assert rapport.attendus_invalides == ("photo-attendu-ko",)
+    assert rapport.echecs_ocr == ("photo-cache-ko",)
+
+
+# --------------------------------------------------------------------------
+# rapport_markdown — section « Documents non mesurés » (fix round 1)
+# --------------------------------------------------------------------------
+
+
+def test_rapport_markdown_documents_non_mesures_liste_les_trois_categories() -> None:
+    rapport = agreger(
+        [],
+        ["photo-sans-ocr"],
+        seuil=SEUIL_CONFIANCE_DEFAUT,
+        attendus_invalides=["photo-attendu-ko"],
+        echecs_ocr=["photo-cache-ko"],
+    )
+
+    texte = rapport_markdown(rapport, [])
+
+    assert "## Documents non mesurés" in texte
+    assert "photo-sans-ocr" in texte
+    assert "photo-attendu-ko" in texte
+    assert "photo-cache-ko" in texte
+
+
+def test_rapport_markdown_sans_document_non_mesure_section_absente() -> None:
+    comparaison = _comparer(_extrait(), _attendu())
+    rapport = agreger([comparaison], [], seuil=SEUIL_CONFIANCE_DEFAUT)
+
+    texte = rapport_markdown(rapport, [comparaison])
+
+    assert "## Documents non mesurés" not in texte
+
+
+def test_rapport_markdown_lignes_champs_indicatives_seul_4_champs_objectif() -> None:
+    """Fix round 1, finding 2 (ruling R13) : seules « Documents avec les 4
+    champs justes », « Lignes justes » et « Erreurs silencieuses » portent
+    un objectif CDC ; les 4 lignes par champ sont indicatives."""
+    comparaison = _comparer(_extrait(), _attendu())
+    rapport = agreger([comparaison], [], seuil=SEUIL_CONFIANCE_DEFAUT)
+
+    texte = rapport_markdown(rapport, [comparaison])
+
+    for champ in ("numero", "fournisseur", "date_doc", "chantier_brut"):
+        ligne_champ = next(
+            ligne for ligne in texte.splitlines() if f"Champ « {champ} »" in ligne
+        )
+        assert "(indicatif)" in ligne_champ
+        assert "≥ 95 %" not in ligne_champ
+    assert "Documents avec les 4 champs justes | 100.0 % | ≥ 95 % |" in texte
+    assert "Lignes justes (code et quantité) | 100.0 % | ≥ 90 % |" in texte
+    assert "Erreurs silencieuses | 0 | 0 |" in texte

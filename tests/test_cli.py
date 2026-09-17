@@ -55,6 +55,7 @@ import subprocess
 import sys
 import uuid
 from collections.abc import Iterator
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +68,7 @@ from app.core.config import get_settings
 from app.core.db import creer_sessionmaker
 from app.modules.extract.bl import OPTIONS_OCR_BL
 from app.modules.extract.facture import Facture, FactureIllisible
+from app.modules.extract.verification import SEUIL_CONFIANCE_DEFAUT
 from app.modules.ingest.mistral import ErreurOCR
 from app.modules.ingest.models import (
     AgenceFournisseur,
@@ -874,3 +876,118 @@ def test_rapport_ocr_appeler_ocr_construit_ocr_meme_options_et_delai(
     assert appels[0]["mime"] == "image/jpeg"
     assert appels[0]["delai"] == DELAI_OCR_BL
     assert appels[0]["options"] == OPTIONS_OCR_BL
+
+
+# ---------------------------------------------------------------------------
+# `rapport-ocr --seuil` (fix round 1, finding 2 / ruling R13)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("valeur", ["abc", "1.5", "-0.1", "2"])
+def test_rapport_ocr_seuil_invalide_systemexit_2(valeur: str, tmp_path: Path) -> None:
+    """`--seuil` hors de [0, 1] ou non numérique -> rejeté par `argparse`
+    lui-même (même mécanique que `--role` de `utilisateur-creer`), avant
+    tout accès au dossier ou à la configuration."""
+    sortie = tmp_path / "rapport.md"
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(
+            ["rapport-ocr", str(tmp_path), "--sortie", str(sortie), "--seuil", valeur]
+        )
+
+    assert exc_info.value.code == 2
+
+
+def test_rapport_ocr_seuil_personnalise_transmis_a_mesurer_dossier(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--seuil` transmis tel quel à `mesurer_dossier` (`Decimal`, pas une
+    chaîne) — `mesurer_dossier` monkeypatché pour observer les arguments
+    reçus sans dépendre d'un scénario de confiance complet."""
+    dossier = tmp_path / "photos"
+    dossier.mkdir()
+    (dossier / "photo.jpg").write_bytes(b"contenu invente")
+    (dossier / "photo.attendu.json").write_text(
+        json.dumps(_attendu_invente()), encoding="utf-8"
+    )
+    sortie = tmp_path / "rapport.md"
+
+    appels: list[dict[str, Any]] = []
+
+    async def _mesurer_dossier_factice(
+        dossier_recu: Path, *, ocr: Any, seuil: Any, tolerance: Any
+    ) -> Any:
+        from app.modules.ingest.rapport_ocr import agreger
+
+        appels.append({"seuil": seuil, "tolerance": tolerance})
+        rapport = agreger([], ["photo"], seuil=seuil)
+        return rapport, []
+
+    monkeypatch.setattr(cli, "mesurer_dossier", _mesurer_dossier_factice)
+
+    code = cli.main(
+        ["rapport-ocr", str(dossier), "--sortie", str(sortie), "--seuil", "0.5"]
+    )
+
+    assert code == 0
+    assert len(appels) == 1
+    assert appels[0]["seuil"] == Decimal("0.5")
+
+
+def test_rapport_ocr_seuil_defaut_est_seuil_confiance_defaut(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sans `--seuil`, `mesurer_dossier` reçoit `SEUIL_CONFIANCE_DEFAUT`."""
+    dossier = tmp_path / "photos"
+    dossier.mkdir()
+    (dossier / "photo.jpg").write_bytes(b"contenu invente")
+    (dossier / "photo.attendu.json").write_text(
+        json.dumps(_attendu_invente()), encoding="utf-8"
+    )
+    sortie = tmp_path / "rapport.md"
+
+    appels: list[dict[str, Any]] = []
+
+    async def _mesurer_dossier_factice(
+        dossier_recu: Path, *, ocr: Any, seuil: Any, tolerance: Any
+    ) -> Any:
+        from app.modules.ingest.rapport_ocr import agreger
+
+        appels.append({"seuil": seuil})
+        rapport = agreger([], ["photo"], seuil=seuil)
+        return rapport, []
+
+    monkeypatch.setattr(cli, "mesurer_dossier", _mesurer_dossier_factice)
+
+    code = cli.main(["rapport-ocr", str(dossier), "--sortie", str(sortie)])
+
+    assert code == 0
+    assert appels[0]["seuil"] == SEUIL_CONFIANCE_DEFAUT
+
+
+# ---------------------------------------------------------------------------
+# `rapport-ocr` — isolation par document (fix round 1, finding 1)
+# ---------------------------------------------------------------------------
+
+
+def test_rapport_ocr_attendu_invalide_isole_stdout_et_rapport(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Un `.attendu.json` invalide ne fait plus échouer la commande : elle
+    écrit quand même un rapport (le document est listé « non mesuré ») et
+    compte l'échec sur stdout (jamais son contenu, seulement un compte)."""
+    dossier = tmp_path / "photos"
+    dossier.mkdir()
+    (dossier / "photo-ko.jpg").write_bytes(b"contenu invente")
+    (dossier / "photo-ko.attendu.json").write_text("pas du JSON", encoding="utf-8")
+    sortie = tmp_path / "rapport.md"
+
+    code = cli.main(["rapport-ocr", str(dossier), "--sortie", str(sortie)])
+    sortie_stdout = capsys.readouterr().out
+
+    assert code == 0
+    assert sortie.is_file()
+    contenu = sortie.read_text(encoding="utf-8")
+    assert "Documents non mesurés" in contenu
+    assert "photo-ko" in contenu
+    assert "attendus invalides : 1" in sortie_stdout
