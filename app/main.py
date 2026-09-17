@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, Request
@@ -17,6 +18,7 @@ from fastapi.responses import JSONResponse
 from app.core.auth import router as auth_router
 from app.core.config import get_settings
 from app.core.db import base_joignable, creer_engine, creer_sessionmaker
+from app.core.front import monter_front
 from app.modules.api import router as api_router
 from app.modules.ingest.router import router as ingest_router
 
@@ -55,3 +57,13 @@ async def health(request: Request) -> JSONResponse:
     if await base_joignable(request.app.state.engine):
         return JSONResponse({"statut": "ok", "base": "ok"}, status_code=200)
     return JSONResponse({"statut": "ko", "base": "injoignable"}, status_code=503)
+
+
+# Montage du front (L2-D16) : seulement si le build existe déjà (`web/dist`,
+# copié par le Dockerfile multi-étage) — la suite de tests tourne sans lui.
+# Placé après toutes les routes ci-dessus (et les routes `/docs`/`/redoc`/
+# `/openapi.json` posées par `FastAPI(...)` plus haut) : le fallback
+# `GET /{chemin:path}` de `monter_front` ne doit jamais leur être prioritaire.
+_DOSSIER_FRONT = Path(__file__).resolve().parent.parent / "web" / "dist"
+if _DOSSIER_FRONT.exists():
+    monter_front(app, _DOSSIER_FRONT)

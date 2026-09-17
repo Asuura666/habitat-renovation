@@ -20,3 +20,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+
+# Front (L2-T6) : dépendances et build, jamais commités
+web/node_modules/
+web/dist/

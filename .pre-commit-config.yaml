@@ -43,3 +43,17 @@ repos:
           Fichier refusé : un fichier .env (secrets) ne doit jamais être commité.
         language: fail
         files: '(^|/)\.env$'
+
+      - id: front-typecheck
+        name: web typecheck (tsc --noEmit)
+        entry: npm --prefix web run typecheck
+        language: system
+        files: '^web/'
+        pass_filenames: false
+
+      - id: front-build
+        name: web build (vite build)
+        entry: npm --prefix web run build
+        language: system
+        files: '^web/'
+        pass_filenames: false

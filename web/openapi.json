@@ -1,0 +1,324 @@
+{
+ "openapi": "3.1.0",
+ "info": {
+  "title": "FastAPI",
+  "version": "0.1.0"
+ },
+ "paths": {
+  "/tg/webhook": {
+   "post": {
+    "summary": "Webhook Telegram",
+    "operationId": "webhook_telegram_tg_webhook_post",
+    "parameters": [
+     {
+      "name": "x-telegram-bot-api-secret-token",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Telegram-Bot-Api-Secret-Token"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "title": "Update"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/auth/login": {
+   "post": {
+    "tags": [
+     "auth"
+    ],
+    "summary": "Se Connecter",
+    "description": "Réutilise `GestionnaireUtilisateurs.authenticate` (mitige déjà les\nattaques temporelles : un hachage factice est calculé même si l'e-mail\nest inconnu) puis `auth_backend.login` (écrit le jeton, pose le cookie).\nUn identifiant invalide et un compte désactivé renvoient la même erreur\ngénérique, pour ne pas révéler quels comptes existent.",
+    "operationId": "se_connecter_api_auth_login_post",
+    "requestBody": {
+     "content": {
+      "application/x-www-form-urlencoded": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_se_connecter_api_auth_login_post"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/auth/logout": {
+   "post": {
+    "tags": [
+     "auth"
+    ],
+    "summary": "Se Deconnecter",
+    "description": "Révoque le jeton courant (supprimé en base, pas seulement le\ncookie) puis renvoie la réponse de déconnexion du transport (cookie vidé,\n`Max-Age=0`).",
+    "operationId": "se_deconnecter_api_auth_logout_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/moi": {
+   "get": {
+    "summary": "Moi",
+    "operationId": "moi_api_moi_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MoiReponse"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/health": {
+   "get": {
+    "summary": "Health",
+    "description": "Vérifie que la base est joignable. Ne renvoie jamais de détail\nd'exception : uniquement `{\"statut\": \"ok\"/\"ko\", \"base\": \"ok\"/\"injoignable\"}`.",
+    "operationId": "health_health_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "schemas": {
+   "Body_se_connecter_api_auth_login_post": {
+    "properties": {
+     "grant_type": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^password$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Grant Type"
+     },
+     "username": {
+      "type": "string",
+      "title": "Username"
+     },
+     "password": {
+      "type": "string",
+      "format": "password",
+      "title": "Password"
+     },
+     "scope": {
+      "type": "string",
+      "title": "Scope",
+      "default": ""
+     },
+     "client_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Client Id"
+     },
+     "client_secret": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "format": "password",
+      "title": "Client Secret"
+     }
+    },
+    "type": "object",
+    "required": [
+     "username",
+     "password"
+    ],
+    "title": "Body_se_connecter_api_auth_login_post"
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "type": "array",
+      "title": "Detail"
+     }
+    },
+    "type": "object",
+    "title": "HTTPValidationError"
+   },
+   "MoiReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "email": {
+      "type": "string",
+      "title": "Email"
+     },
+     "nom": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Nom"
+     },
+     "role": {
+      "type": "string",
+      "title": "Role"
+     },
+     "agence": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Agence"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "email",
+     "nom",
+     "role",
+     "agence"
+    ],
+    "title": "MoiReponse"
+   },
+   "ValidationError": {
+    "properties": {
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "type": "array",
+      "title": "Location"
+     },
+     "msg": {
+      "type": "string",
+      "title": "Message"
+     },
+     "type": {
+      "type": "string",
+      "title": "Error Type"
+     },
+     "input": {
+      "title": "Input"
+     },
+     "ctx": {
+      "type": "object",
+      "title": "Context"
+     }
+    },
+    "type": "object",
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError"
+   }
+  }
+ }
+}

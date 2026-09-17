@@ -13,3 +13,5 @@ tests/
 deploy/
 var/
 *.md
+web/node_modules
+web/dist
