@@ -548,6 +548,67 @@ async def test_enregistrer_extraction_bl_relance_reste_a_verifier_sans_motif(
 
 
 # --------------------------------------------------------------------------
+# Ruling R11 (revue L3-T8a) : une relance (`relance=True`) garde le
+# `fournisseur_id` déjà résolu du document — le contrôle de doublon d'une
+# annotation illisible doit l'utiliser (au lieu d'un `fournisseur_id=None`
+# figé), sous peine de violer l'unicité `(fournisseur_id, numero)` en
+# écrivant un numéro déjà porté par un autre document du même fournisseur.
+# --------------------------------------------------------------------------
+
+
+async def test_annotation_illisible_doublon_utilise_le_fournisseur_du_document(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur_peintures_exemple(db_session)
+    premier = await _creer_document(db_session)
+    resultat_premier = await enregistrer_extraction_bl(
+        db_session, premier.id, _reponse_synthetique()
+    )
+    assert resultat_premier.statut == "recu"
+    assert resultat_premier.numero == NUMERO_BL_SYNTHETIQUE
+
+    # Document déjà rattaché à ce fournisseur avant la relance (résolu ou
+    # corrigé auparavant, cf. Ruling R11) — jamais fait par
+    # `enregistrer_extraction_bl` lui-même dans la branche annotation
+    # illisible, donc renseigné directement ici.
+    document = Document(
+        type="bl",
+        source="telegram",
+        statut="a_verifier",
+        fichier_path="chemin-invente-relance.jpg",
+        fournisseur_id=fournisseur.id,
+    )
+    db_session.add(document)
+    await db_session.commit()
+    await db_session.refresh(document)
+
+    # Annotation illisible, mais le motif déterministe existant
+    # (`detecter_numero_bl`, indépendant de l'annotation) retrouve le même
+    # numéro que le premier document dans le texte OCR déjà présent sur la
+    # donnée synthétique (« BON DE LIVRAISON N°L209900000123 »).
+    reponse = _reponse_synthetique()
+    reponse["document_annotation"] = None
+
+    resultat = await enregistrer_extraction_bl(
+        db_session, document.id, reponse, relance=True
+    )
+
+    assert resultat.statut == "a_verifier"
+    assert resultat.numero is None
+
+    await db_session.refresh(document)
+    assert document.numero is None
+    assert document.fournisseur_id == fournisseur.id
+
+    motif = next(m for m in _motifs(document) if m["code"] == "numero_en_double")
+    assert motif["champ"] == "numero"
+    assert motif["detail"] == {
+        "numero": NUMERO_BL_SYNTHETIQUE,
+        "numero_interne_existant": str(premier.numero_interne),
+    }
+
+
+# --------------------------------------------------------------------------
 # L3-T6b (constat 11, L3-D24/L3-D26) : deux quantités par ligne persistées
 # dans le bon sens, ratio proposé, ligne d'éco-participation sans article.
 # --------------------------------------------------------------------------

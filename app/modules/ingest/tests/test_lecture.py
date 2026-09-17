@@ -28,6 +28,7 @@ from app.modules.ingest.lecture import (
     DocumentIntrouvable,
     FactureIntrouvable,
     MotifLu,
+    confirmation_document,
     documents_bl_par_numeros,
     facture_detail,
     fichier_document,
@@ -199,6 +200,8 @@ async def _creer_document_bl(
     confirme_le: datetime | None = None,
     photo_compressee: bool | None = None,
     fichier_path: str | None = None,
+    fournisseur: Fournisseur | None = None,
+    chantier_brut: str | None = None,
 ) -> Document:
     document = Document(
         type=type_,
@@ -210,6 +213,8 @@ async def _creer_document_bl(
         confirme_par=confirme_par.id if confirme_par is not None else None,
         confirme_le=confirme_le,
         photo_compressee=photo_compressee,
+        fournisseur_id=fournisseur.id if fournisseur is not None else None,
+        chantier_brut=chantier_brut,
     )
     if created_at is not None:
         document.created_at = created_at
@@ -834,6 +839,49 @@ async def test_lister_documents_sans_deposant_ni_confirmateur(
 
 
 # --------------------------------------------------------------------------
+# lister_documents — fournisseur / chantier_brut (L3-T8a, écran « détail
+# d'un BL » : ces deux champs permettent d'afficher un aperçu utile dans la
+# liste, sans ouvrir chaque document).
+# --------------------------------------------------------------------------
+
+
+async def test_lister_documents_fournisseur_et_chantier_brut_exposes(
+    db_session: AsyncSession,
+) -> None:
+    admin = await _creer_utilisateur(db_session, role="admin")
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur Détail")
+    document = await _creer_document_bl(
+        db_session,
+        numero="L370",
+        fournisseur=fournisseur,
+        chantier_brut="CHANTIER BRUT INVENTE",
+    )
+
+    resultat = await lister_documents(
+        db_session, utilisateur_id=admin.id, role="admin", depuis=None, limite=100
+    )
+
+    assert len(resultat) == 1
+    assert resultat[0].id == document.id
+    assert resultat[0].fournisseur == "Fournisseur Détail"
+    assert resultat[0].chantier_brut == "CHANTIER BRUT INVENTE"
+
+
+async def test_lister_documents_sans_fournisseur_ni_chantier_brut(
+    db_session: AsyncSession,
+) -> None:
+    admin = await _creer_utilisateur(db_session, role="admin")
+    await _creer_document_bl(db_session, numero="L371")
+
+    resultat = await lister_documents(
+        db_session, utilisateur_id=admin.id, role="admin", depuis=None, limite=100
+    )
+
+    assert resultat[0].fournisseur is None
+    assert resultat[0].chantier_brut is None
+
+
+# --------------------------------------------------------------------------
 # lister_documents — confirmation (Ruling L2-R8, revue L2-T7 tour 1/5)
 #
 # Constat de revue corrigé ici : `statut` seul ne dit jamais si un document
@@ -949,6 +997,79 @@ async def test_lister_documents_confirmation_sans_n_plus_1(
     # Une seule requête (jointure sur une sous-requête), jamais une par
     # document.
     assert compteur["n"] <= 1
+
+
+# --------------------------------------------------------------------------
+# confirmation_document (L3-T8a, `ingest/corrections.py::detail_document`) :
+# même mapping action -> confirmation que `lister_documents`
+# (`_CONFIRMATION_PAR_ACTION`), mais pour un seul document — extrait ici pour
+# être réutilisé sans dupliquer le calcul (décision du contrôleur).
+# --------------------------------------------------------------------------
+
+
+async def test_confirmation_document_verifiee(db_session: AsyncSession) -> None:
+    confirmateur = await _creer_utilisateur(db_session, role="agent")
+    document = await _creer_document_bl(db_session, numero="L380")
+    await _creer_journal_confirmation(
+        db_session,
+        document=document,
+        action="quantites_verifiees",
+        utilisateur=confirmateur,
+    )
+
+    resultat = await confirmation_document(db_session, document.id)
+
+    assert resultat == "verifiee"
+
+
+async def test_confirmation_document_ecart(db_session: AsyncSession) -> None:
+    confirmateur = await _creer_utilisateur(db_session, role="agent")
+    document = await _creer_document_bl(db_session, numero="L381")
+    await _creer_journal_confirmation(
+        db_session, document=document, action="ecart_constate", utilisateur=confirmateur
+    )
+
+    resultat = await confirmation_document(db_session, document.id)
+
+    assert resultat == "ecart"
+
+
+async def test_confirmation_document_absente_sans_clic(
+    db_session: AsyncSession,
+) -> None:
+    document = await _creer_document_bl(db_session, numero="L382")
+
+    resultat = await confirmation_document(db_session, document.id)
+
+    assert resultat is None
+
+
+async def test_confirmation_document_derniere_action_fait_foi(
+    db_session: AsyncSession,
+) -> None:
+    """Deux clics successifs (cas improbable en pratique, `_decider_clic`
+    n'en journalise qu'un — cf. `lister_documents`) : la plus récente des
+    deux actions fait foi, comme pour `lister_documents`."""
+    confirmateur = await _creer_utilisateur(db_session, role="agent")
+    document = await _creer_document_bl(db_session, numero="L383")
+    await _creer_journal_confirmation(
+        db_session,
+        document=document,
+        action="quantites_verifiees",
+        utilisateur=confirmateur,
+        horodatage=_instant(0),
+    )
+    await _creer_journal_confirmation(
+        db_session,
+        document=document,
+        action="ecart_constate",
+        utilisateur=confirmateur,
+        horodatage=_instant(10),
+    )
+
+    resultat = await confirmation_document(db_session, document.id)
+
+    assert resultat == "ecart"
 
 
 # --------------------------------------------------------------------------

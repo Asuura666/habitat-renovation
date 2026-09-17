@@ -51,6 +51,7 @@ R5 prend le relais (`enregistrer_echec_ocr`).
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
@@ -166,8 +167,13 @@ async def _enregistrer_annotation_illisible(
     possible, seul le numéro éventuellement détecté par le motif
     déterministe existant (`detecter_numero_bl`, indépendant de l'annotation)
     est conservé. Le doublon est traité par le même mécanisme que le flux
-    principal (L3-D11), avec `fournisseur_id=None` (jamais résolu ici, faute
-    d'annotation à lire)."""
+    principal (L3-D11), avec `document.fournisseur_id` (Ruling R11, revue
+    L3-T8a) : jamais résolu par cette branche elle-même (faute d'annotation à
+    lire), mais une **relance** (`enregistrer_extraction_bl(...,
+    relance=True)`) garde le `fournisseur_id` déjà résolu ou corrigé avant —
+    un `fournisseur_id=None` figé ici manquerait alors un doublon réel et
+    ferait échouer le commit sur l'unicité `(fournisseur_id, numero)` avec
+    une `IntegrityError` brute plutôt que le motif applicatif attendu."""
     numero_detecte = detecter_numero_bl(texte_ocr(reponse))
     numero: str | None = numero_detecte.numero if numero_detecte is not None else None
 
@@ -177,7 +183,7 @@ async def _enregistrer_annotation_illisible(
 
     if numero is not None:
         numero_interne_existant = await _numero_interne_doublon(
-            session, document.id, None, numero
+            session, document.id, document.fournisseur_id, numero
         )
         if numero_interne_existant is not None:
             motifs.append(
@@ -241,6 +247,32 @@ async def _enregistrer_annotation_illisible(
     )
 
 
+async def _avec_reprise_doublon(
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    executer: Callable[[], Awaitable[ResultatExtraction]],
+) -> ResultatExtraction:
+    """Rejoue une seule fois `executer` (qui doit committer) si son commit
+    lève `IntegrityError` (Finding 3, fix round 1 ; Ruling R11, revue
+    L3-T8a) : partagé par le flux principal (`_extraire_et_committer`) et
+    l'annotation illisible (`_enregistrer_annotation_illisible`) — dans les
+    deux cas, une course entre deux écritures concurrentes du même
+    `(fournisseur_id, numero)` peut faire manquer le contrôle applicatif de
+    doublon avant que l'une des deux commit ; après `rollback`, la ligne
+    concurrente est désormais visible et `_numero_interne_doublon` la
+    détecte normalement. Un second échec (course encore plus improbable)
+    n'est pas rattrapé, il remonte tel quel."""
+    try:
+        return await executer()
+    except IntegrityError:
+        await session.rollback()
+        # Les lignes supprimées avant la première tentative ont, elles
+        # aussi, été annulées par le `rollback` : on les resupprime avant de
+        # rejouer (un `DELETE` sans ligne à supprimer ne fait rien).
+        await session.execute(delete(Ligne).where(Ligne.document_id == document_id))
+        return await executer()
+
+
 async def enregistrer_extraction_bl(
     session: AsyncSession,
     document_id: uuid.UUID,
@@ -255,11 +287,13 @@ async def enregistrer_extraction_bl(
     reste `a_verifier` même sans aucun motif — seul « Valider »
     (`ingest/corrections.py`, L3-T8a) le repasse `recu`.
 
-    Finding 3 (fix round 1) : la résolution des référentiels et l'écriture
-    (`_extraire_et_committer`) sont rejouées une seule fois si le commit lève
-    `IntegrityError` (course entre deux dépôts concurrents du même numéro
-    pour le même fournisseur, cf. docstring du module) ; un second échec
-    remonte tel quel.
+    Finding 3 (fix round 1) / Ruling R11 (revue L3-T8a) : la résolution des
+    référentiels et l'écriture (`_extraire_et_committer`, ou
+    `_enregistrer_annotation_illisible` si l'annotation est illisible) sont
+    rejouées une seule fois si le commit lève `IntegrityError` (course entre
+    deux écritures concurrentes du même numéro pour le même fournisseur, cf.
+    docstring du module et `_avec_reprise_doublon`) ; un second échec remonte
+    tel quel.
     """
     document = await session.get(Document, document_id)
     if document is None:
@@ -278,24 +312,19 @@ async def enregistrer_extraction_bl(
     try:
         extrait = analyser_bl(reponse)
     except AnnotationIllisible:
-        return await _enregistrer_annotation_illisible(session, document, reponse)
+        return await _avec_reprise_doublon(
+            session,
+            document_id,
+            lambda: _enregistrer_annotation_illisible(session, document, reponse),
+        )
 
-    try:
-        return await _extraire_et_committer(
+    return await _avec_reprise_doublon(
+        session,
+        document_id,
+        lambda: _extraire_et_committer(
             session, document, document_id, extrait, reponse, seuil, tolerance, relance
-        )
-    except IntegrityError:
-        # Finding 3 (fix round 1) : rejoue une seule fois après rollback —
-        # la ligne concurrente est alors visible, le doublon est détecté
-        # normalement (motif `NUMERO_EN_DOUBLE`) au lieu d'un second échec
-        # brut. Les lignes supprimées avant la première tentative ont, elles
-        # aussi, été annulées par le rollback : on les resupprime avant de
-        # rejouer (un `DELETE` sans ligne à supprimer ne fait rien).
-        await session.rollback()
-        await session.execute(delete(Ligne).where(Ligne.document_id == document_id))
-        return await _extraire_et_committer(
-            session, document, document_id, extrait, reponse, seuil, tolerance, relance
-        )
+        ),
+    )
 
 
 async def _extraire_et_committer(

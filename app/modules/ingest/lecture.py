@@ -449,7 +449,8 @@ async def facture_detail(session: AsyncSession, facture_id: uuid.UUID) -> Factur
 @dataclass(frozen=True)
 class DocumentResume:
     """Une ligne de `GET /api/documents` (L2-T5, `confirmation` ajouté au
-    Ruling L2-R8)."""
+    Ruling L2-R8 ; `fournisseur`/`chantier_brut` ajoutés en L3-T8a pour un
+    aperçu utile dans la liste, sans ouvrir le détail de chaque document)."""
 
     id: uuid.UUID
     numero_interne: int
@@ -464,6 +465,8 @@ class DocumentResume:
     # "verifiee" | "ecart" | None (Ruling L2-R8) — jamais dérivé de `statut`
     # côté front, voir `_CONFIRMATION_PAR_ACTION` ci-dessus.
     confirmation: str | None
+    fournisseur: str | None
+    chantier_brut: str | None
 
 
 LIMITE_DOCUMENTS_MIN = 1
@@ -525,6 +528,7 @@ async def lister_documents(
             func.coalesce(deposant_alias.nom, deposant_alias.email),
             func.coalesce(confirmateur_alias.nom, confirmateur_alias.email),
             dernier_journal_confirmation.c.action,
+            Fournisseur.nom,
         )
         .outerjoin(deposant_alias, deposant_alias.id == Document.deposant_id)
         .outerjoin(confirmateur_alias, confirmateur_alias.id == Document.confirme_par)
@@ -532,6 +536,10 @@ async def lister_documents(
             dernier_journal_confirmation,
             dernier_journal_confirmation.c.cible_id == cast(Document.id, String),
         )
+        # L3-T8a : nom du fournisseur pour l'aperçu de liste (`fournisseur`) —
+        # jointure externe (un BL/enlèvement peut ne pas avoir de fournisseur
+        # résolu), jamais de requête supplémentaire par document.
+        .outerjoin(Fournisseur, Fournisseur.id == Document.fournisseur_id)
         .where(*conditions)
         .order_by(Document.created_at.desc())
         .limit(limite)
@@ -551,9 +559,42 @@ async def lister_documents(
             confirmation=_CONFIRMATION_PAR_ACTION.get(action_journal)
             if action_journal is not None
             else None,
+            fournisseur=nom_fournisseur,
+            chantier_brut=document.chantier_brut,
         )
-        for document, nom_deposant, nom_confirmateur, action_journal in resultat.all()
+        for (
+            document,
+            nom_deposant,
+            nom_confirmateur,
+            action_journal,
+            nom_fournisseur,
+        ) in resultat.all()
     ]
+
+
+async def confirmation_document(
+    session: AsyncSession, document_id: uuid.UUID
+) -> str | None:
+    """Dernière confirmation (`quantites_verifiees`/`ecart_constate`) d'un
+    document, pour son détail (`ingest/corrections.py::detail_document`,
+    L3-T8a) — même mapping action -> confirmation que `lister_documents`
+    (`_CONFIRMATION_PAR_ACTION`), extrait ici pour être réutilisé sans le
+    dupliquer. Une seule ligne (`ORDER BY horodatage DESC LIMIT 1`), sans la
+    sous-requête `DISTINCT ON` de `lister_documents` (utile seulement pour
+    éviter le N+1 sur une liste entière, superflue ici)."""
+    action = (
+        await session.execute(
+            select(Journal.action)
+            .where(
+                Journal.cible_table == "document",
+                Journal.cible_id == str(document_id),
+                Journal.action.in_(tuple(_CONFIRMATION_PAR_ACTION)),
+            )
+            .order_by(Journal.horodatage.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return _CONFIRMATION_PAR_ACTION.get(action) if action is not None else None
 
 
 class DocumentIntrouvable(Exception):

@@ -172,6 +172,9 @@ async def test_liste_admin_voit_tous_les_documents(
     # Ruling L2-R8 (revue L2-T7, tour 1/5) : aucun clic -> `confirmation`
     # absente, jamais dérivée de `statut`.
     assert ligne["confirmation"] is None
+    # L3-T8a : aucun fournisseur/chantier résolu sur ce document minimal.
+    assert ligne["fournisseur"] is None
+    assert ligne["chantier_brut"] is None
     assert set(ligne.keys()) == {
         "id",
         "numero_interne",
@@ -184,6 +187,8 @@ async def test_liste_admin_voit_tous_les_documents(
         "confirme_par",
         "photo_compressee",
         "confirmation",
+        "fournisseur",
+        "chantier_brut",
     }
 
 
