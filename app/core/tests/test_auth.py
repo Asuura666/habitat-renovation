@@ -40,6 +40,7 @@ from app.core.auth import (
     desactiver_utilisateur,
 )
 from app.core.auth import router as auth_router
+from app.core.origine import ControleOrigineMiddleware
 from app.modules.api import router as api_router
 from app.modules.ingest.models import JetonSession, Journal, Utilisateur
 
@@ -59,8 +60,14 @@ def _ip_isolee() -> str:
 
 def _app_test(sessions: async_sessionmaker[AsyncSession]) -> FastAPI:
     """`FastAPI` isolé : seul l'état partagé avec la production est le
-    contrat des dépendances (`get_session` lit `app.state.sessions`)."""
+    contrat des dépendances (`get_session` lit `app.state.sessions`). Le
+    contrôle d'origine (`ControleOrigineMiddleware`, point 2 de la vague
+    finale du lot 2) est ajouté comme en production (`app/main.py`) : les
+    tests existants ne sont pas affectés (httpx n'envoie ni `Origin` ni
+    `Sec-Fetch-Site` par défaut), seuls les tests dédiés ci-dessous en
+    tirent parti."""
     app_test = FastAPI()
+    app_test.add_middleware(ControleOrigineMiddleware)
     app_test.state.sessions = sessions
     app_test.include_router(auth_router)
     app_test.include_router(api_router)
@@ -95,12 +102,19 @@ async def _creer_utilisateur(
 
 
 async def _login(
-    app_test: FastAPI, *, email: str, mot_de_passe: str, ip: str
+    app_test: FastAPI,
+    *,
+    email: str,
+    mot_de_passe: str,
+    ip: str,
+    headers: dict[str, str] | None = None,
 ) -> httpx.Response:
     transport = ASGITransport(app=app_test, client=(ip, 12345))
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         return await client.post(
-            "/api/auth/login", data={"username": email, "password": mot_de_passe}
+            "/api/auth/login",
+            data={"username": email, "password": mot_de_passe},
+            headers=headers or {},
         )
 
 
@@ -256,6 +270,66 @@ async def test_login_6e_tentative_dans_la_minute_renvoie_429(
 
     assert [r.status_code for r in reponses[:5]] == [400] * 5
     assert reponses[5].status_code == 429
+
+
+# ---------------------------------------------------------------------------
+# Contrôle d'origine (point 2, vague finale du lot 2) sur une vraie route
+# modifiante (`POST /api/auth/login`) — tests unitaires du middleware dans
+# `test_origine.py`.
+# ---------------------------------------------------------------------------
+
+
+async def test_login_origine_etrangere_refusee_403(
+    db_session: AsyncSession, sessions_test: async_sessionmaker[AsyncSession]
+) -> None:
+    await _creer_utilisateur(db_session, email="agent.origine1@example.invalid")
+    app_test = _app_test(sessions_test)
+
+    reponse = await _login(
+        app_test,
+        email="agent.origine1@example.invalid",
+        mot_de_passe=_MOT_DE_PASSE,
+        ip=_ip_isolee(),
+        headers={"Origin": "https://evil.example"},
+    )
+
+    assert reponse.status_code == 403
+    assert reponse.json() == {"detail": "Origine refusée."}
+
+
+async def test_login_meme_origine_accepte(
+    db_session: AsyncSession, sessions_test: async_sessionmaker[AsyncSession]
+) -> None:
+    await _creer_utilisateur(db_session, email="agent.origine2@example.invalid")
+    app_test = _app_test(sessions_test)
+
+    reponse = await _login(
+        app_test,
+        email="agent.origine2@example.invalid",
+        mot_de_passe=_MOT_DE_PASSE,
+        ip=_ip_isolee(),
+        headers={"Origin": "http://test"},
+    )
+
+    assert reponse.status_code == 204
+
+
+async def test_login_sec_fetch_site_cross_site_refuse_403(
+    db_session: AsyncSession, sessions_test: async_sessionmaker[AsyncSession]
+) -> None:
+    await _creer_utilisateur(db_session, email="agent.origine3@example.invalid")
+    app_test = _app_test(sessions_test)
+
+    reponse = await _login(
+        app_test,
+        email="agent.origine3@example.invalid",
+        mot_de_passe=_MOT_DE_PASSE,
+        ip=_ip_isolee(),
+        headers={"Sec-Fetch-Site": "cross-site"},
+    )
+
+    assert reponse.status_code == 403
+    assert reponse.json() == {"detail": "Origine refusée."}
 
 
 # ---------------------------------------------------------------------------

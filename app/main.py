@@ -19,6 +19,7 @@ from app.core.auth import router as auth_router
 from app.core.config import get_settings
 from app.core.db import base_joignable, creer_engine, creer_sessionmaker
 from app.core.front import monter_front
+from app.core.origine import ControleOrigineMiddleware
 from app.modules.api import router as api_router
 from app.modules.ingest.router import router as ingest_router
 
@@ -44,6 +45,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(lifespan=lifespan)
+# Point 2 (vague finale du lot 2) : défense en profondeur CSRF sur `/api/*`
+# (voir `app/core/origine.py`) — `/tg/webhook` n'est pas concerné.
+app.add_middleware(ControleOrigineMiddleware)
 app.include_router(ingest_router)
 app.include_router(auth_router)
 app.include_router(api_router)

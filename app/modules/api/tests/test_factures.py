@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.auth import NOM_COOKIE
 from app.core.auth import router as auth_router
 from app.core.config import get_settings
+from app.core.origine import ControleOrigineMiddleware
 from app.modules.api import router as api_router
 from app.modules.api.factures import _TAILLE_MAX_OCTETS
 from app.modules.ingest import factures as ingest_factures
@@ -88,6 +89,11 @@ def _app_test(
     sessions: async_sessionmaker[AsyncSession], docs_dir: Path, ocr: _OcrFn
 ) -> FastAPI:
     app_test = FastAPI()
+    # Point 2 (vague finale du lot 2) : contrôle d'origine ajouté comme en
+    # production (`app/main.py`) — voir `app/core/tests/test_origine.py`
+    # pour les tests unitaires du middleware, et les tests dédiés plus bas
+    # dans ce fichier pour son intégration avec `POST /api/factures`.
+    app_test.add_middleware(ControleOrigineMiddleware)
     app_test.state.sessions = sessions
     app_test.include_router(auth_router)
     app_test.include_router(api_router)
@@ -136,6 +142,7 @@ async def _deposer(
     *,
     cookie: str | None,
     contenu: bytes = _SIGNATURE_PDF_INVENTEE,
+    headers: dict[str, str] | None = None,
 ) -> httpx.Response:
     transport = ASGITransport(app=app_test, client=("10.0.0.1", 12345))
     cookies = {NOM_COOKIE: cookie} if cookie is not None else None
@@ -145,6 +152,7 @@ async def _deposer(
         return await client.post(
             "/api/factures",
             files={"fichier": ("facture.pdf", contenu, "application/pdf")},
+            headers=headers or {},
         )
 
 
@@ -177,6 +185,52 @@ async def test_agent_renvoie_403(
     reponse = await _deposer(app_test, cookie=cookie)
 
     assert reponse.status_code == 403
+
+
+# --------------------------------------------------------------------------
+# Contrôle d'origine (point 2, vague finale du lot 2) — le middleware
+# refuse avant même l'authentification (aucun cookie ici) : tests unitaires
+# du middleware dans `app/core/tests/test_origine.py`.
+# --------------------------------------------------------------------------
+
+
+async def test_depot_origine_etrangere_refusee_403(
+    sessions_test: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    app_test = _app_test(sessions_test, tmp_path, _ocr_jamais_appele)
+
+    reponse = await _deposer(
+        app_test, cookie=None, headers={"Origin": "https://evil.example"}
+    )
+
+    assert reponse.status_code == 403
+    assert reponse.json() == {"detail": "Origine refusée."}
+
+
+async def test_depot_meme_origine_atteint_lauthentification(
+    sessions_test: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    """Même origine (ou absence d'`Origin`) : le contrôle laisse passer la
+    requête, qui échoue ensuite normalement en 401 (aucun cookie) — preuve
+    qu'elle a bien dépassé le middleware d'origine."""
+    app_test = _app_test(sessions_test, tmp_path, _ocr_jamais_appele)
+
+    reponse = await _deposer(app_test, cookie=None, headers={"Origin": "http://test"})
+
+    assert reponse.status_code == 401
+
+
+async def test_depot_sec_fetch_site_cross_site_refuse_403(
+    sessions_test: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    app_test = _app_test(sessions_test, tmp_path, _ocr_jamais_appele)
+
+    reponse = await _deposer(
+        app_test, cookie=None, headers={"Sec-Fetch-Site": "cross-site"}
+    )
+
+    assert reponse.status_code == 403
+    assert reponse.json() == {"detail": "Origine refusée."}
 
 
 # --------------------------------------------------------------------------

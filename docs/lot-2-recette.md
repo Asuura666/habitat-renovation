@@ -79,6 +79,7 @@ ni poussé** — cette recette reste sur la branche du worktree.
 | L2-D15 | Types front via schéma OpenAPI + `openapi-typescript` — **remplacé en pratique par le Ruling L2-R1** (script npm, pas de sous-commande CLI) | Ajout d'openapi-fetch |
 | L2-D16 | Service front : `StaticFiles` sur `/assets` + fallback `index.html` (hors `/api`,`/tg`,`/health`,`/docs`,`/redoc`,`/openapi.json`), monté seulement si `web/dist` existe | — |
 | L2-D17 | Contrôles front en pre-commit : `tsc --noEmit` + `vite build`, pas de tests unitaires front | Dette notée |
+| L2-D18 | CSRF (vague finale du lot 2, point 2) : `SameSite=Lax` + pas de CORS + contrôle d'origine (`app/core/origine.py`), pas de jeton CSRF — refuse (403) toute requête modifiante sur `/api/*` dont `Origin` diffère de l'origine du service ou dont `Sec-Fetch-Site` vaut `cross-site` ; absence des deux en-têtes acceptée ; `/tg/webhook` non concerné | Un jeton CSRF classique, sans bénéfice ici (même origine, pas de CORS) |
 
 ### Rulings du journal (`progress.md`)
 

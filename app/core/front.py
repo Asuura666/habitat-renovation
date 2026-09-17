@@ -76,4 +76,12 @@ def monter_front(app: FastAPI, dossier: Path) -> None:
     async def _servir_index(chemin_complet: str) -> Response:
         if _chemin_reserve(f"/{chemin_complet}"):
             raise HTTPException(status_code=404)
-        return FileResponse(index_html)
+        # Point 3 (vague finale du lot 2) : `index.html` référence les
+        # fichiers hachés de `assets/` par leur nom (donc leur contenu) —
+        # un navigateur qui le mettrait en cache verrait une page qui pointe
+        # vers un bundle déjà remplacé après un déploiement. Les fichiers
+        # sous `assets/` (servis par `StaticFiles` ci-dessus, noms hachés)
+        # restent, eux, cachables sans limite : seul `index.html` porte
+        # `Cache-Control: no-cache` (revalidation à chaque chargement,
+        # jamais servi périmé depuis le cache local).
+        return FileResponse(index_html, headers={"Cache-Control": "no-cache"})

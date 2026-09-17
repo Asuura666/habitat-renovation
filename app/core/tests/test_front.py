@@ -64,6 +64,15 @@ async def test_racine_sert_index_html(app_front: FastAPI) -> None:
     assert "text/html" in reponse.headers["content-type"]
 
 
+async def test_racine_index_html_pas_de_cache(app_front: FastAPI) -> None:
+    """Point 3 (vague finale du lot 2) : `index.html` référence les fichiers
+    hachés de `assets/` par leur nom — jamais mis en cache par le
+    navigateur, contrairement aux fichiers sous `assets/` eux-mêmes."""
+    reponse = await _get(app_front, "/")
+
+    assert reponse.headers["cache-control"] == "no-cache"
+
+
 async def test_route_front_inconnue_sert_aussi_index_html(app_front: FastAPI) -> None:
     """React Router décide côté client de la page affichée : `/factures`
     (ou toute autre route du front) doit recevoir le même `index.html`."""
@@ -73,11 +82,22 @@ async def test_route_front_inconnue_sert_aussi_index_html(app_front: FastAPI) ->
     assert reponse.text == _INDEX_HTML
 
 
+async def test_route_front_inconnue_index_html_pas_de_cache(
+    app_front: FastAPI,
+) -> None:
+    reponse = await _get(app_front, "/factures")
+
+    assert reponse.headers["cache-control"] == "no-cache"
+
+
 async def test_assets_sont_servis(app_front: FastAPI) -> None:
     reponse = await _get(app_front, "/assets/x.js")
 
     assert reponse.status_code == 200
     assert reponse.text == _ASSET_JS
+    # Point 3 : contrairement à `index.html`, les fichiers hachés de
+    # `assets/` restent cachables (aucun `Cache-Control: no-cache` ajouté).
+    assert reponse.headers.get("cache-control") != "no-cache"
 
 
 async def test_route_api_inexistante_renvoie_404_json_pas_index(
