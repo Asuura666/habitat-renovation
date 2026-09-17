@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router";
+import { NavLink, Outlet, useNavigate } from "react-router";
 
 import { appelerApi } from "../api/client";
 import { CLE_MOI, recupererMoi } from "../api/moi";
@@ -10,10 +10,19 @@ const LIBELLES_ROLE: Record<string, string> = {
   agent: "Agent",
 };
 
-/** Gabarit de l'application : en-tête (nom, rôle, déconnexion) + contenu.
- * N'est monté qu'à l'intérieur de `RouteProtegee`, donc `["moi"]` est déjà en
- * cache (même clé de requête) : pas d'appel réseau supplémentaire tant que
- * les données ne sont pas jugées périmées. */
+function classesOnglet({ isActive }: { isActive: boolean }): string {
+  const base = "inline-block border-b-2 px-1 py-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-blue-600";
+  return isActive
+    ? `${base} border-blue-600 text-blue-700`
+    : `${base} border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900`;
+}
+
+/** Gabarit de l'application : en-tête (nom, rôle, déconnexion), onglets de
+ * navigation (décision du contrôleur L2-T7 : « Factures » réservé à
+ * l'admin, « BL déposés » ouvert aux deux rôles) et contenu de la route
+ * active (`<Outlet />`). N'est monté qu'à l'intérieur de `RouteProtegee`,
+ * donc `["moi"]` est déjà en cache (même clé de requête) : pas d'appel
+ * réseau supplémentaire tant que les données ne sont pas jugées périmées. */
 export function Gabarit(): ReactElement {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -50,11 +59,27 @@ export function Gabarit(): ReactElement {
         </button>
       </header>
 
+      {moi && (
+        <nav aria-label="Navigation principale" className="border-b border-slate-200 bg-white px-4 sm:px-6">
+          <ul className="flex gap-6">
+            {moi.role === "admin" && (
+              <li>
+                <NavLink to="/factures" className={classesOnglet}>
+                  Factures
+                </NavLink>
+              </li>
+            )}
+            <li>
+              <NavLink to="/bl" className={classesOnglet}>
+                BL déposés
+              </NavLink>
+            </li>
+          </ul>
+        </nav>
+      )}
+
       <main className="px-4 py-6 sm:px-6">
-        <h1 className="mb-4 text-lg font-semibold text-slate-900">Factures</h1>
-        <p className="text-sm text-slate-600">
-          Contenu à venir (écran « Factures », tâche L2-T7).
-        </p>
+        <Outlet />
       </main>
     </div>
   );
