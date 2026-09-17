@@ -274,3 +274,128 @@ class ArchivageRequete(BaseModel):
         if not valeur.strip():
             raise ValueError("commentaire requis")
         return valeur
+
+
+# --------------------------------------------------------------------------
+# Écran « À traiter » et référentiels admin (L3-T8b) : schémas construits à
+# partir des dataclasses d'`ingest/a_traiter.py` (`DocumentATraiter`,
+# `AliasEnAttente`, `ArticleAValider`, `ATraiter`) et d'`ingest/
+# referentiels.py` (`ChantierResume`, `FournisseurResume`).
+# --------------------------------------------------------------------------
+
+
+class DocumentATraiterReponse(BaseModel):
+    """Une ligne « document à vérifier » de `GET /api/a-traiter` — mêmes
+    attributs qu'`ingest.a_traiter.DocumentATraiter`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    numero_interne: int
+    type: str
+    numero: str | None
+    fournisseur: str | None
+    chantier_brut: str | None
+    deposant: str | None
+    cree_le: datetime
+    confirmation: Literal["verifiee", "ecart"] | None
+    motifs: list[MotifReponse]
+
+
+class AliasEnAttenteReponse(BaseModel):
+    """Un alias chantier en attente de validation, dans `GET /api/a-traiter`
+    — mêmes attributs qu'`ingest.a_traiter.AliasEnAttente`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    fournisseur: str
+    libelle: str
+    exemple_brut: str | None
+    nb_documents: int
+    cree_le: datetime
+
+
+class ArticleAValiderReponse(BaseModel):
+    """Un article à valider, dans `GET /api/a-traiter` — mêmes attributs
+    qu'`ingest.a_traiter.ArticleAValider`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    fournisseur: str
+    code: str
+    libelle: str | None
+    unite_cdt: str | None
+    unite_fact: str | None
+    ratio: Decimal | None
+    cree_le: datetime
+
+
+class ATraiterReponse(BaseModel):
+    """`GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    documents: list[DocumentATraiterReponse]
+    alias: list[AliasEnAttenteReponse]
+    articles: list[ArticleAValiderReponse]
+
+
+class ChantierReponse(BaseModel):
+    """Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest
+    .referentiels.ChantierResume`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    nom_canonique: str
+    agence: str | None
+    actif: bool
+
+
+class ChantierCreationRequete(BaseModel):
+    """Corps de `POST /api/chantiers` : nom obligatoire (1 à 200 caractères,
+    blanc refusé), agence optionnelle."""
+
+    nom_canonique: str = Field(min_length=1, max_length=200)
+    agence: str | None = None
+
+    @field_validator("nom_canonique")
+    @classmethod
+    def _nom_non_blanc(cls, valeur: str) -> str:
+        if not valeur.strip():
+            raise ValueError("nom requis")
+        return valeur
+
+
+class FournisseurReponse(BaseModel):
+    """Une ligne de `GET /api/fournisseurs` — mêmes attributs qu'`ingest
+    .referentiels.FournisseurResume`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    nom: str
+
+
+class ValidationAliasRequete(BaseModel):
+    """Corps de `POST /api/alias-chantier/{id}/validation`."""
+
+    chantier_id: uuid.UUID
+
+
+class ValidationAliasReponse(BaseModel):
+    """Réponse de `POST /api/alias-chantier/{id}/validation`."""
+
+    nb_mis_a_jour: int
+
+
+class ValidationArticleRequete(BaseModel):
+    """Corps de `POST /api/articles/{id}/validation` : `ratio` strictement
+    positif s'il est fourni (`gt=0`, revérifié aussi côté service en défense
+    en profondeur)."""
+
+    unite_cdt: str | None = None
+    unite_fact: str | None = None
+    ratio: Decimal | None = Field(default=None, gt=0)

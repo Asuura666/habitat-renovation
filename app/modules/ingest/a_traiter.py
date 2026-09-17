@@ -1,0 +1,250 @@
+"""Écran « À traiter » de l'admin (L3-D18, L3-T8b) : documents « à
+vérifier » (BL, enlèvements et factures), alias chantier en attente de
+validation et articles dont le ratio proposé attend une validation.
+
+Sous-module de `ingest`, orchestrateur de lecture seule : chaque section
+(`documents`, `alias`, `articles`) est construite par sa propre fonction
+privée, assemblées par `lister_a_traiter`. La sélection des documents/blocs
+candidats à la propagation d'un alias (`nb_documents`/`exemple_brut` ici,
+propagation dans `ingest.referentiels.valider_alias`) vit dans `referentiels
+.candidats_alias` — décision du contrôleur : ne jamais dupliquer cette
+sélection entre les deux endroits.
+"""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+from datetime import datetime
+from decimal import Decimal
+
+from sqlalchemy import String, cast, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
+
+from app.modules.ingest.lecture import _CONFIRMATION_PAR_ACTION, MotifLu, motifs_lus
+from app.modules.ingest.models import (
+    Article,
+    ChantierAlias,
+    Document,
+    Fournisseur,
+    Journal,
+    Utilisateur,
+)
+from app.modules.ingest.referentiels import candidats_alias
+
+
+@dataclass(frozen=True)
+class DocumentATraiter:
+    """Une ligne « document à vérifier » de l'écran (L3-T8b)."""
+
+    id: uuid.UUID
+    numero_interne: int
+    type: str
+    numero: str | None
+    fournisseur: str | None
+    chantier_brut: str | None
+    deposant: str | None
+    cree_le: datetime
+    confirmation: str | None
+    motifs: list[MotifLu]
+
+
+@dataclass(frozen=True)
+class AliasEnAttente:
+    """Un alias chantier sans `chantier_id` (« demande de validation »,
+    L3-D7), avec un exemple de libellé brut et le nombre de documents/blocs
+    qu'il concerne encore."""
+
+    id: uuid.UUID
+    fournisseur: str
+    libelle: str
+    exemple_brut: str | None
+    nb_documents: int
+    cree_le: datetime
+
+
+@dataclass(frozen=True)
+class ArticleAValider:
+    """Un article non validé dont le ratio proposé diffère de 1 (L3-D9)."""
+
+    id: uuid.UUID
+    fournisseur: str
+    code: str
+    libelle: str | None
+    unite_cdt: str | None
+    unite_fact: str | None
+    ratio: Decimal | None
+    cree_le: datetime
+
+
+@dataclass(frozen=True)
+class ATraiter:
+    """Contenu complet de l'écran « À traiter » (L3-D18)."""
+
+    documents: list[DocumentATraiter]
+    alias: list[AliasEnAttente]
+    articles: list[ArticleAValider]
+
+
+# --------------------------------------------------------------------------
+# Documents « à vérifier »
+# --------------------------------------------------------------------------
+
+
+async def _lister_documents_a_traiter(session: AsyncSession) -> list[DocumentATraiter]:
+    """Tous les documents `a_verifier` (BL, enlèvements, factures), du plus
+    ancien au plus récent (décision du contrôleur : l'admin traite d'abord ce
+    qui attend depuis le plus longtemps).
+
+    Même construction que `ingest.lecture.lister_documents` (jointures
+    fournisseur/déposant, confirmation dérivée du **journal** via
+    `_CONFIRMATION_PAR_ACTION`, réutilisée telle quelle plutôt que
+    redéfinie) : une seule requête, quel que soit le nombre de documents à
+    traiter — jamais de N+1 (décision du contrôleur)."""
+    deposant_alias = aliased(Utilisateur)
+
+    dernier_journal_confirmation = (
+        select(Journal.cible_id, Journal.action)
+        .where(
+            Journal.cible_table == "document",
+            Journal.action.in_(tuple(_CONFIRMATION_PAR_ACTION)),
+        )
+        .distinct(Journal.cible_id)
+        .order_by(Journal.cible_id, Journal.horodatage.desc())
+        .subquery()
+    )
+
+    resultat = await session.execute(
+        select(
+            Document,
+            func.coalesce(deposant_alias.nom, deposant_alias.email),
+            dernier_journal_confirmation.c.action,
+            Fournisseur.nom,
+        )
+        .outerjoin(deposant_alias, deposant_alias.id == Document.deposant_id)
+        .outerjoin(
+            dernier_journal_confirmation,
+            dernier_journal_confirmation.c.cible_id == cast(Document.id, String),
+        )
+        .outerjoin(Fournisseur, Fournisseur.id == Document.fournisseur_id)
+        .where(Document.statut == "a_verifier")
+        .order_by(Document.created_at.asc())
+    )
+    return [
+        DocumentATraiter(
+            id=document.id,
+            numero_interne=document.numero_interne,
+            type=document.type,
+            numero=document.numero,
+            fournisseur=nom_fournisseur,
+            chantier_brut=document.chantier_brut,
+            deposant=nom_deposant,
+            cree_le=document.created_at,
+            confirmation=(
+                _CONFIRMATION_PAR_ACTION.get(action_journal)
+                if action_journal is not None
+                else None
+            ),
+            motifs=motifs_lus(document.motifs),
+        )
+        for (
+            document,
+            nom_deposant,
+            action_journal,
+            nom_fournisseur,
+        ) in resultat.all()
+    ]
+
+
+# --------------------------------------------------------------------------
+# Alias chantier en attente de validation
+# --------------------------------------------------------------------------
+
+
+async def _lister_alias_en_attente(session: AsyncSession) -> list[AliasEnAttente]:
+    """Alias `chantier_id IS NULL`, avec le nombre de documents/blocs
+    concernés et un exemple de libellé brut (le plus récent) — même
+    sélection que la propagation de `referentiels.valider_alias`
+    (`referentiels.candidats_alias`, décision du contrôleur : ne jamais
+    dupliquer cette logique)."""
+    lignes = (
+        await session.execute(
+            select(ChantierAlias, Fournisseur.nom)
+            .join(Fournisseur, Fournisseur.id == ChantierAlias.fournisseur_id)
+            .where(ChantierAlias.chantier_id.is_(None))
+            .order_by(ChantierAlias.created_at.asc())
+        )
+    ).all()
+
+    resultat: list[AliasEnAttente] = []
+    for alias, nom_fournisseur in lignes:
+        documents, blocs = await candidats_alias(
+            session, alias.fournisseur_id, alias.libelle_brut
+        )
+        brut_par_date = [
+            (document.chantier_brut, document.created_at) for document in documents
+        ] + [(bloc.chantier_brut, bloc.created_at) for bloc in blocs]
+        exemple_brut = (
+            max(brut_par_date, key=lambda paire: paire[1])[0] if brut_par_date else None
+        )
+        resultat.append(
+            AliasEnAttente(
+                id=alias.id,
+                fournisseur=nom_fournisseur,
+                libelle=alias.libelle_brut,
+                exemple_brut=exemple_brut,
+                nb_documents=len(brut_par_date),
+                cree_le=alias.created_at,
+            )
+        )
+    return resultat
+
+
+# --------------------------------------------------------------------------
+# Articles à valider
+# --------------------------------------------------------------------------
+
+
+async def _lister_articles_a_valider(session: AsyncSession) -> list[ArticleAValider]:
+    """Articles non validés dont le ratio proposé diffère de 1 (L3-D9,
+    décision du contrôleur : « à valider » = non validé avec un ratio
+    proposé ≠ 1)."""
+    resultat = await session.execute(
+        select(Article, Fournisseur.nom)
+        .join(Fournisseur, Fournisseur.id == Article.fournisseur_id)
+        .where(
+            Article.valide.is_(False),
+            Article.ratio.is_not(None),
+            Article.ratio != 1,
+        )
+        .order_by(Article.created_at.asc())
+    )
+    return [
+        ArticleAValider(
+            id=article.id,
+            fournisseur=nom_fournisseur,
+            code=article.code,
+            libelle=article.libelle,
+            unite_cdt=article.unite_cdt,
+            unite_fact=article.unite_fact,
+            ratio=article.ratio,
+            cree_le=article.created_at,
+        )
+        for article, nom_fournisseur in resultat.all()
+    ]
+
+
+# --------------------------------------------------------------------------
+# lister_a_traiter
+# --------------------------------------------------------------------------
+
+
+async def lister_a_traiter(session: AsyncSession) -> ATraiter:
+    """Contenu complet de l'écran « À traiter » (L3-D18) : documents « à
+    vérifier », alias chantier en attente, articles à valider."""
+    return ATraiter(
+        documents=await _lister_documents_a_traiter(session),
+        alias=await _lister_alias_en_attente(session),
+        articles=await _lister_articles_a_valider(session),
+    )

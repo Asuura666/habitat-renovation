@@ -37,6 +37,16 @@ journalisée (`journal`, `utilisateur_id=NULL` faute de session utilisateur
 dans une CLI, action `fournisseur_defini`), même organisation que
 `creer_utilisateur`/`desactiver_utilisateur` (`app/core/auth.py`) — fix
 round 1 de la revue de cette tâche.
+
+Opérations admin de l'écran « À traiter » (L3-T8b, en bas de fichier) :
+`lister_chantiers`/`creer_chantier`/`lister_fournisseurs` (référentiels
+consommés par le formulaire de validation d'un alias), `valider_alias`
+(rattache un alias à un chantier existant et propage `chantier_id` aux
+documents/blocs concernés) et `valider_article` (fige unités et ratio).
+`candidats_alias` est la sélection des documents/blocs candidats à la
+propagation d'un alias, partagée par `ingest.a_traiter.lister_a_traiter`
+(comptage/exemple) et `valider_alias` (propagation) — décision du
+contrôleur : ne jamais la dupliquer entre les deux.
 """
 
 from __future__ import annotations
@@ -44,6 +54,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -54,7 +65,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.ingest.models import (
     AgenceFournisseur,
     Article,
+    BlocFacture,
+    Chantier,
     ChantierAlias,
+    Document,
     Fournisseur,
     Journal,
     Parametre,
@@ -63,6 +77,7 @@ from app.modules.normalize.article import PropositionArticle, completer_article
 from app.modules.normalize.chantier import decomposer_chantier
 from app.modules.normalize.fournisseur import AgenceRef, FournisseurRef
 from app.modules.normalize.texte import normaliser_libelle
+from app.modules.normalize.unites import normaliser_unite
 
 
 @dataclass(frozen=True)
@@ -395,3 +410,325 @@ async def definir_fournisseur(
         nombre_alias=len(aliases_actuels),
         nombre_agences=nombre_agences,
     )
+
+
+# ---------------------------------------------------------------------------
+# Opérations admin de l'écran « À traiter » (L3-T8b)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ChantierResume:
+    """Une ligne de `GET /api/chantiers`."""
+
+    id: uuid.UUID
+    nom_canonique: str
+    agence: str | None
+    actif: bool
+
+
+@dataclass(frozen=True)
+class FournisseurResume:
+    """Une ligne de `GET /api/fournisseurs`."""
+
+    id: uuid.UUID
+    nom: str
+
+
+class ChantierEnDouble(Exception):
+    """Un chantier existe déjà avec ce nom (`normaliser_libelle` identique,
+    décision du contrôleur : actif ou non)."""
+
+    def __init__(self, original_id: uuid.UUID) -> None:
+        super().__init__("chantier déjà existant")
+        self.original_id = original_id
+
+
+class AliasIntrouvable(Exception):
+    """Aucun `chantier_alias` avec cet identifiant."""
+
+
+class AliasDejaValide(Exception):
+    """L'alias porte déjà un `chantier_id` (déjà rattaché)."""
+
+
+class ChantierIntrouvable(Exception):
+    """Aucun `chantier` avec cet identifiant."""
+
+
+class ArticleIntrouvable(Exception):
+    """Aucun `article` avec cet identifiant."""
+
+
+async def lister_chantiers(session: AsyncSession) -> list[ChantierResume]:
+    """Référentiel chantier complet, actifs d'abord puis par nom (décision du
+    contrôleur) — pour le formulaire de validation d'un alias."""
+    resultat = await session.execute(
+        select(Chantier).order_by(Chantier.actif.desc(), Chantier.nom_canonique.asc())
+    )
+    return [
+        ChantierResume(
+            id=chantier.id,
+            nom_canonique=chantier.nom_canonique,
+            agence=chantier.agence,
+            actif=chantier.actif,
+        )
+        for chantier in resultat.scalars().all()
+    ]
+
+
+async def creer_chantier(
+    session: AsyncSession,
+    *,
+    nom_canonique: str,
+    agence: str | None,
+    auteur_id: uuid.UUID,
+) -> ChantierResume:
+    """Crée un chantier (décision du contrôleur) : `nom_canonique` débarrassé
+    des espaces de bord, `agence` vide -> `None`, `actif = true`. Refuse un
+    nom déjà porté par un chantier existant (actif ou non) une fois passé
+    par `normaliser_libelle` (`ChantierEnDouble`, `original_id` du chantier
+    déjà existant). Journalise `chantier_cree`.
+
+    Le référentiel chantier reste de volume faible (CDC §9) : la comparaison
+    de doublon charge tous les chantiers existants et compare en Python,
+    même principe que `definir_fournisseur` pour ses alias/agences — une
+    requête SQL ne saurait pas appliquer `normaliser_libelle` (accents,
+    casse, ponctuation) sans un index dédié, hors périmètre de cette tâche.
+    """
+    nom = nom_canonique.strip()
+    normalise_cible = normaliser_libelle(nom)
+
+    chantiers_existants = (await session.execute(select(Chantier))).scalars().all()
+    for existant in chantiers_existants:
+        if normaliser_libelle(existant.nom_canonique) == normalise_cible:
+            raise ChantierEnDouble(existant.id)
+
+    agence_normalisee = agence.strip() if agence is not None else None
+    agence_normalisee = agence_normalisee or None
+
+    chantier = Chantier(nom_canonique=nom, agence=agence_normalisee, actif=True)
+    session.add(chantier)
+    await session.flush()
+
+    session.add(
+        Journal(
+            utilisateur_id=auteur_id,
+            action="chantier_cree",
+            cible_table="chantier",
+            cible_id=str(chantier.id),
+            avant=None,
+            apres={
+                "nom_canonique": nom,
+                "agence": agence_normalisee,
+                "actif": True,
+            },
+        )
+    )
+    await session.commit()
+    await session.refresh(chantier)
+
+    return ChantierResume(
+        id=chantier.id,
+        nom_canonique=chantier.nom_canonique,
+        agence=chantier.agence,
+        actif=chantier.actif,
+    )
+
+
+async def lister_fournisseurs(session: AsyncSession) -> list[FournisseurResume]:
+    """Référentiel fournisseur complet (nom seul), trié par nom — pour le
+    formulaire de validation d'un alias."""
+    resultat = await session.execute(
+        select(Fournisseur.id, Fournisseur.nom).order_by(Fournisseur.nom.asc())
+    )
+    return [FournisseurResume(id=id_, nom=nom) for id_, nom in resultat.all()]
+
+
+async def _documents_candidats_alias(
+    session: AsyncSession, fournisseur_id: uuid.UUID
+) -> Sequence[Document]:
+    """Documents de `fournisseur_id` encore sans chantier résolu (candidats à
+    la propagation d'un alias) : `chantier_id IS NULL`, statut différent de
+    `archive` (un document archivé ne compte plus), `chantier_brut` renseigné
+    (sinon `decomposer_chantier` ne produit aucun libellé à comparer)."""
+    return (
+        (
+            await session.execute(
+                select(Document).where(
+                    Document.fournisseur_id == fournisseur_id,
+                    Document.chantier_id.is_(None),
+                    Document.statut != "archive",
+                    Document.chantier_brut.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+async def _blocs_candidats_alias(
+    session: AsyncSession, fournisseur_id: uuid.UUID
+) -> Sequence[BlocFacture]:
+    """Blocs des factures de `fournisseur_id` encore sans chantier résolu —
+    même principe que `_documents_candidats_alias`, via une jointure sur la
+    facture (`bloc_facture` ne porte pas son propre `fournisseur_id`)."""
+    return (
+        (
+            await session.execute(
+                select(BlocFacture)
+                .join(Document, Document.id == BlocFacture.facture_id)
+                .where(
+                    Document.fournisseur_id == fournisseur_id,
+                    BlocFacture.chantier_id.is_(None),
+                    BlocFacture.chantier_brut.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+def _libelle_correspond(chantier_brut: str | None, libelle: str) -> bool:
+    decompose = decomposer_chantier(chantier_brut)
+    return decompose is not None and decompose.libelle == libelle
+
+
+async def candidats_alias(
+    session: AsyncSession, fournisseur_id: uuid.UUID, libelle: str
+) -> tuple[list[Document], list[BlocFacture]]:
+    """Documents et blocs de facture de `fournisseur_id`, sans chantier
+    résolu, dont le libellé décomposé de `chantier_brut` égale `libelle`
+    (décision du contrôleur) : sélection **partagée** par `ingest.a_traiter
+    .lister_a_traiter` (comptage/exemple de l'alias en attente) et
+    `valider_alias` ci-dessous (propagation) — jamais dupliquée entre les
+    deux."""
+    documents = await _documents_candidats_alias(session, fournisseur_id)
+    blocs = await _blocs_candidats_alias(session, fournisseur_id)
+    return (
+        [d for d in documents if _libelle_correspond(d.chantier_brut, libelle)],
+        [b for b in blocs if _libelle_correspond(b.chantier_brut, libelle)],
+    )
+
+
+async def valider_alias(
+    session: AsyncSession,
+    alias_id: uuid.UUID,
+    *,
+    chantier_id: uuid.UUID,
+    auteur_id: uuid.UUID,
+) -> int:
+    """Rattache un alias en attente à un chantier existant (L3-D7) et propage
+    `chantier_id` (`candidats_alias`, même sélection que le comptage de
+    l'écran « À traiter ») aux documents et blocs de facture concernés.
+
+    Lève `AliasIntrouvable`, `AliasDejaValide` (un alias déjà rattaché ne se
+    revalide pas) ou `ChantierIntrouvable`. Journalise `alias_valide` avec
+    `apres = {"libelle", "chantier_id", "methode": "validation_humaine",
+    "nb_mis_a_jour"}` (décision du contrôleur)."""
+    alias = await session.get(ChantierAlias, alias_id)
+    if alias is None:
+        raise AliasIntrouvable(str(alias_id))
+    if alias.chantier_id is not None:
+        raise AliasDejaValide(str(alias_id))
+    if await session.get(Chantier, chantier_id) is None:
+        raise ChantierIntrouvable(str(chantier_id))
+
+    documents, blocs = await candidats_alias(
+        session, alias.fournisseur_id, alias.libelle_brut
+    )
+    for document in documents:
+        document.chantier_id = chantier_id
+    for bloc in blocs:
+        bloc.chantier_id = chantier_id
+    nb_mis_a_jour = len(documents) + len(blocs)
+
+    alias.chantier_id = chantier_id
+    alias.valide_par = auteur_id
+    alias.valide_le = datetime.now(UTC)
+
+    session.add(
+        Journal(
+            utilisateur_id=auteur_id,
+            action="alias_valide",
+            cible_table="chantier_alias",
+            cible_id=str(alias_id),
+            avant=None,
+            apres={
+                "libelle": alias.libelle_brut,
+                "chantier_id": str(chantier_id),
+                "methode": "validation_humaine",
+                "nb_mis_a_jour": nb_mis_a_jour,
+            },
+        )
+    )
+    await session.commit()
+    return nb_mis_a_jour
+
+
+def _unite_normalisee_saisie(valeur: str | None) -> str | None:
+    """`normaliser_unite(valeur).code` si reconnue, sinon la chaîne saisie
+    débarrassée des espaces de bord ; chaîne vide (ou `None`) -> `None`
+    (décision du contrôleur)."""
+    if valeur is None:
+        return None
+    texte = valeur.strip()
+    if not texte:
+        return None
+    unite = normaliser_unite(texte)
+    return unite.code if unite is not None else texte
+
+
+async def valider_article(
+    session: AsyncSession,
+    article_id: uuid.UUID,
+    *,
+    unite_cdt: str | None,
+    unite_fact: str | None,
+    ratio: Decimal | None,
+    auteur_id: uuid.UUID,
+) -> None:
+    """Valide un article (fige unités et ratio, `valide = true`). `ratio`
+    doit être strictement positif s'il est fourni — déjà garanti côté route
+    par `ValidationArticleRequete` (`Field(gt=0)`), revérifié ici (décision
+    du contrôleur, défense en profondeur pour tout appelant direct).
+
+    Une revalidation d'un article déjà validé est autorisée (l'admin corrige
+    un ratio) : toujours journalisée (`article_valide`, avant/après)."""
+    if ratio is not None and ratio <= 0:
+        raise ValueError("ratio invalide : doit être strictement positif")
+
+    article = await session.get(Article, article_id)
+    if article is None:
+        raise ArticleIntrouvable(str(article_id))
+
+    avant = {
+        "unite_cdt": article.unite_cdt,
+        "unite_fact": article.unite_fact,
+        "ratio": str(article.ratio) if article.ratio is not None else None,
+        "valide": article.valide,
+    }
+
+    article.unite_cdt = _unite_normalisee_saisie(unite_cdt)
+    article.unite_fact = _unite_normalisee_saisie(unite_fact)
+    article.ratio = ratio
+    article.valide = True
+
+    session.add(
+        Journal(
+            utilisateur_id=auteur_id,
+            action="article_valide",
+            cible_table="article",
+            cible_id=str(article_id),
+            avant=avant,
+            apres={
+                "unite_cdt": article.unite_cdt,
+                "unite_fact": article.unite_fact,
+                "ratio": str(article.ratio) if article.ratio is not None else None,
+                "valide": True,
+            },
+        )
+    )
+    await session.commit()
