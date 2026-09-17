@@ -149,6 +149,21 @@ aucune entrée tant qu'aucune simplification n'a été prise.
   BL identique lu à la fois sur la facture et sur une photo) ; la
   normalisation plus poussée, si nécessaire, relève du lot 3.
 
+## L2-T1 — auth (connexion par cookie, sessions en base)
+
+- **Pas de purge des jetons expirés de `jeton_session`.** `utilisateur_courant`
+  (`app/core/auth.py`) refuse déjà toute requête portant un jeton dont
+  l'activité remonte à plus de 12 h (`DUREE_SESSION_S`, lu par
+  `DatabaseStrategy.read_token` via un filtre SQL sur `created_at`), mais la
+  ligne correspondante de `jeton_session` n'est jamais supprimée pour
+  autant : seul `POST /api/auth/logout` (`strategy.destroy_token`) retire un
+  jeton de la table. Un jeton expiré (jamais revenu se reconnecter) reste
+  donc en base indéfiniment. Ne couvre pas de purge périodique ; à ajouter
+  (ex. tâche planifiée sous `app/modules/jobs/`, ou un cron exécutant
+  `DELETE FROM jeton_session WHERE created_at < now() - interval '12 hours'`)
+  si la table grossit de façon gênante en usage réel — décision reportée
+  (vague finale du lot 2, point 6).
+
 ## L2-T1b — auth (commandes de gestion des utilisateurs)
 
 - **Unicité de l'e-mail toujours sensible à la casse en base.**
