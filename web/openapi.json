@@ -376,6 +376,465 @@
     }
    }
   },
+  "/api/documents/{document_id}": {
+   "get": {
+    "summary": "Obtenir Document",
+    "operationId": "obtenir_document_api_documents__document_id__get",
+    "parameters": [
+     {
+      "name": "document_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Document Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DocumentDetailReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "patch": {
+    "summary": "Corriger Entete Endpoint",
+    "operationId": "corriger_entete_endpoint_api_documents__document_id__patch",
+    "parameters": [
+     {
+      "name": "document_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Document Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CorrectionEnteteRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DocumentDetailReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/documents/{document_id}/lignes": {
+   "put": {
+    "summary": "Corriger Lignes Endpoint",
+    "operationId": "corriger_lignes_endpoint_api_documents__document_id__lignes_put",
+    "parameters": [
+     {
+      "name": "document_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Document Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LignesRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DocumentDetailReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/documents/{document_id}/validation": {
+   "post": {
+    "summary": "Valider Document Endpoint",
+    "operationId": "valider_document_endpoint_api_documents__document_id__validation_post",
+    "parameters": [
+     {
+      "name": "document_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Document Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DocumentDetailReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/documents/{document_id}/archivage": {
+   "post": {
+    "summary": "Archiver Document Endpoint",
+    "operationId": "archiver_document_endpoint_api_documents__document_id__archivage_post",
+    "parameters": [
+     {
+      "name": "document_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Document Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ArchivageRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DocumentDetailReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/documents/{document_id}/extraction": {
+   "post": {
+    "summary": "Relancer Extraction Endpoint",
+    "operationId": "relancer_extraction_endpoint_api_documents__document_id__extraction_post",
+    "parameters": [
+     {
+      "name": "document_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Document Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DocumentDetailReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/a-traiter": {
+   "get": {
+    "summary": "Obtenir A Traiter",
+    "operationId": "obtenir_a_traiter_api_a_traiter_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ATraiterReponse"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/chantiers": {
+   "get": {
+    "summary": "Lister Chantiers Endpoint",
+    "operationId": "lister_chantiers_endpoint_api_chantiers_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/ChantierReponse"
+         },
+         "type": "array",
+         "title": "Response Lister Chantiers Endpoint Api Chantiers Get"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "summary": "Creer Chantier Endpoint",
+    "operationId": "creer_chantier_endpoint_api_chantiers_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ChantierCreationRequete"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ChantierReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/fournisseurs": {
+   "get": {
+    "summary": "Lister Fournisseurs Endpoint",
+    "operationId": "lister_fournisseurs_endpoint_api_fournisseurs_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/FournisseurReponse"
+         },
+         "type": "array",
+         "title": "Response Lister Fournisseurs Endpoint Api Fournisseurs Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/alias-chantier/{alias_id}/validation": {
+   "post": {
+    "summary": "Valider Alias Endpoint",
+    "operationId": "valider_alias_endpoint_api_alias_chantier__alias_id__validation_post",
+    "parameters": [
+     {
+      "name": "alias_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Alias Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ValidationAliasRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ValidationAliasReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/articles/{article_id}/validation": {
+   "post": {
+    "summary": "Valider Article Endpoint",
+    "operationId": "valider_article_endpoint_api_articles__article_id__validation_post",
+    "parameters": [
+     {
+      "name": "article_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Article Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ValidationArticleRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/health": {
    "get": {
     "summary": "Health",
@@ -396,6 +855,183 @@
  },
  "components": {
   "schemas": {
+   "ATraiterReponse": {
+    "properties": {
+     "documents": {
+      "items": {
+       "$ref": "#/components/schemas/DocumentATraiterReponse"
+      },
+      "type": "array",
+      "title": "Documents"
+     },
+     "alias": {
+      "items": {
+       "$ref": "#/components/schemas/AliasEnAttenteReponse"
+      },
+      "type": "array",
+      "title": "Alias"
+     },
+     "articles": {
+      "items": {
+       "$ref": "#/components/schemas/ArticleAValiderReponse"
+      },
+      "type": "array",
+      "title": "Articles"
+     }
+    },
+    "type": "object",
+    "required": [
+     "documents",
+     "alias",
+     "articles"
+    ],
+    "title": "ATraiterReponse",
+    "description": "`GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18)."
+   },
+   "AliasEnAttenteReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "fournisseur": {
+      "type": "string",
+      "title": "Fournisseur"
+     },
+     "libelle": {
+      "type": "string",
+      "title": "Libelle"
+     },
+     "exemple_brut": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Exemple Brut"
+     },
+     "nb_documents": {
+      "type": "integer",
+      "title": "Nb Documents"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "fournisseur",
+     "libelle",
+     "exemple_brut",
+     "nb_documents",
+     "cree_le"
+    ],
+    "title": "AliasEnAttenteReponse",
+    "description": "Un alias chantier en attente de validation, dans `GET /api/a-traiter`\n— mêmes attributs qu'`ingest.a_traiter.AliasEnAttente`."
+   },
+   "ArchivageRequete": {
+    "properties": {
+     "commentaire": {
+      "type": "string",
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Commentaire"
+     }
+    },
+    "type": "object",
+    "required": [
+     "commentaire"
+    ],
+    "title": "ArchivageRequete",
+    "description": "Corps de `POST /api/documents/{id}/archivage` : commentaire\nobligatoire (1 à 500 caractères, blanc refusé)."
+   },
+   "ArticleAValiderReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "fournisseur": {
+      "type": "string",
+      "title": "Fournisseur"
+     },
+     "code": {
+      "type": "string",
+      "title": "Code"
+     },
+     "libelle": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Libelle"
+     },
+     "unite_cdt": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Cdt"
+     },
+     "unite_fact": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Fact"
+     },
+     "ratio": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ratio"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "fournisseur",
+     "code",
+     "libelle",
+     "unite_cdt",
+     "unite_fact",
+     "ratio",
+     "cree_le"
+    ],
+    "title": "ArticleAValiderReponse",
+    "description": "Un article à valider, dans `GET /api/a-traiter` — mêmes attributs\nqu'`ingest.a_traiter.ArticleAValider`."
+   },
    "BlocFactureReponse": {
     "properties": {
      "id": {
@@ -448,6 +1084,18 @@
       ],
       "title": "Chantier Brut"
      },
+     "chantier_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chantier Id"
+     },
      "commentaire": {
       "anyOf": [
        {
@@ -495,6 +1143,7 @@
      "date_bl",
      "numero_commande",
      "chantier_brut",
+     "chantier_id",
      "commentaire",
      "montant_ht",
      "bl_recu",
@@ -502,7 +1151,7 @@
      "lignes"
     ],
     "title": "BlocFactureReponse",
-    "description": "Un bloc « Concerne le B.L. », dans `GET /api/factures/{id}`."
+    "description": "Un bloc « Concerne le B.L. », dans `GET /api/factures/{id}`\n(`chantier_id`, L3-T7)."
    },
    "Body_deposer_facture_pdf_api_factures_post": {
     "properties": {
@@ -576,6 +1225,611 @@
      "password"
     ],
     "title": "Body_se_connecter_api_auth_login_post"
+   },
+   "ChampReponse": {
+    "properties": {
+     "valeur": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Valeur"
+     },
+     "valeur_ocr": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Valeur Ocr"
+     },
+     "confiance": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confiance"
+     },
+     "corrige": {
+      "type": "boolean",
+      "title": "Corrige"
+     },
+     "corrige_par": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Corrige Par"
+     },
+     "corrige_le": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Corrige Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "valeur",
+     "valeur_ocr",
+     "confiance",
+     "corrige",
+     "corrige_par",
+     "corrige_le"
+    ],
+    "title": "ChampReponse",
+    "description": "Un champ d'en-tête du détail d'un BL — mêmes attributs\nqu'`ingest.corrections.ChampLu`."
+   },
+   "ChampsDocumentReponse": {
+    "properties": {
+     "fournisseur": {
+      "$ref": "#/components/schemas/ChampReponse"
+     },
+     "numero": {
+      "$ref": "#/components/schemas/ChampReponse"
+     },
+     "date_doc": {
+      "$ref": "#/components/schemas/ChampReponse"
+     },
+     "chantier_brut": {
+      "$ref": "#/components/schemas/ChampReponse"
+     },
+     "numero_commande": {
+      "$ref": "#/components/schemas/ChampReponse"
+     },
+     "enleve_par": {
+      "$ref": "#/components/schemas/ChampReponse"
+     },
+     "total_ht": {
+      "$ref": "#/components/schemas/ChampReponse"
+     },
+     "total_tva": {
+      "$ref": "#/components/schemas/ChampReponse"
+     },
+     "total_ttc": {
+      "$ref": "#/components/schemas/ChampReponse"
+     }
+    },
+    "type": "object",
+    "required": [
+     "fournisseur",
+     "numero",
+     "date_doc",
+     "chantier_brut",
+     "numero_commande",
+     "enleve_par",
+     "total_ht",
+     "total_tva",
+     "total_ttc"
+    ],
+    "title": "ChampsDocumentReponse",
+    "description": "`DocumentDetail.champs` (`dict[str, ChampLu]`), à attributs nommés\n(une clé par champ correctible de l'en-tête, hors `type`/`fournisseur_id`\n— décision du contrôleur)."
+   },
+   "ChantierCreationRequete": {
+    "properties": {
+     "nom_canonique": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Nom Canonique"
+     },
+     "agence": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Agence"
+     }
+    },
+    "type": "object",
+    "required": [
+     "nom_canonique"
+    ],
+    "title": "ChantierCreationRequete",
+    "description": "Corps de `POST /api/chantiers` : nom obligatoire (1 à 200 caractères,\nblanc refusé), agence optionnelle."
+   },
+   "ChantierReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "nom_canonique": {
+      "type": "string",
+      "title": "Nom Canonique"
+     },
+     "agence": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Agence"
+     },
+     "actif": {
+      "type": "boolean",
+      "title": "Actif"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "nom_canonique",
+     "agence",
+     "actif"
+    ],
+    "title": "ChantierReponse",
+    "description": "Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest\n.referentiels.ChantierResume`."
+   },
+   "CorrectionEnteteRequete": {
+    "properties": {
+     "type": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "bl",
+         "enlevement"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Type"
+     },
+     "fournisseur_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fournisseur Id"
+     },
+     "numero": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero"
+     },
+     "date_doc": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date Doc"
+     },
+     "chantier_brut": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chantier Brut"
+     },
+     "numero_commande": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero Commande"
+     },
+     "enleve_par": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Enleve Par"
+     },
+     "total_ht": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Total Ht"
+     },
+     "total_tva": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Total Tva"
+     },
+     "total_ttc": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Total Ttc"
+     }
+    },
+    "type": "object",
+    "title": "CorrectionEnteteRequete",
+    "description": "`PATCH /api/documents/{id}` : tous les champs sont optionnels\n(`None` par défaut) — seuls ceux présents dans `model_fields_set` sont\ntransmis au service (décision du contrôleur), pour distinguer « non\nenvoyé » de « envoyé à `null` »."
+   },
+   "DocumentATraiterReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "numero_interne": {
+      "type": "integer",
+      "title": "Numero Interne"
+     },
+     "type": {
+      "type": "string",
+      "title": "Type"
+     },
+     "numero": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero"
+     },
+     "fournisseur": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fournisseur"
+     },
+     "chantier_brut": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chantier Brut"
+     },
+     "deposant": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Deposant"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     },
+     "confirmation": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "verifiee",
+         "ecart"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confirmation"
+     },
+     "motifs": {
+      "items": {
+       "$ref": "#/components/schemas/MotifReponse"
+      },
+      "type": "array",
+      "title": "Motifs"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "numero_interne",
+     "type",
+     "numero",
+     "fournisseur",
+     "chantier_brut",
+     "deposant",
+     "cree_le",
+     "confirmation",
+     "motifs"
+    ],
+    "title": "DocumentATraiterReponse",
+    "description": "Une ligne « document à vérifier » de `GET /api/a-traiter` — mêmes\nattributs qu'`ingest.a_traiter.DocumentATraiter`."
+   },
+   "DocumentDetailReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "numero_interne": {
+      "type": "integer",
+      "title": "Numero Interne"
+     },
+     "type": {
+      "type": "string",
+      "title": "Type"
+     },
+     "statut": {
+      "type": "string",
+      "title": "Statut"
+     },
+     "deposant": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Deposant"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     },
+     "confirme_le": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confirme Le"
+     },
+     "confirme_par": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confirme Par"
+     },
+     "confirmation": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "verifiee",
+         "ecart"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confirmation"
+     },
+     "photo_compressee": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Photo Compressee"
+     },
+     "fournisseur_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fournisseur Id"
+     },
+     "agence_fournisseur": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Agence Fournisseur"
+     },
+     "chantier_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chantier Id"
+     },
+     "chantier": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chantier"
+     },
+     "champs": {
+      "$ref": "#/components/schemas/ChampsDocumentReponse"
+     },
+     "lignes": {
+      "items": {
+       "$ref": "#/components/schemas/LigneDocumentReponse"
+      },
+      "type": "array",
+      "title": "Lignes"
+     },
+     "motifs": {
+      "items": {
+       "$ref": "#/components/schemas/MotifReponse"
+      },
+      "type": "array",
+      "title": "Motifs"
+     },
+     "seuil_confiance": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Seuil Confiance"
+     },
+     "modifiable": {
+      "type": "boolean",
+      "title": "Modifiable"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "numero_interne",
+     "type",
+     "statut",
+     "deposant",
+     "cree_le",
+     "confirme_le",
+     "confirme_par",
+     "confirmation",
+     "photo_compressee",
+     "fournisseur_id",
+     "agence_fournisseur",
+     "chantier_id",
+     "chantier",
+     "champs",
+     "lignes",
+     "motifs",
+     "seuil_confiance",
+     "modifiable"
+    ],
+    "title": "DocumentDetailReponse",
+    "description": "`GET /api/documents/{id}` : détail complet d'un BL/enlèvement\n(L3-D19)."
    },
    "DocumentReponse": {
     "properties": {
@@ -671,6 +1925,28 @@
        }
       ],
       "title": "Confirmation"
+     },
+     "fournisseur": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fournisseur"
+     },
+     "chantier_brut": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chantier Brut"
      }
     },
     "type": "object",
@@ -685,10 +1961,12 @@
      "confirme_le",
      "confirme_par",
      "photo_compressee",
-     "confirmation"
+     "confirmation",
+     "fournisseur",
+     "chantier_brut"
     ],
     "title": "DocumentReponse",
-    "description": "Une ligne de `GET /api/documents` (`confirmation` ajouté au Ruling\nL2-R8, correction de revue L2-T7 : le front ne doit plus dériver\nvérifié/écart à partir de `statut`, qui suit une tout autre logique —\nvoir `ingest/service.py::lister_documents`)."
+    "description": "Une ligne de `GET /api/documents` (`confirmation` ajouté au Ruling\nL2-R8, correction de revue L2-T7 : le front ne doit plus dériver\nvérifié/écart à partir de `statut`, qui suit une tout autre logique —\nvoir `ingest/service.py::lister_documents` ; `fournisseur`/\n`chantier_brut` ajoutés en L3-T8a pour un aperçu utile dans la liste)."
    },
    "FactureDeposeeReponse": {
     "properties": {
@@ -769,6 +2047,33 @@
       ],
       "title": "Deposant"
      },
+     "statut": {
+      "type": "string",
+      "title": "Statut"
+     },
+     "confiance_reduite": {
+      "type": "boolean",
+      "title": "Confiance Reduite"
+     },
+     "confiance_min": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confiance Min"
+     },
+     "motifs": {
+      "items": {
+       "$ref": "#/components/schemas/MotifReponse"
+      },
+      "type": "array",
+      "title": "Motifs"
+     },
      "blocs": {
       "items": {
        "$ref": "#/components/schemas/BlocFactureReponse"
@@ -786,10 +2091,14 @@
      "total_ht",
      "cree_le",
      "deposant",
+     "statut",
+     "confiance_reduite",
+     "confiance_min",
+     "motifs",
      "blocs"
     ],
     "title": "FactureDetailReponse",
-    "description": "`GET /api/factures/{id}` : en-tête puis blocs."
+    "description": "`GET /api/factures/{id}` : en-tête puis blocs (statut/confiance/\nmotifs, L3-T7)."
    },
    "FactureResumeReponse": {
     "properties": {
@@ -842,6 +2151,33 @@
       "type": "string",
       "format": "date-time",
       "title": "Cree Le"
+     },
+     "statut": {
+      "type": "string",
+      "title": "Statut"
+     },
+     "confiance_reduite": {
+      "type": "boolean",
+      "title": "Confiance Reduite"
+     },
+     "confiance_min": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confiance Min"
+     },
+     "motifs": {
+      "items": {
+       "$ref": "#/components/schemas/MotifReponse"
+      },
+      "type": "array",
+      "title": "Motifs"
      }
     },
     "type": "object",
@@ -853,10 +2189,34 @@
      "total_ht",
      "nb_blocs",
      "nb_blocs_recus",
-     "cree_le"
+     "cree_le",
+     "statut",
+     "confiance_reduite",
+     "confiance_min",
+     "motifs"
     ],
     "title": "FactureResumeReponse",
-    "description": "Une ligne de `GET /api/factures`."
+    "description": "Une ligne de `GET /api/factures` (statut/confiance/motifs, L3-T7)."
+   },
+   "FournisseurReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "nom": {
+      "type": "string",
+      "title": "Nom"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "nom"
+    ],
+    "title": "FournisseurReponse",
+    "description": "Une ligne de `GET /api/fournisseurs` — mêmes attributs qu'`ingest\n.referentiels.FournisseurResume`."
    },
    "HTTPValidationError": {
     "properties": {
@@ -870,6 +2230,145 @@
     },
     "type": "object",
     "title": "HTTPValidationError"
+   },
+   "LigneDocumentReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "ordre": {
+      "type": "integer",
+      "title": "Ordre"
+     },
+     "code_brut": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Code Brut"
+     },
+     "article_brut": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Article Brut"
+     },
+     "type_ligne": {
+      "type": "string",
+      "title": "Type Ligne"
+     },
+     "qte_livree": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Qte Livree"
+     },
+     "qte_totale": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Qte Totale"
+     },
+     "unite_brut": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Brut"
+     },
+     "pu_ht": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Pu Ht"
+     },
+     "montant_ht": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Montant Ht"
+     },
+     "confiance": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confiance"
+     },
+     "article_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Article Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "ordre",
+     "code_brut",
+     "article_brut",
+     "type_ligne",
+     "qte_livree",
+     "qte_totale",
+     "unite_brut",
+     "pu_ht",
+     "montant_ht",
+     "confiance",
+     "article_id"
+    ],
+    "title": "LigneDocumentReponse",
+    "description": "Une ligne d'articles du détail d'un BL — mêmes attributs\nqu'`ingest.corrections.LigneLue`."
    },
    "LigneFactureReponse": {
     "properties": {
@@ -1005,6 +2504,135 @@
     "title": "LigneFactureReponse",
     "description": "Une ligne d'un bloc, dans `GET /api/factures/{id}`."
    },
+   "LigneSaisieRequete": {
+    "properties": {
+     "id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Id"
+     },
+     "code_brut": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Code Brut"
+     },
+     "article_brut": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Article Brut"
+     },
+     "qte_livree": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Qte Livree"
+     },
+     "qte_totale": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Qte Totale"
+     },
+     "unite_brut": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Brut"
+     },
+     "pu_ht": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Pu Ht"
+     },
+     "montant_ht": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Montant Ht"
+     }
+    },
+    "type": "object",
+    "title": "LigneSaisieRequete",
+    "description": "Une ligne de `PUT /api/documents/{id}/lignes` — `id` absent (`None`)\n-> insertion, sinon mise à jour de la ligne existante."
+   },
+   "LignesRequete": {
+    "properties": {
+     "lignes": {
+      "items": {
+       "$ref": "#/components/schemas/LigneSaisieRequete"
+      },
+      "type": "array",
+      "title": "Lignes"
+     }
+    },
+    "type": "object",
+    "required": [
+     "lignes"
+    ],
+    "title": "LignesRequete",
+    "description": "Corps de `PUT /api/documents/{id}/lignes` : liste complète des\nlignes du document après correction (mise à jour par `id`, ajout sans\n`id`, suppression des lignes absentes de la liste)."
+   },
    "MoiReponse": {
     "properties": {
      "id": {
@@ -1052,6 +2680,114 @@
      "agence"
     ],
     "title": "MoiReponse"
+   },
+   "MotifReponse": {
+    "properties": {
+     "code": {
+      "type": "string",
+      "title": "Code"
+     },
+     "champ": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Champ"
+     },
+     "detail": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Detail"
+     }
+    },
+    "type": "object",
+    "required": [
+     "code",
+     "champ",
+     "detail"
+    ],
+    "title": "MotifReponse",
+    "description": "Un motif de mise « à vérifier » (L3-T7), tel que renvoyé par `GET\n/api/factures`/`GET /api/factures/{id}` (réutilisé par L3-T8a/L3-T8b) —\nmêmes champs qu'`ingest.lecture.MotifLu`."
+   },
+   "ValidationAliasReponse": {
+    "properties": {
+     "nb_mis_a_jour": {
+      "type": "integer",
+      "title": "Nb Mis A Jour"
+     }
+    },
+    "type": "object",
+    "required": [
+     "nb_mis_a_jour"
+    ],
+    "title": "ValidationAliasReponse",
+    "description": "Réponse de `POST /api/alias-chantier/{id}/validation`."
+   },
+   "ValidationAliasRequete": {
+    "properties": {
+     "chantier_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Chantier Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "chantier_id"
+    ],
+    "title": "ValidationAliasRequete",
+    "description": "Corps de `POST /api/alias-chantier/{id}/validation`."
+   },
+   "ValidationArticleRequete": {
+    "properties": {
+     "unite_cdt": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Cdt"
+     },
+     "unite_fact": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Fact"
+     },
+     "ratio": {
+      "anyOf": [
+       {
+        "type": "number",
+        "exclusiveMinimum": 0.0
+       },
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ratio"
+     }
+    },
+    "type": "object",
+    "title": "ValidationArticleRequete",
+    "description": "Corps de `POST /api/articles/{id}/validation` : `ratio` strictement\npositif s'il est fourni (`gt=0`, revérifié aussi côté service en défense\nen profondeur)."
    },
    "ValidationError": {
     "properties": {

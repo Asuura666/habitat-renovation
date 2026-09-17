@@ -9,7 +9,7 @@ import {
   deposerFacture,
   listerFactures,
 } from "../api/factures";
-import { formaterDate, formaterMontant } from "../lib/formats";
+import { formaterDate, formaterMontant, TIRET } from "../lib/formats";
 
 /** Couleur du badge « BL reçus x / y » (décision du contrôleur L2-T7 :
  * uniquement une correspondance libellé/couleur, pas une règle métier —
@@ -25,6 +25,26 @@ function classesBadgeReception(nbRecus: number, nbBlocs: number): string {
     return "bg-red-100 text-red-800";
   }
   return "bg-orange-100 text-orange-800";
+}
+
+/** Badges de statut d'une facture (L3-T9) : « À vérifier » (`statut ===
+ * "a_verifier"`, motifs détaillés sur `FactureDetail.tsx` uniquement) et
+ * « Confiance réduite (OCR) » (`confiance_reduite`, L3-D16) — deux champs
+ * indépendants de l'API, aucune règle métier ici. */
+function BadgeAVerifier(): ReactElement {
+  return (
+    <span className="inline-flex shrink-0 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800">
+      À vérifier
+    </span>
+  );
+}
+
+function BadgeConfianceReduite(): ReactElement {
+  return (
+    <span className="inline-flex shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
+      Confiance réduite (OCR)
+    </span>
+  );
 }
 
 function ContenuErreurDepot({ erreur }: { erreur: unknown }): ReactElement {
@@ -152,6 +172,9 @@ export function FacturesListe(): ReactElement {
                 <th scope="col" className="px-4 py-3">
                   BL reçus
                 </th>
+                <th scope="col" className="px-4 py-3">
+                  Statut
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -174,6 +197,13 @@ export function FacturesListe(): ReactElement {
                     >
                       {facture.nb_blocs_recus} / {facture.nb_blocs}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {facture.statut === "a_verifier" && <BadgeAVerifier />}
+                      {facture.confiance_reduite && <BadgeConfianceReduite />}
+                      {facture.statut !== "a_verifier" && !facture.confiance_reduite && TIRET}
+                    </div>
                   </td>
                 </tr>
               ))}

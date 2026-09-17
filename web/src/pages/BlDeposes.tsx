@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
 
 import { CLE_DOCUMENTS, type DocumentResume, listerDocuments } from "../api/documents";
 import { formaterDateHeure, TIRET } from "../lib/formats";
@@ -111,11 +112,19 @@ export function BlDeposes(): ReactElement {
                 <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">
-                      Document n° {document.numero_interne} · {libelleType(document.type)}
+                      <Link
+                        to={`/documents/${document.id}`}
+                        className="underline outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                      >
+                        Document n° {document.numero_interne} · {libelleType(document.type)}
+                      </Link>
                     </p>
                     <p className="text-xs text-slate-500">
                       BL {document.numero ?? "non détecté"} · {document.deposant ?? TIRET} ·{" "}
                       {formaterDateHeure(document.cree_le)}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {document.fournisseur ?? TIRET} · {document.chantier_brut ?? TIRET}
                     </p>
                   </div>
                   <span
@@ -137,7 +146,7 @@ export function BlDeposes(): ReactElement {
 
           {/* Tableau : ordinateur (>= md) */}
           <div className="hidden overflow-x-auto rounded-lg border border-slate-200 bg-white md:block">
-            <table className="w-full min-w-[900px] divide-y divide-slate-200 text-sm">
+            <table className="w-full min-w-[1100px] divide-y divide-slate-200 text-sm">
               <caption className="sr-only">Liste des BL déposés</caption>
               <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
                 <tr>
@@ -149,6 +158,12 @@ export function BlDeposes(): ReactElement {
                   </th>
                   <th scope="col" className="px-4 py-3">
                     Type
+                  </th>
+                  <th scope="col" className="px-4 py-3">
+                    Fournisseur
+                  </th>
+                  <th scope="col" className="px-4 py-3">
+                    Chantier (brut)
                   </th>
                   <th scope="col" className="px-4 py-3">
                     Déposant
@@ -170,11 +185,22 @@ export function BlDeposes(): ReactElement {
               <tbody className="divide-y divide-slate-200">
                 {documents.data.map((document) => (
                   <tr key={document.id}>
-                    <td className="px-4 py-3 text-slate-700">{document.numero_interne}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900">
+                      <Link
+                        to={`/documents/${document.id}`}
+                        className="underline outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                      >
+                        {document.numero_interne}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3 text-slate-700">
                       {document.numero ?? "non détecté"}
                     </td>
                     <td className="px-4 py-3 text-slate-700">{libelleType(document.type)}</td>
+                    <td className="px-4 py-3 text-slate-700">{document.fournisseur ?? TIRET}</td>
+                    <td className="px-4 py-3 text-slate-700">
+                      {document.chantier_brut ?? TIRET}
+                    </td>
                     <td className="px-4 py-3 text-slate-700">{document.deposant ?? TIRET}</td>
                     <td className="px-4 py-3 text-slate-700">
                       {formaterDateHeure(document.cree_le)}

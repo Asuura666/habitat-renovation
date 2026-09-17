@@ -4,6 +4,27 @@ import { useParams } from "react-router";
 
 import { type BlocFacture, cleFacture, obtenirFacture } from "../api/factures";
 import { formaterDate, formaterMontant, TIRET } from "../lib/formats";
+import { libelleMotif } from "../lib/motifs";
+
+/** Mêmes badges que `FacturesListe.tsx` (décision du contrôleur, L3-T9) :
+ * dupliqués plutôt que partagés, comme le reste des petits composants de
+ * présentation de ces deux pages (`BadgePhotoCompressee` de `BlDeposes.tsx`
+ * n'est pas partagé non plus). */
+function BadgeAVerifier(): ReactElement {
+  return (
+    <span className="inline-flex shrink-0 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800">
+      À vérifier
+    </span>
+  );
+}
+
+function BadgeConfianceReduite(): ReactElement {
+  return (
+    <span className="inline-flex shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
+      Confiance réduite (OCR)
+    </span>
+  );
+}
 
 function PastilleReception({ recu }: { recu: boolean }): ReactElement {
   const classes = recu ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800";
@@ -134,9 +155,19 @@ export function FactureDetail(): ReactElement {
 
   const donnees = facture.data;
 
+  const aDesBadges = donnees.statut === "a_verifier" || donnees.confiance_reduite;
+
   return (
     <div>
       <h1 className="mb-1 text-lg font-semibold text-slate-900">Facture {donnees.numero}</h1>
+
+      {aDesBadges && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          {donnees.statut === "a_verifier" && <BadgeAVerifier />}
+          {donnees.confiance_reduite && <BadgeConfianceReduite />}
+        </div>
+      )}
+
       <dl className="mb-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-slate-700 sm:grid-cols-4">
         <div>
           <dt className="text-xs text-slate-500">Fournisseur</dt>
@@ -155,6 +186,17 @@ export function FactureDetail(): ReactElement {
           <dd>{donnees.deposant ?? TIRET}</dd>
         </div>
       </dl>
+
+      {donnees.statut === "a_verifier" && donnees.motifs.length > 0 && (
+        <div className="mb-6 rounded-lg border border-orange-200 bg-orange-50 p-4">
+          <h2 className="mb-2 text-sm font-semibold text-orange-900">Motifs</h2>
+          <ul className="list-disc space-y-1 pl-5 text-sm text-orange-900">
+            {donnees.motifs.map((motif, index) => (
+              <li key={index}>{libelleMotif(motif)}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <a
         href={`/api/factures/${donnees.id}/fichier`}

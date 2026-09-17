@@ -18,11 +18,12 @@ function classesOnglet({ isActive }: { isActive: boolean }): string {
 }
 
 /** Gabarit de l'application : en-tête (nom, rôle, déconnexion), onglets de
- * navigation (décision du contrôleur L2-T7 : « Factures » réservé à
- * l'admin, « BL déposés » ouvert aux deux rôles) et contenu de la route
- * active (`<Outlet />`). N'est monté qu'à l'intérieur de `RouteProtegee`,
- * donc `["moi"]` est déjà en cache (même clé de requête) : pas d'appel
- * réseau supplémentaire tant que les données ne sont pas jugées périmées. */
+ * navigation (décision du contrôleur : « À traiter » et « Factures »
+ * réservés à l'admin, L3-D18 ; « BL déposés » ouvert aux deux rôles) et
+ * contenu de la route active (`<Outlet />`). N'est monté qu'à l'intérieur de
+ * `RouteProtegee`, donc `["moi"]` est déjà en cache (même clé de requête) :
+ * pas d'appel réseau supplémentaire tant que les données ne sont pas jugées
+ * périmées. */
 export function Gabarit(): ReactElement {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -63,11 +64,18 @@ export function Gabarit(): ReactElement {
         <nav aria-label="Navigation principale" className="border-b border-slate-200 bg-white px-4 sm:px-6">
           <ul className="flex gap-6">
             {moi.role === "admin" && (
-              <li>
-                <NavLink to="/factures" className={classesOnglet}>
-                  Factures
-                </NavLink>
-              </li>
+              <>
+                <li>
+                  <NavLink to="/a-traiter" className={classesOnglet}>
+                    À traiter
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink to="/factures" className={classesOnglet}>
+                    Factures
+                  </NavLink>
+                </li>
+              </>
             )}
             <li>
               <NavLink to="/bl" className={classesOnglet}>

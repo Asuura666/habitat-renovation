@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router";
 
 import { EcouteAuthentification } from "./components/EcouteAuthentification";
 import { Gabarit } from "./components/Gabarit";
+import { ATraiter } from "./pages/ATraiter";
 import { BlDeposes } from "./pages/BlDeposes";
 import { Connexion } from "./pages/Connexion";
 import { FactureDetail } from "./pages/FactureDetail";
@@ -26,6 +27,14 @@ export function App(): ReactElement {
           }
         >
           <Route index element={<RedirectionAccueil />} />
+          <Route
+            path="a-traiter"
+            element={
+              <GardeAdmin>
+                <ATraiter />
+              </GardeAdmin>
+            }
+          />
           <Route
             path="factures"
             element={

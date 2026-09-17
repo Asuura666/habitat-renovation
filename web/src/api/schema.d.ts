@@ -170,6 +170,178 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Obtenir Document */
+        get: operations["obtenir_document_api_documents__document_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Corriger Entete Endpoint */
+        patch: operations["corriger_entete_endpoint_api_documents__document_id__patch"];
+        trace?: never;
+    };
+    "/api/documents/{document_id}/lignes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Corriger Lignes Endpoint */
+        put: operations["corriger_lignes_endpoint_api_documents__document_id__lignes_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/validation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Valider Document Endpoint */
+        post: operations["valider_document_endpoint_api_documents__document_id__validation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/archivage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archiver Document Endpoint */
+        post: operations["archiver_document_endpoint_api_documents__document_id__archivage_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/extraction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Relancer Extraction Endpoint */
+        post: operations["relancer_extraction_endpoint_api_documents__document_id__extraction_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/a-traiter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Obtenir A Traiter */
+        get: operations["obtenir_a_traiter_api_a_traiter_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chantiers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lister Chantiers Endpoint */
+        get: operations["lister_chantiers_endpoint_api_chantiers_get"];
+        put?: never;
+        /** Creer Chantier Endpoint */
+        post: operations["creer_chantier_endpoint_api_chantiers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fournisseurs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lister Fournisseurs Endpoint */
+        get: operations["lister_fournisseurs_endpoint_api_fournisseurs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/alias-chantier/{alias_id}/validation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Valider Alias Endpoint */
+        post: operations["valider_alias_endpoint_api_alias_chantier__alias_id__validation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/articles/{article_id}/validation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Valider Article Endpoint */
+        post: operations["valider_article_endpoint_api_articles__article_id__validation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -196,8 +368,84 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * ATraiterReponse
+         * @description `GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18).
+         */
+        ATraiterReponse: {
+            /** Documents */
+            documents: components["schemas"]["DocumentATraiterReponse"][];
+            /** Alias */
+            alias: components["schemas"]["AliasEnAttenteReponse"][];
+            /** Articles */
+            articles: components["schemas"]["ArticleAValiderReponse"][];
+        };
+        /**
+         * AliasEnAttenteReponse
+         * @description Un alias chantier en attente de validation, dans `GET /api/a-traiter`
+         *     — mêmes attributs qu'`ingest.a_traiter.AliasEnAttente`.
+         */
+        AliasEnAttenteReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Fournisseur */
+            fournisseur: string;
+            /** Libelle */
+            libelle: string;
+            /** Exemple Brut */
+            exemple_brut: string | null;
+            /** Nb Documents */
+            nb_documents: number;
+            /**
+             * Cree Le
+             * Format: date-time
+             */
+            cree_le: string;
+        };
+        /**
+         * ArchivageRequete
+         * @description Corps de `POST /api/documents/{id}/archivage` : commentaire
+         *     obligatoire (1 à 500 caractères, blanc refusé).
+         */
+        ArchivageRequete: {
+            /** Commentaire */
+            commentaire: string;
+        };
+        /**
+         * ArticleAValiderReponse
+         * @description Un article à valider, dans `GET /api/a-traiter` — mêmes attributs
+         *     qu'`ingest.a_traiter.ArticleAValider`.
+         */
+        ArticleAValiderReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Fournisseur */
+            fournisseur: string;
+            /** Code */
+            code: string;
+            /** Libelle */
+            libelle: string | null;
+            /** Unite Cdt */
+            unite_cdt: string | null;
+            /** Unite Fact */
+            unite_fact: string | null;
+            /** Ratio */
+            ratio: string | null;
+            /**
+             * Cree Le
+             * Format: date-time
+             */
+            cree_le: string;
+        };
+        /**
          * BlocFactureReponse
-         * @description Un bloc « Concerne le B.L. », dans `GET /api/factures/{id}`.
+         * @description Un bloc « Concerne le B.L. », dans `GET /api/factures/{id}`
+         *     (`chantier_id`, L3-T7).
          */
         BlocFactureReponse: {
             /**
@@ -213,6 +461,8 @@ export interface components {
             numero_commande: string | null;
             /** Chantier Brut */
             chantier_brut: string | null;
+            /** Chantier Id */
+            chantier_id: string | null;
             /** Commentaire */
             commentaire: string | null;
             /** Montant Ht */
@@ -254,11 +504,189 @@ export interface components {
             client_secret?: string | null;
         };
         /**
+         * ChampReponse
+         * @description Un champ d'en-tête du détail d'un BL — mêmes attributs
+         *     qu'`ingest.corrections.ChampLu`.
+         */
+        ChampReponse: {
+            /** Valeur */
+            valeur: string | null;
+            /** Valeur Ocr */
+            valeur_ocr: string | null;
+            /** Confiance */
+            confiance: string | null;
+            /** Corrige */
+            corrige: boolean;
+            /** Corrige Par */
+            corrige_par: string | null;
+            /** Corrige Le */
+            corrige_le: string | null;
+        };
+        /**
+         * ChampsDocumentReponse
+         * @description `DocumentDetail.champs` (`dict[str, ChampLu]`), à attributs nommés
+         *     (une clé par champ correctible de l'en-tête, hors `type`/`fournisseur_id`
+         *     — décision du contrôleur).
+         */
+        ChampsDocumentReponse: {
+            fournisseur: components["schemas"]["ChampReponse"];
+            numero: components["schemas"]["ChampReponse"];
+            date_doc: components["schemas"]["ChampReponse"];
+            chantier_brut: components["schemas"]["ChampReponse"];
+            numero_commande: components["schemas"]["ChampReponse"];
+            enleve_par: components["schemas"]["ChampReponse"];
+            total_ht: components["schemas"]["ChampReponse"];
+            total_tva: components["schemas"]["ChampReponse"];
+            total_ttc: components["schemas"]["ChampReponse"];
+        };
+        /**
+         * ChantierCreationRequete
+         * @description Corps de `POST /api/chantiers` : nom obligatoire (1 à 200 caractères,
+         *     blanc refusé), agence optionnelle.
+         */
+        ChantierCreationRequete: {
+            /** Nom Canonique */
+            nom_canonique: string;
+            /** Agence */
+            agence?: string | null;
+        };
+        /**
+         * ChantierReponse
+         * @description Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest
+         *     .referentiels.ChantierResume`.
+         */
+        ChantierReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Nom Canonique */
+            nom_canonique: string;
+            /** Agence */
+            agence: string | null;
+            /** Actif */
+            actif: boolean;
+        };
+        /**
+         * CorrectionEnteteRequete
+         * @description `PATCH /api/documents/{id}` : tous les champs sont optionnels
+         *     (`None` par défaut) — seuls ceux présents dans `model_fields_set` sont
+         *     transmis au service (décision du contrôleur), pour distinguer « non
+         *     envoyé » de « envoyé à `null` ».
+         */
+        CorrectionEnteteRequete: {
+            /** Type */
+            type?: ("bl" | "enlevement") | null;
+            /** Fournisseur Id */
+            fournisseur_id?: string | null;
+            /** Numero */
+            numero?: string | null;
+            /** Date Doc */
+            date_doc?: string | null;
+            /** Chantier Brut */
+            chantier_brut?: string | null;
+            /** Numero Commande */
+            numero_commande?: string | null;
+            /** Enleve Par */
+            enleve_par?: string | null;
+            /** Total Ht */
+            total_ht?: number | string | null;
+            /** Total Tva */
+            total_tva?: number | string | null;
+            /** Total Ttc */
+            total_ttc?: number | string | null;
+        };
+        /**
+         * DocumentATraiterReponse
+         * @description Une ligne « document à vérifier » de `GET /api/a-traiter` — mêmes
+         *     attributs qu'`ingest.a_traiter.DocumentATraiter`.
+         */
+        DocumentATraiterReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Numero Interne */
+            numero_interne: number;
+            /** Type */
+            type: string;
+            /** Numero */
+            numero: string | null;
+            /** Fournisseur */
+            fournisseur: string | null;
+            /** Chantier Brut */
+            chantier_brut: string | null;
+            /** Deposant */
+            deposant: string | null;
+            /**
+             * Cree Le
+             * Format: date-time
+             */
+            cree_le: string;
+            /** Confirmation */
+            confirmation: ("verifiee" | "ecart") | null;
+            /** Motifs */
+            motifs: components["schemas"]["MotifReponse"][];
+        };
+        /**
+         * DocumentDetailReponse
+         * @description `GET /api/documents/{id}` : détail complet d'un BL/enlèvement
+         *     (L3-D19).
+         */
+        DocumentDetailReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Numero Interne */
+            numero_interne: number;
+            /** Type */
+            type: string;
+            /** Statut */
+            statut: string;
+            /** Deposant */
+            deposant: string | null;
+            /**
+             * Cree Le
+             * Format: date-time
+             */
+            cree_le: string;
+            /** Confirme Le */
+            confirme_le: string | null;
+            /** Confirme Par */
+            confirme_par: string | null;
+            /** Confirmation */
+            confirmation: ("verifiee" | "ecart") | null;
+            /** Photo Compressee */
+            photo_compressee: boolean | null;
+            /** Fournisseur Id */
+            fournisseur_id: string | null;
+            /** Agence Fournisseur */
+            agence_fournisseur: string | null;
+            /** Chantier Id */
+            chantier_id: string | null;
+            /** Chantier */
+            chantier: string | null;
+            champs: components["schemas"]["ChampsDocumentReponse"];
+            /** Lignes */
+            lignes: components["schemas"]["LigneDocumentReponse"][];
+            /** Motifs */
+            motifs: components["schemas"]["MotifReponse"][];
+            /** Seuil Confiance */
+            seuil_confiance: string;
+            /** Modifiable */
+            modifiable: boolean;
+        };
+        /**
          * DocumentReponse
          * @description Une ligne de `GET /api/documents` (`confirmation` ajouté au Ruling
          *     L2-R8, correction de revue L2-T7 : le front ne doit plus dériver
          *     vérifié/écart à partir de `statut`, qui suit une tout autre logique —
-         *     voir `ingest/service.py::lister_documents`).
+         *     voir `ingest/service.py::lister_documents` ; `fournisseur`/
+         *     `chantier_brut` ajoutés en L3-T8a pour un aperçu utile dans la liste).
          */
         DocumentReponse: {
             /**
@@ -289,6 +717,10 @@ export interface components {
             photo_compressee: boolean | null;
             /** Confirmation */
             confirmation: ("verifiee" | "ecart") | null;
+            /** Fournisseur */
+            fournisseur: string | null;
+            /** Chantier Brut */
+            chantier_brut: string | null;
         };
         /** FactureDeposeeReponse */
         FactureDeposeeReponse: {
@@ -304,7 +736,8 @@ export interface components {
         };
         /**
          * FactureDetailReponse
-         * @description `GET /api/factures/{id}` : en-tête puis blocs.
+         * @description `GET /api/factures/{id}` : en-tête puis blocs (statut/confiance/
+         *     motifs, L3-T7).
          */
         FactureDetailReponse: {
             /**
@@ -327,12 +760,20 @@ export interface components {
             cree_le: string;
             /** Deposant */
             deposant: string | null;
+            /** Statut */
+            statut: string;
+            /** Confiance Reduite */
+            confiance_reduite: boolean;
+            /** Confiance Min */
+            confiance_min: string | null;
+            /** Motifs */
+            motifs: components["schemas"]["MotifReponse"][];
             /** Blocs */
             blocs: components["schemas"]["BlocFactureReponse"][];
         };
         /**
          * FactureResumeReponse
-         * @description Une ligne de `GET /api/factures`.
+         * @description Une ligne de `GET /api/factures` (statut/confiance/motifs, L3-T7).
          */
         FactureResumeReponse: {
             /**
@@ -357,11 +798,67 @@ export interface components {
              * Format: date-time
              */
             cree_le: string;
+            /** Statut */
+            statut: string;
+            /** Confiance Reduite */
+            confiance_reduite: boolean;
+            /** Confiance Min */
+            confiance_min: string | null;
+            /** Motifs */
+            motifs: components["schemas"]["MotifReponse"][];
+        };
+        /**
+         * FournisseurReponse
+         * @description Une ligne de `GET /api/fournisseurs` — mêmes attributs qu'`ingest
+         *     .referentiels.FournisseurResume`.
+         */
+        FournisseurReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Nom */
+            nom: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * LigneDocumentReponse
+         * @description Une ligne d'articles du détail d'un BL — mêmes attributs
+         *     qu'`ingest.corrections.LigneLue`.
+         */
+        LigneDocumentReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Ordre */
+            ordre: number;
+            /** Code Brut */
+            code_brut: string | null;
+            /** Article Brut */
+            article_brut: string | null;
+            /** Type Ligne */
+            type_ligne: string;
+            /** Qte Livree */
+            qte_livree: string | null;
+            /** Qte Totale */
+            qte_totale: string | null;
+            /** Unite Brut */
+            unite_brut: string | null;
+            /** Pu Ht */
+            pu_ht: string | null;
+            /** Montant Ht */
+            montant_ht: string | null;
+            /** Confiance */
+            confiance: string | null;
+            /** Article Id */
+            article_id: string | null;
         };
         /**
          * LigneFactureReponse
@@ -391,6 +888,39 @@ export interface components {
             /** Tva */
             tva: string | null;
         };
+        /**
+         * LigneSaisieRequete
+         * @description Une ligne de `PUT /api/documents/{id}/lignes` — `id` absent (`None`)
+         *     -> insertion, sinon mise à jour de la ligne existante.
+         */
+        LigneSaisieRequete: {
+            /** Id */
+            id?: string | null;
+            /** Code Brut */
+            code_brut?: string | null;
+            /** Article Brut */
+            article_brut?: string | null;
+            /** Qte Livree */
+            qte_livree?: number | string | null;
+            /** Qte Totale */
+            qte_totale?: number | string | null;
+            /** Unite Brut */
+            unite_brut?: string | null;
+            /** Pu Ht */
+            pu_ht?: number | string | null;
+            /** Montant Ht */
+            montant_ht?: number | string | null;
+        };
+        /**
+         * LignesRequete
+         * @description Corps de `PUT /api/documents/{id}/lignes` : liste complète des
+         *     lignes du document après correction (mise à jour par `id`, ajout sans
+         *     `id`, suppression des lignes absentes de la liste).
+         */
+        LignesRequete: {
+            /** Lignes */
+            lignes: components["schemas"]["LigneSaisieRequete"][];
+        };
         /** MoiReponse */
         MoiReponse: {
             /**
@@ -406,6 +936,55 @@ export interface components {
             role: string;
             /** Agence */
             agence: string | null;
+        };
+        /**
+         * MotifReponse
+         * @description Un motif de mise « à vérifier » (L3-T7), tel que renvoyé par `GET
+         *     /api/factures`/`GET /api/factures/{id}` (réutilisé par L3-T8a/L3-T8b) —
+         *     mêmes champs qu'`ingest.lecture.MotifLu`.
+         */
+        MotifReponse: {
+            /** Code */
+            code: string;
+            /** Champ */
+            champ: string | null;
+            /** Detail */
+            detail: {
+                [key: string]: string;
+            };
+        };
+        /**
+         * ValidationAliasReponse
+         * @description Réponse de `POST /api/alias-chantier/{id}/validation`.
+         */
+        ValidationAliasReponse: {
+            /** Nb Mis A Jour */
+            nb_mis_a_jour: number;
+        };
+        /**
+         * ValidationAliasRequete
+         * @description Corps de `POST /api/alias-chantier/{id}/validation`.
+         */
+        ValidationAliasRequete: {
+            /**
+             * Chantier Id
+             * Format: uuid
+             */
+            chantier_id: string;
+        };
+        /**
+         * ValidationArticleRequete
+         * @description Corps de `POST /api/articles/{id}/validation` : `ratio` strictement
+         *     positif s'il est fourni (`gt=0`, revérifié aussi côté service en défense
+         *     en profondeur).
+         */
+        ValidationArticleRequete: {
+            /** Unite Cdt */
+            unite_cdt?: string | null;
+            /** Unite Fact */
+            unite_fact?: string | null;
+            /** Ratio */
+            ratio?: number | string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -705,6 +1284,365 @@ export interface operations {
                 content: {
                     "application/json": unknown;
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    obtenir_document_api_documents__document_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetailReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    corriger_entete_endpoint_api_documents__document_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CorrectionEnteteRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetailReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    corriger_lignes_endpoint_api_documents__document_id__lignes_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LignesRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetailReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    valider_document_endpoint_api_documents__document_id__validation_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetailReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archiver_document_endpoint_api_documents__document_id__archivage_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArchivageRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetailReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    relancer_extraction_endpoint_api_documents__document_id__extraction_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetailReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    obtenir_a_traiter_api_a_traiter_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ATraiterReponse"];
+                };
+            };
+        };
+    };
+    lister_chantiers_endpoint_api_chantiers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChantierReponse"][];
+                };
+            };
+        };
+    };
+    creer_chantier_endpoint_api_chantiers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChantierCreationRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChantierReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lister_fournisseurs_endpoint_api_fournisseurs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FournisseurReponse"][];
+                };
+            };
+        };
+    };
+    valider_alias_endpoint_api_alias_chantier__alias_id__validation_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alias_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValidationAliasRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationAliasReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    valider_article_endpoint_api_articles__article_id__validation_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                article_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValidationArticleRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
