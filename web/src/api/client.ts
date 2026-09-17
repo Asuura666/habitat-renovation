@@ -16,6 +16,11 @@
  *   sans configuration supplémentaire : le navigateur pose lui-même
  *   l'en-tête `Content-Type` avec sa frontière (`boundary`) tant qu'aucun
  *   `Content-Type` n'est fourni dans `headers`.
+ * - `json` (L3-T10) sérialise le corps et pose `Content-Type: application/
+ *   json` — pour les nouveaux appels (`PATCH`/`PUT`/`POST` JSON, voir
+ *   `api/documents.ts`). Les appels JSON déjà existants (`api/
+ *   referentiels.ts`), qui construisent `body`/`headers` à la main, restent
+ *   inchangés (décision du contrôleur : aucune migration non demandée).
  * - Un 401 lève `NonAuthentifie` **et** déclenche le gestionnaire de
  *   redirection enregistré par `EcouteAuthentification` (via le routeur,
  *   jamais `window.location`), pour que toute perte de session en cours
@@ -67,8 +72,13 @@ export function definirGestionnaireNonAuthentifie(
 }
 
 interface OptionsRequete {
-  method?: "GET" | "POST" | "DELETE";
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: BodyInit;
+  /** Valeur sérialisée en JSON (`JSON.stringify`) et envoyée comme corps,
+   * avec `Content-Type: application/json` posé automatiquement (L3-T10) —
+   * alternative à `body` pour un nouvel appel JSON ; ignoré si `body` est
+   * également fourni. */
+  json?: unknown;
   headers?: Record<string, string>;
   /** URL réellement appelée, quand elle diffère de `chemin` (route à
    * paramètre de chemin — voir le commentaire de tête de fichier). */
@@ -95,10 +105,15 @@ export async function appelerApi<TReponse = undefined>(
   chemin: CheminApi,
   options: OptionsRequete = {},
 ): Promise<TReponse> {
+  const corps = options.body ?? (options.json !== undefined ? JSON.stringify(options.json) : undefined);
+  const entetes =
+    options.json !== undefined
+      ? { "Content-Type": "application/json", ...options.headers }
+      : options.headers;
   const reponse = await fetch(options.url ?? chemin, {
     method: options.method ?? "GET",
-    body: options.body,
-    headers: options.headers,
+    body: corps,
+    headers: entetes,
     credentials: "same-origin",
   });
 

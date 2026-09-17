@@ -6,6 +6,7 @@ import { Gabarit } from "./components/Gabarit";
 import { ATraiter } from "./pages/ATraiter";
 import { BlDeposes } from "./pages/BlDeposes";
 import { Connexion } from "./pages/Connexion";
+import { DocumentDetail } from "./pages/DocumentDetail";
 import { FactureDetail } from "./pages/FactureDetail";
 import { FacturesListe } from "./pages/FacturesListe";
 import { GardeAdmin } from "./routes/GardeAdmin";
@@ -52,6 +53,10 @@ export function App(): ReactElement {
             }
           />
           <Route path="bl" element={<BlDeposes />} />
+          {/* Admin (tous) et agent (ses dépôts, lecture seule) — L3-D19 :
+              aucune `GardeAdmin` ici, `donnees.modifiable` décide seul de
+              l'affichage des contrôles d'édition (voir DocumentDetail.tsx). */}
+          <Route path="documents/:id" element={<DocumentDetail />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
