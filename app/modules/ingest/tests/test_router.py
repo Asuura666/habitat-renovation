@@ -546,3 +546,42 @@ async def test_callback_query_chat_etranger_ignore_sans_rien_ecrire(
 
     await db_session.refresh(document)
     assert document.confirme_le is None
+
+
+# --------------------------------------------------------------------------
+# Correction tour 1/5 (constat Critical) : un `callback_data` malformé ne
+# doit jamais faire planter le webhook (500) — `lire_update` doit renvoyer
+# `None` pour chacune de ces formes, traitées comme n'importe quel update
+# inexploitable (200, rien n'est écrit).
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "data",
+    ["v:²", "v:①", "v:" + "9" * 25, "v:-1", "x:12", "v:12abc"],
+    ids=[
+        "exposant-unicode",
+        "chiffre-encercle-unicode",
+        "25-chiffres-hors-bigint",
+        "negatif",
+        "prefixe-inconnu",
+        "suffixe-non-numerique",
+    ],
+)
+async def test_callback_data_malforme_renvoie_200_sans_rien_ecrire(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    data: str,
+) -> None:
+    messagerie = MessagerieFactice()
+    app_test = _app_test(sessions_test, messagerie, tmp_path)
+    update = _update_callback(update_id=220, data=data)
+
+    reponse = await _poster(app_test, update, SECRET_TEST)
+
+    assert reponse.status_code == 200
+    assert (await db_session.execute(select(TelegramUpdate))).scalars().all() == []
+    assert (await db_session.execute(select(Journal))).scalars().all() == []
+    assert messagerie.accuses == []
+    assert messagerie.editions == []

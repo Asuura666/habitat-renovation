@@ -284,6 +284,66 @@ def test_callback_query_numero_absent_renvoie_none() -> None:
     assert lire_update(update) is None
 
 
+def test_callback_query_numero_chiffre_unicode_exposant_renvoie_none() -> None:
+    """Correction tour 1/5 : `str.isdigit()` acceptait `"²"` (exposant
+    Unicode), que `int()` refuse ensuite (`ValueError` auparavant non
+    rattrapée jusqu'au routeur, 500)."""
+    update = {
+        "update_id": 211,
+        "callback_query": {
+            "id": "callback-invente",
+            "data": "v:²",
+            "message": {"message_id": 31, "chat": {"id": 555}},
+        },
+    }
+
+    assert lire_update(update) is None
+
+
+def test_callback_query_numero_chiffre_unicode_encercle_renvoie_none() -> None:
+    """Correction tour 1/5 : même défaut de `str.isdigit()` pour un chiffre
+    encerclé (`"①"`)."""
+    update = {
+        "update_id": 212,
+        "callback_query": {
+            "id": "callback-invente",
+            "data": "v:①",
+            "message": {"message_id": 32, "chat": {"id": 555}},
+        },
+    }
+
+    assert lire_update(update) is None
+
+
+def test_callback_query_numero_trop_long_renvoie_none() -> None:
+    """Correction tour 1/5 : `str.isdigit()` n'imposait aucune borne — un
+    numéro de 25 chiffres dépasse un `bigint` Postgres et faisait planter
+    `_decider_clic` après coup, sans jamais accuser le clic."""
+    update = {
+        "update_id": 213,
+        "callback_query": {
+            "id": "callback-invente",
+            "data": "v:" + "9" * 25,
+            "message": {"message_id": 33, "chat": {"id": 555}},
+        },
+    }
+
+    assert lire_update(update) is None
+
+
+def test_callback_query_numero_negatif_renvoie_none() -> None:
+    update = {
+        "update_id": 214,
+        "callback_query": {
+            "id": "callback-invente",
+            "data": "v:-1",
+            "message": {"message_id": 34, "chat": {"id": 555}},
+        },
+    }
+
+    assert lire_update(update) is None
+
+
 def test_callback_query_donnee_sans_separateur_renvoie_none() -> None:
     update = {
         "update_id": 205,

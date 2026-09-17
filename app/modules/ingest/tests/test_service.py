@@ -1047,3 +1047,91 @@ async def test_traiter_clic_concurrence_une_seule_ecriture_un_seul_journal(
         ["Quantités vérifiées enregistrées", "Déjà enregistré"]
     )
     assert len(messagerie.editions) == 1
+
+
+# --------------------------------------------------------------------------
+# Correction tour 1/5 (revue L2-T3) : document archivé, et exception
+# inattendue dans `_decider_clic` qui ne doit jamais empêcher l'accusé.
+# --------------------------------------------------------------------------
+
+
+async def test_traiter_clic_document_archive_quantites_verifiees_refuse(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+) -> None:
+    await _creer_utilisateur(db_session, telegram_user_id=8060)
+    document = await _creer_document(db_session, statut="archive")
+    messagerie = MessagerieFactice()
+    clic = _clic(
+        update_id=96,
+        numero_interne=document.numero_interne,
+        action=PREFIXE_QUANTITES_VERIFIEES,
+        expediteur_id=8060,
+    )
+
+    await traiter_clic(clic, messagerie, sessions_test, CHAT_SUPERVISION_INVENTE)
+
+    assert messagerie.accuses == [(clic.callback_id, "Document archivé")]
+    assert messagerie.editions == []
+
+    await db_session.refresh(document)
+    assert document.confirme_le is None
+    assert document.confirme_par is None
+    assert document.statut == "archive"
+    assert (await db_session.execute(select(Journal))).scalars().all() == []
+
+
+async def test_traiter_clic_document_archive_ecart_constate_refuse(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+) -> None:
+    await _creer_utilisateur(db_session, telegram_user_id=8061)
+    document = await _creer_document(db_session, statut="archive")
+    messagerie = MessagerieFactice()
+    clic = _clic(
+        update_id=97,
+        numero_interne=document.numero_interne,
+        action=PREFIXE_ECART_CONSTATE,
+        expediteur_id=8061,
+    )
+
+    await traiter_clic(clic, messagerie, sessions_test, CHAT_SUPERVISION_INVENTE)
+
+    assert messagerie.accuses == [(clic.callback_id, "Document archivé")]
+    assert messagerie.editions == []
+
+    await db_session.refresh(document)
+    assert document.confirme_le is None
+    assert document.confirme_par is None
+    # Ne doit pas non plus être repassé « à vérifier » par le clic refusé.
+    assert document.statut == "archive"
+    assert (await db_session.execute(select(Journal))).scalars().all() == []
+
+
+async def test_traiter_clic_exception_inattendue_dans_decision_accuse_quand_meme(
+    sessions_test: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Constat Critical (revue L2-T3, tour 1/5) : sans ce filet, une
+    exception inattendue dans `_decider_clic` laisse le bouton Telegram
+    bloqué en chargement, sans accusé ni trace exploitable."""
+
+    async def _decider_clic_qui_leve(
+        session: AsyncSession, clic: ClicBouton
+    ) -> ingest_service._DecisionClic:
+        raise RuntimeError("échec factice inattendu")
+
+    monkeypatch.setattr(ingest_service, "_decider_clic", _decider_clic_qui_leve)
+
+    messagerie = MessagerieFactice()
+    clic = _clic(update_id=98, numero_interne=1, expediteur_id=8070)
+
+    with caplog.at_level(logging.ERROR, logger="app.modules.ingest.service"):
+        await traiter_clic(clic, messagerie, sessions_test, CHAT_SUPERVISION_INVENTE)
+
+    assert messagerie.accuses == [(clic.callback_id, "Erreur, réessayez")]
+    assert messagerie.editions == []
+    assert messagerie.supervisions == []
+    assert str(clic.update_id) in caplog.text
+    assert "échec factice inattendu" not in caplog.text

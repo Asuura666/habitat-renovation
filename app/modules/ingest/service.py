@@ -536,6 +536,18 @@ async def traiter_fichier(
 #   boutons.
 # - Un échec Telegram (accusé ou édition) après l'écriture en base est
 #   journalisé, jamais propagé (même politique que `_envoyer_supervision`).
+#
+# Corrections (tour 1/5) :
+# - Un document `statut = "archive"` ne peut plus être confirmé ni passé
+#   à `a_verifier` par un clic : `_decider_clic` refuse explicitement
+#   (`accuser_clic("Document archivé")`, aucune écriture) dès qu'il constate
+#   le statut, et l'UPDATE conditionnel ajoute `statut != "archive"` à son
+#   `WHERE` (pour les deux actions) en défense en profondeur.
+# - `traiter_clic` accuse **toujours** le clic, même si `_decider_clic` lève
+#   une exception inattendue (ex. erreur base non prévue) : sans cela, le
+#   bouton Telegram de l'agent reste bloqué en chargement sans aucune trace
+#   (constat critique de la revue L2-T3). Seul le type de l'exception est
+#   journalisé, jamais son message.
 # --------------------------------------------------------------------------
 
 
@@ -589,6 +601,11 @@ async def _decider_clic(session: AsyncSession, clic: ClicBouton) -> _DecisionCli
     document_id = ligne_document.id
     statut_avant = ligne_document.statut
 
+    if statut_avant == "archive":
+        # Correction (tour 1/5, constat important) : un document archivé ne
+        # doit plus pouvoir être confirmé ni repassé « à vérifier ».
+        return _DecisionClic(texte_accuse="Document archivé")
+
     valeurs: dict[str, Any] = {
         "confirme_le": func.now(),
         "confirme_par": deposant.id,
@@ -603,6 +620,10 @@ async def _decider_clic(session: AsyncSession, clic: ClicBouton) -> _DecisionCli
         .where(
             Document.numero_interne == clic.numero_interne,
             Document.confirme_le.is_(None),
+            # Défense en profondeur (tour 1/5) : le pré-contrôle ci-dessus
+            # couvre le cas normal, cette clause couvre un document archivé
+            # entre le SELECT et cet UPDATE.
+            Document.statut != "archive",
         )
         .values(**valeurs)
         .returning(Document.confirme_le)
@@ -661,9 +682,19 @@ async def traiter_clic(
     est prise dans `_decider_clic`, avant de refermer la session : les
     appels Telegram qui suivent (accusé, éventuelle supervision, édition du
     message) ne tiennent jamais une connexion base ouverte.
+
+    Correction (tour 1/5) : une exception inattendue dans `_decider_clic`
+    (bug non prévu, erreur base non couverte par les branches ci-dessus) ne
+    doit jamais empêcher `accuser_clic` — sans accusé, le bouton reste
+    bloqué en chargement côté Telegram, sans aucune trace pour l'agent.
+    Seul le type de l'exception est journalisé, jamais son message.
     """
-    async with sessions() as session:
-        decision = await _decider_clic(session, clic)
+    try:
+        async with sessions() as session:
+            decision = await _decider_clic(session, clic)
+    except Exception as exc:
+        _journaliser_echec("décision clic", clic.update_id, exc)
+        decision = _DecisionClic(texte_accuse="Erreur, réessayez")
 
     await _accuser_clic_sans_lever(messagerie, clic, decision.texte_accuse)
 

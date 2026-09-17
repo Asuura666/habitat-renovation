@@ -33,6 +33,15 @@ L2-T3 (boutons de confirmation, L2-D9/L2-D10) :
   séparateur, partie numérique absente ou non entière) renvoie `None` — même
   politique défensive que le reste de `lire_update`, jamais d'exception sur
   une entrée malformée.
+- Correction (tour 1/5) : `_numero_interne_valide` validait via
+  `str.isdigit()`, qui accepte des caractères Unicode que `int()` refuse
+  (exposants, chiffres encerclés, ex. `"²"`, `"①"`) — `int()` levait alors
+  une `ValueError` non rattrapée jusqu'à `webhook_telegram` (500). Et
+  `str.isdigit()` n'impose aucune borne : un `numero_interne` de 25 chiffres
+  passait la validation puis dépassait `bigint` côté base, plantant
+  `_decider_clic` sans jamais accuser le clic (bouton bloqué en chargement).
+  Validation désormais par une regex ASCII stricte, bornée
+  (`^[0-9]{1,18}$`, 18 chiffres tenant toujours dans un `bigint`).
 - `POST .../answerCallbackQuery` (corps `{"callback_query_id": ...,
   "text": ...}`) pour `accuser_clic`, `POST .../editMessageText` (corps
   `{"chat_id": ..., "message_id": ..., "text": ...}`, sans `reply_markup` —
@@ -43,6 +52,7 @@ L2-T3 (boutons de confirmation, L2-D9/L2-D10) :
 from __future__ import annotations
 
 import hmac
+import re
 from collections.abc import Sequence
 from pathlib import PurePosixPath
 from typing import Any
@@ -60,6 +70,13 @@ from app.modules.messaging.base import (
 _BASE_URL = "https://api.telegram.org"
 
 _ACTIONS_VALIDES = frozenset({PREFIXE_QUANTITES_VERIFIEES, PREFIXE_ECART_CONSTATE})
+
+# Correction (tour 1/5) : chiffres ASCII stricts uniquement (`str.isdigit()`
+# accepte des caractères Unicode — exposants, chiffres encerclés — que
+# `int()` refuse ensuite), et bornés à 18 chiffres (tient toujours dans un
+# `bigint` Postgres, dont le maximum en compte 19) pour ne jamais transmettre
+# à la base un entier hors plage.
+_RE_NUMERO_INTERNE = re.compile(r"[0-9]{1,18}")
 
 # Mapping explicite type MIME -> extension de stockage (décision du
 # contrôleur : pas de `mimetypes`, qui dépend d'une base système variable
@@ -166,10 +183,12 @@ def _expediteur_nom(expediteur: dict[str, Any]) -> str | None:
 
 def _numero_interne_valide(reste: str) -> int | None:
     """`reste` (partie après `:` dans `callback_data`) doit être un entier
-    positif littéral (uniquement des chiffres) : ni vide, ni négatif, ni
-    flottant — un `numero_interne` invalide renvoie `None` (décision du
-    contrôleur : « numéro non entier » -> `None`)."""
-    if not reste.isdigit():
+    positif ASCII littéral, 1 à 18 chiffres : ni vide, ni négatif, ni
+    flottant, ni chiffre Unicode non-ASCII, ni hors plage `bigint` — toute
+    autre forme renvoie `None` (décision du contrôleur : « numéro non
+    entier » -> `None`, corrigée tour 1/5 pour couvrir aussi les chiffres
+    Unicode et l'absence de borne de `str.isdigit()`)."""
+    if _RE_NUMERO_INTERNE.fullmatch(reste) is None:
         return None
     return int(reste)
 
