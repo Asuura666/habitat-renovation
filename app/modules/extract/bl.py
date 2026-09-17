@@ -1,0 +1,473 @@
+"""Lecture d'un bon de livraison depuis l'annotation Mistral (module PUR, L3-T2).
+
+Contexte (constat 1, décision L3-D1) : aucune photo de BL n'est disponible
+pour écrire un parseur par fournisseur à l'aveugle (contrairement à
+`unikalo.py`, écrit sur une facture réelle). La lecture d'une photo de BL
+repose donc entièrement sur l'annotation structurée de l'API Mistral OCR
+(`document_annotation`, un même schéma JSON pour Unikalo et Point.P) :
+`SCHEMA_ANNOTATION_BL` demande au modèle de recopier chaque valeur telle
+qu'imprimée (ou `null`), jamais de la calculer ou de la corriger ; ce module
+lit cette annotation et convertit chaque valeur de façon déterministe
+(`nombre_bl`, `date_bl`) — l'IA extrait, elle ne décide jamais (CLAUDE.md).
+
+Chaque valeur brute est en outre confrontée au texte déjà OCRisé via
+`confiance.py` (L3-T1, L3-D2) : une valeur que l'annotation a inventée ou
+reformulée n'aura aucune occurrence dans le texte et vaudra confiance 0.
+`verification.py` (L3-T3) décidera, à partir de `BLExtrait`, si le document
+part « à vérifier ».
+
+Aucune dépendance d'infrastructure (`fastapi`, `sqlalchemy`, `httpx`), aucun
+log, aucun appel réseau (R17) : ce module prend un `dict` JSON déjà obtenu
+de l'API Mistral OCR (`OPTIONS_OCR_BL` documente seulement les options à
+fusionner dans la requête, envoyée par `ingest/mistral.py`, L3-T6).
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
+from typing import Any
+
+from .confiance import (
+    IndexConfiance,
+    confiance_valeur,
+    confiances_ligne,
+    indexer_confiance,
+)
+from .ocr import NumeroBL, detecter_numero_bl, texte_ocr
+
+# --------------------------------------------------------------------------
+# Schéma d'annotation Mistral OCR (L3-D1)
+# --------------------------------------------------------------------------
+
+CHAMPS_ENTETE_BL: tuple[str, ...] = (
+    "type_bon",
+    "fournisseur",
+    "agence_fournisseur",
+    "siret",
+    "tva_intracommunautaire",
+    "numero",
+    "date_doc",
+    "chantier_brut",
+    "numero_commande",
+    "enleve_par",
+    "total_ht",
+    "total_tva",
+    "total_ttc",
+)
+
+CHAMPS_LIGNE_BL: tuple[str, ...] = (
+    "code",
+    "designation",
+    "quantite",
+    "unite",
+    "pu_ht",
+    "montant_ht",
+)
+
+
+def _propriete(description: str) -> dict[str, Any]:
+    """Propriété du schéma d'annotation : chaîne telle qu'imprimée ou
+    `null`, jamais un autre type (le modèle recopie, il n'invente ni ne
+    calcule — `CONSIGNE_ANNOTATION_BL`)."""
+    return {"type": ["string", "null"], "description": description}
+
+
+_DESCRIPTIONS_ENTETE: dict[str, str] = {
+    "type_bon": (
+        '"livraison" pour un bon de livraison, "enlevement" pour un bon '
+        "d'enlèvement, null si indéterminé"
+    ),
+    "fournisseur": "raison sociale du fournisseur telle qu'imprimée",
+    "agence_fournisseur": "agence ou point de vente du fournisseur tel qu'imprimé",
+    "siret": "numéro SIRET du fournisseur tel qu'imprimé",
+    "tva_intracommunautaire": (
+        "numéro de TVA intracommunautaire du fournisseur tel qu'imprimé"
+    ),
+    "numero": 'numéro du bon tel qu\'imprimé, sans le libellé "N°"',
+    "date_doc": "date du bon telle qu'imprimée",
+    "chantier_brut": (
+        "libellé du chantier ou de l'adresse de livraison tel qu'imprimé, "
+        "code entre parenthèses compris"
+    ),
+    "numero_commande": "référence de commande telle qu'imprimée",
+    "enleve_par": "nom de la personne ayant enlevé la marchandise tel qu'imprimé",
+    "total_ht": "total hors taxes tel qu'imprimé",
+    "total_tva": "montant total de TVA tel qu'imprimé",
+    "total_ttc": "total toutes taxes comprises tel qu'imprimé",
+}
+
+_DESCRIPTIONS_LIGNE: dict[str, str] = {
+    "code": "code ou référence article tel qu'imprimé",
+    "designation": "désignation de l'article telle qu'imprimée",
+    "quantite": "quantité livrée telle qu'imprimée",
+    "unite": "unité telle qu'imprimée",
+    "pu_ht": "prix unitaire hors taxes tel qu'imprimé",
+    "montant_ht": "montant hors taxes de la ligne tel qu'imprimé",
+}
+
+SCHEMA_ANNOTATION_BL: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        **{
+            champ: _propriete(_DESCRIPTIONS_ENTETE[champ]) for champ in CHAMPS_ENTETE_BL
+        },
+        "lignes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    champ: _propriete(_DESCRIPTIONS_LIGNE[champ])
+                    for champ in CHAMPS_LIGNE_BL
+                },
+                "required": list(CHAMPS_LIGNE_BL),
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": [*CHAMPS_ENTETE_BL, "lignes"],
+    "additionalProperties": False,
+}
+
+CONSIGNE_ANNOTATION_BL: str = (
+    "Recopie chaque valeur exactement telle qu'elle est imprimée sur le "
+    "document (mêmes caractères, virgule décimale conservée). Mets null "
+    "si la valeur est absente ou illisible. N'invente, ne calcule et ne "
+    "corrige aucune valeur. Ignore les mentions manuscrites."
+)
+
+OPTIONS_OCR_BL: dict[str, Any] = {
+    "confidence_scores_granularity": "word",
+    "document_annotation_format": {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "bon_de_livraison",
+            "schema": SCHEMA_ANNOTATION_BL,
+            "strict": True,
+        },
+    },
+    "document_annotation_prompt": CONSIGNE_ANNOTATION_BL,
+}
+
+
+# --------------------------------------------------------------------------
+# Types lus (valeur brute, valeur convertie, confiance)
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TexteLu:
+    """Un champ texte de l'annotation : valeur telle qu'imprimée (`brut`,
+    non convertie) et sa confiance OCR (L3-D2)."""
+
+    brut: str | None
+    confiance: Decimal | None
+
+
+@dataclass(frozen=True)
+class NombreLu:
+    """Un champ numérique : `valeur` est `None` si `brut` est `None` ou non
+    convertible par `nombre_bl` (jamais deviné)."""
+
+    brut: str | None
+    valeur: Decimal | None
+    confiance: Decimal | None
+
+
+@dataclass(frozen=True)
+class DateLue:
+    """Un champ date : `valeur` est `None` si `brut` est `None` ou non
+    convertible par `date_bl`."""
+
+    brut: str | None
+    valeur: date | None
+    confiance: Decimal | None
+
+
+@dataclass(frozen=True)
+class LigneBL:
+    """Une ligne d'articles du BL, dans l'ordre des lignes gardées de
+    l'annotation (`ordre`, une ligne entièrement nulle est ignorée)."""
+
+    ordre: int
+    code: TexteLu
+    designation: TexteLu
+    quantite: NombreLu
+    unite: TexteLu
+    pu_ht: NombreLu
+    montant_ht: NombreLu
+
+
+@dataclass(frozen=True)
+class BLExtrait:
+    """Un bon de livraison entièrement lu depuis l'annotation Mistral et
+    confronté au texte OCR : en-tête, lignes, et numéro détecté par le
+    motif déterministe existant (`ocr.detecter_numero_bl`, indépendant de
+    l'annotation — recoupement fait par `verification.py`, L3-T3)."""
+
+    type_bon: TexteLu
+    fournisseur: TexteLu
+    agence_fournisseur: TexteLu
+    siret: TexteLu
+    tva_intracommunautaire: TexteLu
+    numero: TexteLu
+    date_doc: DateLue
+    chantier_brut: TexteLu
+    numero_commande: TexteLu
+    enleve_par: TexteLu
+    total_ht: NombreLu
+    total_tva: NombreLu
+    total_ttc: NombreLu
+    lignes: tuple[LigneBL, ...]
+    numero_detecte: NumeroBL | None
+
+
+class AnnotationIllisible(Exception):
+    """`document_annotation` inexploitable : absente, `null`, JSON invalide
+    ou JSON qui n'est pas un objet. Message toujours fixe, jamais le
+    contenu de l'annotation (donnée potentiellement client, CLAUDE.md)."""
+
+
+# --------------------------------------------------------------------------
+# Conversions déterministes (L3-D1)
+# --------------------------------------------------------------------------
+
+_ESPACES_MILLIERS = (" ", "\u202f", "\xa0")
+_NOMBRE_BL_RE = re.compile(r"^-?\d+(?:[.,]\d+)?$")
+
+
+def nombre_bl(brut: str | None) -> Decimal | None:
+    """Convertit un nombre annoté (« 1 234,56 », « 31.50 », « 4 », « -2,5 »)
+    en `Decimal`. Accepte les espaces de milliers (normale, insécable, fine
+    insécable) et un seul séparateur décimal (`,` ou `.`). Tout autre texte
+    (deux séparateurs, lettres, etc.) -> `None`, jamais de `float`
+    intermédiaire, jamais deviné.
+    """
+    if brut is None:
+        return None
+    texte = brut.strip()
+    if not texte:
+        return None
+    for espace in _ESPACES_MILLIERS:
+        texte = texte.replace(espace, "")
+    if _NOMBRE_BL_RE.match(texte) is None:
+        return None
+    return Decimal(texte.replace(",", "."))
+
+
+_DATE_BL_RE = re.compile(r"^(\d{2})[./-](\d{2})[./-](\d{2}|\d{4})$")
+
+
+def date_bl(brut: str | None) -> date | None:
+    """Convertit une date annotée `JJ/MM/AAAA` ou `JJ/MM/AA` (-> 20AA),
+    séparateurs `/`, `.` ou `-`. `None` si mal formée ou impossible
+    (ex. « 31/02/2026 »).
+    """
+    if brut is None:
+        return None
+    correspondance = _DATE_BL_RE.match(brut.strip())
+    if correspondance is None:
+        return None
+    jour_s, mois_s, annee_s = correspondance.groups()
+    annee = int(annee_s) if len(annee_s) == 4 else 2000 + int(annee_s)
+    try:
+        return date(annee, int(mois_s), int(jour_s))
+    except ValueError:
+        return None
+
+
+def normaliser_numero_bl(brut: str | None) -> str | None:
+    """Numéro de BL normalisé pour comparaison ou export
+    (`extraction_en_json`) : tous les espaces retirés, majuscules. `None`
+    si `brut` est `None` ou vide après normalisation.
+    """
+    if brut is None:
+        return None
+    texte = re.sub(r"\s+", "", brut).upper()
+    return texte or None
+
+
+# --------------------------------------------------------------------------
+# Lecture de l'annotation
+# --------------------------------------------------------------------------
+
+
+def _valeur_brute(valeur: Any) -> str | None:
+    """Une valeur JSON de l'annotation -> texte brut, ou `None` : absente ou
+    `null` -> `None` ; chaîne blanche -> `None` (compte comme absente) ;
+    nombre ou booléen (le modèle peut s'écarter du schéma malgré `strict`)
+    -> `str(valeur)`.
+    """
+    if valeur is None:
+        return None
+    texte = valeur if isinstance(valeur, str) else str(valeur)
+    return texte if texte.strip() else None
+
+
+def _texte_lu(brut: str | None, confiance: Decimal | None) -> TexteLu:
+    return TexteLu(brut=brut, confiance=confiance)
+
+
+def _nombre_lu(brut: str | None, confiance: Decimal | None) -> NombreLu:
+    return NombreLu(brut=brut, valeur=nombre_bl(brut), confiance=confiance)
+
+
+def _date_lue(brut: str | None, confiance: Decimal | None) -> DateLue:
+    return DateLue(brut=brut, valeur=date_bl(brut), confiance=confiance)
+
+
+def _charger_annotation(brute: Any) -> dict[str, Any]:
+    """`document_annotation` -> `dict` Python : accepte une chaîne JSON ou
+    un `dict` déjà décodé (décision du contrôleur). Lève
+    `AnnotationIllisible` pour toute autre forme (absente, `null`, JSON
+    invalide, JSON qui n'est pas un objet).
+    """
+    if isinstance(brute, str):
+        try:
+            brute = json.loads(brute)
+        except json.JSONDecodeError:
+            raise AnnotationIllisible("document_annotation illisible") from None
+    if not isinstance(brute, dict):
+        raise AnnotationIllisible("document_annotation illisible")
+    return brute
+
+
+def _lire_lignes(brutes: Any, index: IndexConfiance) -> tuple[LigneBL, ...]:
+    """Lignes de l'annotation -> `LigneBL` : `lignes` absente ou non liste
+    -> `()` ; une entrée qui n'est pas un objet, ou dont les 6 champs sont
+    tous vides, est ignorée ; `ordre` = position parmi les lignes gardées
+    (pas l'index d'origine dans l'annotation).
+    """
+    if not isinstance(brutes, list):
+        return ()
+
+    lignes: list[LigneBL] = []
+    for brute in brutes:
+        if not isinstance(brute, dict):
+            continue
+        valeurs = [_valeur_brute(brute.get(champ)) for champ in CHAMPS_LIGNE_BL]
+        if all(valeur is None for valeur in valeurs):
+            continue
+        confiances = confiances_ligne(index, valeurs)
+        champs = dict(zip(CHAMPS_LIGNE_BL, valeurs, strict=True))
+        confs = dict(zip(CHAMPS_LIGNE_BL, confiances, strict=True))
+        lignes.append(
+            LigneBL(
+                ordre=len(lignes),
+                code=_texte_lu(champs["code"], confs["code"]),
+                designation=_texte_lu(champs["designation"], confs["designation"]),
+                quantite=_nombre_lu(champs["quantite"], confs["quantite"]),
+                unite=_texte_lu(champs["unite"], confs["unite"]),
+                pu_ht=_nombre_lu(champs["pu_ht"], confs["pu_ht"]),
+                montant_ht=_nombre_lu(champs["montant_ht"], confs["montant_ht"]),
+            )
+        )
+    return tuple(lignes)
+
+
+def analyser_bl(reponse: dict[str, Any]) -> BLExtrait:
+    """Lit une réponse OCR Mistral (options `OPTIONS_OCR_BL`) en `BLExtrait`
+    (L3-D1). Lève `AnnotationIllisible` si `document_annotation` est
+    inexploitable ; une réponse sans `pages` donne un `BLExtrait` complet
+    mais sans aucune confiance (décision du contrôleur).
+    """
+    annotation = _charger_annotation(reponse.get("document_annotation"))
+    index = indexer_confiance(reponse)
+
+    bruts = {champ: _valeur_brute(annotation.get(champ)) for champ in CHAMPS_ENTETE_BL}
+    confiances = {
+        champ: confiance_valeur(index, bruts[champ]) for champ in CHAMPS_ENTETE_BL
+    }
+    lignes = _lire_lignes(annotation.get("lignes"), index)
+    numero_detecte = detecter_numero_bl(texte_ocr(reponse))
+
+    return BLExtrait(
+        type_bon=_texte_lu(bruts["type_bon"], confiances["type_bon"]),
+        fournisseur=_texte_lu(bruts["fournisseur"], confiances["fournisseur"]),
+        agence_fournisseur=_texte_lu(
+            bruts["agence_fournisseur"], confiances["agence_fournisseur"]
+        ),
+        siret=_texte_lu(bruts["siret"], confiances["siret"]),
+        tva_intracommunautaire=_texte_lu(
+            bruts["tva_intracommunautaire"], confiances["tva_intracommunautaire"]
+        ),
+        numero=_texte_lu(bruts["numero"], confiances["numero"]),
+        date_doc=_date_lue(bruts["date_doc"], confiances["date_doc"]),
+        chantier_brut=_texte_lu(bruts["chantier_brut"], confiances["chantier_brut"]),
+        numero_commande=_texte_lu(
+            bruts["numero_commande"], confiances["numero_commande"]
+        ),
+        enleve_par=_texte_lu(bruts["enleve_par"], confiances["enleve_par"]),
+        total_ht=_nombre_lu(bruts["total_ht"], confiances["total_ht"]),
+        total_tva=_nombre_lu(bruts["total_tva"], confiances["total_tva"]),
+        total_ttc=_nombre_lu(bruts["total_ttc"], confiances["total_ttc"]),
+        lignes=lignes,
+        numero_detecte=numero_detecte,
+    )
+
+
+# --------------------------------------------------------------------------
+# Instantané JSON de l'extraction (L3-D5 : colonne `document.extraction`)
+# --------------------------------------------------------------------------
+
+
+def _espaces_reduits(brut: str | None) -> str | None:
+    """Texte débarrassé des espaces multiples et de bord, sans autre
+    normalisation (la casse et la ponctuation restent celles de
+    l'annotation)."""
+    if brut is None:
+        return None
+    return re.sub(r"\s+", " ", brut).strip()
+
+
+def _serialiser_champ(
+    nom: str, champ: TexteLu | NombreLu | DateLue
+) -> dict[str, str | None]:
+    """Sérialise un champ lu en `{"brut", "valeur", "confiance"}`,
+    entièrement composé de chaînes ou de `None` (prêt pour `json.dumps`) :
+    `Decimal` -> chaîne, `date` -> ISO, texte -> espaces multiples réduits,
+    sauf `numero` -> `normaliser_numero_bl` (décision de la fiche T2).
+    """
+    confiance = str(champ.confiance) if champ.confiance is not None else None
+    if isinstance(champ, DateLue):
+        valeur = champ.valeur.isoformat() if champ.valeur is not None else None
+    elif isinstance(champ, NombreLu):
+        valeur = str(champ.valeur) if champ.valeur is not None else None
+    elif nom == "numero":
+        valeur = normaliser_numero_bl(champ.brut)
+    else:
+        valeur = _espaces_reduits(champ.brut)
+    return {"brut": champ.brut, "valeur": valeur, "confiance": confiance}
+
+
+def extraction_en_json(extrait: BLExtrait) -> dict[str, Any]:
+    """Instantané JSON immuable de l'extraction (L3-D5) : valeurs brutes,
+    valeurs converties et confiances, entièrement sérialisable par
+    `json.dumps` (aucun `Decimal` ni `date` nu dans le résultat).
+    """
+    champs: dict[str, Any] = {
+        nom: _serialiser_champ(nom, getattr(extrait, nom)) for nom in CHAMPS_ENTETE_BL
+    }
+    lignes: list[dict[str, Any]] = [
+        {
+            "ordre": ligne.ordre,
+            **{
+                nom: _serialiser_champ(nom, getattr(ligne, nom))
+                for nom in CHAMPS_LIGNE_BL
+            },
+        }
+        for ligne in extrait.lignes
+    ]
+    return {
+        "version": 1,
+        "champs": champs,
+        "lignes": lignes,
+        "numero_detecte": (
+            extrait.numero_detecte.numero
+            if extrait.numero_detecte is not None
+            else None
+        ),
+    }
