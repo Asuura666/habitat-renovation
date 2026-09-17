@@ -28,6 +28,7 @@ obtenu de l'API Mistral OCR.
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -81,8 +82,14 @@ class IndexConfiance:
 def _decimal_confiance(valeur_brute: Any) -> Decimal | None:
     """Convertit une confiance brute (nombre JSON) en `Decimal` arrondi à 4
     décimales (`ROUND_HALF_UP`). `None` si le type est inattendu — un
-    booléen est un `int` en Python, jamais une confiance valide."""
+    booléen est un `int` en Python, jamais une confiance valide — ou si le
+    nombre n'est pas fini : `json.loads` accepte `NaN`/`Infinity`/
+    `-Infinity` par défaut, et `Decimal("inf").quantize(...)` lève
+    `InvalidOperation` (une réponse OCR corrompue doit être ignorée, jamais
+    faire planter l'extraction)."""
     if isinstance(valeur_brute, bool) or not isinstance(valeur_brute, int | float):
+        return None
+    if not math.isfinite(valeur_brute):
         return None
     return Decimal(str(valeur_brute)).quantize(
         _QUANTUM_CONFIANCE, rounding=ROUND_HALF_UP

@@ -107,6 +107,33 @@ def test_indexer_confiance_ignore_les_entrees_mal_formees_sans_lever() -> None:
     assert index.sources[0].mots == (Mot(debut=0, fin=3, confiance=Decimal("0.9000")),)
 
 
+def test_indexer_confiance_ignore_les_confiances_non_finies_sans_lever() -> None:
+    """`json.loads` accepte `NaN`/`Infinity`/`-Infinity` par défaut : une
+    réponse OCR corrompue ne doit jamais faire planter l'extraction
+    (`Decimal("inf").quantize(...)` lève sinon `InvalidOperation`)."""
+    reponse = {
+        "pages": [
+            {
+                "markdown": "ABC DEF GHI JKL",
+                "confidence_scores": {
+                    "word_confidence_scores": [
+                        {"text": "ABC", "confidence": float("nan"), "start_index": 0},
+                        {"text": "DEF", "confidence": float("inf"), "start_index": 4},
+                        {"text": "GHI", "confidence": float("-inf"), "start_index": 8},
+                        {"text": "JKL", "confidence": 0.9, "start_index": 12},
+                    ]
+                },
+            }
+        ]
+    }
+
+    index = indexer_confiance(reponse)
+
+    assert index.sources[0].mots == (
+        Mot(debut=12, fin=15, confiance=Decimal("0.9000")),
+    )
+
+
 def test_indexer_confiance_reponse_sans_scores_index_indisponible() -> None:
     index = indexer_confiance({"pages": [{"markdown": "peu importe"}]})
 
@@ -317,6 +344,18 @@ def test_confiance_min_pages_minimum_des_pages() -> None:
 def test_confiance_min_pages_sans_scores_renvoie_none() -> None:
     assert confiance_min_pages({"pages": [{"markdown": "rien"}]}) is None
     assert confiance_min_pages({}) is None
+
+
+def test_confiance_min_pages_ignore_les_valeurs_non_finies_sans_lever() -> None:
+    reponse = {
+        "pages": [
+            {"confidence_scores": {"minimum_page_confidence_score": float("nan")}},
+            {"confidence_scores": {"minimum_page_confidence_score": float("inf")}},
+            {"confidence_scores": {"minimum_page_confidence_score": float("-inf")}},
+        ]
+    }
+
+    assert confiance_min_pages(reponse) is None
 
 
 # --------------------------------------------------------------------------
