@@ -1,8 +1,9 @@
 """Migration 0001 : aller-retour complet, sans dérive.
 
-Tourne sur une base dédiée (`bl_test_migrations`, dérivée de
-`TEST_DATABASE_URL`) pour ne jamais perturber `bl_test`, que les autres
-tests supposent toujours migrée à `head`.
+Tourne sur une base de migrations dédiée (nom dérivé de `TEST_DATABASE_URL`
+en lui ajoutant le suffixe `_migrations`, `url_base_migrations`, L3-D22) pour
+ne jamais perturber `bl_test`, que les autres tests supposent toujours
+migrée à `head`.
 """
 
 from __future__ import annotations

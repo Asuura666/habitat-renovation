@@ -4,12 +4,16 @@ Deux bases sont utilisées (voir `execution.md`) :
 - `bl_test` (`TEST_DATABASE_URL`) : toujours à `head`, utilisée par les
   tests qui insèrent des données (invariants de modèles, etc.). Vidée par
   `TRUNCATE ... RESTART IDENTITY CASCADE` après chaque test.
-- `bl_test_migrations` : dédiée aux tests de migration eux-mêmes (aller
+- une base de migrations dédiée aux tests de migration eux-mêmes (aller
   simple `upgrade head`, puis `downgrade base`, puis `upgrade head` à
   nouveau), pour ne jamais perturber `bl_test` pendant qu'un autre test
-  suppose qu'elle est à `head`. Son nom est dérivé de `TEST_DATABASE_URL`
-  en remplaçant le nom de base par `bl_test_migrations` : aucune variable
-  d'environnement supplémentaire n'est nécessaire.
+  suppose qu'elle est à `head`. Son nom est dérivé de celui de la base de
+  `TEST_DATABASE_URL` en lui ajoutant le suffixe `_migrations`
+  (`bl_test` -> `bl_test_migrations`, `bl_test_wt` -> `bl_test_wt_migrations`,
+  L3-D22) : aucune variable d'environnement supplémentaire n'est nécessaire,
+  et un second arbre de travail (`TEST_DATABASE_URL` pointant vers une autre
+  base) obtient sa propre base de migrations sans se marcher sur les pieds
+  de l'arbre principal (constat 9 du plan du lot 3).
 
 Une base injoignable ou une variable absente est un échec explicite
 (`pytest.fail`), jamais un `skip` silencieux (décision D13 du brief).
@@ -61,13 +65,22 @@ def lire_test_database_url() -> str:
 
 
 def url_base_migrations(url_test: str) -> str:
-    """URL de `bl_test_migrations`, dérivée de celle de `bl_test`.
+    """URL de la base de migrations, dérivée de celle de `url_test` en
+    suffixant son nom de base par `_migrations` (L3-D22) : `bl_test` ->
+    `bl_test_migrations`, `bl_test_wt` -> `bl_test_wt_migrations`. Permet à
+    un second arbre de travail (`TEST_DATABASE_URL` différente) de tester en
+    parallèle sur le même Postgres sans partager sa base de migrations avec
+    l'arbre principal (constat 9 du plan du lot 3).
 
     `str(URL)` masque le mot de passe (`render_as_string(hide_password=True)`
     est le comportement par défaut de `URL.__str__`) : il faut explicitement
     `hide_password=False` pour obtenir une URL réellement utilisable.
     """
-    url = make_url(url_test).set(database="bl_test_migrations")
+    cible = make_url(url_test)
+    nom_base = cible.database
+    if not nom_base:
+        pytest.fail(f"URL de base de test sans nom de base ({_sans_secret(url_test)})")
+    url = cible.set(database=f"{nom_base}_migrations")
     return url.render_as_string(hide_password=False)
 
 
