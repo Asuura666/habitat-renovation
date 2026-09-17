@@ -47,11 +47,17 @@ Celles des lots 1 et 2 (`docs/plan-lot-1.md` §1, `docs/plan-lot-2.md` §1, `CLA
 8. Point ouvert L2-R10 : `app/core/origine.py` refuse les POST passant par le proxy de `npm run dev` (Origin du serveur Vite ≠ hôte réécrit). Aucun test « derrière proxy » (X-Forwarded-Proto) n'existe. Le Dockerfile lance bien uvicorn avec `--proxy-headers --forwarded-allow-ips=*`.
 9. `tests/conftest.py::url_base_migrations` force le nom `bl_test_migrations` : deux arbres de travail qui testent sur le même Postgres se marchent dessus, même avec des `TEST_DATABASE_URL` différentes.
 10. Pre-commit lance la suite pytest complète à chaque commit : un seul commit à la fois par base de test.
+11. **Premier essai réel (17/09/2026, après L3-T6).** Ilane a fourni 4 photos de BL (3 Unikalo de deux agences, 1 bon d'enlèvement Point.P, toutes annotées à la main), conservées dans `tests/fixtures/bl/` (ignoré par git) avec leurs valeurs attendues lues à la main, et a autorisé leur envoi à l'OCR Mistral. Constats, sans valeur réelle :
+   - 2 photos nettes : les 4 champs du critère §10, les codes et les quantités sont justes ; l'une ne part « à vérifier » qu'à cause de sa date imprimée **en toutes lettres** (« 27 <mois> 2026 »), que `date_bl` ne sait pas lire ;
+   - 1 photo mal cadrée : l'OCR boucle (même ligne répétée des dizaines de fois, aucun tableau, aucune ligne ni total) — mise « à vérifier » par les motifs de confiance, mais un document sans ligne ni total ne produirait **aucun** motif si ses champs d'en-tête étaient bons ;
+   - 1 photo : l'annotation a pris l'**adresse de livraison** pour le chantier (la consigne du schéma l'y invitait) et a confondu des SIRET/TVA du **client** avec ceux du fournisseur ; le chantier était pourtant lu correctement dans le tableau OCR ;
+   - Unikalo imprime deux quantités par ligne : une colonne « UNITE » qui porte en fait le **nombre de conditionnements** (ex. 4 seaux) et une colonne « QUANTITE » en unité de facturation (ex. 100 kg), comme les colonnes QTÉ LIVRÉE / QTÉ TOTALE de sa facture. Point.P imprime une seule quantité suivie de son unité (« 2 BAG », « 1 RL », « 4 PAQ ») ;
+   - les lignes d'éco-participation ont leur propre montant chez Unikalo (comptées dans le total HT) ; chez Point.P, une mention « Dont éco-contribution » est incluse dans le montant d'une autre ligne et il existe deux totaux HT (« hors Ecocontrib » et « Total HT », seul le second égale la somme des lignes).
 
 ## 3. Questions à Ilane (non bloquantes, décisions provisoires en §4)
 
 - **Q1 — Extraction des BL par annotation Mistral.** Faute d'exemple de BL, les champs d'une photo sont extraits par l'annotation structurée de l'API Mistral OCR (un schéma JSON commun aux deux fournisseurs), puis contrôlés de façon déterministe (chaque valeur doit se retrouver dans le texte OCR, sinon confiance 0 ; somme des lignes ; numéro recoupé par le motif existant). D'accord, ou faut-il un parseur déterministe par fournisseur écrit sur les 30 photos ? (provisoire : annotation, L3-D1)
-- **Q2 — Fichiers manquants (bloquants pour le livrable).** Les 30 photos de BL réelles (dont 10 dégradées) avec, pour chacune, les valeurs attendues ; des factures et BL Point.P ; la liste des chantiers actifs avec leur agence ; SIRET/TVA des deux fournisseurs et noms de leurs agences. Sans eux : pas de rapport de taux d'erreur, pas de parseur de facture Point.P.
+- **Q2 — Fichiers manquants (bloquants pour le livrable).** 4 photos reçues le 17/09 (constat 11) ; il en faut au moins 30 de BL réelles (dont 10 dégradées) avec, pour chacune, les valeurs attendues ; des factures et BL Point.P ; la liste des chantiers actifs avec leur agence ; SIRET/TVA des deux fournisseurs et noms de leurs agences. Sans eux : pas de rapport de taux d'erreur, pas de parseur de facture Point.P.
 - **Q3 — Champs obligatoires et seuil.** Obligatoires provisoires : fournisseur, numéro, date, chantier brut (les 4 champs du critère §10). Un bon d'enlèvement Point.P sans chantier imprimé partirait toujours « à vérifier ». Seuil de confiance provisoire 0,80, à recaler sur les 30 photos (le rapport de mesure donne la distribution des confiances des champs justes et faux).
 - **Q4 — Validation d'un document fournisseur faux.** Si le BL imprimé lui-même est incohérent (somme ≠ total), l'admin ne peut pas le valider sans corriger une valeur. Faut-il une validation forcée avec commentaire ? (provisoire : non, L3-D14)
 - **Q5 — Correction des factures scannées.** Le lot 3 marque une facture incohérente « à vérifier » mais ne permet pas de la corriger à l'écran (le CDC suppose des PDF natifs). À confirmer. (provisoire : pas de correction de facture, L3-D17)
@@ -85,6 +91,9 @@ Celles des lots 1 et 2 (`docs/plan-lot-1.md` §1, `docs/plan-lot-2.md` §1, `CLA
 | L3-D21 | L2-R10 corrigé côté **dev** : le proxy Vite réécrit l'en-tête `Origin` vers sa cible. Le contrôle serveur reste strict. Test « derrière proxy » ajouté avec `ProxyHeadersMiddleware` d'uvicorn | Aucun affaiblissement en production | — |
 | L3-D22 | `url_base_migrations` dérive le nom de la base de migrations de celui de la base de test (`<base>_migrations`) : `bl_test` → `bl_test_migrations` (inchangé), `bl_test_wt` → `bl_test_wt_migrations`. Permet à un second arbre de travail de tester en parallèle sur le même Postgres | Constat 9 ; mémoire du VPS (pas de second conteneur) | — |
 | L3-D23 | Parseur Point.P (facture) **non construit** : aucun document Point.P disponible. Les bons d'enlèvement Point.P passent par la même extraction que les BL (L3-D1) | CLAUDE.md : « si quelque chose n'y est pas, on ne le construit pas » ; constat 1 | Tâche à ouvrir dès réception |
+| L3-D24 | Lignes de BL à deux quantités (constat 11) : l'annotation lit `quantite` (quantité facturée, celle qui multiplie le prix unitaire) et `quantite_conditionnements` (nombre de conditionnements quand une colonne distincte l'imprime, sinon `null`). En base : `ligne.qte_totale` = quantité facturée, `ligne.qte_livree` = nombre de conditionnements — **même sens que les colonnes QTÉ TOTALE / QTÉ LIVRÉE de la facture**, pour la comparaison du lot 4. Un BL qui porte les deux propose aussi le ratio de l'article | Constat 11 ; cohérence facture ↔ BL | Migration de données si le sens s'avère inverse |
+| L3-D25 | Un BL sans `total_ht` lu donne toujours `total_absent`, et un BL sans aucune ligne donne `lignes_absentes` : les 4 photos réelles impriment toutes un total et au moins une ligne | Constat 11 (photo mal cadrée : aucune erreur ne doit être silencieuse) | Un bon réellement sans prix partirait « à vérifier » |
+| L3-D26 | Consignes du schéma précisées sur les cas réels : fournisseur = émetteur (jamais le client ni l'adresse de livraison) ; SIRET et TVA de l'émetteur (la TVA peut être libellée « id.cee ») ; chantier = texte qui suit « CHANTIER : » ou « Votre chantier : », jamais l'adresse de livraison ; total HT = celui qui inclut les éco-contributions ; une ligne par article ou éco-participation portant son propre montant, sans les mentions « Dont éco-contribution » ni les commentaires. Lignes d'éco-participation typées `eco` | Constat 11 | Consignes à réajuster sur les 30 photos |
 
 ## 5. Structure des fichiers
 
@@ -115,7 +124,8 @@ app/modules/ingest/mistral.py                    L3-T6  options de requête
 app/modules/ingest/extraction_bl.py              L3-T6  extraction et enregistrement d'un BL
 app/modules/ingest/depot_telegram.py             L3-T6  branchement, supervision
 app/modules/ingest/router.py                     L3-T6 (get_ocr BL), L3-T7 (get_ocr_facture)
-app/modules/ingest/tests/test_extraction_bl.py   L3-T6
+app/modules/ingest/tests/test_extraction_bl.py   L3-T6, L3-T6b
+app/modules/extract/bl.py, verification.py       L3-T6b (ajustements sur BL réels)
 app/modules/ingest/factures.py                   L3-T7
 app/modules/ingest/lecture.py                    L3-T7 (factures), L3-T8a (documents)
 app/modules/ingest/corrections.py                L3-T8a détail, corrections, validation, archivage, relance
@@ -136,7 +146,7 @@ docs/lot-3-recette.md, docs/dette.md             L3-T12
 
 ## 6. Tâches
 
-Ordre et parallélisme : L3-T0 d'abord. Puis deux flux : **flux pur** dans un arbre de travail séparé (L3-T1 → L3-T2 → L3-T3, base de test `bl_test_wt`) et **flux principal** (L3-T4 → L3-T5). Intégration du flux pur par cherry-pick (fichiers disjoints), puis L3-T6 → L3-T7 → L3-T8a → L3-T8b → L3-T9 → L3-T10, avec L3-T11 en parallèle du front dans l'arbre séparé, et L3-T12 en dernier.
+Ordre et parallélisme : L3-T0 d'abord. L3-T6b est insérée après L3-T6 (constat 11). Puis deux flux : **flux pur** dans un arbre de travail séparé (L3-T1 → L3-T2 → L3-T3, base de test `bl_test_wt`) et **flux principal** (L3-T4 → L3-T5). Intégration du flux pur par cherry-pick (fichiers disjoints), puis L3-T6 → L3-T7 → L3-T8a → L3-T8b → L3-T9 → L3-T10, avec L3-T11 en parallèle du front dans l'arbre séparé, et L3-T12 en dernier.
 
 ### L3-T0 — `core: contrôle d'origine derrière proxy et en dev Vite`
 - `web/vite.config.mts` : le proxy `/api` réécrit l'en-tête `Origin` de la requête sortante vers l'origine de sa cible (`http://127.0.0.1:8450`), via `configure: (proxy) => proxy.on("proxyReq", ...)` ou l'option `headers`, selon ce qui fonctionne réellement avec la version de Vite installée. `changeOrigin: true` conservé.
@@ -495,6 +505,30 @@ async def enregistrer_extraction_bl(session: AsyncSession, document_id: uuid.UUI
   - ligne de supervision au nouveau format ;
   - les tests existants de `traiter_fichier` et de `_executer_ocr` sont mis à jour au nouveau comportement (L3-D10), sans en supprimer la couverture.
 
+### L3-T6b — `extract: extraction ajustée aux premiers BL réels`
+Tâche ajoutée après le constat 11 (L3-D24 à L3-D26). Modifie des interfaces de L3-T2, L3-T3, L3-T4 et L3-T6 ; aucune autre tâche ne les a encore consommées en dehors de L3-T6.
+- `extract/bl.py` :
+  - `CHAMPS_LIGNE_BL` devient `("code", "designation", "quantite_conditionnements", "quantite", "unite", "pu_ht", "montant_ht")` ; `LigneBL` gagne `quantite_conditionnements: NombreLu` (entre `designation` et `quantite`) ; `confiances_ligne` reçoit les 7 bruts ; `extraction_en_json` sérialise le nouveau champ.
+  - Descriptions du schéma réécrites (L3-D26), exactement :
+    - `fournisseur` : « Raison sociale de l'entreprise qui émet le document (en-tête ou pied de page), jamais le client destinataire ni l'adresse de livraison »
+    - `agence_fournisseur` : « Agence ou point de vente de l'émetteur tel qu'imprimé (ex. le nom d'agence à côté de la raison sociale), null si absent »
+    - `siret` : « SIRET de l'émetteur tel qu'imprimé, jamais celui du client »
+    - `tva_intracommunautaire` : « Numéro de TVA intracommunautaire de l'émetteur tel qu'imprimé (parfois libellé id.cee), jamais celui du client »
+    - `chantier_brut` : « Texte imprimé après "CHANTIER :" ou "Votre chantier :", code entre parenthèses compris ; null s'il n'y a pas de telle mention (jamais l'adresse de livraison ni le nom du client) »
+    - `total_ht` : « Total hors taxes du document qui inclut les éco-contributions (ex. "Total HT" ou "H.T. €"), jamais un total "hors éco-contribution" »
+    - `lignes` (description du tableau) : « Une entrée par article ou par ligne d'éco-participation portant son propre montant dans la colonne des montants ; ne crée pas d'entrée pour une mention "Dont éco-contribution" incluse dans le montant d'une autre ligne, ni pour un commentaire ou une suite de désignation (à rattacher à la désignation de la ligne précédente) »
+    - `quantite` : « Quantité facturée de la ligne (celle qui multiplie le prix unitaire), nombre seul sans unité »
+    - `quantite_conditionnements` : « Nombre de conditionnements quand le document l'imprime dans une colonne distincte de la quantité facturée (ex. colonne UNITE qui contient un nombre), sinon null »
+    - `unite` : « Unité imprimée à côté ou en face de la quantité facturée (ex. BAG, RL, PAQ, KG), null si aucune »
+    - les autres descriptions sont inchangées.
+  - `date_bl` accepte aussi une date en toutes lettres : jour (1 ou 2 chiffres, « 1er » accepté), mois français en toutes lettres ou abrégé, avec ou sans accent, casse indifférente, point final d'abréviation toléré (janvier/janv, février/févr/fevr, mars, avril/avr, mai, juin, juillet/juil, août/aout, septembre/sept, octobre/oct, novembre/nov, décembre/déc/dec), année sur 4 chiffres ; un préfixe « Du » ou « le » est toléré. Date impossible → `None`.
+  - Nouvelle fonction `est_ligne_eco(designation: str | None) -> bool` : vrai si la désignation normalisée (majuscules, sans accents) contient `ECO-PARTICIPATION`, `ECO PARTICIPATION`, `ECO-CONTRIBUTION` ou `ECO CONTRIBUTION`.
+- `extract/verification.py` : `CodeMotif.LIGNES_ABSENTES = "lignes_absentes"` ; règle 3 de `verifier_bl` : `total_ht` absent (et non illisible) → `TOTAL_ABSENT` champ `total_ht` detail `{"somme": ...}` **qu'il y ait des montants ou non** ; aucune ligne → `LIGNES_ABSENTES` champ `lignes` detail `{"nb_lignes": "0"}` (posé après les motifs de somme). `LigneAVerifier.confiance` = minimum des confiances non nulles de code, `quantite` et montant (inchangé : la quantité de conditionnements n'y entre pas).
+- `normalize/unites.py` : `BAG`, `BAGS` → `sac`.
+- `normalize/article.py` : `proposer_article_bl(code, designation, unite_brut, qte_conditionnements=None, qte_facturee=None)` ; ratio = `proposer_ratio(qte_conditionnements, qte_facturee)` quand les deux existent et diffèrent, sinon `None`.
+- `ingest/extraction_bl.py` : `Ligne.qte_livree` = `quantite_conditionnements.valeur`, `Ligne.qte_totale` = `quantite.valeur` (L3-D24) ; `type_ligne = "eco"` si `est_ligne_eco(designation)`, sinon `"article"` ; aucune proposition d'article pour une ligne `eco` ; proposition d'article avec les deux quantités.
+- Tests (données inventées, construites sur les formes du constat 11) : une annotation « à la Unikalo » (colonne de conditionnements distincte, ligne d'éco-participation avec montant) et « à la Point.P » (quantité + unité, mention éco incluse dans une ligne) ; dates en toutes lettres valides et invalides ; `LIGNES_ABSENTES` et le nouveau `TOTAL_ABSENT` (positif et négatif) ; `BAG` ; ratio proposé depuis un BL ; persistance `qte_livree`/`qte_totale`/`type_ligne` en base. Plus un test sur les réponses OCR **réelles** en cache `tests/fixtures/bl/*.mistral-ocr.json` (skip si absentes) qui vérifie seulement que `analyser_bl` puis `verifier_bl` ne lèvent pas, sous forme de booléen affirmé avec un message fixe (Ruling R7) — les réponses en cache ont été produites avec l'ancien schéma, la mesure réelle se fait avec L3-T11.
+
 ### L3-T7 — `ingest: contrôle et normalisation des factures déposées`
 - `ingest/router.py::get_ocr_facture` : options `{"confidence_scores_granularity": "page"}`.
 - `ingest/factures.py::deposer_facture` (L3-D16) : `confiance_min = confiance_min_pages(reponse_ocr)` ; motifs `verifier_facture(facture, tolerance=...)` (tolérance via `lire_parametre_decimal`) → `document.motifs`, `statut = a_verifier` si motifs ; pour chaque bloc `chantier_id = resoudre_chantier(...).chantier_id` ; pour chaque ligne `ARTICLE` avec code `article_id = rattacher_article(proposer_article_facture(...))` ; journal `facture_deposee` : `apres` gagne `statut` et `motifs` (codes).
@@ -523,7 +557,9 @@ class LigneLue:
     ordre: int
     code_brut: str | None
     article_brut: str | None
-    qte_livree: Decimal | None
+    type_ligne: str                 # "article" | "eco"
+    qte_livree: Decimal | None      # nombre de conditionnements (L3-D24)
+    qte_totale: Decimal | None      # quantité facturée (L3-D24)
     unite_brut: str | None
     pu_ht: Decimal | None
     montant_ht: Decimal | None
@@ -561,7 +597,8 @@ class LigneSaisie:
     id: uuid.UUID | None
     code_brut: str | None
     article_brut: str | None
-    qte_livree: Decimal | None
+    qte_livree: Decimal | None      # nombre de conditionnements (L3-D24)
+    qte_totale: Decimal | None      # quantité facturée (L3-D24)
     unite_brut: str | None
     pu_ht: Decimal | None
     montant_ht: Decimal | None
