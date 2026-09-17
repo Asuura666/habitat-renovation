@@ -10,6 +10,7 @@ métier ne doit s'appuyer sur une unité mal reconnue.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import StrEnum
 
 from .texte import normaliser_libelle
@@ -77,3 +78,58 @@ def normaliser_unite(brut: str | None) -> Unite | None:
     if brut is None:
         return None
     return _INDEX_UNITES.get(_cle(brut))
+
+
+def convertir_en_unite_fact(
+    qte: Decimal | None,
+    unite_lue: str | None,
+    unite_cdt: str | None,
+    unite_fact: str | None,
+    ratio: Decimal | None,
+    ratio_valide: bool,
+) -> Decimal | None:
+    """Quantité facturée convertie dans l'unité de facturation de l'article
+    (L4-D7, Ruling R6). Les unités sont comparées après `normaliser_unite`
+    (sur `Unite.code`, jamais sur les chaînes brutes) : quatre cas, dans cet
+    ordre, sinon `None` -- une conversion incertaine n'est jamais devinée
+    (CDC §10 : « 0 anomalie R03/R04 due à une unité »).
+
+    1. `qte` absente -> `None`.
+    2. `unite_lue` normalisée == `unite_fact` normalisée -> `qte` inchangée.
+    3. `unite_lue` absente et `unite_fact` connue -> `qte` inchangée (cas
+       Unikalo, constat 4 : la ligne n'imprime aucune unité).
+    4. `unite_lue` normalisée == `unite_cdt` normalisée, avec un `ratio`
+       strictement positif et validé (`ratio_valide`) -> `qte * ratio`.
+
+    Tout le reste (unité lue inconnue ou ne correspondant à rien, ratio
+    absent, nul, négatif ou non validé) -> `None`.
+    """
+    if qte is None:
+        return None
+
+    unite_fact_normalisee = normaliser_unite(unite_fact)
+
+    if unite_lue is None:
+        return qte if unite_fact_normalisee is not None else None
+
+    unite_lue_normalisee = normaliser_unite(unite_lue)
+    if unite_lue_normalisee is None:
+        return None
+
+    if (
+        unite_fact_normalisee is not None
+        and unite_lue_normalisee.code == unite_fact_normalisee.code
+    ):
+        return qte
+
+    unite_cdt_normalisee = normaliser_unite(unite_cdt)
+    if (
+        unite_cdt_normalisee is not None
+        and unite_lue_normalisee.code == unite_cdt_normalisee.code
+        and ratio is not None
+        and ratio > 0
+        and ratio_valide
+    ):
+        return qte * ratio
+
+    return None
