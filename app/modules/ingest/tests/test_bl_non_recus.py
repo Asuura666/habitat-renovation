@@ -1,5 +1,5 @@
 """Tests de `lire_facture`, `BlocReception`, `blocs_avec_reception` et
-`formater_blocs` (`app/modules/ingest/service.py`, T7, livrable
+`formater_blocs` (`app/modules/ingest/factures.py`, T7, livrable
 « bl-non-recus »).
 
 Toutes les valeurs (numéros, chantiers, montants) sont inventées (R17,
@@ -26,15 +26,15 @@ from app.modules.extract.facture import (
     LigneFacture,
     TypeLigne,
 )
-from app.modules.ingest import service as ingest_service
-from app.modules.ingest.mistral import ErreurOCR
-from app.modules.ingest.models import Document
-from app.modules.ingest.service import (
+from app.modules.ingest import factures as ingest_factures
+from app.modules.ingest.factures import (
     BlocReception,
     blocs_avec_reception,
     formater_blocs,
     lire_facture,
 )
+from app.modules.ingest.mistral import ErreurOCR
+from app.modules.ingest.models import Document
 
 # --------------------------------------------------------------------------
 # Constructeurs de données inventées
@@ -103,7 +103,7 @@ async def test_lire_facture_appelle_locr_puis_lanalyse(
         appels_analyse.append(reponse)
         return facture_attendue
 
-    monkeypatch.setattr(ingest_service, "analyser_facture_unikalo", _analyse_invente)
+    monkeypatch.setattr(ingest_factures, "analyser_facture_unikalo", _analyse_invente)
 
     resultat = await lire_facture(b"contenu-pdf-invente", _ocr_invente)
 
@@ -120,7 +120,7 @@ async def test_lire_facture_propage_erreur_ocr_sans_appeler_lanalyse(
         raise AssertionError("l'analyse ne doit pas être appelée si l'OCR échoue")
 
     monkeypatch.setattr(
-        ingest_service, "analyser_facture_unikalo", _analyse_jamais_appelee
+        ingest_factures, "analyser_facture_unikalo", _analyse_jamais_appelee
     )
 
     async def _ocr_en_echec(contenu: bytes, mime: str) -> dict[str, Any]:
@@ -137,7 +137,7 @@ async def test_lire_facture_propage_facture_illisible(
     def _analyse_en_echec(reponse: dict[str, Any]) -> Facture:
         raise FactureIllisible("facture illisible factice")
 
-    monkeypatch.setattr(ingest_service, "analyser_facture_unikalo", _analyse_en_echec)
+    monkeypatch.setattr(ingest_factures, "analyser_facture_unikalo", _analyse_en_echec)
 
     async def _ocr_invente(contenu: bytes, mime: str) -> dict[str, Any]:
         return {"pages": []}

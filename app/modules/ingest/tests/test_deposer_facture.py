@@ -1,4 +1,4 @@
-"""Tests de `deposer_facture` (`app/modules/ingest/service.py`, L2-T4).
+"""Tests de `deposer_facture` (`app/modules/ingest/factures.py`, L2-T4).
 
 Base de test réelle, `docs_dir` temporaire (`tmp_path`), faux OCR (jamais
 d'appel réseau réel, R17). Deux familles :
@@ -42,7 +42,16 @@ from app.modules.extract.facture import (
     TypeLigne,
 )
 from app.modules.extract.unikalo import analyser_facture_unikalo
-from app.modules.ingest import service as ingest_service
+from app.modules.ingest import factures as ingest_factures
+from app.modules.ingest.commun import Deposant
+from app.modules.ingest.factures import (
+    EcritureImpossible,
+    FactureEnDouble,
+    FichierInvalide,
+    FormatNonPrisEnCharge,
+    LectureImpossible,
+    deposer_facture,
+)
 from app.modules.ingest.mistral import ErreurOCR
 from app.modules.ingest.models import (
     BlocFacture,
@@ -51,15 +60,6 @@ from app.modules.ingest.models import (
     Journal,
     Ligne,
     Utilisateur,
-)
-from app.modules.ingest.service import (
-    Deposant,
-    EcritureImpossible,
-    FactureEnDouble,
-    FichierInvalide,
-    FormatNonPrisEnCharge,
-    LectureImpossible,
-    deposer_facture,
 )
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
@@ -227,7 +227,7 @@ async def test_reponse_ocr_non_reconnue_leve_format_non_pris_en_charge_rien_stoc
     def _analyse_leve(reponse: dict[str, Any]) -> Facture:
         raise FactureIllisible("motif inventé")
 
-    monkeypatch.setattr(ingest_service, "analyser_facture_unikalo", _analyse_leve)
+    monkeypatch.setattr(ingest_factures, "analyser_facture_unikalo", _analyse_leve)
 
     with pytest.raises(FormatNonPrisEnCharge):
         await deposer_facture(
@@ -252,7 +252,7 @@ async def test_echec_ecriture_disque_leve_ecriture_impossible_rien_stocke(
 ) -> None:
     facture = _facture_invente(blocs=(_bloc_invente(lignes=(_ligne_invente(),)),))
     monkeypatch.setattr(
-        ingest_service, "analyser_facture_unikalo", lambda reponse: facture
+        ingest_factures, "analyser_facture_unikalo", lambda reponse: facture
     )
     utilisateur = await _creer_utilisateur(db_session)
 
@@ -261,7 +261,7 @@ async def test_echec_ecriture_disque_leve_ecriture_impossible_rien_stocke(
     ) -> None:
         raise OSError("disque plein (simulé pour le test)")
 
-    monkeypatch.setattr(ingest_service, "_ecrire_atomique", _ecriture_qui_echoue)
+    monkeypatch.setattr(ingest_factures, "_ecrire_atomique", _ecriture_qui_echoue)
 
     with pytest.raises(EcritureImpossible) as exc_info:
         await deposer_facture(
@@ -294,7 +294,7 @@ async def test_depot_reussi_cree_fournisseur_document_blocs_lignes_et_journal(
     bloc = _bloc_invente(lignes=(ligne,))
     facture = _facture_invente(blocs=(bloc,))
     monkeypatch.setattr(
-        ingest_service, "analyser_facture_unikalo", lambda reponse: facture
+        ingest_factures, "analyser_facture_unikalo", lambda reponse: facture
     )
     reponse_ocr_invente = {"pages": [{"markdown": "peu importe, monkeypatché"}]}
 
@@ -404,7 +404,7 @@ async def test_commentaires_du_bloc_joints_par_saut_de_ligne(
     )
     facture = _facture_invente(blocs=(bloc,))
     monkeypatch.setattr(
-        ingest_service, "analyser_facture_unikalo", lambda reponse: facture
+        ingest_factures, "analyser_facture_unikalo", lambda reponse: facture
     )
     utilisateur = await _creer_utilisateur(db_session)
 
@@ -429,7 +429,7 @@ async def test_bloc_sans_commentaire_a_commentaire_null(
 ) -> None:
     facture = _facture_invente(blocs=(_bloc_invente(lignes=(_ligne_invente(),)),))
     monkeypatch.setattr(
-        ingest_service, "analyser_facture_unikalo", lambda reponse: facture
+        ingest_factures, "analyser_facture_unikalo", lambda reponse: facture
     )
     utilisateur = await _creer_utilisateur(db_session)
 
@@ -459,7 +459,7 @@ async def test_second_depot_meme_fournisseur_meme_numero_leve_facture_en_double(
 ) -> None:
     facture = _facture_invente(blocs=(_bloc_invente(lignes=(_ligne_invente(),)),))
     monkeypatch.setattr(
-        ingest_service, "analyser_facture_unikalo", lambda reponse: facture
+        ingest_factures, "analyser_facture_unikalo", lambda reponse: facture
     )
     utilisateur = await _creer_utilisateur(db_session)
 
@@ -497,7 +497,7 @@ async def test_course_entre_deux_depots_leve_facture_en_double_via_contrainte_un
     `FactureEnDouble` (409), en supprimant le fichier déjà écrit."""
     facture = _facture_invente(blocs=(_bloc_invente(lignes=(_ligne_invente(),)),))
     monkeypatch.setattr(
-        ingest_service, "analyser_facture_unikalo", lambda reponse: facture
+        ingest_factures, "analyser_facture_unikalo", lambda reponse: facture
     )
     utilisateur = await _creer_utilisateur(db_session)
 
@@ -532,7 +532,7 @@ async def test_course_entre_deux_depots_leve_facture_en_double_via_contrainte_un
     # une fois après le `rollback()` pour retrouver l'original (celle-là
     # doit fonctionner normalement, sinon `deposer_facture` ne pourrait
     # jamais traduire l'`IntegrityError` en `FactureEnDouble`).
-    fonction_reelle = ingest_service._facture_en_double
+    fonction_reelle = ingest_factures._facture_en_double
     appels = 0
 
     async def _facture_en_double_aveugle_une_fois(
@@ -545,7 +545,7 @@ async def test_course_entre_deux_depots_leve_facture_en_double_via_contrainte_un
         return await fonction_reelle(session, fournisseur_id, numero)
 
     monkeypatch.setattr(
-        ingest_service, "_facture_en_double", _facture_en_double_aveugle_une_fois
+        ingest_factures, "_facture_en_double", _facture_en_double_aveugle_une_fois
     )
 
     with pytest.raises(FactureEnDouble) as exc_info:

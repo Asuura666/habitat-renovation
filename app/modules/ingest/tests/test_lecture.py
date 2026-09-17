@@ -1,4 +1,4 @@
-"""Tests de la lecture des factures et documents (`ingest/service.py`,
+"""Tests de la lecture des factures et documents (`ingest/lecture.py`,
 L2-T5) : `documents_bl_par_numeros`, `lister_factures`, `facture_detail`,
 `lister_documents`, `fichier_facture`, `fichier_document`.
 
@@ -23,15 +23,7 @@ from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.modules.ingest.models import (
-    BlocFacture,
-    Document,
-    Fournisseur,
-    Journal,
-    Ligne,
-    Utilisateur,
-)
-from app.modules.ingest.service import (
+from app.modules.ingest.lecture import (
     DocumentIntrouvable,
     FactureIntrouvable,
     documents_bl_par_numeros,
@@ -40,6 +32,14 @@ from app.modules.ingest.service import (
     fichier_facture,
     lister_documents,
     lister_factures,
+)
+from app.modules.ingest.models import (
+    BlocFacture,
+    Document,
+    Fournisseur,
+    Journal,
+    Ligne,
+    Utilisateur,
 )
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
@@ -261,6 +261,31 @@ async def test_documents_bl_par_numeros_exclut_type_facture(
     await _creer_facture(db_session, fournisseur=fournisseur, numero="L3")
 
     assert await documents_bl_par_numeros(db_session, ["L3"]) == {}
+
+
+async def test_documents_bl_par_numeros_espace_insecable_de_bord_trouve(
+    db_session: AsyncSession,
+) -> None:
+    """Dette L2-T5, vague finale du lot 2, point 5 : un numéro stocké entouré
+    d'espaces insécables (U+00A0, fréquent en sortie d'OCR) doit être trouvé
+    par le filtre SQL (`btrim`, pas seulement l'espace ASCII de `trim()`),
+    aligné sur `_normaliser_numero` (`str.strip()` côté Python)."""
+    document = await _creer_document_bl(db_session, numero="\u00a0L5000000001\u00a0")
+
+    resultat = await documents_bl_par_numeros(db_session, ["L5000000001"])
+
+    assert resultat == {"L5000000001": document.id}
+
+
+async def test_documents_bl_par_numeros_tabulation_de_bord_trouve(
+    db_session: AsyncSession,
+) -> None:
+    """Même correction (point 5) pour la tabulation de bord."""
+    document = await _creer_document_bl(db_session, numero="\tL5000000002\t")
+
+    resultat = await documents_bl_par_numeros(db_session, ["L5000000002"])
+
+    assert resultat == {"L5000000002": document.id}
 
 
 async def test_documents_bl_par_numeros_doublon_le_plus_ancien_gagne(

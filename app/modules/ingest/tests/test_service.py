@@ -1,6 +1,6 @@
-"""Tests unitaires de `app/modules/ingest/service.py` (base de test réelle,
-`docs_dir` temporaire, fausse `Messagerie`). Toutes les valeurs (identifiants,
-noms) sont inventées."""
+"""Tests unitaires de `app/modules/ingest/depot_telegram.py` (base de test
+réelle, `docs_dir` temporaire, fausse `Messagerie`). Toutes les valeurs
+(identifiants, noms) sont inventées."""
 
 from __future__ import annotations
 
@@ -16,16 +16,16 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.modules.ingest import service as ingest_service
-from app.modules.ingest.models import Document, Journal, TelegramUpdate, Utilisateur
-from app.modules.ingest.service import (
-    Deposant,
+from app.modules.ingest import depot_telegram as ingest_depot_telegram
+from app.modules.ingest.commun import Deposant
+from app.modules.ingest.depot_telegram import (
     enregistrer_update,
     signaler_expediteur_inconnu,
     traiter_clic,
     traiter_fichier,
     utilisateur_rattache,
 )
+from app.modules.ingest.models import Document, Journal, TelegramUpdate, Utilisateur
 from app.modules.messaging.base import (
     PREFIXE_ECART_CONSTATE,
     PREFIXE_QUANTITES_VERIFIEES,
@@ -479,7 +479,12 @@ async def test_traiter_fichier_echec_telechargement_signale_supervision_et_agent
     # Ruling R22 : réponse d'échec à l'agent, sans détail technique, jamais
     # de boutons (décision du contrôleur L2-T3).
     assert messagerie.reponses == [
-        (entrant.chat_id, entrant.message_id, ingest_service._MESSAGE_ECHEC_AGENT, None)
+        (
+            entrant.chat_id,
+            entrant.message_id,
+            ingest_depot_telegram._MESSAGE_ECHEC_AGENT,
+            None,
+        )
     ]
     assert len(messagerie.supervisions) == 1
     chat_id, texte = messagerie.supervisions[0]
@@ -497,7 +502,7 @@ async def test_traiter_fichier_echec_ecriture_signale_supervision_et_agent(
     def _ecriture_qui_echoue(*args: object, **kwargs: object) -> None:
         raise OSError("disque plein (factice)")
 
-    monkeypatch.setattr(ingest_service, "_ecrire_atomique", _ecriture_qui_echoue)
+    monkeypatch.setattr(ingest_depot_telegram, "_ecrire_atomique", _ecriture_qui_echoue)
 
     utilisateur = await _creer_utilisateur(db_session, telegram_user_id=9013)
     deposant = _deposant_depuis(utilisateur)
@@ -519,7 +524,12 @@ async def test_traiter_fichier_echec_ecriture_signale_supervision_et_agent(
 
     # R22 : réponse d'échec, jamais de boutons (décision du contrôleur L2-T3).
     assert messagerie.reponses == [
-        (entrant.chat_id, entrant.message_id, ingest_service._MESSAGE_ECHEC_AGENT, None)
+        (
+            entrant.chat_id,
+            entrant.message_id,
+            ingest_depot_telegram._MESSAGE_ECHEC_AGENT,
+            None,
+        )
     ]
     assert len(messagerie.supervisions) == 1
     chat_id, texte = messagerie.supervisions[0]
@@ -555,7 +565,12 @@ async def test_traiter_fichier_echec_base_supprime_le_fichier_ecrit(
 
     # R22 : réponse d'échec, jamais de boutons (décision du contrôleur L2-T3).
     assert messagerie.reponses == [
-        (entrant.chat_id, entrant.message_id, ingest_service._MESSAGE_ECHEC_AGENT, None)
+        (
+            entrant.chat_id,
+            entrant.message_id,
+            ingest_depot_telegram._MESSAGE_ECHEC_AGENT,
+            None,
+        )
     ]
     assert len(messagerie.supervisions) == 1
     chat_id, texte = messagerie.supervisions[0]
@@ -1119,10 +1134,10 @@ async def test_traiter_clic_exception_inattendue_dans_decision_accuse_quand_meme
 
     async def _decider_clic_qui_leve(
         session: AsyncSession, clic: ClicBouton
-    ) -> ingest_service._DecisionClic:
+    ) -> ingest_depot_telegram._DecisionClic:
         raise RuntimeError("échec factice inattendu")
 
-    monkeypatch.setattr(ingest_service, "_decider_clic", _decider_clic_qui_leve)
+    monkeypatch.setattr(ingest_depot_telegram, "_decider_clic", _decider_clic_qui_leve)
 
     messagerie = MessagerieFactice()
     clic = _clic(update_id=98, numero_interne=1, expediteur_id=8070)

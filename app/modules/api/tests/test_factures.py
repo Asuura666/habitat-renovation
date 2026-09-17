@@ -1,5 +1,5 @@
 """Tests de `POST /api/factures` (L2-T4) : autorisation, taille bornée,
-traduction des erreurs de `ingest.service.deposer_facture` en codes HTTP.
+traduction des erreurs de `ingest.factures.deposer_facture` en codes HTTP.
 
 Ce fichier ne teste que le routeur (couche d'entrée, L2-D3) : les scénarios
 métier détaillés (comptage blocs/lignes vs `analyser_facture_unikalo`,
@@ -41,7 +41,7 @@ from app.core.auth import router as auth_router
 from app.core.config import get_settings
 from app.modules.api import router as api_router
 from app.modules.api.factures import _TAILLE_MAX_OCTETS
-from app.modules.ingest import service as ingest_service
+from app.modules.ingest import factures as ingest_factures
 from app.modules.ingest.mistral import ErreurOCR
 from app.modules.ingest.models import BlocFacture, Document, Journal, Utilisateur
 from app.modules.ingest.router import get_ocr_facture
@@ -269,7 +269,7 @@ async def test_echec_ecriture_disque_renvoie_500_neutre_rien_stocke(
     ) -> None:
         raise OSError("disque plein (simulé pour le test)")
 
-    monkeypatch.setattr(ingest_service, "_ecrire_atomique", _ecriture_qui_echoue)
+    monkeypatch.setattr(ingest_factures, "_ecrire_atomique", _ecriture_qui_echoue)
 
     app_test = _app_test(sessions_test, tmp_path, _ocr)
     cookie = await _login(app_test, email="admin.500ecriture@example.invalid")

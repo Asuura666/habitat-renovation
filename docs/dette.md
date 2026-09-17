@@ -232,18 +232,6 @@ aucune entrée tant qu'aucune simplification n'a été prise.
 
 ## L2-T5 — api (factures et documents en lecture)
 
-- **Correspondance numéro de BL : `trim()` SQL contre `strip()` Python.**
-  `documents_bl_par_numeros` (`ingest/service.py`) filtre en SQL avec
-  `trim()` (n'enlève que l'espace ASCII) pour présélectionner les lignes,
-  puis compare en Python avec `strip()` (enlève tout caractère d'espacement
-  Unicode, dont l'espace insécable). Un numéro de BL dont le seul espace de
-  bord serait un espace insécable (fréquent en sortie d'OCR/traitement de
-  texte) échapperait au filtre SQL avant même d'atteindre la comparaison
-  Python — le bloc resterait affiché « non reçu » à tort. Ne couvre pas ce
-  cas ; non observé sur les fixtures disponibles (aucun numéro en commun
-  avec un espace insécable de bord). À aligner (ex. `btrim` avec la liste
-  des espaces Unicode utiles, ou filtrer plus large en SQL et normaliser
-  uniquement en Python) si un écart de ce type est constaté en recette.
 - **`FileResponse` sans `filename` explicite.** `GET /api/factures/{id}
   /fichier` et `GET /api/documents/{id}/fichier` renvoient le fichier sans
   fixer son nom de téléchargement : le navigateur propose un nom générique

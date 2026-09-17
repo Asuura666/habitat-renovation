@@ -14,8 +14,9 @@
   jamais de logique métier ici.
 
 N'importe que `app.core` (config, db, auth) et `app.modules.ingest`
-(`service.py`, `mistral.py`), plus `FactureIllisible` d'`extract`
-(nécessaire pour distinguer le code de sortie) : `ingest/service.py` reste
+(`factures.py`, `mistral.py` — depuis le découpage de l'ancien
+`ingest/service.py`, vague finale du lot 2, point 1), plus `FactureIllisible`
+d'`extract` (nécessaire pour distinguer le code de sortie) : `ingest` reste
 le seul orchestrateur, la CLI ne fait que construire ses dépendances
 (client HTTP, moteur DB) et les brancher (décisions du contrôleur T7/L2-T1b).
 
@@ -44,12 +45,12 @@ import httpx
 from app.core.config import get_settings
 from app.core.db import creer_engine, creer_sessionmaker
 from app.modules.extract.facture import FactureIllisible
-from app.modules.ingest.mistral import ErreurOCR, ocr_document
-from app.modules.ingest.service import (
+from app.modules.ingest.factures import (
     blocs_avec_reception,
     formater_blocs,
     lire_facture,
 )
+from app.modules.ingest.mistral import ErreurOCR, ocr_document
 
 _SIGNATURE_PDF = b"%PDF-"
 
@@ -65,7 +66,7 @@ class _LectureEchouee(Exception):
 def _lire_fichier(chemin_pdf: Path) -> bytes:
     """Lecture bloquante du PDF (I/O disque), exécutée hors de la boucle
     asyncio via `asyncio.to_thread` (même principe que `_ecrire_atomique`
-    dans `ingest/service.py`). Lève `_LectureEchouee` (message déjà prêt,
+    dans `ingest/commun.py`). Lève `_LectureEchouee` (message déjà prêt,
     sans contenu de fichier) si le fichier est absent, illisible ou n'a pas
     la signature d'un PDF."""
     if not chemin_pdf.is_file():

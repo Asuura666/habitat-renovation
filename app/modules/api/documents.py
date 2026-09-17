@@ -5,7 +5,7 @@ Couche d'entrée (L2-D3) : ce routeur n'importe que `app.core` et
 `app.modules.ingest` (jamais `extract`/`messaging` directement — garde
 vérifiée par `tests/test_frontieres.py`). Ouvert aux deux rôles
 (`utilisateur_courant`) : le CDC réserve les factures à l'admin, pas les BL —
-`ingest.service.lister_documents`/`fichier_document` décident seuls de ce
+`ingest.lecture.lister_documents`/`fichier_document` décident seuls de ce
 que chaque rôle voit (aucune règle ici, décision du contrôleur).
 
 `limite` (`1..500`, défaut 100) est une borne de requête HTTP, pas une règle
@@ -27,7 +27,7 @@ from app.core.auth import Utilisateur, utilisateur_courant
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.modules.api.schemas import DocumentReponse
-from app.modules.ingest.service import (
+from app.modules.ingest.lecture import (
     LIMITE_DOCUMENTS_DEFAUT,
     LIMITE_DOCUMENTS_MAX,
     LIMITE_DOCUMENTS_MIN,

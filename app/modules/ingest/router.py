@@ -13,18 +13,18 @@ Déroulé (décisions du contrôleur T6, complété T6b, puis L2-T2, L2-T3) :
    aussi le rejeu d'un `callback_query`, même mécanisme que pour un fichier).
 5. `lire_update` a renvoyé un `ClicBouton` (L2-T3) : `traiter_clic` part en
    tâche de fond -> 200 (autorisation, mise à jour atomique, journal, accusé
-   et édition du message, tout dans `ingest/service.py`).
-6. `service.utilisateur_rattache` (liste blanche, L2-D7) : expéditeur non
-   rattaché (absent ou compte inactif) -> `signaler_expediteur_inconnu` part
-   en tâche de fond (notification de supervision, aucune écriture ni
+   et édition du message, tout dans `ingest/depot_telegram.py`).
+6. `depot_telegram.utilisateur_rattache` (liste blanche, L2-D7) : expéditeur
+   non rattaché (absent ou compte inactif) -> `signaler_expediteur_inconnu`
+   part en tâche de fond (notification de supervision, aucune écriture ni
    téléchargement) -> 200.
 7. Sinon, `traiter_fichier` part en tâche de fond (`BackgroundTasks`) -> 200
    (téléchargement, écriture, document, OCR Mistral, ligne de supervision
    puis réponse « reçu » avec numéro interne et boutons, L2-D9).
 
 Le routeur reste mince : aucune règle métier, seulement cet enchaînement
-(décision du contrôleur, L2-T2) — `ingest/service.py` décide de tout le
-reste (qui est rattaché, ce qui est écrit, ce qui est envoyé).
+(décision du contrôleur, L2-T2) — `ingest/depot_telegram.py` décide de tout
+le reste (qui est rattaché, ce qui est écrit, ce qui est envoyé).
 
 La messagerie de production est un `TelegramClient` construit sur le
 `httpx.AsyncClient` du lifespan (`app.state.http`), fournie via une
@@ -45,14 +45,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
-from app.modules.ingest.mistral import ocr_document
-from app.modules.ingest.service import (
+from app.modules.ingest.depot_telegram import (
     enregistrer_update,
     signaler_expediteur_inconnu,
     traiter_clic,
     traiter_fichier,
     utilisateur_rattache,
 )
+from app.modules.ingest.mistral import ocr_document
 from app.modules.messaging.base import ClicBouton, Messagerie
 from app.modules.messaging.telegram import TelegramClient, lire_update, secret_valide
 
@@ -157,7 +157,7 @@ async def webhook_telegram(
     if isinstance(entrant, ClicBouton):
         # L2-T3 : clic sur un des deux boutons de confirmation. Toute la
         # logique (autorisation, mise à jour atomique, journal, accusé et
-        # édition du message) vit dans `ingest/service.py::traiter_clic`.
+        # édition du message) vit dans `ingest/depot_telegram.py::traiter_clic`.
         background_tasks.add_task(
             traiter_clic,
             entrant,

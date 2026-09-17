@@ -11,7 +11,7 @@ factures à l'administrateur, contrairement aux BL.
 Déroulé du dépôt (décisions du contrôleur, L2-T4) :
 1. Lecture bornée du fichier envoyé (au plus 20 Mo + 1 octet), avant tout
    appel à `deposer_facture` -> 413 si dépassé.
-2. `ingest.service.deposer_facture` fait tout le reste (signature PDF, OCR
+2. `ingest.factures.deposer_facture` fait tout le reste (signature PDF, OCR
    avec un délai de 90 s dédié aux factures via `get_ocr_facture`, analyse
    Unikalo, fournisseur, doublon, stockage atomique, insertions, journal),
    dans une seule transaction : ce routeur reste mince, aucune règle
@@ -23,10 +23,14 @@ Déroulé du dépôt (décisions du contrôleur, L2-T4) :
    main : `HTTPException(detail=...)` imbriquerait `original_id` sous
    `detail`, alors que le corps attendu les porte au même niveau).
 
-Lecture (décisions du contrôleur, L2-T5) : `ingest.service` porte toute la
+Lecture (décisions du contrôleur, L2-T5) : `ingest.lecture` porte toute la
 requête SQL (`lister_factures`, `facture_detail`, `fichier_facture`) ; ce
 routeur ne fait que les appeler et traduire leurs exceptions typées
-(`FactureIntrouvable`, `DocumentIntrouvable`) en 404.
+(`FactureIntrouvable`, `DocumentIntrouvable`) en 404. Depuis le découpage de
+l'ancien `ingest/service.py` (vague finale du lot 2, point 1), ce routeur
+importe deux sous-modules d'`ingest` (`factures`, `lecture`) plus `Deposant`
+d'`ingest.commun` : tous restent sous `app.modules.ingest`, la garde de
+frontières (L2-D3) n'y voit donc aucune différence.
 """
 
 from __future__ import annotations
@@ -44,21 +48,23 @@ from app.core.auth import Utilisateur, admin_requis
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.modules.api.schemas import FactureDetailReponse, FactureResumeReponse
-from app.modules.ingest.router import get_ocr_facture
-from app.modules.ingest.service import (
-    Deposant,
-    DocumentIntrouvable,
+from app.modules.ingest.commun import Deposant
+from app.modules.ingest.factures import (
     EcritureImpossible,
     FactureEnDouble,
-    FactureIntrouvable,
     FichierInvalide,
     FormatNonPrisEnCharge,
     LectureImpossible,
     deposer_facture,
+)
+from app.modules.ingest.lecture import (
+    DocumentIntrouvable,
+    FactureIntrouvable,
     facture_detail,
     fichier_facture,
     lister_factures,
 )
+from app.modules.ingest.router import get_ocr_facture
 
 router = APIRouter()
 
@@ -120,7 +126,7 @@ async def deposer_facture_pdf(
     except EcritureImpossible as exc:
         # Message neutre (Ruling L2-R5) : jamais de détail technique disque
         # renvoyé au client, `EcritureImpossible` ne porte de toute façon
-        # que ce message (voir `ingest/service.py`).
+        # que ce message (voir `ingest/factures.py`).
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         ) from exc

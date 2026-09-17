@@ -27,9 +27,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings, get_settings
+from app.modules.ingest.depot_telegram import _MESSAGE_ECHEC_AGENT
 from app.modules.ingest.models import Document, Journal, TelegramUpdate, Utilisateur
 from app.modules.ingest.router import get_messagerie, get_ocr, router
-from app.modules.ingest.service import _MESSAGE_ECHEC_AGENT
 from app.modules.messaging.base import FichierEntrant, FichierTelecharge
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
