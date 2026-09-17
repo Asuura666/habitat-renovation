@@ -30,6 +30,11 @@ Ordre complet du catalogue (CDC §5, « Ordre d'exécution ») :
    est rapproché mais encore « à vérifier », ou dont le BL rapproché est
    incohérent (R11), reste soumis aux mêmes gardes que R03-R05/R17, faute
    d'indication contraire).
+6. Enfin, une fois par facture, après tous les blocs (L4-T5) : R13 (avoir
+   sans origine) pour chaque couple `(ligne, chantier)` de
+   `facture.lignes_negatives_sans_origine`, dans l'ordre de ce tuple — cette
+   règle ne recalcule rien, `ingest` lui fournit déjà les lignes négatives
+   sans ligne positive antérieure correspondante (décision du contrôleur).
 
 L4-T1 posait la structure avec R10/R11 seules ; L4-T2 y a ajouté
 R01/R02/R12 et restructuré `_evaluer_bloc` en conséquence (revue de L4-T1 :
@@ -37,10 +42,25 @@ la sortie précoce sur R11 aurait sauté R01/R02/R12, contraire à Ruling R2).
 L4-T3 y ajoute les règles de ligne R03/R04/R05/R17, après les règles de
 bloc, sous la double garde Ruling R2 (pas de R11) et Ruling R3 (BL reçu).
 L4-T4 y ajoute R07/R08/R09 (prix et remise), entre R05 et R17, avec
-l'exception Ruling R7 décrite ci-dessus.
+l'exception Ruling R7 décrite ci-dessus. L4-T5 y ajoute R13 (étape 6
+ci-dessus), additivement : `_evaluer_bloc` n'est pas retouchée (une revue
+des règles de prix est en cours dessus).
 
 `evaluer_suivi` (R06, R14, R15, R16, contrôles différés au temps écoulé,
-L4-D14) n'est pas de ce module (L4-T5/T11).
+L4-D14) est un second point d'entrée, séparé de `evaluer_facture` : ces
+règles ne dépendent pas d'une facture en cours de contrôle mais du temps
+écoulé depuis un dépôt, une création d'alias ou un dernier dépôt de
+chantier (décision du contrôleur). Elle enchaîne R06, R14, R15, R16 dans
+l'ordre des champs de `ContexteSuivi`, déclenchée par la commande
+`controles-differes` (L4-T11), pas à chaque dépôt.
+
+`REGLES_FACTURE` et `REGLES_SUIVI` (adjonction du contrôleur, L4-T5) sont
+la source de vérité des codes de règle que produit chacun des deux points
+d'entrée : `ingest.anomalies.synchroniser_anomalies` les importe pour son
+paramètre obligatoire `portee_regles` plutôt que de retyper la liste des
+règles à chaque appel. `test_engine.py` vérifie qu'ils sont disjoints et
+que leur union couvre exactement R01 à R17 — une règle ajoutée plus tard
+sans mise à jour de l'un des deux ensembles fait donc échouer la suite.
 """
 
 from __future__ import annotations
@@ -52,6 +72,7 @@ from app.modules.rules.modeles import (
     Anomalie,
     ArticleControle,
     BlocControle,
+    ContexteSuivi,
     FactureControlee,
     HistoriqueArticle,
     LigneControlee,
@@ -63,13 +84,41 @@ from app.modules.rules.rules.R02 import R02
 from app.modules.rules.rules.R03 import R03
 from app.modules.rules.rules.R04 import R04
 from app.modules.rules.rules.R05 import R05
+from app.modules.rules.rules.R06 import R06
 from app.modules.rules.rules.R07 import R07
 from app.modules.rules.rules.R08 import R08
 from app.modules.rules.rules.R09 import R09
 from app.modules.rules.rules.R10 import R10
 from app.modules.rules.rules.R11 import R11
 from app.modules.rules.rules.R12 import R12
+from app.modules.rules.rules.R13 import R13
+from app.modules.rules.rules.R14 import R14
+from app.modules.rules.rules.R15 import R15
+from app.modules.rules.rules.R16 import R16
 from app.modules.rules.rules.R17 import R17
+
+# Adjonction du contrôleur (L4-T5) : scopes des deux points d'entrée du
+# moteur, source de vérité pour `ingest.anomalies.synchroniser_anomalies`
+# (paramètre obligatoire `portee_regles`) — voir le test de couverture dans
+# `test_engine.py`.
+REGLES_FACTURE: frozenset[str] = frozenset(
+    {
+        "R01",
+        "R02",
+        "R03",
+        "R04",
+        "R05",
+        "R07",
+        "R08",
+        "R09",
+        "R10",
+        "R11",
+        "R12",
+        "R13",
+        "R17",
+    }
+)
+REGLES_SUIVI: frozenset[str] = frozenset({"R06", "R14", "R15", "R16"})
 
 
 def evaluer_facture(
@@ -91,6 +140,44 @@ def evaluer_facture(
                 facture.historiques,
             )
         )
+    for ligne, chantier in facture.lignes_negatives_sans_origine:
+        anomalie_r13 = R13(ligne, chantier)
+        if anomalie_r13 is not None:
+            anomalies.append(anomalie_r13)
+    return tuple(anomalies)
+
+
+def evaluer_suivi(
+    contexte: ContexteSuivi, parametres: Parametres
+) -> tuple[Anomalie, ...]:
+    """Point d'entrée du moteur pour les règles de suivi (R06, R14, R15,
+    R16 — contrôles différés au temps écoulé, L4-D14), distinct de
+    `evaluer_facture` (décision du contrôleur). Enchaîne les règles dans
+    l'ordre des champs de `ContexteSuivi` : lignes de BL non facturées
+    (R06), alias en attente (R14), BL sans confirmation (R15), chantiers
+    suivis (R16)."""
+    anomalies: list[Anomalie] = []
+
+    for bloc, ligne_bl in contexte.lignes_bl_non_facturees:
+        anomalie_r06 = R06(bloc, ligne_bl, contexte.aujourdhui, parametres)
+        if anomalie_r06 is not None:
+            anomalies.append(anomalie_r06)
+
+    for alias in contexte.alias_en_attente:
+        anomalie_r14 = R14(alias, contexte.aujourdhui, parametres)
+        if anomalie_r14 is not None:
+            anomalies.append(anomalie_r14)
+
+    for document in contexte.bl_sans_confirmation:
+        anomalie_r15 = R15(document, contexte.aujourdhui, parametres)
+        if anomalie_r15 is not None:
+            anomalies.append(anomalie_r15)
+
+    for chantier in contexte.chantiers:
+        anomalie_r16 = R16(chantier, contexte.aujourdhui, parametres)
+        if anomalie_r16 is not None:
+            anomalies.append(anomalie_r16)
+
     return tuple(anomalies)
 
 

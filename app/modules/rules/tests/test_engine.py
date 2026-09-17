@@ -7,20 +7,32 @@ double garde Ruling R2 — pas de R11 sur le bloc — et Ruling R3 — BL du blo
 reçu, depuis L4-T3) et, depuis L4-T4, R07/R08/R09 (prix et remises,
 insérées entre R05 et R17, Ruling R7 : mêmes gardes que R03-R05/R17 **sauf**
 qu'elles tournent aussi sur les lignes d'un bloc sans BL rapproché, faute
-de quantité à comparer) sont enchaînées. R13 (niveau ligne) et R14-R16
-(suivi) n'existent pas encore (L4-T5/T11). Données inventées."""
+de quantité à comparer) sont enchaînées. Depuis L4-T5, `evaluer_facture`
+ajoute aussi R13 (une fois par facture, après les blocs, dans l'ordre de
+`facture.lignes_negatives_sans_origine`) ; `evaluer_suivi` (R06, R14, R15,
+R16, contrôles différés au temps écoulé) est testée séparément, ainsi que
+les scopes `REGLES_FACTURE`/`REGLES_SUIVI` (adjonction du contrôleur,
+L4-T5). Données inventées."""
 
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from app.modules.rules.engine import evaluer_facture
+from app.modules.rules.engine import (
+    REGLES_FACTURE,
+    REGLES_SUIVI,
+    evaluer_facture,
+    evaluer_suivi,
+)
 from app.modules.rules.modeles import (
+    AliasEnAttenteControle,
     ArticleControle,
     BlocControle,
+    ChantierSuiviControle,
+    ContexteSuivi,
     DocumentControle,
     FactureControlee,
     HistoriqueArticle,
@@ -577,3 +589,110 @@ def test_evaluer_facture_prix_sans_historique_connu_ne_produit_rien() -> None:
     )
 
     assert anomalies == ()
+
+
+def test_evaluer_facture_ajoute_r13_apres_les_blocs_dans_lordre() -> None:
+    """R13 (L4-T5) : une fois par facture, après les blocs, dans l'ordre de
+    `lignes_negatives_sans_origine` (décision du contrôleur)."""
+    document = _document(coherent=True)
+    bloc = _bloc(bl=_document(coherent=True))
+    ligne1 = _ligne(designation="Ciment", montant_ht=Decimal("-10.00"))
+    ligne2 = _ligne(designation="Sable", montant_ht=Decimal("-20.00"))
+
+    facture = FactureControlee(
+        document=document,
+        fournisseur="FOURNISSEUR INVENTE",
+        blocs=(bloc,),
+        articles={},
+        historiques={},
+        lignes_negatives_sans_origine=((ligne1, "Chantier A"), (ligne2, None)),
+    )
+
+    anomalies = evaluer_facture(facture, Parametres())
+
+    assert [a.regle for a in anomalies] == ["R13", "R13"]
+    assert anomalies[0].ligne_id == ligne1.id
+    assert anomalies[0].detail["chantier"] == "Chantier A"
+    assert anomalies[1].ligne_id == ligne2.id
+    assert anomalies[1].detail["chantier"] == "—"
+
+
+def test_evaluer_facture_r10_incoherente_ignore_aussi_les_avoirs() -> None:
+    """Ruling R2 : le retour anticipé de R10 (facture « à vérifier ») ne
+    doit pas être contourné par l'ajout de R13 (régression, L4-T5)."""
+    document = _document(coherent=False)
+    ligne = _ligne(montant_ht=Decimal("-10.00"))
+    facture = FactureControlee(
+        document=document,
+        fournisseur="FOURNISSEUR INVENTE",
+        blocs=(),
+        articles={},
+        historiques={},
+        lignes_negatives_sans_origine=((ligne, "Chantier A"),),
+    )
+
+    anomalies = evaluer_facture(facture, Parametres())
+
+    assert [a.regle for a in anomalies] == ["R10"]
+
+
+def test_evaluer_suivi_enchaine_r06_r14_r15_r16_dans_lordre() -> None:
+    """`evaluer_suivi` (L4-T5) enchaîne les règles de suivi dans l'ordre des
+    champs de `ContexteSuivi` : R06, R14, R15, R16."""
+    aujourdhui = datetime(2026, 8, 1)
+
+    bloc = _bloc(date_bl=date(2026, 6, 1))
+    ligne_bl = _ligne(designation="Ciment")
+    alias = AliasEnAttenteControle(
+        id=uuid.uuid4(),
+        libelle="ALIAS INVENTE",
+        fournisseur="FOURNISSEUR INVENTE",
+        cree_le=datetime(2026, 7, 1),
+    )
+    bl_non_confirme = _document(
+        coherent=True,
+        depose_le=datetime(2026, 7, 1),
+        deposant="Agent Un",
+        confirme_le=None,
+    )
+    chantier = ChantierSuiviControle(
+        id=uuid.uuid4(),
+        nom="Chantier Inventé",
+        dernier_depot=datetime(2026, 7, 1),
+        nb_bl_factures_depuis=3,
+    )
+
+    contexte = ContexteSuivi(
+        aujourdhui=aujourdhui,
+        lignes_bl_non_facturees=((bloc, ligne_bl),),
+        alias_en_attente=(alias,),
+        bl_sans_confirmation=(bl_non_confirme,),
+        chantiers=(chantier,),
+    )
+
+    anomalies = evaluer_suivi(contexte, Parametres())
+
+    assert [a.regle for a in anomalies] == ["R06", "R14", "R15", "R16"]
+
+
+def test_evaluer_suivi_sans_rien_a_signaler_ne_produit_rien() -> None:
+    contexte = ContexteSuivi(
+        aujourdhui=datetime(2026, 8, 1),
+        lignes_bl_non_facturees=(),
+        alias_en_attente=(),
+        bl_sans_confirmation=(),
+        chantiers=(),
+    )
+
+    assert evaluer_suivi(contexte, Parametres()) == ()
+
+
+def test_regles_facture_et_suivi_sont_disjointes_et_couvrent_r01_a_r17() -> None:
+    """Adjonction du contrôleur (L4-T5) : `REGLES_FACTURE`/`REGLES_SUIVI`
+    sont l'unique source de vérité des scopes que `ingest` utilisera pour
+    `synchroniser_anomalies` — une règle ajoutée plus tard sans mise à jour
+    de l'un des deux ensembles doit faire échouer ce test."""
+    toutes_les_regles = {f"R{i:02d}" for i in range(1, 18)}
+
+    assert REGLES_FACTURE.isdisjoint(REGLES_SUIVI)
+    assert toutes_les_regles == REGLES_FACTURE | REGLES_SUIVI

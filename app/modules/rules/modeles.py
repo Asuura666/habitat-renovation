@@ -159,6 +159,45 @@ class FactureControlee:
 
 
 @dataclass(frozen=True)
+class AliasEnAttenteControle:
+    """Alias de chantier chez un fournisseur, créé lors d'une extraction et
+    toujours pas validé par l'admin (matière de R14, L4-T5)."""
+
+    id: uuid.UUID
+    libelle: str
+    fournisseur: str
+    cree_le: datetime
+
+
+@dataclass(frozen=True)
+class ChantierSuiviControle:
+    """Vue d'un chantier pour le suivi temporel (R16, L4-T5). `dernier_depot`
+    est `None` si aucun BL n'a jamais été déposé pour ce chantier — R16 ne
+    peut alors rien comparer et ne se déclenche jamais."""
+
+    id: uuid.UUID
+    nom: str
+    dernier_depot: datetime | None
+    nb_bl_factures_depuis: int
+
+
+@dataclass(frozen=True)
+class ContexteSuivi:
+    """Entrée de `evaluer_suivi` (R06, R14, R15, R16 — contrôles différés au
+    temps écoulé, déclenchés par la commande `controles-differes`, L4-D14),
+    séparée de `FactureControlee` : ces règles ne portent pas sur une
+    facture en cours de contrôle mais sur le temps écoulé depuis un dépôt,
+    une création d'alias ou un dernier dépôt de chantier — décision du
+    contrôleur, `ContexteSuivi` reste utilisable sans aucune facture."""
+
+    aujourdhui: datetime
+    lignes_bl_non_facturees: tuple[tuple[BlocControle, LigneControlee], ...]
+    alias_en_attente: tuple[AliasEnAttenteControle, ...]
+    bl_sans_confirmation: tuple[DocumentControle, ...]
+    chantiers: tuple[ChantierSuiviControle, ...]
+
+
+@dataclass(frozen=True)
 class Parametres:
     """Seuils modifiables par l'admin (CDC §5, L4-D10), avec leur valeur
     par défaut : `ingest` les lit depuis la table `parametre` et construit
