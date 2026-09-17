@@ -267,7 +267,7 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_article")),
         sa.UniqueConstraint(
-            "fournisseur_id", "code", name=op.f("uq_article_fournisseur_id")
+            "fournisseur_id", "code", name=op.f("uq_article_fournisseur_id_code")
         ),
     )
     op.create_table(
@@ -319,7 +319,7 @@ def upgrade() -> None:
             "fournisseur_id",
             "libelle_brut",
             "code_brut",
-            name=op.f("uq_chantier_alias_fournisseur_id"),
+            name=op.f("uq_chantier_alias_fournisseur_id_libelle_brut_code_brut"),
             postgresql_nulls_not_distinct=True,
         ),
     )
@@ -394,7 +394,7 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_document")),
         sa.UniqueConstraint(
-            "fournisseur_id", "numero", name=op.f("uq_document_fournisseur_id")
+            "fournisseur_id", "numero", name=op.f("uq_document_fournisseur_id_numero")
         ),
     )
     op.create_table(

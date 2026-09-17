@@ -19,13 +19,44 @@ import socket
 import time
 
 import pytest
+from sqlalchemy import Column, MetaData, Table, Text, UniqueConstraint
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-from app.core.db import base_joignable
+from app.core.db import NAMING_CONVENTION, base_joignable
 
 pytestmark = pytest.mark.anyio
+
+
+def test_naming_convention_uq_evite_collision_meme_premiere_colonne() -> None:
+    """`NAMING_CONVENTION["uq"]` doit reprendre TOUTES les colonnes d'une
+    contrainte unique, pas seulement la première : sans quoi deux
+    contraintes uniques d'une même table qui partageraient leur première
+    colonne recevraient le même nom (Postgres refuserait de créer la
+    seconde ; `alembic check` ne verrait jamais venir la dérive, la
+    collision empêchant même d'atteindre la comparaison). Aucun cas actuel
+    dans `app/modules/ingest/models.py`, mais la convention doit rester
+    sûre pour une future table.
+
+    Ce test échoue avec l'ancienne convention
+    (`uq_%(table_name)s_%(column_0_name)s`, revue tour de correction finale
+    du lot 1) : les deux contraintes ci-dessous y recevraient toutes deux le
+    nom `uq_table_test_naming_a`."""
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
+    table = Table(
+        "table_test_naming",
+        metadata,
+        Column("a", Text),
+        Column("b", Text),
+        Column("c", Text),
+        UniqueConstraint("a", "b"),
+        UniqueConstraint("a", "c"),
+    )
+
+    noms = [c.name for c in table.constraints if isinstance(c, UniqueConstraint)]
+
+    assert len(noms) == len(set(noms)), f"noms de contraintes en collision : {noms}"
 
 
 def _port_libre() -> int:

@@ -26,7 +26,17 @@ from sqlalchemy.orm import DeclarativeBase
 
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
-    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    # `column_0_N_name` (et non `column_0_name`) : reprend TOUTES les
+    # colonnes de la contrainte, pas seulement la première — deux
+    # contraintes uniques d'une même table qui partageraient leur première
+    # colonne (aucun cas actuellement, cf. `app/core/tests/test_db.py`)
+    # produiraient sinon le même nom, qu'`alembic check` ne détecterait
+    # jamais comme une dérive avant que Postgres ne refuse la création de la
+    # seconde (collision de nom de contrainte). `ix` n'a pas besoin du même
+    # traitement : `column_0_label` inclut déjà le nom de table, et aucun
+    # index composite n'existe dans `app/modules/ingest/models.py` (revu à
+    # cette occasion, tour de correction finale du lot 1).
+    "uq": "uq_%(table_name)s_%(column_0_N_name)s",
     "ck": "ck_%(table_name)s_%(constraint_name)s",
     "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
     "pk": "pk_%(table_name)s",
