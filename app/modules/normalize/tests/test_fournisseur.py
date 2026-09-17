@@ -63,10 +63,13 @@ def _referentiel() -> tuple[FournisseurRef, ...]:
         ),
         FournisseurRef(
             id=_ID_NUANCES,
-            nom="Nuances Exemple",
+            # Le nom porte un mot ("Distribution") absent du texte lu plus
+            # bas : la résolution ne peut réussir que via l'alias, jamais
+            # via `ref.nom` directement (fix round 1, finding 1).
+            nom="Nuances Distribution",
             siret="99988877700022",
             tva="FR99988877700",
-            aliases=("Nuances Exemple Toulouse",),
+            aliases=("Nuances Exemple",),
         ),
     )
 
@@ -130,6 +133,9 @@ def test_resoudre_fournisseur_deux_references_au_meme_siren_passe_a_la_tva() -> 
 
 
 def test_resoudre_fournisseur_par_nom_via_alias() -> None:
+    """Nom lu « NUANCES EXEMPLE TOULOUSE » résolu par l'alias « Nuances
+    Exemple » : `ref.nom` seul ("Nuances Distribution") ne correspond pas
+    (mot "distribution" absent du texte lu), seul l'alias fait le match."""
     resolution = resoudre_fournisseur(
         siret=None, tva=None, nom="NUANCES EXEMPLE TOULOUSE", referentiel=_referentiel()
     )
@@ -137,6 +143,8 @@ def test_resoudre_fournisseur_par_nom_via_alias() -> None:
 
 
 def test_resoudre_fournisseur_nom_insensible_aux_accents_et_a_la_casse() -> None:
+    """Même résolution par alias que ci-dessus, texte lu accentué et en
+    minuscules : `normaliser_libelle` doit rendre les deux comparables."""
     resolution = resoudre_fournisseur(
         siret=None, tva=None, nom="nuances éxemple", referentiel=_referentiel()
     )

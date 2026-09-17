@@ -17,6 +17,26 @@ def test_decomposer_chantier_sans_prefixe_ni_code() -> None:
     )
 
 
+def test_decomposer_chantier_prefixe_sans_espace_avant_les_deux_points() -> None:
+    assert decomposer_chantier("Chantier: Maison Test") == LibelleChantier(
+        libelle="maison test", code=None
+    )
+
+
+def test_decomposer_chantier_prefixe_majuscules_sans_deux_points() -> None:
+    assert decomposer_chantier("CHANTIER Maison Test") == LibelleChantier(
+        libelle="maison test", code=None
+    )
+
+
+def test_decomposer_chantier_prefixe_est_un_mot_entier() -> None:
+    """« Chantiers » (pluriel) n'est pas le mot « chantier » : le préfixe ne
+    doit pas être retiré (fix round 1, finding 2)."""
+    assert decomposer_chantier("Chantiers Réunis") == LibelleChantier(
+        libelle="chantiers reunis", code=None
+    )
+
+
 def test_decomposer_chantier_parentheses_au_milieu_non_retirees() -> None:
     assert decomposer_chantier("Maison (Test) Dupont") == LibelleChantier(
         libelle="maison test dupont", code=None

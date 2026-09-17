@@ -19,7 +19,11 @@ from dataclasses import dataclass
 
 from .texte import normaliser_libelle
 
-_PREFIXE_CHANTIER_RE = re.compile(r"^\s*chantier\s*:?\s*", re.IGNORECASE)
+# `(?=$|[:\s])` : ne retire « chantier » que comme mot entier (fin de
+# chaîne, « : » ou espace juste après), jamais comme simple préfixe d'un
+# autre mot (« Chantiers Réunis » ne doit pas perdre son « s » initial,
+# fix round 1, finding 2).
+_PREFIXE_CHANTIER_RE = re.compile(r"^\s*chantier(?=$|[:\s])\s*:?\s*", re.IGNORECASE)
 _CODE_FINAL_RE = re.compile(r"\(\s*([A-Za-z0-9-]+)\s*\)\s*$")
 
 
