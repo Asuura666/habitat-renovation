@@ -1,23 +1,26 @@
 # Recette du lot 2 (Collecte) — Contrôle BL & factures
 
 Branche `lot-2-collecte` (worktree `/home/debian/habitat_reno-wt-l2`, HEAD
-`e352a98`), tâches L2-T1 à L2-T8. Aucune donnée réelle (numéro, chantier,
+`2e06aa8`), tâches L2-T1 à L2-T8. Aucune donnée réelle (numéro, chantier,
 montant, nom, identifiant Telegram réel, secret) dans ce document : comptes
 et écarts uniquement, comme `docs/lot-1-recette.md`. **Rien n'est fusionné
 ni poussé** — cette recette reste sur la branche du worktree.
 
 ## À lire d'abord (Ilane)
 
-- **L2-T7 (écrans) est encore en revue** au moment d'écrire ce document
-  (relancée après une coupure de session, `progress.md`) : aucun résultat de
-  revue définitif à ce jour. Ne pas considérer le lot 2 comme terminé avant
-  la fin de cette revue (voir §2).
-- **Testé réellement ce soir (2026-09-17)** : `uv run pytest -q` → **336
-  passed** ; `npm --prefix web run typecheck` → propre ; `npm --prefix web
-  run build` → propre (236,53 kB / 74,15 kB gzip) ; `uv run pre-commit
-  run --all-files` → tous les hooks verts (voir §6). Migrations 0002 à 0004
-  déjà appliquées sur la base `bl` du worktree (`alembic check` : aucune
-  dérive), base vérifiée vide de toute donnée de test.
+- **Revue de L2-T7 close** (mise à jour après ce document) : 1 Important
+  relevé (Ruling L2-R8 — voir §2) et corrigé en `2e06aa8`
+  (`api: confirmation explicite des BL déposés`). **Approved** après
+  correction. Le lot 2 peut être considéré fonctionnellement complet côté
+  code, sous réserve des vérifications encore manuelles listées en §4
+  (Telegram réel, rendu visuel, dépôt avec OCR réel).
+- **Testé réellement ce soir (2026-09-17)** : `uv run pytest -q` → **341
+  passed** (336 puis +5 pour la correction L2-R8) ; `npm --prefix web run
+  typecheck` → propre ; `npm --prefix web run build` → propre (236,81 kB /
+  74,23 kB gzip après correction) ; `uv run pre-commit run --all-files` →
+  tous les hooks verts (voir §6). Migrations 0002 à 0004 déjà appliquées sur
+  la base `bl` du worktree (`alembic check` : aucune dérive), base vérifiée
+  vide de toute donnée de test.
 - **Vérifié uniquement par L2-T7 ce soir** (pas rejoué par cette tâche) :
   parcours API réel sans navigateur (login, `/api/moi`, `/api/factures`,
   `/api/factures/{id}`, `/api/documents`, dépôt 422/413) sur une instance
@@ -28,7 +31,7 @@ ni poussé** — cette recette reste sur la branche du worktree.
   mobile 375 px compris), dépôt d'une facture avec un **vrai** appel Mistral
   OCR depuis l'écran.
 - **Décisions à valider** : L2-D1 à L2-D17 (`docs/plan-lot-2.md` §4) et
-  L2-R1 à L2-R7 (§3 ci-dessous) — toutes prises en autonomie cette nuit,
+  L2-R1 à L2-R8 (§3 ci-dessous) — toutes prises en autonomie cette nuit,
   aucune n'a de conséquence irréversible en base de production (rien n'est
   déployé).
 - **Questions ouvertes** : Q1 à Q5 de `docs/plan-lot-2.md` §3 (§5
@@ -50,7 +53,7 @@ ni poussé** — cette recette reste sur la branche du worktree.
 | L2-T4 | 5ab195b + correction 4bb3d56 | `ingest: dépôt de facture PDF Unikalo`. Revue → 2 Important (« confiance réduite » §4.2 non représentée ; avoirs non traités — Ruling L2-R5), 2 Minor. Corrigé/documenté en 4bb3d56, re-revue → 3 addressed, 0 open. Complete. |
 | L2-T5 | 8a438c8 | `api: factures et documents en lecture`. Revue → spec ✅, **Approved**, 4 minor (deferred). Complete. |
 | L2-T6 | 8741881 | `web: socle React, connexion et service statique`. Revue → 1 Important (proxy Vite dev sur le port de vérification isolée 8460 au lieu du port de dev 8450 — Ruling L2-R3), 2 Minor. Corrigé (amendé), re-revue → 3 addressed, 0 open. Complete. |
-| L2-T7 | e352a98 | `web: écran Factures et onglet BL déposés`. Implémenteur : 336 passed, `typecheck`/`build` propres, parcours local sans Docker (§4). **Revue en cours** (interrompue une fois par une limite de session API, relancée à 06:02 — dernière ligne de `progress.md`) : **aucun verdict à la date de ce document**. À vérifier avant de considérer L2-T7/le lot 2 terminés. |
+| L2-T7 | e352a98 + correction 2e06aa8 | `web: écran Factures et onglet BL déposés`. Implémenteur : 336 passed, `typecheck`/`build` propres, parcours local sans Docker (§4). Revue → **1 Important** (le libellé « Vérifié / Écart » de l'onglet BL déposés était dérivé côté front de `statut`+`confirme_le` — faux pour un document `a_verifier` d'origine OCR confirmé ensuite « Quantités vérifiées » ; règle métier dans le front — Ruling L2-R8), 3 Minor (commentaire ECMA-402 sur-évalué, contraste du badge « écart » à vérifier, badge ajouté). Corrigé en 2e06aa8 (`api: confirmation explicite des BL déposés`, champ `confirmation` explicite sur `GET /api/documents`, 5 tests ajoutés, 341 passed). Re-revue → **Approved**, 0 open. Complete. |
 | L2-T8 | (ce commit) | Cette recette. |
 
 ## 2. Décisions prises en autonomie
@@ -88,6 +91,7 @@ ni poussé** — cette recette reste sur la branche du worktree.
 | L2-R5 | « Confiance réduite » (§4.2) et avoirs non implémentés au lot 2 : entrées explicites dans `docs/dette.md` (score de confiance = lot 3 ; format d'avoir Unikalo inconnu faute d'exemple) + question Q5 à Ilane | À implémenter au lot 3 |
 | L2-R6 | Un seul implémenteur à la fois lance `pytest` dans le worktree (base de test partagée `habitat_reno_pg_l2:5454`, TRUNCATE concurrents instables) | Nuit plus lente |
 | L2-R7 | Migration 0004 (`bloc_facture.ordre`) acceptée : sans elle, l'ordre de lecture des blocs d'une facture serait indéterministe (même `created_at`, insertion en une transaction) | Une colonne à retirer |
+| L2-R8 | Revue L2-T7 (tour 1/5, Important corrigé) : `GET /api/documents` expose `confirmation: "verifiee" \| "ecart" \| null`, calculé dans `lister_documents` depuis la **dernière entrée du journal** (`quantites_verifiees`/`ecart_constate` ciblant le document, `DISTINCT ON` + jointure externe, une seule requête) — le front (`BlDeposes.tsx`) l'affiche tel quel et ne dérive plus rien de `statut`, qui suit une tout autre logique (OCR) | Un champ à recalculer si le front redevenait divergent |
 
 ## 3. Vérification commande par commande
 
@@ -258,9 +262,10 @@ visible (`focus-visible:ring-2`) sur le bouton de dépôt et les liens.
 
 ## 4. Ce qui manque / reste à faire avec Ilane
 
-- **Revue de L2-T7 non terminée** (§1) : à clore avant de considérer le lot
-  2 fini ; si elle relève un Important/Critical, ce document devra être mis
-  à jour.
+- **Revue de L2-T7 close, corrigée** (§1, Ruling L2-R8) : le seul point
+  Important relevé (confirmation dérivée à tort de `statut` côté front)
+  est corrigé et testé (`2e06aa8`). Plus rien de bloquant côté code pour ce
+  point ; les vérifications manuelles ci-dessous restent à faire.
 - **Vérification visuelle réelle** : aucun navigateur cette nuit — rendu à
   375 px, couleurs des badges/pastilles, focus clavier, parcours complet du
   dépôt de facture à l'écran (§3).
@@ -319,6 +324,14 @@ uv run pytest -q
 0 échec, 0 skip inattendu (base de test `habitat_reno_pg_l2:5454` déjà
 migrée à `0004`).
 
+**Après correction L2-T7 (Ruling L2-R8, `2e06aa8`)** : 5 tests ajoutés
+(4 sur `lister_documents` — vérifiée malgré `statut=a_verifier`, écart, sans
+clic, sans N+1 — et 1 sur `GET /api/documents`) →
+```
+341 passed in 79.44s (0:01:19)
+```
+`uv run ruff check`, `uv run ruff format --check`, `uv run mypy` → propres.
+
 ```bash
 npm --prefix web run typecheck
 ```
@@ -329,7 +342,9 @@ npm --prefix web run build
 ```
 Propre : `dist/index.html` 0,44 kB, `dist/assets/index-*.css` 9,87 kB (gzip
 2,86 kB), `dist/assets/index-*.js` 236,53 kB (gzip 74,15 kB), « built in
-1.30s ».
+1.30s ». **Après correction** (`web/openapi.json`/`schema.d.ts` régénérés,
+badge « écart » ajouté) : `dist/assets/index-*.css` 10,04 kB (gzip 2,89 kB),
+`dist/assets/index-*.js` 236,81 kB (gzip 74,23 kB).
 
 ```bash
 uv run pre-commit run --all-files
