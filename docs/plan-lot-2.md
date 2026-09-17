@@ -39,6 +39,7 @@ Celles du lot 1 (`docs/plan-lot-1.md` §1 et `CLAUDE.md`) s'appliquent toutes. E
 - Q2 : que doit déclencher « Écart constaté » au-delà de la trace ? (provisoire : document passé « à vérifier » + journal)
 - Q3 : gestion des utilisateurs par l'admin. Le CDC dit « gère les utilisateurs », mais aucun des 5 écrans ne la porte. (provisoire : commandes CLI au lot 2)
 - Q4 : identifiants des deux groupes Telegram (« BL chantiers » et supervision) et vrai bot, pour la recette.
+- Q5 (Ruling L2-R5, revue L2-T4) : Unikalo émet-il des avoirs, et si oui sous quelle forme (même gabarit que la facture avec des montants négatifs, mention « AVOIR » explicite, document distinct) ? Aucun exemple disponible ; `deposer_facture` type aujourd'hui tout dépôt reconnu `facture` (`docs/dette.md`, L2-T4).
 
 ## 4. Décisions prises en autonomie
 

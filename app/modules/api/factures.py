@@ -15,8 +15,9 @@ Déroulé (décisions du contrôleur, L2-T4) :
    dans une seule transaction : ce routeur reste mince, aucune règle
    métier.
 3. Traduction des erreurs typées de `deposer_facture` en codes HTTP : 422
-   (fichier non PDF ou format non reconnu), 502 (échec de l'OCR), 409
-   (doublon, avec l'identifiant de l'original — réponse construite à la
+   (fichier non PDF ou format non reconnu), 502 (échec de l'OCR), 500
+   neutre (échec de l'écriture disque, `EcritureImpossible` — Ruling L2-R5),
+   409 (doublon, avec l'identifiant de l'original — réponse construite à la
    main : `HTTPException(detail=...)` imbriquerait `original_id` sous
    `detail`, alors que le corps attendu les porte au même niveau).
 """
@@ -38,6 +39,7 @@ from app.core.db import get_session
 from app.modules.ingest.router import get_ocr_facture
 from app.modules.ingest.service import (
     Deposant,
+    EcritureImpossible,
     FactureEnDouble,
     FichierInvalide,
     FormatNonPrisEnCharge,
@@ -101,6 +103,13 @@ async def deposer_facture_pdf(
     except FormatNonPrisEnCharge as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    except EcritureImpossible as exc:
+        # Message neutre (Ruling L2-R5) : jamais de détail technique disque
+        # renvoyé au client, `EcritureImpossible` ne porte de toute façon
+        # que ce message (voir `ingest/service.py`).
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         ) from exc
     except FactureEnDouble as exc:
         return JSONResponse(

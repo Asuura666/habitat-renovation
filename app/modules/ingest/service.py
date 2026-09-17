@@ -887,6 +887,21 @@ def formater_blocs(blocs: list[BlocReception]) -> str:
 # - `ligne` : mapping direct des champs de `LigneFacture` (designation ->
 #   `article_brut`, code_article -> `code_brut`, unite -> `unite_brut`,
 #   `type_ligne.value`, `ordre` inchangé).
+#
+# Correction (revue L2-T4, Ruling L2-R5, constat mineur) :
+# - L'écriture disque (`_ecrire_atomique`) est protégée comme dans
+#   `traiter_fichier` : un `OSError` (ex. disque plein) nettoie le fichier
+#   temporaire déjà écrit et est retraduit en `EcritureImpossible`, jamais
+#   laissé remonter brut (le routeur la traduit en 500 neutre).
+#
+# Hors périmètre du lot 2 (Ruling L2-R5, décision du contrôleur, voir
+# `docs/dette.md`) :
+# - `confiance_min` n'est jamais renseignée pour une facture lue par OCR
+#   (score de confiance par champ défini au lot 3 Extraction, CDC §4.2).
+# - Un avoir Unikalo (CDC §4.2 « facture ou d'avoir ») serait aujourd'hui
+#   typé `facture` comme n'importe quel dépôt (aucun exemple disponible pour
+#   distinguer les deux formats) — question posée à Ilane
+#   (`docs/plan-lot-2.md` §3, Q5).
 # --------------------------------------------------------------------------
 
 _SIGNATURE_PDF = b"%PDF-"
@@ -904,6 +919,12 @@ class LectureImpossible(Exception):
 class FormatNonPrisEnCharge(Exception):
     """La réponse OCR n'a pas la structure d'une facture Unikalo reconnue
     (`FactureIllisible`)."""
+
+
+class EcritureImpossible(Exception):
+    """Échec de l'écriture du fichier sur disque (`OSError`, ex. disque
+    plein) — le fichier temporaire éventuellement écrit est nettoyé avant
+    que cette exception ne soit levée."""
 
 
 class FactureEnDouble(Exception):
@@ -973,7 +994,8 @@ async def deposer_facture(
     stockage et insertions dans une seule transaction (L2-T4).
 
     Lève `FichierInvalide` (pas un PDF), `LectureImpossible` (échec de
-    l'OCR), `FormatNonPrisEnCharge` (facture non reconnue comme Unikalo) ou
+    l'OCR), `FormatNonPrisEnCharge` (facture non reconnue comme Unikalo),
+    `EcritureImpossible` (échec de l'écriture disque) ou
     `FactureEnDouble(original_id)` (même fournisseur, même numéro, déjà
     déposé) — le routeur (`app/modules/api/factures.py`) traduit chacune en
     code HTTP. Aucun fichier n'est stocké et rien n'est inséré en base tant
@@ -1008,9 +1030,17 @@ async def deposer_facture(
     identifiant = uuid.uuid4()
     chemin_final = (docs_dir / f"{identifiant}.pdf").absolute()
     chemin_temporaire = (docs_dir / f"{identifiant}.pdf.tmp").absolute()
-    await asyncio.to_thread(
-        _ecrire_atomique, docs_dir, chemin_temporaire, chemin_final, contenu
-    )
+    try:
+        await asyncio.to_thread(
+            _ecrire_atomique, docs_dir, chemin_temporaire, chemin_final, contenu
+        )
+    except OSError as exc:
+        # Correction (Ruling L2-R5, constat mineur) : même protection que
+        # `traiter_fichier` — le `.tmp` éventuellement écrit ne doit jamais
+        # rester orphelin, et l'`OSError` brute (chemins disque) ne doit
+        # jamais remonter telle quelle jusqu'au routeur.
+        await asyncio.to_thread(_supprimer_si_existe, chemin_temporaire)
+        raise EcritureImpossible("Enregistrement impossible, réessayez.") from exc
 
     try:
         document = Document(

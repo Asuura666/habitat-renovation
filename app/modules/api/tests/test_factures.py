@@ -41,6 +41,7 @@ from app.core.auth import router as auth_router
 from app.core.config import get_settings
 from app.modules.api import router as api_router
 from app.modules.api.factures import _TAILLE_MAX_OCTETS
+from app.modules.ingest import service as ingest_service
 from app.modules.ingest.mistral import ErreurOCR
 from app.modules.ingest.models import BlocFacture, Document, Journal, Utilisateur
 from app.modules.ingest.router import get_ocr_facture
@@ -243,6 +244,40 @@ async def test_ocr_en_echec_renvoie_502_rien_stocke(
 
     assert reponse.status_code == 502
     assert reponse.json()["detail"] == "Lecture de la facture impossible, réessayez."
+    assert (await db_session.execute(select(Document))).scalars().all() == []
+    assert list(tmp_path.iterdir()) == []
+
+
+async def test_echec_ecriture_disque_renvoie_500_neutre_rien_stocke(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    reponse_ocr_reelle: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ruling L2-R5, constat mineur : un `OSError` à l'écriture (disque
+    plein) ne doit jamais remonter brut ni laisser de fichier résiduel."""
+    await _creer_utilisateur(
+        db_session, email="admin.500ecriture@example.invalid", role="admin"
+    )
+
+    async def _ocr(contenu: bytes, mime: str) -> dict[str, Any]:
+        return reponse_ocr_reelle
+
+    def _ecriture_qui_echoue(
+        docs_dir: Path, chemin_temporaire: Path, chemin_final: Path, contenu: bytes
+    ) -> None:
+        raise OSError("disque plein (simulé pour le test)")
+
+    monkeypatch.setattr(ingest_service, "_ecrire_atomique", _ecriture_qui_echoue)
+
+    app_test = _app_test(sessions_test, tmp_path, _ocr)
+    cookie = await _login(app_test, email="admin.500ecriture@example.invalid")
+
+    reponse = await _deposer(app_test, cookie=cookie)
+
+    assert reponse.status_code == 500
+    assert reponse.json()["detail"] == "Enregistrement impossible, réessayez."
     assert (await db_session.execute(select(Document))).scalars().all() == []
     assert list(tmp_path.iterdir()) == []
 

@@ -160,3 +160,28 @@ aucune entrée tant qu'aucune simplification n'a été prise.
   l'identification humaine rapide d'un clic non autorisé en supervision ;
   à ajouter si besoin en étendant `ClicBouton` avec le nom Telegram déjà
   lu par `messaging.telegram._expediteur_nom` sur `callback_query.from`.
+
+## L2-T4 — ingest/api (dépôt de facture PDF Unikalo)
+
+- **`confiance_min` jamais renseignée (Ruling L2-R5, constat important).**
+  Le CDC §4.2 prévoit qu'une facture lue par OCR porte une « confiance
+  réduite » par champ. La colonne `document.confiance_min` existe (lot 2,
+  L2-D5) mais `deposer_facture` ne la renseigne jamais : toutes les
+  factures déposées passent par l'OCR (aucune lecture native disponible,
+  cf. dette T5) et aucune n'est donc marquée « confiance réduite » —
+  `confiance_min` reste `NULL` pour toutes. Ne couvre pas le calcul d'un
+  score de confiance par champ ni son report sur le document ; décision
+  explicite du contrôleur : ce calcul est défini et implémenté au lot 3
+  (Extraction), pas au lot 2.
+- **Avoirs non distingués des factures (Ruling L2-R5, constat important).**
+  Le CDC §4.2 parle d'un dépôt « de facture ou d'avoir », mais
+  `deposer_facture` écrit toujours `document.type = "facture"`, quel que
+  soit le contenu réel du PDF déposé : aucun exemple d'avoir Unikalo n'est
+  disponible pour identifier ce qui distingue sa structure OCR de celle
+  d'une facture (même gabarit avec des lignes négatives ? document
+  différent ? mention explicite « AVOIR » en en-tête ?). Un avoir déposé
+  aujourd'hui serait donc soit typé `facture` à tort (si son format est
+  assez proche pour passer `analyser_facture_unikalo`), soit refusé en 422
+  `FormatNonPrisEnCharge` (si son format diffère trop). Ne couvre pas la
+  détection ni le typage d'un avoir ; à traiter dès réception d'un exemple
+  réel — question posée à Ilane (`docs/plan-lot-2.md` §3, Q5).

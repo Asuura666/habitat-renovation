@@ -54,6 +54,7 @@ from app.modules.ingest.models import (
 )
 from app.modules.ingest.service import (
     Deposant,
+    EcritureImpossible,
     FactureEnDouble,
     FichierInvalide,
     FormatNonPrisEnCharge,
@@ -238,6 +239,45 @@ async def test_reponse_ocr_non_reconnue_leve_format_non_pris_en_charge_rien_stoc
         )
 
     assert (await db_session.execute(select(Document))).scalars().all() == []
+    assert list(tmp_path.iterdir()) == []
+
+
+# --------------------------------------------------------------------------
+# Échec de l'écriture disque (Ruling L2-R5, constat mineur) -> EcritureImpossible
+# --------------------------------------------------------------------------
+
+
+async def test_echec_ecriture_disque_leve_ecriture_impossible_rien_stocke(
+    db_session: AsyncSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    facture = _facture_invente(blocs=(_bloc_invente(lignes=(_ligne_invente(),)),))
+    monkeypatch.setattr(
+        ingest_service, "analyser_facture_unikalo", lambda reponse: facture
+    )
+    utilisateur = await _creer_utilisateur(db_session)
+
+    def _ecriture_qui_echoue(
+        docs_dir: Path, chemin_temporaire: Path, chemin_final: Path, contenu: bytes
+    ) -> None:
+        raise OSError("disque plein (simulé pour le test)")
+
+    monkeypatch.setattr(ingest_service, "_ecrire_atomique", _ecriture_qui_echoue)
+
+    with pytest.raises(EcritureImpossible) as exc_info:
+        await deposer_facture(
+            db_session,
+            _SIGNATURE_PDF_INVENTEE,
+            _deposant_depuis(utilisateur),
+            tmp_path,
+            _ocr_quelconque,
+        )
+
+    assert str(exc_info.value) == "Enregistrement impossible, réessayez."
+    assert (await db_session.execute(select(Document))).scalars().all() == []
+    # Aucun fichier résiduel (ni `.pdf` ni `.tmp`) : `_ecrire_atomique` étant
+    # monkeypatchée, elle ne crée jamais réellement le `.tmp` ici, mais ce
+    # test garantit surtout qu'aucun nettoyage ne plante et que rien n'est
+    # laissé dans `docs_dir`.
     assert list(tmp_path.iterdir()) == []
 
 
