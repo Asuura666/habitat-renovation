@@ -81,6 +81,41 @@ aucune entrée tant qu'aucune simplification n'a été prise.
   une mise en page différente (bandeau sur une seule ligne, absence de
   titre markdown pour le client, etc.).
 
+## T6 — messaging/ingest (webhook Telegram, dédoublonnage, stockage des documents)
+
+- **Tâche de fond perdue si le process meurt après le 200.** Le webhook
+  répond 200 à Telegram dès que `enregistrer_update` marque l'`update_id`
+  comme vu, puis lance `traiter_fichier` en tâche de fond
+  (`BackgroundTasks`). Si le process de l'API s'arrête (crash, redéploiement)
+  après ce 200 mais avant la fin de `traiter_fichier`, Telegram considère
+  l'update livré et ne le renverra jamais : le fichier n'est ni téléchargé
+  ni enregistré, sans que rien ne le signale automatiquement (seul le log,
+  s'il a eu le temps d'être écrit, en garde une trace). Ne couvre pas de
+  mécanisme de reprise ; à traiter par une file de tâches durable si ce cas
+  s'avère fréquent en usage réel (hors lot 1).
+- **Fichiers de plus de 20 Mo non téléchargeables.** La Bot API Telegram
+  refuse de fournir le chemin de téléchargement (`getFile`) pour un fichier
+  de plus de 20 Mo : `TelegramClient.telecharger` lèverait alors
+  `ErreurTelegram` (comportement normal, pas un bug), mais rien
+  n'avertit l'expéditeur qu'une photo/PDF trop volumineux n'a pas pu être
+  récupéré autrement que par l'absence de réponse « reçu ». Ne couvre pas
+  un message d'erreur explicite à l'utilisateur ni une compression côté
+  bot ; à revoir si ce cas se présente en usage réel.
+- **Bot ouvert à tout expéditeur jusqu'au lot 2.** Décision D15 du brief T6 :
+  aucune whitelist au lot 1, tout expéditeur Telegram peut déposer un
+  document (`deposant_id` rempli seulement si `telegram_user_id` correspond
+  à un `utilisateur` existant, sinon `NULL`). Ne couvre pas le rejet des
+  expéditeurs non autorisés ; la whitelist arrive au lot 2.
+- **Photo compressée non marquée en base.** `FichierEntrant.compresse`
+  distingue une photo Telegram compressée (`photo[]`) d'un envoi « en
+  fichier » (document non compressé), mais aucune colonne de la section 6
+  du CDC ne permet de conserver cette information : `traiter_fichier`
+  l'utilise seulement pour le comportement de téléchargement, elle est
+  perdue dès l'insertion du `document`. Ne couvre pas la traçabilité a
+  posteriori de « cette photo était compressée » (utile pour juger de la
+  qualité d'une image avant OCR) ; à ajouter par migration si ce besoin
+  apparaît (lot 2/3).
+
 ## T6b — extract/ingest (détection du numéro de BL sur photo, OCR Mistral minimal)
 
 - **Pas de nouvelle tentative automatique après un échec d'OCR.** Si l'appel
@@ -104,3 +139,20 @@ aucune entrée tant qu'aucune simplification n'a été prise.
   un `image_url`) : ne couvre pas un format de fichier inattendu, qui
   échouerait alors côté Mistral (capté comme un échec d'OCR ordinaire,
   document conservé `recu` sans numéro).
+
+## T7 — ingest (commande `bl-non-recus`)
+
+- **Non-normalisation des numéros de BL au-delà de `strip()`/majuscules.**
+  `blocs_avec_reception` compare `numero_bl` (lu dans la facture) et
+  `document.numero` (détecté par l'OCR sur la photo, T6b) après
+  suppression des espaces de bord et mise en majuscules des deux côtés
+  (le préfixe `L` Unikalo est parfois lu en minuscule par l'OCR). Ne
+  couvre pas d'autres écarts possibles entre les deux lectures : zéros de
+  tête différents, espace interne, tiret ou caractère mal reconnu par l'un
+  des deux OCR (facture vs photo). Un même BL pourrait donc apparaître à
+  tort comme « non reçu » si les deux OCR ne rendent pas exactement la
+  même chaîne. Non observé sur les fixtures disponibles (aucun numéro en
+  commun entre la facture d'août et les 4 photos de test). Décision
+  reportée à la vérification sur des fixtures réelles communes (numéro de
+  BL identique lu à la fois sur la facture et sur une photo) ; la
+  normalisation plus poussée, si nécessaire, relève du lot 3.
