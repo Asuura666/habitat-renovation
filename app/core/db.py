@@ -15,7 +15,7 @@ from collections.abc import AsyncIterator
 from asyncpg import PostgresError
 from fastapi import Request
 from sqlalchemy import MetaData, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -59,17 +59,35 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
 async def base_joignable(engine: AsyncEngine, timeout_s: float = 2.0) -> bool:
     """`True` si `engine` peut exécuter `SELECT 1` en moins de `timeout_s` s.
 
-    N'avale que les erreurs de connexion, SQL ou timeout
-    (`sqlalchemy.exc.SQLAlchemyError`, `asyncpg.PostgresError`, `OSError`,
-    `TimeoutError`) : un refus de connexion ou une base absente arrivent en
-    `asyncpg`/`OSError` bruts (avant que SQLAlchemy n'ait de connexion à
-    envelopper), une erreur SQL arrive en `SQLAlchemyError`. Toute autre
-    exception remonte, pour ne jamais masquer un bug de programmation
-    derrière un simple `False`.
+    N'avale que les erreurs de connexion ou d'exécution, jamais les erreurs
+    d'usage de SQLAlchemy (`ArgumentError`, `CompileError`, ...), qui
+    signaleraient un bug de programmation :
+
+    - `OSError` : refus de connexion (`ConnectionRefusedError`) ou dépassement
+      de `timeout_s` (`asyncio.timeout` lève un `TimeoutError`, qui est une
+      sous-classe d'`OSError` depuis PEP 3151 — pas besoin de le nommer à
+      part).
+    - `asyncpg.PostgresError` : le serveur répond mais refuse la connexion
+      (base absente, identifiants invalides, ...). Ces erreurs surviennent
+      pendant `engine.connect()`, avant que SQLAlchemy n'ait de connexion
+      établie à envelopper : elles arrivent donc brutes, non enveloppées en
+      `SQLAlchemyError`.
+    - `sqlalchemy.exc.DBAPIError` : une fois la connexion établie, une panne
+      pendant l'exécution (connexion coupée en cours de route, ...) est cette
+      fois enveloppée par SQLAlchemy. `DBAPIError` couvre ses sous-classes
+      (`OperationalError`, `InterfaceError`, ...) sans remonter jusqu'à
+      `SQLAlchemyError`, trop large.
+
+    Constats vérifiés empiriquement (asyncpg 0.31, SQLAlchemy 2.0.54) : port
+    fermé -> `ConnectionRefusedError` brut ; base absente / identifiants
+    invalides -> `asyncpg.exceptions.*Error` (sous-classes de `PostgresError`)
+    bruts ; connexion coupée après établissement -> `sqlalchemy.exc.
+    InterfaceError` (sous-classe de `DBAPIError`) ; connexion qui ne répond
+    jamais -> `TimeoutError` porté par `asyncio.timeout`.
     """
     try:
         async with asyncio.timeout(timeout_s), engine.connect() as connexion:
             await connexion.execute(text("SELECT 1"))
-    except (SQLAlchemyError, PostgresError, OSError, TimeoutError):
+    except (DBAPIError, PostgresError, OSError):
         return False
     return True

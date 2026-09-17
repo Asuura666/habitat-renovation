@@ -57,3 +57,11 @@ pythonpath = ["."]
 markers = [
     "db: nécessite une base PostgreSQL de dev/test (jamais skip si injoignable)",
 ]
+filterwarnings = [
+    # Un socket/transport non fermé dans un test (ex. serveur TCP jetable
+    # mal nettoyé) ne doit jamais passer inaperçu : relevé en revue de T4,
+    # tour 2, sur `port_connexion_pendante`. Vérifié que la suite complète
+    # passe déjà sans ce genre de fuite (`-W error::ResourceWarning`, 3
+    # exécutions consécutives, aucun flake).
+    "error::ResourceWarning",
+]
