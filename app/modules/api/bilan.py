@@ -42,15 +42,28 @@ sur cette branche :
         session: Annotated[AsyncSession, Depends(get_session)],
     ) -> list[str]:
         return await agences_connues(session)
+
+Export CSV (L5-T4) : une route `.csv` par route JSON ci-dessus, même
+service, mêmes filtres, jamais une deuxième requête -- `ingest/export.py`
+sérialise les mêmes dataclasses en CSV (`csv_bilan_chantiers`,
+`csv_bilan_fournisseurs`, `csv_bilan_bl`), ce routeur n'y ajoute que ce qui
+est propre à HTTP : le BOM UTF-8 (décision du contrôleur -- la fonction de
+sérialisation ne le porte pas, elle produit du CSV, pas une réponse HTTP) et
+le nom de fichier du téléchargement (`_nom_fichier_csv`, qui dit le niveau
+et la période, jamais d'accent ni d'espace). `GET /api/bilan/fournisseurs.csv`
+et `GET /api/bilan/chantiers/{id}/fournisseurs.csv` réutilisent la même
+fonction de sérialisation (`csv_bilan_fournisseurs`) : les deux routes JSON
+correspondantes renvoient déjà la même forme (`LigneBilanFournisseurReponse`).
 """
 
 from __future__ import annotations
 
+import codecs
 import uuid
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import Utilisateur, admin_requis
@@ -66,8 +79,38 @@ from app.modules.ingest.bilan import (
     bilan_par_fournisseur,
     bilan_par_fournisseur_global,
 )
+from app.modules.ingest.export import (
+    csv_bilan_bl,
+    csv_bilan_chantiers,
+    csv_bilan_fournisseurs,
+)
 
 router = APIRouter()
+
+
+def _nom_fichier_csv(niveau: str, mois: date | None) -> str:
+    """Nom de fichier du téléchargement (`Content-Disposition`) -- dit le
+    niveau et la période (décision du contrôleur), jamais d'accent ni
+    d'espace. `mois` peut être n'importe quel jour du mois filtré (le
+    service le ramène lui-même à son mois calendaire, voir le docstring
+    d'en-tête) : seuls l'année et le mois du paramètre reçu entrent dans le
+    nom, jamais le jour."""
+    if mois is None:
+        return f"bilan-{niveau}.csv"
+    return f"bilan-{niveau}-{mois.strftime('%Y-%m')}.csv"
+
+
+def _reponse_csv(contenu_csv: str, *, nom_fichier: str) -> Response:
+    """Réponse HTTP d'un export CSV. Le BOM UTF-8 (`codecs.BOM_UTF8`) est
+    ajouté ici, pas dans `ingest.export` (décision du contrôleur) : ce
+    module construit une réponse HTTP, `ingest.export` produit du CSV --
+    deux responsabilités distinctes, jamais mélangées."""
+    corps = codecs.BOM_UTF8 + contenu_csv.encode("utf-8")
+    return Response(
+        content=corps,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{nom_fichier}"'},
+    )
 
 
 @router.get("/bilan/chantiers", response_model=list[LigneBilanChantierReponse])
@@ -130,3 +173,72 @@ async def bilan_fournisseurs_endpoint(
     chantier »."""
     lignes = await bilan_par_fournisseur_global(session, mois=mois, agence=agence)
     return [LigneBilanFournisseurReponse.model_validate(ligne) for ligne in lignes]
+
+
+# --------------------------------------------------------------------------
+# Export CSV (L5-T4) : une route `.csv` par route JSON ci-dessus, même
+# service, mêmes filtres, même tri -- voir le docstring d'en-tête.
+# --------------------------------------------------------------------------
+
+
+@router.get("/bilan/chantiers.csv")
+async def bilan_chantiers_csv_endpoint(
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    mois: Annotated[date | None, Query()] = None,
+    agence: Annotated[str | None, Query()] = None,
+) -> Response:
+    lignes = await bilan_par_chantier(session, mois=mois, agence=agence)
+    return _reponse_csv(
+        csv_bilan_chantiers(lignes), nom_fichier=_nom_fichier_csv("chantiers", mois)
+    )
+
+
+@router.get("/bilan/chantiers/{chantier_id}/fournisseurs.csv")
+async def bilan_fournisseurs_du_chantier_csv_endpoint(
+    chantier_id: uuid.UUID,
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    mois: Annotated[date | None, Query()] = None,
+    agence: Annotated[str | None, Query()] = None,
+) -> Response:
+    lignes = await bilan_par_fournisseur(
+        session, chantier_id=chantier_id, mois=mois, agence=agence
+    )
+    return _reponse_csv(
+        csv_bilan_fournisseurs(lignes),
+        nom_fichier=_nom_fichier_csv("fournisseurs", mois),
+    )
+
+
+@router.get("/bilan/chantiers/{chantier_id}/fournisseurs/{fournisseur_id}/bl.csv")
+async def bilan_bl_csv_endpoint(
+    chantier_id: uuid.UUID,
+    fournisseur_id: uuid.UUID,
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    mois: Annotated[date | None, Query()] = None,
+) -> Response:
+    # Pas de filtre `agence` ici, même raison que la route JSON équivalente
+    # (le chantier est déjà fixé par `chantier_id`).
+    lignes = await bilan_par_bl(
+        session, chantier_id=chantier_id, fournisseur_id=fournisseur_id, mois=mois
+    )
+    return _reponse_csv(csv_bilan_bl(lignes), nom_fichier=_nom_fichier_csv("bl", mois))
+
+
+@router.get("/bilan/fournisseurs.csv")
+async def bilan_fournisseurs_csv_endpoint(
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    mois: Annotated[date | None, Query()] = None,
+    agence: Annotated[str | None, Query()] = None,
+) -> Response:
+    """Vue inverse (même niveau que `bilan_fournisseurs_endpoint`) : même
+    fonction de sérialisation que la route `.csv` imbriquée dans un
+    chantier ci-dessus, les deux renvoyant des `LigneBilanFournisseur`."""
+    lignes = await bilan_par_fournisseur_global(session, mois=mois, agence=agence)
+    return _reponse_csv(
+        csv_bilan_fournisseurs(lignes),
+        nom_fichier=_nom_fichier_csv("fournisseurs", mois),
+    )

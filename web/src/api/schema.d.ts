@@ -449,6 +449,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bilan/chantiers.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Bilan Chantiers Csv Endpoint */
+        get: operations["bilan_chantiers_csv_endpoint_api_bilan_chantiers_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bilan/chantiers/{chantier_id}/fournisseurs.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Bilan Fournisseurs Du Chantier Csv Endpoint */
+        get: operations["bilan_fournisseurs_du_chantier_csv_endpoint_api_bilan_chantiers__chantier_id__fournisseurs_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bilan/chantiers/{chantier_id}/fournisseurs/{fournisseur_id}/bl.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Bilan Bl Csv Endpoint */
+        get: operations["bilan_bl_csv_endpoint_api_bilan_chantiers__chantier_id__fournisseurs__fournisseur_id__bl_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bilan/fournisseurs.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bilan Fournisseurs Csv Endpoint
+         * @description Vue inverse (même niveau que `bilan_fournisseurs_endpoint`) : même
+         *     fonction de sérialisation que la route `.csv` imbriquée dans un
+         *     chantier ci-dessus, les deux renvoyant des `LigneBilanFournisseur`.
+         */
+        get: operations["bilan_fournisseurs_csv_endpoint_api_bilan_fournisseurs_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -2114,6 +2187,138 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LigneBilanFournisseurReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bilan_chantiers_csv_endpoint_api_bilan_chantiers_csv_get: {
+        parameters: {
+            query?: {
+                mois?: string | null;
+                agence?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bilan_fournisseurs_du_chantier_csv_endpoint_api_bilan_chantiers__chantier_id__fournisseurs_csv_get: {
+        parameters: {
+            query?: {
+                mois?: string | null;
+                agence?: string | null;
+            };
+            header?: never;
+            path: {
+                chantier_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bilan_bl_csv_endpoint_api_bilan_chantiers__chantier_id__fournisseurs__fournisseur_id__bl_csv_get: {
+        parameters: {
+            query?: {
+                mois?: string | null;
+            };
+            header?: never;
+            path: {
+                chantier_id: string;
+                fournisseur_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bilan_fournisseurs_csv_endpoint_api_bilan_fournisseurs_csv_get: {
+        parameters: {
+            query?: {
+                mois?: string | null;
+                agence?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
