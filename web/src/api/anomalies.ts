@@ -51,10 +51,10 @@ function construireRequete(filtres: FiltresAnomalies): string {
     params.set("fournisseur_id", filtres.fournisseurId);
   }
   if (filtres.depuis) {
-    params.set("depuis", `${filtres.depuis}T00:00:00`);
+    params.set("depuis", filtres.depuis);
   }
   if (filtres.jusquA) {
-    params.set("jusqu_a", `${filtres.jusquA}T23:59:59`);
+    params.set("jusqu_a", filtres.jusquA);
   }
   const requete = params.toString();
   return requete === "" ? "/api/anomalies" : `/api/anomalies?${requete}`;
