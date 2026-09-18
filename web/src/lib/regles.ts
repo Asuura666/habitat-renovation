@@ -11,7 +11,7 @@
  * que ce fichier ne connaît pas encore.
  */
 
-import { formaterDate, formaterDateHeure, formaterMontant, TIRET } from "./formats";
+import { formaterDate, formaterDateHeure, formaterMontant, formaterQuantite, TIRET } from "./formats";
 import type { components } from "../api/schema";
 
 export type Anomalie = components["schemas"]["AnomalieReponse"];
@@ -68,6 +68,23 @@ function montant(detail: Record<string, string>, cle: string): string {
     return "?";
   }
   return brute === TIRET ? brute : formaterMontant(brute);
+}
+
+/** `cle` porte une quantité, un écart de quantité ou un ratio (chaîne
+ * décimale, ex. `qte_bl`, `ecart`, `ratio`), ou le tiret cadratin de
+ * `detail` quand la règle n'en a pas trouvé (ex. `R05`/`R06` sans quantité
+ * — `app/modules/rules/rules/R05.py`, `R06.py`) : le tiret est rendu tel
+ * quel, jamais passé à `formaterQuantite`, qui rendrait « NaN » sur toute
+ * chaîne non numérique (fix round 1, revue L4-T10, Ruling R18 : même
+ * précaution que `montant`/`date` ci-dessus, pour la même cause — un appel
+ * de formateur sur le tiret cadratin — mais un symptôme différent, un texte
+ * « NaN » plutôt qu'une exception). */
+function quantite(detail: Record<string, string>, cle: string): string {
+  const brute = detail[cle];
+  if (brute === undefined) {
+    return "?";
+  }
+  return brute === TIRET ? brute : formaterQuantite(brute);
 }
 
 /** `cle` porte une date ISO, ou le tiret cadratin de `detail` quand la
@@ -152,18 +169,18 @@ export function justification(anomalie: Anomalie): string {
     case "R03":
     case "R04":
       return (
-        `${articleAvecCode(detail)} : ${valeur(detail, "qte_facture")} facturé(s) contre ` +
-        `${valeur(detail, "qte_bl")} sur le BL (${valeur(detail, "unite")}), ` +
-        `écart ${valeur(detail, "ecart")}.`
+        `${articleAvecCode(detail)} : ${quantite(detail, "qte_facture")} facturé(s) contre ` +
+        `${quantite(detail, "qte_bl")} sur le BL (${valeur(detail, "unite")}), ` +
+        `écart ${quantite(detail, "ecart")}.`
       );
     case "R05":
       return (
-        `${articleAvecCode(detail)} : quantité ${valeur(detail, "qte")}, ` +
+        `${articleAvecCode(detail)} : quantité ${quantite(detail, "qte")}, ` +
         `montant HT ${montant(detail, "montant")}, sans ligne correspondante sur le BL.`
       );
     case "R06":
       return (
-        `${articleAvecCode(detail)} : quantité ${valeur(detail, "qte")}, sur le BL du ` +
+        `${articleAvecCode(detail)} : quantité ${quantite(detail, "qte")}, sur le BL du ` +
         `${date(detail, "date_bl")} (${valeur(detail, "jours")} jours), jamais facturée.`
       );
     case "R07":
@@ -214,8 +231,8 @@ export function justification(anomalie: Anomalie): string {
       );
     case "R17":
       return (
-        `${articleAvecCode(detail)} : quantité ${valeur(detail, "qte")} ` +
-        `${valeur(detail, "conditionnement")}, ratio ${valeur(detail, "ratio")}.`
+        `${articleAvecCode(detail)} : quantité ${quantite(detail, "qte")} ` +
+        `${valeur(detail, "conditionnement")}, ratio ${quantite(detail, "ratio")}.`
       );
     default:
       return detailBrut(detail);

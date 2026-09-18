@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router";
 
 import { type BlocFacture, cleFacture, obtenirFacture } from "../api/factures";
-import { formaterDate, formaterMontant, TIRET } from "../lib/formats";
+import { formaterDate, formaterMontant, formaterQuantite, TIRET } from "../lib/formats";
 import { libelleMotif } from "../lib/motifs";
 
 /** Mêmes badges que `FacturesListe.tsx` (décision du contrôleur, L3-T9) :
@@ -100,8 +100,8 @@ function BlocCarte({ bloc }: { bloc: BlocFacture }): ReactElement {
                   <td className="px-3 py-2 text-slate-700">
                     {ligne.article_brut ?? ligne.code_brut ?? TIRET}
                   </td>
-                  <td className="px-3 py-2 text-slate-700">{ligne.qte_livree ?? TIRET}</td>
-                  <td className="px-3 py-2 text-slate-700">{ligne.qte_totale ?? TIRET}</td>
+                  <td className="px-3 py-2 text-slate-700">{formaterQuantite(ligne.qte_livree)}</td>
+                  <td className="px-3 py-2 text-slate-700">{formaterQuantite(ligne.qte_totale)}</td>
                   <td className="px-3 py-2 text-slate-700">{formaterMontant(ligne.pu_ht)}</td>
                   <td className="px-3 py-2 text-slate-700">
                     {ligne.remise_pct !== null ? `${ligne.remise_pct} %` : TIRET}

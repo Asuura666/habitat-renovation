@@ -17,6 +17,16 @@ const FORMATEUR_MONTANT = new Intl.NumberFormat("fr-FR", {
   currency: "EUR",
 });
 
+/** `maximumFractionDigits: 3` (une quantité de rapprochement peut porter
+ * jusqu'à 3 décimales, ex. un ratio ou une conversion d'unité),
+ * `minimumFractionDigits: 0` : une quantité s'écrit « 100 », « 2,5 » ou
+ * « 0,75 », jamais « 100,00 » — contrairement à un montant, qui affiche
+ * toujours deux décimales (fix round 1, revue L4-T10, Ruling R18). */
+const FORMATEUR_QUANTITE = new Intl.NumberFormat("fr-FR", {
+  maximumFractionDigits: 3,
+  minimumFractionDigits: 0,
+});
+
 const FORMATEUR_POURCENTAGE = new Intl.NumberFormat("fr-FR", { style: "percent" });
 
 const FORMATEUR_DATE = new Intl.DateTimeFormat("fr-FR", {
@@ -44,6 +54,28 @@ export function formaterMontant(valeur: string | null): string {
   // n'exposent cette surcharge que pour un littéral de gabarit `` `${number}` ``,
   // jamais pour un `string` général comme celui renvoyé par l'API.
   return FORMATEUR_MONTANT.format(valeur as unknown as number);
+}
+
+/** `valeur` est la chaîne décimale renvoyée par l'API pour une quantité,
+ * un écart de quantité ou un ratio (`rules.rules.R*` écrivent `str(<Decimal>)`
+ * — même origine que `formaterMontant`, même technique : aucune arithmétique
+ * en virgule flottante n'est introduite ici, `Intl.NumberFormat.format`
+ * accepte directement la chaîne décimale) ; `null` affiche un tiret.
+ *
+ * `valeur` ne doit **jamais** être le tiret cadratin (`TIRET`, "—") que
+ * certaines règles posent dans `detail` pour une quantité absente (ex.
+ * `R05`/`R06` sans quantité) : `Intl.NumberFormat.format("—")` ne lève pas
+ * d'exception mais rend la chaîne « NaN », un plantage silencieux moins
+ * visible que celui déjà corrigé sur les dates (fix round 1, revue L4-T10,
+ * Ruling R18) mais tout aussi faux à l'affichage. L'appelant (`lib/regles
+ * .ts`) doit donc filtrer ce cas **avant** d'appeler cette fonction, comme
+ * il le fait déjà pour `formaterDate`/`formaterMontant` — jamais ici, pour
+ * rester cohérent avec le contrat `string | null` des fonctions voisines. */
+export function formaterQuantite(valeur: string | null): string {
+  if (valeur === null) {
+    return TIRET;
+  }
+  return FORMATEUR_QUANTITE.format(valeur as unknown as number);
 }
 
 /** `valeur` est une chaîne décimale entre 0 et 1 (ex. `"0.80"` : confiance

@@ -23,7 +23,7 @@ import {
   validerDocument,
 } from "../api/documents";
 import { CLE_FOURNISSEURS, type Fournisseur, listerFournisseurs } from "../api/referentiels";
-import { formaterDate, formaterDateHeure, formaterMontant, TIRET } from "../lib/formats";
+import { formaterDate, formaterDateHeure, formaterMontant, formaterQuantite, TIRET } from "../lib/formats";
 import { libelleMotif } from "../lib/motifs";
 
 type NomChampDocument = keyof ChampsDocument;
@@ -539,11 +539,11 @@ function LignesLecture({
             <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-600">
               <div>
                 <dt>Conditionnements</dt>
-                <dd>{ligne.qte_livree ?? TIRET}</dd>
+                <dd>{formaterQuantite(ligne.qte_livree)}</dd>
               </div>
               <div>
                 <dt>Quantité</dt>
-                <dd>{ligne.qte_totale ?? TIRET}</dd>
+                <dd>{formaterQuantite(ligne.qte_totale)}</dd>
               </div>
               <div>
                 <dt>Unité</dt>
@@ -583,8 +583,8 @@ function LignesLecture({
               <tr key={ligne.id} className={surlignees.has(ligne.ordre) ? "bg-orange-50" : undefined}>
                 <td className="px-3 py-2 text-slate-700">{ligne.code_brut ?? TIRET}</td>
                 <td className="px-3 py-2 text-slate-700">{ligne.article_brut ?? TIRET}</td>
-                <td className="px-3 py-2 text-slate-700">{ligne.qte_livree ?? TIRET}</td>
-                <td className="px-3 py-2 text-slate-700">{ligne.qte_totale ?? TIRET}</td>
+                <td className="px-3 py-2 text-slate-700">{formaterQuantite(ligne.qte_livree)}</td>
+                <td className="px-3 py-2 text-slate-700">{formaterQuantite(ligne.qte_totale)}</td>
                 <td className="px-3 py-2 text-slate-700">{ligne.unite_brut ?? TIRET}</td>
                 <td className="px-3 py-2 text-slate-700">{formaterMontant(ligne.pu_ht)}</td>
                 <td className="px-3 py-2 text-slate-700">{formaterMontant(ligne.montant_ht)}</td>
