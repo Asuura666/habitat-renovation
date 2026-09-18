@@ -12,6 +12,14 @@ Filtres de `GET /api/anomalies` (décision du contrôleur) : `regle`,
 `depuis`/`jusqu_a` (sur `created_at`), `limite` (1..500, défaut 100) —
 combinables, validés ici par FastAPI (`Literal`, `Query(ge=..., le=...)`),
 jamais par le service (même principe que `limite` dans `api/documents.py`).
+
+Fix round 1 (ruling R15 du contrôleur, CDC §4.6 : l'admin doit pouvoir
+revoir ce qui a déjà été décidé) : `statut` accepte aussi `"toutes"`, qui
+retire le filtre de statut — traduit ici en `statut=None` passé au service
+(`ingest.anomalies.lister_anomalies` n'a jamais eu de sentinelle
+« toutes », un `str | None` suffisait déjà : aucune vraie anomalie n'est
+jamais nommée « toutes », donc `Literal` + traduction dans le routeur,
+jamais dans le service).
 """
 
 from __future__ import annotations
@@ -47,7 +55,7 @@ async def lister_anomalies_endpoint(
     regle: Annotated[str | None, Query()] = None,
     gravite: Annotated[Literal["haute", "moyenne", "basse"] | None, Query()] = None,
     statut: Annotated[
-        Literal["ouverte", "traitee", "ignoree"] | None, Query()
+        Literal["ouverte", "traitee", "ignoree", "toutes"], Query()
     ] = "ouverte",
     chantier_id: Annotated[uuid.UUID | None, Query()] = None,
     fournisseur_id: Annotated[uuid.UUID | None, Query()] = None,
@@ -61,7 +69,7 @@ async def lister_anomalies_endpoint(
         session,
         regle=regle,
         gravite=gravite,
-        statut=statut,
+        statut=statut if statut != "toutes" else None,
         chantier_id=chantier_id,
         fournisseur_id=fournisseur_id,
         depuis=depuis,

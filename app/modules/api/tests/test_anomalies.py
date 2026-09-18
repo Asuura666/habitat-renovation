@@ -224,6 +224,24 @@ async def test_get_anomalies_anonyme_renvoie_401(
     assert reponse.status_code == 401
 
 
+async def test_post_traitement_anonyme_renvoie_401(
+    sessions_test: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    """Écart de couverture signalé par la revue de la tâche : seul le 403
+    agent était testé sur cette route, jamais le 401 anonyme."""
+    app_test = _app_test(sessions_test, tmp_path)
+
+    reponse = await _requete(
+        app_test,
+        "POST",
+        f"/api/anomalies/{uuid.uuid4()}/traitement",
+        cookie=None,
+        json_body={"statut": "traitee", "commentaire": "Commentaire inventé."},
+    )
+
+    assert reponse.status_code == 401
+
+
 async def test_get_anomalies_agent_renvoie_403(
     db_session: AsyncSession,
     sessions_test: async_sessionmaker[AsyncSession],
@@ -339,17 +357,66 @@ async def test_get_anomalies_filtre_statut_explicite(
         db_session, email="admin.anomalies4@example.invalid", role="admin"
     )
     await _creer_anomalie(db_session, statut="ouverte")
+    traitee = await _creer_anomalie(db_session, statut="traitee")
+    ignoree = await _creer_anomalie(db_session, statut="ignoree")
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse_ignoree = await _requete(
+        app_test, "GET", "/api/anomalies?statut=ignoree", cookie=cookie
+    )
+    reponse_traitee = await _requete(
+        app_test, "GET", "/api/anomalies?statut=traitee", cookie=cookie
+    )
+
+    assert reponse_ignoree.status_code == 200
+    assert reponse_traitee.status_code == 200
+    assert {a["id"] for a in reponse_ignoree.json()} == {str(ignoree.id)}
+    assert {a["id"] for a in reponse_traitee.json()} == {str(traitee.id)}
+
+
+async def test_get_anomalies_statut_toutes_retire_le_filtre(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Ruling R15 (fix round 1) : `statut=toutes` ne filtre plus par statut
+    — l'admin doit pouvoir revoir ce qui a déjà été traité ou ignoré
+    (CDC §4.6)."""
+    admin = await _creer_utilisateur(
+        db_session, email="admin.anomalies4b@example.invalid", role="admin"
+    )
+    ouverte = await _creer_anomalie(db_session, statut="ouverte")
+    traitee = await _creer_anomalie(db_session, statut="traitee")
     ignoree = await _creer_anomalie(db_session, statut="ignoree")
     app_test = _app_test(sessions_test, tmp_path)
     cookie = await _login(app_test, email=admin.email)
 
     reponse = await _requete(
-        app_test, "GET", "/api/anomalies?statut=ignoree", cookie=cookie
+        app_test, "GET", "/api/anomalies?statut=toutes", cookie=cookie
     )
 
     assert reponse.status_code == 200
     ids = {a["id"] for a in reponse.json()}
-    assert ids == {str(ignoree.id)}
+    assert ids == {str(ouverte.id), str(traitee.id), str(ignoree.id)}
+
+
+async def test_get_anomalies_statut_invalide_422(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.anomalies4c@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test, "GET", "/api/anomalies?statut=archivee", cookie=cookie
+    )
+
+    assert reponse.status_code == 422
 
 
 async def test_get_anomalies_filtre_chantier_id(
@@ -439,6 +506,38 @@ async def test_get_anomalies_filtre_periode(
     ids = {a["id"] for a in reponse.json()}
     ok = ids == {str(du_milieu.id)} and str(ancienne.id) not in ids
     assert ok, "seule l'anomalie de la période doit être renvoyée"
+
+
+async def test_get_anomalies_filtre_periode_bornes_incluses(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Une anomalie créée exactement à la borne `depuis` ou `jusqu_a` est
+    renvoyée (`>=`/`<=`, jamais `>`/`<`) — écart de couverture signalé par
+    la revue de la tâche."""
+    admin = await _creer_utilisateur(
+        db_session, email="admin.anomalies7b@example.invalid", role="admin"
+    )
+    sur_borne_basse = await _creer_anomalie(db_session, created_at=_instant(50))
+    sur_borne_haute = await _creer_anomalie(db_session, created_at=_instant(150))
+    await _creer_anomalie(db_session, created_at=_instant(0))
+    await _creer_anomalie(db_session, created_at=_instant(200))
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    depuis = quote(_instant(50).isoformat())
+    jusqu_a = quote(_instant(150).isoformat())
+    reponse = await _requete(
+        app_test,
+        "GET",
+        f"/api/anomalies?depuis={depuis}&jusqu_a={jusqu_a}",
+        cookie=cookie,
+    )
+
+    assert reponse.status_code == 200
+    ids = {a["id"] for a in reponse.json()}
+    assert ids == {str(sur_borne_basse.id), str(sur_borne_haute.id)}
 
 
 async def test_get_anomalies_limite_bornee(
@@ -619,6 +718,32 @@ async def test_post_traitement_commentaire_vide_422(
         f"/api/anomalies/{anomalie.id}/traitement",
         cookie=cookie,
         json_body={"statut": "traitee", "commentaire": "   "},
+    )
+
+    assert reponse.status_code == 422
+
+
+async def test_post_traitement_commentaire_trop_long_422(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """501 caractères : `Field(max_length=500)` doit refuser — écart de
+    couverture signalé par la revue de la tâche (seul le commentaire vide
+    était testé)."""
+    admin = await _creer_utilisateur(
+        db_session, email="admin.traitement5b@example.invalid", role="admin"
+    )
+    anomalie = await _creer_anomalie(db_session)
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test,
+        "POST",
+        f"/api/anomalies/{anomalie.id}/traitement",
+        cookie=cookie,
+        json_body={"statut": "traitee", "commentaire": "a" * 501},
     )
 
     assert reponse.status_code == 422
