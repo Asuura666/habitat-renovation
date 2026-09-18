@@ -69,31 +69,32 @@ docs/
 
 ## Où en est le projet
 
-Lots 1 (Socle) et 2 (Collecte) faits et fusionnés dans `main` le 17/09/2026.
-Lot 3 (Extraction) fait sur la branche `lot-3-extraction` (dépôt
-`/home/debian/habitat_reno`), **pas encore fusionné dans `main`**.
-**Avant tout travail, lire `docs/passation-lot-3.md`** (état, décisions,
-questions ouvertes, méthode, pièges rencontrés, point de départ du lot 4) et
+Lots 1 (Socle), 2 (Collecte) et 3 (Extraction) faits et fusionnés dans
+`main`. Lot 4 (Rapprochement) fait sur la branche `lot-4-rapprochement`
+(dépôt `/home/debian/habitat_reno`), **pas encore fusionné dans `main`** :
+les 11 tâches techniques sont faites et relues, chaque revue de tâche s'est
+refermée sans point ouvert, mais la revue finale de l'ensemble de la
+branche n'a pas encore eu lieu. **Avant tout travail, lire
+`docs/passation-lot-4.md`** (état, décisions, questions ouvertes, méthode,
+pièges rencontrés, point de départ du lot 5) et `docs/passation-lot-3.md`/
 `docs/passation-lots-1-2.md` pour les lots précédents. Recettes :
-`docs/lot-1-recette.md`, `docs/lot-2-recette.md`, `docs/lot-3-recette.md` ;
-dette : `docs/dette.md`.
+`docs/lot-1-recette.md` à `docs/lot-4-recette.md` ; dette : `docs/dette.md`.
 
 Points à retenir :
 - La facture fournie est un scan : les factures sont lues via l'OCR Mistral
-  puis `extract/unikalo.py` (décision R16, à valider par Ilane).
-- **Revue de `lot-3-extraction` refermée.** Le point Important relevé sur
-  L3-T10 (`web: détail et correction d'un document`, état d'édition non
-  réinitialisé après une écriture réussie) a été corrigé en deux tours —
-  fix round 1 `ecf25c6`, fix round 2 `b2e817a` — tous deux re-revus clean
-  (détail en `docs/passation-lot-3.md` §1 et `docs/lot-3-recette.md` §1).
-  La revue finale de branche (`59a2880..8cbbb4c`) n'a plus relevé qu'un
-  point de documentation (ces trois documents affirmant à tort que L3-T10
-  restait ouvert), refermé par la présente mise à jour : **le lot 3 est
-  clos côté code**, prêt à être fusionné dans `main`.
-- **Lot 3 bloqué sur des fichiers manquants** : seules 4 photos réelles de
-  BL sont disponibles (30 dont 10 dégradées exigées par le CDC §10) ; le
-  parseur de facture Point.P n'est pas construit (aucun document
-  disponible). Marche à suivre dès réception : `docs/protocole-mesure-ocr.md`.
+  puis `extract/unikalo.py` (décision R16 du lot 3, à valider par Ilane).
+- **Lot 3 bloqué sur des fichiers manquants**, toujours vrai au lot 4 :
+  seules 4 photos réelles de BL sont disponibles (30 dont 10 dégradées
+  exigées par le CDC §10) ; le parseur de facture Point.P n'est pas
+  construit (aucun document disponible) — bloque aussi tout rapprochement
+  avec ce fournisseur. Marche à suivre dès réception des photos :
+  `docs/protocole-mesure-ocr.md`.
+- **Lot 4 : rapprochement, moteur de règles (R01 à R17) et écran Anomalies
+  faits.** Verdicts réels sur la facture d'août (28 blocs : 3 reçus, 4
+  « pas de bon », 21 non reçus ; 25 anomalies), **non confirmés par Ilane**
+  (Q6, détail `docs/lot-4-recette.md` §4) ; semi-remorque non construite,
+  aucun déclencheur défini (Q1) ; historique de prix jamais exercé sur des
+  données réelles (un seul mois disponible).
 - L2-R10 (contrôle d'origine bloquant les POST via `npm run dev`) est
   résolu depuis le lot 3 (L3-D21, proxy Vite qui réécrit `Origin`).
 - Ne jamais lancer `pre-commit install` depuis un worktree (hooks partagés).

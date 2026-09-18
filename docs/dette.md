@@ -411,3 +411,21 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   revoir quand le référentiel article (unité de facturation, ratio validé)
   sera renseigné des deux côtés pour ce fournisseur — la comparaison
   redeviendrait alors possible sans ambiguïté.
+
+## L4-T7 tour 2 — ingest (document d'origine ajouté à l'identité d'une anomalie)
+
+- **Anomalies enregistrées avant cette correction, sans identifiant de
+  facture.** Depuis la correction qui fait porter à toute anomalie produite
+  par le rapprochement l'identifiant de sa facture (`document_id`), cet
+  identifiant fait partie de la clé qui identifie une anomalie de façon
+  unique. Si une base contenait déjà des anomalies enregistrées sans cet
+  identifiant (écrites avant cette correction), le premier rejeu du
+  rapprochement après une mise à jour en créerait de nouvelles au lieu de
+  mettre à jour les anciennes — un doublon temporaire, refermé tout seul au
+  rejeu suivant par la suppression normale des anomalies devenues obsolètes,
+  jamais une perte de donnée. Sans objet aujourd'hui : rien n'est en
+  production, aucune anomalie n'a été accumulée en base avant cette
+  correction. Ne couvre pas de migration de données pour ce cas ; à traiter,
+  avant la première mise en service, par un rejeu complet du rapprochement
+  sur toutes les factures reçues (commande `rapprocher --tout`) si des
+  anomalies s'étaient entre-temps accumulées en base de production.
