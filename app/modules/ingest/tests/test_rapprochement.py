@@ -416,6 +416,61 @@ async def test_rapprocher_facture_ruling_r3_bl_a_verifier_pas_de_comparaison_qte
 
 
 # --------------------------------------------------------------------------
+# Ruling R16 (fix round 2, L4-T7) : paire mixte unite_implicite
+# --------------------------------------------------------------------------
+
+
+async def test_rapprocher_facture_ruling_r16_paire_mixte_aucune_anomalie(
+    db_session: AsyncSession,
+) -> None:
+    """Ruling R16 : la ligne de facture a un article résolu (ratio validé,
+    unité de conditionnement imprimée) -> cas 5 de `convertir_en_unite_fact`,
+    quantité multipliée par le ratio (2 -> 30). La ligne de BL appariée n'a
+    ni article résolu ni unité imprimée -> cas 2, quantité rendue inchangée
+    (2). Avant ce correctif, R03 comparait 30 à 2 et signalait une
+    sur-facturation qui n'existe pas ; le Ruling R16 l'interdit (paire
+    mixte : une seule ligne en unité implicite)."""
+    fournisseur = await _creer_fournisseur(db_session)
+    article = await _creer_article(
+        db_session,
+        fournisseur=fournisseur,
+        unite_cdt="seau",
+        unite_fact="kg",
+        ratio=Decimal("15"),
+    )
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    bloc = await _creer_bloc(db_session, facture=facture, numero_bl="L0016")
+    await _creer_ligne(
+        db_session,
+        document=facture,
+        bloc=bloc,
+        article=article,
+        qte_livree=Decimal("2"),
+        qte_totale=Decimal("2"),
+        unite_brut="seau",  # unité de conditionnement imprimée -> cas 5
+        montant_ht=Decimal("30.00"),
+    )
+    bl = await _creer_bl(db_session, fournisseur=fournisseur, numero="L0016")
+    await _creer_ligne(
+        db_session,
+        document=bl,
+        article=None,  # article non résolu côté BL
+        qte_totale=Decimal("2"),
+        unite_brut=None,  # aucune unité imprimée -> cas 2
+        montant_ht=Decimal("30.00"),
+    )
+
+    resultat = await rapprocher_facture(db_session, facture.id)
+
+    assert resultat.nb_lignes_appariees == 1
+    anomalies = await _anomalies_de(db_session, facture)
+    assert not any(a.regle in ("R03", "R04") for a in anomalies), (
+        "Ruling R16 : une paire mixte (unité implicite d'un seul côté) ne "
+        "doit produire ni R03 ni R04"
+    )
+
+
+# --------------------------------------------------------------------------
 # BL déposé après : rejeu via rapprocher_factures_du_bl
 # --------------------------------------------------------------------------
 

@@ -24,6 +24,13 @@ d'écart) :
   soit ce drapeau — sans quoi `qte_fact` restait `NULL` sur toutes les
   lignes d'un fournisseur qui n'imprime d'unité nulle part (constat réel sur
   la facture Unikalo d'août), rendant R03/R04 muettes en permanence.
+- Ruling R16 (fix round 2 de cette tâche, `normalize.unites
+  .unite_implicite`) : une quantité rendue inchangée par le cas 2 ci-dessus
+  n'est comparable (R03/R04) qu'à une autre quantité rendue de la même
+  façon — `_ligne_controlee` porte ce drapeau (`LigneControlee
+  .unite_implicite`) depuis la même source que l'appel à
+  `convertir_en_unite_fact`, la garde elle-même vit dans `rules.rules.R03
+  .ecart_qte_fact` (module pur).
 - Historique des prix (L4-D9) : une seule requête pour toute la facture,
   agrégée en Python (médiane par article).
 - Transaction : `rapprocher_facture` fait un seul `commit()` à la fin ; en
@@ -75,7 +82,7 @@ from app.modules.ingest.models import (
 )
 from app.modules.ingest.referentiels import lire_parametre_decimal
 from app.modules.normalize.appariement import LigneAApparier, apparier_lignes
-from app.modules.normalize.unites import convertir_en_unite_fact
+from app.modules.normalize.unites import convertir_en_unite_fact, unite_implicite
 from app.modules.rules.engine import REGLES_FACTURE, evaluer_facture
 from app.modules.rules.modeles import (
     ArticleControle,
@@ -308,13 +315,21 @@ def _ligne_controlee(
     `unite_absente_acceptee=True` pour une ligne de facture, `False`
     (défaut de `convertir_en_unite_fact`) pour une ligne de BL.
     `conversion_impossible` vaut vrai quand la conversion renvoie `None`
-    alors que la ligne porte une quantité (décision du contrôleur)."""
+    alors que la ligne porte une quantité (décision du contrôleur).
+
+    `unite_implicite` (Ruling R16, fix round 2 de L4-T7) est calculé à
+    partir de la même source que l'appel à `convertir_en_unite_fact`
+    ci-dessus (`ligne.unite_brut`, `article.unite_fact`) : la comparabilité
+    de deux lignes appariées (R03/R04) ne se décide pas ligne par ligne, il
+    faut donc porter l'information sur chacune plutôt que de la déduire
+    a posteriori de `qte_fact`."""
     article = articles.get(ligne.article_id) if ligne.article_id is not None else None
+    unite_fact_article = article.unite_fact if article is not None else None
     qte_fact = convertir_en_unite_fact(
         ligne.qte_totale,
         ligne.unite_brut,
         article.unite_cdt if article is not None else None,
-        article.unite_fact if article is not None else None,
+        unite_fact_article,
         article.ratio if article is not None else None,
         article.valide if article is not None else False,
         unite_absente_acceptee=unite_absente_acceptee,
@@ -335,6 +350,7 @@ def _ligne_controlee(
         montant_ht=ligne.montant_ht,
         type_ligne=ligne.type_ligne,
         conversion_impossible=conversion_impossible,
+        unite_implicite=unite_implicite(ligne.unite_brut, unite_fact_article),
     )
 
 

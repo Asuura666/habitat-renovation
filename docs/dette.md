@@ -395,3 +395,19 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   incluant l'id), seul le mode reste celui d'avant. Ne couvre pas ce cas ;
   non corrigé faute de lien de ce type dans l'app aujourd'hui — à traiter
   si un tel lien apparaît (ex. suivant/précédent dans une liste).
+
+## L4-T7 fix2 — normalize/rules (Ruling R16, comparaison de quantité perdue en paire mixte)
+
+- **Comparaison de quantité perdue quand une seule des deux lignes
+  appariées a une unité connue.** Le Ruling R14 (fix round 1) fait
+  comparer deux quantités rendues inchangées faute d'unité connue des deux
+  côtés (cas 2 de `convertir_en_unite_fact`) ; le Ruling R16 (fix round 2)
+  restreint cette comparaison aux paires où les **deux** lignes sont dans
+  ce cas (`LigneControlee.unite_implicite` identique des deux côtés) — une
+  paire mixte (une ligne convertie « normalement », l'autre en unité
+  implicite) ne produit plus ni R03 ni R04, alors qu'une des deux
+  quantités pourrait être correcte. Volontairement conservateur (CDC §10 :
+  « 0 anomalie R03/R04 due à une unité » prime sur la détection) ; à
+  revoir quand le référentiel article (unité de facturation, ratio validé)
+  sera renseigné des deux côtés pour ce fournisseur — la comparaison
+  redeviendrait alors possible sans ambiguïté.

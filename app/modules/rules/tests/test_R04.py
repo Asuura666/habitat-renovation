@@ -148,6 +148,34 @@ def test_R04_ligne_eco_ne_produit_rien() -> None:
     assert R04(_bloc(), rapprochee, {}) is None
 
 
+def test_R04_paire_unite_implicite_des_deux_cotes_produit_anomalie() -> None:
+    """Ruling R16 (fix round 2, L4-T7) : non-régression, symétrique de la
+    même vérification côté R03."""
+    ligne_bl = _ligne(qte_fact=Decimal("20"), unite_implicite=True)
+    ligne_facture = _ligne(qte_fact=Decimal("18"), unite_implicite=True)
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+
+    assert R04(_bloc(), rapprochee, {}) is not None
+
+
+def test_R04_unite_implicite_vrai_cote_facture_seulement_ne_produit_rien() -> None:
+    """Ruling R16 : paire mixte -> aucune comparaison, dans un sens."""
+    ligne_bl = _ligne(qte_fact=Decimal("20"), unite_implicite=False)
+    ligne_facture = _ligne(qte_fact=Decimal("18"), unite_implicite=True)
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+
+    assert R04(_bloc(), rapprochee, {}) is None
+
+
+def test_R04_unite_implicite_vrai_cote_bl_seulement_ne_produit_rien() -> None:
+    """Ruling R16 : paire mixte -> aucune comparaison, dans l'autre sens."""
+    ligne_bl = _ligne(qte_fact=Decimal("20"), unite_implicite=True)
+    ligne_facture = _ligne(qte_fact=Decimal("18"), unite_implicite=False)
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+
+    assert R04(_bloc(), rapprochee, {}) is None
+
+
 def test_R04_article_inconnu_utilise_la_designation_et_un_tiret() -> None:
     ligne_bl = _ligne(article_id=None, qte_fact=Decimal("20"))
     ligne_facture = _ligne(

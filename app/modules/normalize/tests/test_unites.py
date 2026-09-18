@@ -9,6 +9,7 @@ from app.modules.normalize.unites import (
     Unite,
     convertir_en_unite_fact,
     normaliser_unite,
+    unite_implicite,
 )
 
 
@@ -316,3 +317,30 @@ def test_convertir_qte_none_renvoie_none() -> None:
         )
         is None
     )
+
+
+# --------------------------------------------------------------------------
+# unite_implicite (Ruling R16, fix round 2 de L4-T7)
+#
+# Vrai exactement dans le cas 2 de `convertir_en_unite_fact` -- deux lignes
+# appariées ne sont comparables (R03/R04) que si elles portent la même
+# valeur (voir `rules.rules.R03.ecart_qte_fact`).
+# --------------------------------------------------------------------------
+
+
+def test_unite_implicite_vrai_quand_rien_n_est_connu() -> None:
+    assert unite_implicite(None, None) is True
+
+
+def test_unite_implicite_vrai_quand_fact_non_reconnue() -> None:
+    """Une chaîne non reconnue par `normaliser_unite` compte comme
+    inconnue, pas seulement `None`."""
+    assert unite_implicite(None, "XYZ") is True
+
+
+def test_unite_implicite_faux_si_unite_lue_presente() -> None:
+    assert unite_implicite("KG", None) is False
+
+
+def test_unite_implicite_faux_si_unite_fact_connue() -> None:
+    assert unite_implicite(None, "kg") is False

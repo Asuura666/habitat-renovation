@@ -164,3 +164,23 @@ def convertir_en_unite_fact(
         return qte * ratio
 
     return None
+
+
+def unite_implicite(unite_lue: str | None, unite_fact: str | None) -> bool:
+    """Vrai quand la conversion relève du cas 2 de `convertir_en_unite_fact`
+    (Ruling R14) : `unite_lue` absente **et** `unite_fact` inconnue (absente
+    ou non reconnue par `normaliser_unite`) -- la quantité est alors rendue
+    inchangée faute d'unité connue des deux côtés, dans une unité implicite
+    (non identifiée, mais commune aux documents du même fournisseur qui n'en
+    impriment aucune).
+
+    Cette information ne se déduit jamais a posteriori d'une seule
+    `qte_fact` convertie : elle doit être portée à côté d'elle (Ruling R16,
+    fix round 2 de la tâche L4-T7, `rules.modeles.LigneControlee
+    .unite_implicite`) -- la comparabilité de deux lignes appariées ne se
+    décide pas ligne par ligne. Une quantité en unité implicite n'est
+    comparable qu'à une autre quantité elle aussi en unité implicite ;
+    comparer une conversion en cas 2 à une conversion « normale » (cas 4 ou
+    5) reviendrait à comparer deux unités potentiellement différentes sans
+    le savoir (R03/R04, CDC §10 : « 0 anomalie R03/R04 due à une unité »)."""
+    return unite_lue is None and normaliser_unite(unite_fact) is None

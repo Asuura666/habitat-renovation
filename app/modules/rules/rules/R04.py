@@ -2,7 +2,12 @@
 
 Symétrique de `R03` (même garde, `ecart_qte_fact` réutilisé depuis là) : le
 fournisseur a sous-facturé, ou la livraison est partielle. Gravité moyenne
-(CDC §5), justification chiffrée identique à R03."""
+(CDC §5), justification chiffrée identique à R03.
+
+Ruling R16 (fix round 2 de L4-T7) : `ecart_qte_fact` (partagée avec R03) ne
+compare deux quantités que si `LigneControlee.unite_implicite` porte la
+même valeur des deux côtés -- une paire mixte (une seule ligne en unité
+implicite) ne produit ni R03 ni R04."""
 
 from __future__ import annotations
 

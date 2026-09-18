@@ -66,7 +66,16 @@ class LigneControlee:
     (`normalize.unites.convertir_en_unite_fact`, L4-D7) ; `None` si la
     conversion est impossible, auquel cas `conversion_impossible` vaut
     `True` et aucune règle de quantité (R03/R04) ne doit se déclencher
-    dessus (L4-D7 : « 0 anomalie R03/R04 due à une unité »)."""
+    dessus (L4-D7 : « 0 anomalie R03/R04 due à une unité »).
+
+    `unite_implicite` (Ruling R16, fix round 2 de L4-T7) est vrai quand
+    `qte_fact` a été rendue inchangée faute d'unité connue des deux côtés
+    (`normalize.unites.unite_implicite`, cas 2 de `convertir_en_unite_fact`,
+    Ruling R14) : une telle quantité n'est comparable qu'à une autre ligne
+    portant elle aussi `unite_implicite=True` -- sinon une comparaison
+    (R03/R04) mélangerait deux unités implicites potentiellement
+    différentes. Défaut `False` pour garder valides tous les constructeurs
+    existants (appels antérieurs à ce correctif)."""
 
     id: uuid.UUID
     ordre: int
@@ -82,6 +91,7 @@ class LigneControlee:
     montant_ht: Decimal | None
     type_ligne: str  # "article" | "eco" | "commentaire"
     conversion_impossible: bool
+    unite_implicite: bool = False
 
 
 @dataclass(frozen=True)
