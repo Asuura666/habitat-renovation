@@ -1071,6 +1071,289 @@
     }
    }
   },
+  "/api/bilan/chantiers": {
+   "get": {
+    "summary": "Bilan Chantiers Endpoint",
+    "operationId": "bilan_chantiers_endpoint_api_bilan_chantiers_get",
+    "parameters": [
+     {
+      "name": "mois",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Mois"
+      }
+     },
+     {
+      "name": "agence",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Agence"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/LigneBilanChantierReponse"
+         },
+         "title": "Response Bilan Chantiers Endpoint Api Bilan Chantiers Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/bilan/chantiers/{chantier_id}/fournisseurs": {
+   "get": {
+    "summary": "Bilan Fournisseurs Du Chantier Endpoint",
+    "operationId": "bilan_fournisseurs_du_chantier_endpoint_api_bilan_chantiers__chantier_id__fournisseurs_get",
+    "parameters": [
+     {
+      "name": "chantier_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Chantier Id"
+      }
+     },
+     {
+      "name": "mois",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Mois"
+      }
+     },
+     {
+      "name": "agence",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Agence"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/LigneBilanFournisseurReponse"
+         },
+         "title": "Response Bilan Fournisseurs Du Chantier Endpoint Api Bilan Chantiers  Chantier Id  Fournisseurs Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/bilan/chantiers/{chantier_id}/fournisseurs/{fournisseur_id}/bl": {
+   "get": {
+    "summary": "Bilan Bl Endpoint",
+    "operationId": "bilan_bl_endpoint_api_bilan_chantiers__chantier_id__fournisseurs__fournisseur_id__bl_get",
+    "parameters": [
+     {
+      "name": "chantier_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Chantier Id"
+      }
+     },
+     {
+      "name": "fournisseur_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Fournisseur Id"
+      }
+     },
+     {
+      "name": "mois",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Mois"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/LigneBilanBlReponse"
+         },
+         "title": "Response Bilan Bl Endpoint Api Bilan Chantiers  Chantier Id  Fournisseurs  Fournisseur Id  Bl Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/bilan/fournisseurs": {
+   "get": {
+    "summary": "Bilan Fournisseurs Endpoint",
+    "description": "Vue inverse (L5-T2) : bilan agrégé par fournisseur sur l'ensemble des\nchantiers -- point d'entrée de la navigation « du fournisseur vers le\nchantier ».",
+    "operationId": "bilan_fournisseurs_endpoint_api_bilan_fournisseurs_get",
+    "parameters": [
+     {
+      "name": "mois",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Mois"
+      }
+     },
+     {
+      "name": "agence",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Agence"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/LigneBilanFournisseurReponse"
+         },
+         "title": "Response Bilan Fournisseurs Endpoint Api Bilan Fournisseurs Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/health": {
    "get": {
     "summary": "Health",
@@ -2693,6 +2976,169 @@
     "type": "object",
     "title": "HTTPValidationError"
    },
+   "LigneBilanBlReponse": {
+    "properties": {
+     "bloc_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Bloc Id"
+     },
+     "numero_bl": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero Bl"
+     },
+     "date_bl": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date Bl"
+     },
+     "statut_rapprochement": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Statut Rapprochement"
+     },
+     "bl_document_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Bl Document Id"
+     },
+     "facture_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Facture Id"
+     },
+     "montants": {
+      "$ref": "#/components/schemas/MontantsBilanReponse"
+     }
+    },
+    "type": "object",
+    "required": [
+     "bloc_id",
+     "numero_bl",
+     "date_bl",
+     "statut_rapprochement",
+     "bl_document_id",
+     "facture_id",
+     "montants"
+    ],
+    "title": "LigneBilanBlReponse",
+    "description": "Une ligne de `GET /api/bilan/chantiers/{id}/fournisseurs/{id}/bl` —\nmêmes attributs qu'`ingest.bilan.LigneBilanBl`. `bl_document_id` est\n`None` tant que la photo du BL n'a pas été retrouvée par le\nrapprochement (L4-D4) : c'est ce qui permet au front de proposer, ou\nnon, l'ouverture du document source."
+   },
+   "LigneBilanChantierReponse": {
+    "properties": {
+     "chantier_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chantier Id"
+     },
+     "nom_canonique": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Nom Canonique"
+     },
+     "agence": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Agence"
+     },
+     "montants": {
+      "$ref": "#/components/schemas/MontantsBilanReponse"
+     }
+    },
+    "type": "object",
+    "required": [
+     "chantier_id",
+     "nom_canonique",
+     "agence",
+     "montants"
+    ],
+    "title": "LigneBilanChantierReponse",
+    "description": "Une ligne de `GET /api/bilan/chantiers` — mêmes attributs\nqu'`ingest.bilan.LigneBilanChantier`. `chantier_id` (et `nom_canonique`/\n`agence`) valent `None` pour les blocs dont le chantier n'a pas pu être\nrésolu (décision du contrôleur, L5-T1) : cette ligne n'est pas une\nerreur, elle doit être sérialisée comme les autres."
+   },
+   "LigneBilanFournisseurReponse": {
+    "properties": {
+     "fournisseur_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fournisseur Id"
+     },
+     "nom": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Nom"
+     },
+     "montants": {
+      "$ref": "#/components/schemas/MontantsBilanReponse"
+     }
+    },
+    "type": "object",
+    "required": [
+     "fournisseur_id",
+     "nom",
+     "montants"
+    ],
+    "title": "LigneBilanFournisseurReponse",
+    "description": "Une ligne de `GET /api/bilan/chantiers/{id}/fournisseurs` et de sa\nvue inverse `GET /api/bilan/fournisseurs` — mêmes attributs\nqu'`ingest.bilan.LigneBilanFournisseur`. `fournisseur_id`/`nom` valent\n`None` pour les blocs dont le fournisseur n'a pas pu être résolu, même\nprincipe que `LigneBilanChantierReponse.chantier_id`."
+   },
    "LigneDocumentReponse": {
     "properties": {
      "id": {
@@ -3142,6 +3588,44 @@
      "agence"
     ],
     "title": "MoiReponse"
+   },
+   "MontantsBilanReponse": {
+    "properties": {
+     "facture_ht": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Facture Ht"
+     },
+     "rapproche": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Rapproche"
+     },
+     "en_ecart": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "En Ecart"
+     },
+     "non_justifie": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Non Justifie"
+     },
+     "nb_anomalies_ouvertes": {
+      "type": "integer",
+      "title": "Nb Anomalies Ouvertes"
+     }
+    },
+    "type": "object",
+    "required": [
+     "facture_ht",
+     "rapproche",
+     "en_ecart",
+     "non_justifie",
+     "nb_anomalies_ouvertes"
+    ],
+    "title": "MontantsBilanReponse",
+    "description": "Les quatre montants d'un périmètre de bilan (L5-D3) plus le nombre\nd'anomalies ouvertes qui s'y rattachent — mêmes attributs\nqu'`ingest.bilan.MontantsBilan`. Les quatre montants ne forment pas une\npartition (L5-D3) : c'est au front de le dire en toutes lettres, jamais\ncalculé ni recalculé ici."
    },
    "MotifReponse": {
     "properties": {

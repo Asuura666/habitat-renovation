@@ -376,6 +376,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bilan/chantiers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Bilan Chantiers Endpoint */
+        get: operations["bilan_chantiers_endpoint_api_bilan_chantiers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bilan/chantiers/{chantier_id}/fournisseurs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Bilan Fournisseurs Du Chantier Endpoint */
+        get: operations["bilan_fournisseurs_du_chantier_endpoint_api_bilan_chantiers__chantier_id__fournisseurs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bilan/chantiers/{chantier_id}/fournisseurs/{fournisseur_id}/bl": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Bilan Bl Endpoint */
+        get: operations["bilan_bl_endpoint_api_bilan_chantiers__chantier_id__fournisseurs__fournisseur_id__bl_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bilan/fournisseurs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bilan Fournisseurs Endpoint
+         * @description Vue inverse (L5-T2) : bilan agrégé par fournisseur sur l'ensemble des
+         *     chantiers -- point d'entrée de la navigation « du fournisseur vers le
+         *     chantier ».
+         */
+        get: operations["bilan_fournisseurs_endpoint_api_bilan_fournisseurs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -923,6 +996,67 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         /**
+         * LigneBilanBlReponse
+         * @description Une ligne de `GET /api/bilan/chantiers/{id}/fournisseurs/{id}/bl` —
+         *     mêmes attributs qu'`ingest.bilan.LigneBilanBl`. `bl_document_id` est
+         *     `None` tant que la photo du BL n'a pas été retrouvée par le
+         *     rapprochement (L4-D4) : c'est ce qui permet au front de proposer, ou
+         *     non, l'ouverture du document source.
+         */
+        LigneBilanBlReponse: {
+            /**
+             * Bloc Id
+             * Format: uuid
+             */
+            bloc_id: string;
+            /** Numero Bl */
+            numero_bl: string | null;
+            /** Date Bl */
+            date_bl: string | null;
+            /** Statut Rapprochement */
+            statut_rapprochement: string | null;
+            /** Bl Document Id */
+            bl_document_id: string | null;
+            /**
+             * Facture Id
+             * Format: uuid
+             */
+            facture_id: string;
+            montants: components["schemas"]["MontantsBilanReponse"];
+        };
+        /**
+         * LigneBilanChantierReponse
+         * @description Une ligne de `GET /api/bilan/chantiers` — mêmes attributs
+         *     qu'`ingest.bilan.LigneBilanChantier`. `chantier_id` (et `nom_canonique`/
+         *     `agence`) valent `None` pour les blocs dont le chantier n'a pas pu être
+         *     résolu (décision du contrôleur, L5-T1) : cette ligne n'est pas une
+         *     erreur, elle doit être sérialisée comme les autres.
+         */
+        LigneBilanChantierReponse: {
+            /** Chantier Id */
+            chantier_id: string | null;
+            /** Nom Canonique */
+            nom_canonique: string | null;
+            /** Agence */
+            agence: string | null;
+            montants: components["schemas"]["MontantsBilanReponse"];
+        };
+        /**
+         * LigneBilanFournisseurReponse
+         * @description Une ligne de `GET /api/bilan/chantiers/{id}/fournisseurs` et de sa
+         *     vue inverse `GET /api/bilan/fournisseurs` — mêmes attributs
+         *     qu'`ingest.bilan.LigneBilanFournisseur`. `fournisseur_id`/`nom` valent
+         *     `None` pour les blocs dont le fournisseur n'a pas pu être résolu, même
+         *     principe que `LigneBilanChantierReponse.chantier_id`.
+         */
+        LigneBilanFournisseurReponse: {
+            /** Fournisseur Id */
+            fournisseur_id: string | null;
+            /** Nom */
+            nom: string | null;
+            montants: components["schemas"]["MontantsBilanReponse"];
+        };
+        /**
          * LigneDocumentReponse
          * @description Une ligne d'articles du détail d'un BL — mêmes attributs
          *     qu'`ingest.corrections.LigneLue`.
@@ -1032,6 +1166,26 @@ export interface components {
             role: string;
             /** Agence */
             agence: string | null;
+        };
+        /**
+         * MontantsBilanReponse
+         * @description Les quatre montants d'un périmètre de bilan (L5-D3) plus le nombre
+         *     d'anomalies ouvertes qui s'y rattachent — mêmes attributs
+         *     qu'`ingest.bilan.MontantsBilan`. Les quatre montants ne forment pas une
+         *     partition (L5-D3) : c'est au front de le dire en toutes lettres, jamais
+         *     calculé ni recalculé ici.
+         */
+        MontantsBilanReponse: {
+            /** Facture Ht */
+            facture_ht: string;
+            /** Rapproche */
+            rapproche: string;
+            /** En Ecart */
+            en_ecart: string;
+            /** Non Justifie */
+            non_justifie: string;
+            /** Nb Anomalies Ouvertes */
+            nb_anomalies_ouvertes: number;
         };
         /**
          * MotifReponse
@@ -1828,6 +1982,138 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AnomalieReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bilan_chantiers_endpoint_api_bilan_chantiers_get: {
+        parameters: {
+            query?: {
+                mois?: string | null;
+                agence?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LigneBilanChantierReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bilan_fournisseurs_du_chantier_endpoint_api_bilan_chantiers__chantier_id__fournisseurs_get: {
+        parameters: {
+            query?: {
+                mois?: string | null;
+                agence?: string | null;
+            };
+            header?: never;
+            path: {
+                chantier_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LigneBilanFournisseurReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bilan_bl_endpoint_api_bilan_chantiers__chantier_id__fournisseurs__fournisseur_id__bl_get: {
+        parameters: {
+            query?: {
+                mois?: string | null;
+            };
+            header?: never;
+            path: {
+                chantier_id: string;
+                fournisseur_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LigneBilanBlReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bilan_fournisseurs_endpoint_api_bilan_fournisseurs_get: {
+        parameters: {
+            query?: {
+                mois?: string | null;
+                agence?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LigneBilanFournisseurReponse"][];
                 };
             };
             /** @description Validation Error */

@@ -458,3 +458,76 @@ class ValidationArticleRequete(BaseModel):
     unite_cdt: str | None = None
     unite_fact: str | None = None
     ratio: Decimal | None = Field(default=None, gt=0)
+
+
+# --------------------------------------------------------------------------
+# Bilan (L5-T3) : schémas construits à partir des dataclasses
+# d'`ingest.bilan` (`MontantsBilan`, `LigneBilanChantier`,
+# `LigneBilanFournisseur`, `LigneBilanBl`), consommés par `api/bilan.py`.
+# Comme pour les sections précédentes, aucun de ces modèles n'importe
+# `ingest` : ils sont peuplés par attribut (`from_attributes=True`) sur les
+# dataclasses renvoyées par le service, jamais construits à la main.
+# --------------------------------------------------------------------------
+
+
+class MontantsBilanReponse(BaseModel):
+    """Les quatre montants d'un périmètre de bilan (L5-D3) plus le nombre
+    d'anomalies ouvertes qui s'y rattachent — mêmes attributs
+    qu'`ingest.bilan.MontantsBilan`. Les quatre montants ne forment pas une
+    partition (L5-D3) : c'est au front de le dire en toutes lettres, jamais
+    calculé ni recalculé ici."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    facture_ht: Decimal
+    rapproche: Decimal
+    en_ecart: Decimal
+    non_justifie: Decimal
+    nb_anomalies_ouvertes: int
+
+
+class LigneBilanChantierReponse(BaseModel):
+    """Une ligne de `GET /api/bilan/chantiers` — mêmes attributs
+    qu'`ingest.bilan.LigneBilanChantier`. `chantier_id` (et `nom_canonique`/
+    `agence`) valent `None` pour les blocs dont le chantier n'a pas pu être
+    résolu (décision du contrôleur, L5-T1) : cette ligne n'est pas une
+    erreur, elle doit être sérialisée comme les autres."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    chantier_id: uuid.UUID | None
+    nom_canonique: str | None
+    agence: str | None
+    montants: MontantsBilanReponse
+
+
+class LigneBilanFournisseurReponse(BaseModel):
+    """Une ligne de `GET /api/bilan/chantiers/{id}/fournisseurs` et de sa
+    vue inverse `GET /api/bilan/fournisseurs` — mêmes attributs
+    qu'`ingest.bilan.LigneBilanFournisseur`. `fournisseur_id`/`nom` valent
+    `None` pour les blocs dont le fournisseur n'a pas pu être résolu, même
+    principe que `LigneBilanChantierReponse.chantier_id`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    fournisseur_id: uuid.UUID | None
+    nom: str | None
+    montants: MontantsBilanReponse
+
+
+class LigneBilanBlReponse(BaseModel):
+    """Une ligne de `GET /api/bilan/chantiers/{id}/fournisseurs/{id}/bl` —
+    mêmes attributs qu'`ingest.bilan.LigneBilanBl`. `bl_document_id` est
+    `None` tant que la photo du BL n'a pas été retrouvée par le
+    rapprochement (L4-D4) : c'est ce qui permet au front de proposer, ou
+    non, l'ouverture du document source."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    bloc_id: uuid.UUID
+    numero_bl: str | None
+    date_bl: date | None
+    statut_rapprochement: str | None
+    bl_document_id: uuid.UUID | None
+    facture_id: uuid.UUID
+    montants: MontantsBilanReponse
