@@ -253,6 +253,30 @@ def test_csv_bilan_fournisseurs_libelle_avec_guillemet_echappe() -> None:
     assert len(lignes[1]) == len(lignes[0])
 
 
+def test_csv_bilan_chantiers_libelle_point_virgule_guillemet_et_saut_de_ligne() -> None:
+    """Le cas le plus piégeux (celui qui casse les exports faits à la
+    main) : point-virgule, guillemet et retour à la ligne dans le même
+    champ. `_lignes_csv` relit avec `csv.reader` un `io.StringIO` construit
+    sans argument `newline` particulier -- par défaut `io.StringIO` ne
+    traduit aucune fin de ligne (contrairement à un fichier réel ouvert
+    sans `newline=""`), donc le retour à la ligne interne au champ cité est
+    reconstitué tel quel, pas confondu avec une fin d'enregistrement."""
+    valeur = 'Chantier "Rue du Bois"; Lot 2\nBâtiment B'
+    ligne = LigneBilanChantier(
+        chantier_id=uuid.uuid4(),
+        nom_canonique=valeur,
+        agence=None,
+        montants=_montants(),
+    )
+    lignes = _lignes_csv(csv_bilan_chantiers([ligne]))
+
+    # Une seule ligne de donnée malgré le retour à la ligne interne : le
+    # champ cité en porte deux (en-tête + 1), pas trois.
+    assert len(lignes) == 2
+    assert lignes[1][0] == valeur
+    assert len(lignes[1]) == len(lignes[0])
+
+
 # --------------------------------------------------------------------------
 # Plusieurs lignes, compte d'anomalies en entier
 # --------------------------------------------------------------------------

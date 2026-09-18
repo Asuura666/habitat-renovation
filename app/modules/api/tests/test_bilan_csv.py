@@ -246,7 +246,6 @@ def _montant_virgule(valeur_json: str) -> str:
     une virgule échouerait donc sur ces montants nuls."""
     arrondi = Decimal(valeur_json).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     return f"{arrondi:.2f}".replace(".", ",")
-    return valeur_json.replace(".", ",")
 
 
 # --------------------------------------------------------------------------
