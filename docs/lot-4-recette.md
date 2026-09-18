@@ -12,8 +12,9 @@ précédents. Les 11 tâches techniques (L4-T1 à L4-T11) sont faites et
 relues, chaque revue de tâche s'est refermée sans point ouvert, et la
 **revue finale de l'ensemble de la branche a eu lieu** : elle a trouvé un
 défaut critique et trois points importants, tous corrigés et re-relus (§1.1).
-Le lot est donc clos côté code et prêt à fusionner dans `main` (mandat de
-fusion donné par Ilane le 17/09/2026, cf. `docs/passation-lot-4.md` §3.1).
+Le lot est clos côté code et **fusionné dans `main` le 18/09/2026** (mandat
+de fusion donné par Ilane le 17/09/2026, cf. `docs/passation-lot-4.md`
+§3.1) ; la suite complète a été rejouée verte sur le résultat fusionné.
 
 ## À lire d'abord (Ilane)
 

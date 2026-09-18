@@ -10,10 +10,9 @@ foi), `docs/passation-lot-3.md` (lot précédent), `docs/lot-4-recette.md`
 ## 1. État au 18/09/2026
 
 - **Branche `lot-4-rapprochement`** (dépôt `/home/debian/habitat_reno`),
-  créée depuis `main` (plan écrit en `bf910d2`), tête `3a0a01b` au moment de
-  la rédaction de cette passation, plus le commit de cette tâche
-  (`docs: recette et passation du lot 4`). **Non fusionnée dans `main`** au
-  moment de la rédaction. Aucun remote, rien de déployé.
+  créée depuis `main` (plan écrit en `bf910d2`), **fusionnée dans `main` le
+  18/09/2026** en avance rapide, tête `9151d68`, puis supprimée avec les
+  arbres de travail. Aucun remote, rien de déployé.
 - **Les 11 tâches techniques (L4-T1 à L4-T11) sont faites et relues.**
   Chaque revue de tâche s'est refermée sans point ouvert, y compris après
   correction quand une revue en avait relevé (détail commit par commit et
@@ -90,9 +89,10 @@ mois d'historique). **Non confirmé par Ilane** (Q6). Détail en
   avec le lot 5 » — autorisation durable : fusionner `lot-4-rapprochement`
   dans `main` dès que la revue finale de branche est verte et la suite
   complète au vert, puis démarrer le plan du lot 5 (Restitution) sans
-  attendre de nouvelle validation. **Cette fusion n'a pas encore eu lieu**
-  au moment de la rédaction de cette passation (§1) — c'est la suite
-  immédiate, avant de commencer le lot 5 (§7).
+  attendre de nouvelle validation. **Fusion faite le 18/09/2026** (avance
+  rapide, aucun conflit), suite complète rejouée verte sur le résultat
+  fusionné, branche et arbres de travail supprimés. La suite immédiate est
+  donc le lot 5 (§7).
 - Mode de travail inchangé depuis les lots précédents : autonomie,
   sous-agents Sonnet uniquement, enchaîner les lots.
 

@@ -69,13 +69,12 @@ docs/
 
 ## Où en est le projet
 
-Lots 1 (Socle), 2 (Collecte) et 3 (Extraction) faits et fusionnés dans
-`main`. Lot 4 (Rapprochement) fait sur la branche `lot-4-rapprochement`
-(dépôt `/home/debian/habitat_reno`), **pas encore fusionné dans `main`** :
-les 11 tâches techniques sont faites et relues, chaque revue de tâche s'est
-refermée sans point ouvert, et la revue finale de l'ensemble de la branche
-a eu lieu — un défaut critique et trois points importants trouvés, tous
-corrigés et re-relus (`docs/lot-4-recette.md` §1.1). **Avant tout travail, lire
+Lots 1 (Socle), 2 (Collecte), 3 (Extraction) et 4 (Rapprochement) faits et
+**fusionnés dans `main`** (lot 4 fusionné le 18/09/2026). Les 11 tâches
+techniques du lot 4 ont été relues une à une, puis la branche entière a été
+relue une dernière fois : un défaut critique et trois points importants
+trouvés, tous corrigés et re-relus (`docs/lot-4-recette.md` §1.1). Branche
+et arbres de travail supprimés, aucun remote. **Avant tout travail, lire
 `docs/passation-lot-4.md`** (état, décisions, questions ouvertes, méthode,
 pièges rencontrés, point de départ du lot 5) et `docs/passation-lot-3.md`/
 `docs/passation-lots-1-2.md` pour les lots précédents. Recettes :
