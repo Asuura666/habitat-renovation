@@ -34,6 +34,16 @@ dans le routeur, une seule fois, par `_debut_jour_paris`/`_fin_jour_paris`
 dessus : ce routeur valide et convertit déjà ce que FastAPI ne peut pas
 faire seul, `ingest.anomalies.lister_anomalies` continue de ne recevoir que
 des `datetime` déjà résolues, sans rien savoir d'un fuseau.
+
+Ruling R22 (revue finale du lot 4, Minor) : `regle` est validé par
+l'énumération `RegleAnomalie` (une faute de frappe renvoie 422, comme pour
+`gravite`/`statut`), plutôt que le `str | None` d'origine qui laissait
+passer n'importe quelle valeur (200, liste vide). Ce routeur n'a pas le
+droit d'importer `rules` (garde `tests/test_frontieres.py`), donc
+`RegleAnomalie` est une liste écrite ici ; `test_anomalies.py` (le seul
+fichier autorisé à importer les deux) vérifie qu'elle couvre exactement
+`REGLES_FACTURE | REGLES_SUIVI` (`rules.engine`), pour ne jamais se
+désynchroniser en silence à la première règle ajoutée.
 """
 
 from __future__ import annotations
@@ -62,6 +72,30 @@ router = APIRouter()
 _LIMITE_MIN = 1
 _LIMITE_MAX = 500
 
+# Catalogue des 17 règles (CDC §5, Ruling R22) : couverture verrouillée par
+# `test_regle_anomalie_couvre_exactement_les_regles_du_moteur`
+# (`app/modules/api/tests/test_anomalies.py`), seul endroit autorisé à
+# importer à la fois `api` et `rules` pour comparer les deux ensembles.
+RegleAnomalie = Literal[
+    "R01",
+    "R02",
+    "R03",
+    "R04",
+    "R05",
+    "R06",
+    "R07",
+    "R08",
+    "R09",
+    "R10",
+    "R11",
+    "R12",
+    "R13",
+    "R14",
+    "R15",
+    "R16",
+    "R17",
+]
+
 
 def _debut_jour_paris(jour: date) -> datetime:
     """Instant (tz-aware) du début (00:00:00.000000) de `jour` en
@@ -81,7 +115,7 @@ def _fin_jour_paris(jour: date) -> datetime:
 async def lister_anomalies_endpoint(
     utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
     session: Annotated[AsyncSession, Depends(get_session)],
-    regle: Annotated[str | None, Query()] = None,
+    regle: Annotated[RegleAnomalie | None, Query()] = None,
     gravite: Annotated[Literal["haute", "moyenne", "basse"] | None, Query()] = None,
     statut: Annotated[
         Literal["ouverte", "traitee", "ignoree", "toutes"], Query()

@@ -326,6 +326,29 @@ async def test_get_anomalies_filtre_regle(
     assert ids == {str(r10.id)}
 
 
+async def test_get_anomalies_regle_invalide_422(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Ruling R22 (revue finale du lot 4, Minor) : `regle` doit être validé
+    par une énumération, comme `gravite`/`statut` — une faute de frappe
+    (`R0O` au lieu de `R01`) doit renvoyer 422, pas 200 avec une liste vide.
+    Couverture exacte de l'énumération face au moteur (`REGLES_FACTURE`/
+    `REGLES_SUIVI`) vérifiée dans `tests/test_regle_anomalie_couverture.py`
+    (ce fichier, sous `app/modules/api/`, ne peut pas importer `rules`,
+    garde vérifiée par `tests/test_frontieres.py`)."""
+    admin = await _creer_utilisateur(
+        db_session, email="admin.anomalies2b@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(app_test, "GET", "/api/anomalies?regle=R0O", cookie=cookie)
+
+    assert reponse.status_code == 422
+
+
 async def test_get_anomalies_filtre_gravite(
     db_session: AsyncSession,
     sessions_test: async_sessionmaker[AsyncSession],

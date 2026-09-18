@@ -1771,7 +1771,7 @@ export interface operations {
     lister_anomalies_endpoint_api_anomalies_get: {
         parameters: {
             query?: {
-                regle?: string | null;
+                regle?: ("R01" | "R02" | "R03" | "R04" | "R05" | "R06" | "R07" | "R08" | "R09" | "R10" | "R11" | "R12" | "R13" | "R14" | "R15" | "R16" | "R17") | null;
                 gravite?: ("haute" | "moyenne" | "basse") | null;
                 statut?: "ouverte" | "traitee" | "ignoree" | "toutes";
                 chantier_id?: string | null;
