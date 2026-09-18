@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Sequence
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -1264,6 +1264,95 @@ async def test_rapprocher_facture_ruling_l5r3_idempotent_sur_rejeu(
     assert ok, (
         "un rejeu identique doit retrouver la même anomalie de prix, "
         "avec le même bloc_id"
+    )
+
+
+async def test_rapprocher_facture_ruling_l5r6_anomalie_prix_traitee_survit_au_rejeu(
+    db_session: AsyncSession,
+) -> None:
+    """Ruling L5-R6 (tour de correction 2, migration 0008) : une anomalie de
+    prix `traitee` par un humain, dont `bloc_id` a déjà été réparé (même
+    valeur que celle qu'un rapprochement recalculerait aujourd'hui pour
+    cette ligne -- exactement l'état laissé par la migration 0008 sur une
+    ligne qui existait avant le Ruling L5-R3), doit être retrouvée par sa
+    clé au rejeu : aucune anomalie ouverte ne doit être créée en double pour
+    la même cause, sans quoi la décision de l'humain serait contournée en
+    silence (L4-D12)."""
+    fournisseur = await _creer_fournisseur(db_session)
+    article = await _creer_article(db_session, fournisseur=fournisseur, code="ART-L5R6")
+
+    for mois, numero in ((5, "H-L5R6-1"), (6, "H-L5R6-2"), (7, "H-L5R6-3")):
+        historique = await _creer_facture(
+            db_session,
+            fournisseur=fournisseur,
+            numero=numero,
+            date_doc=date(2026, mois, 1),
+        )
+        await _creer_ligne(
+            db_session,
+            document=historique,
+            bloc=None,
+            article=article,
+            code_brut="ART-L5R6",
+            pu_ht=Decimal("10.00"),
+            montant_ht=Decimal("10.00"),
+        )
+
+    facture = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-L5R6",
+        date_doc=date(2026, 8, 20),
+    )
+    bloc = await _creer_bloc(db_session, facture=facture, numero_bl="L-L5R6")
+    ligne = await _creer_ligne(
+        db_session,
+        document=facture,
+        bloc=bloc,
+        article=article,
+        code_brut="ART-L5R6",
+        pu_ht=Decimal("12.00"),
+        montant_ht=Decimal("12.00"),
+    )
+
+    # Anomalie déjà traitée par un humain, `document_id`/`bloc_id` déjà
+    # complétés -- exactement l'état laissé par un rapprochement antérieur
+    # au Ruling L5-R3 (le complément de `document_id`, lui, existe depuis le
+    # Ruling R17 du lot 4 : seul `bloc_id` manquait) et réparé depuis par la
+    # migration 0008. `regle="R08"` : écart de 20 % (12,00 vs médiane
+    # 10,00), au-dessus de `seuil_prix_fort_pct` (15 % par défaut) -- la
+    # même règle que celle que `rapprocher_facture` recalcule plus bas pour
+    # cette ligne (identité complète, donc, pas seulement `bloc_id`).
+    anomalie_existante = Anomalie(
+        regle="R08",
+        gravite="haute",
+        statut="traitee",
+        document_id=facture.id,
+        ligne_id=ligne.id,
+        bloc_id=bloc.id,
+        detail={"cle": "valeur"},
+        traitee_le=datetime.now(UTC),
+        commentaire="Écart de prix accepté (test).",
+    )
+    db_session.add(anomalie_existante)
+    await db_session.commit()
+    await db_session.refresh(anomalie_existante)
+
+    await rapprocher_facture(db_session, facture.id)
+
+    anomalies_prix = [
+        a
+        for a in await _anomalies_de(db_session, facture)
+        if a.regle in ("R07", "R08", "R09")
+    ]
+    ok = (
+        len(anomalies_prix) == 1
+        and anomalies_prix[0].id == anomalie_existante.id
+        and anomalies_prix[0].statut == "traitee"
+    )
+    assert ok, (
+        "une anomalie de prix déjà traitee, bloc_id réparé, doit survivre au "
+        "rejeu sans être dupliquée par une anomalie ouverte"
     )
 
 

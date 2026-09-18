@@ -20,12 +20,14 @@ from app.core.fuseau import FUSEAU_PARIS
 from app.modules.ingest.bilan import LigneBilanChantier, bilan_par_chantier
 from app.modules.ingest.models import (
     Anomalie,
+    Article,
     BlocFacture,
     Chantier,
     Document,
     Fournisseur,
     Ligne,
 )
+from app.modules.ingest.rapprochement import rapprocher_facture
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
 
@@ -113,6 +115,9 @@ async def _creer_ligne(
     montant_ht: Decimal = Decimal("100.00"),
     type_ligne: str = "article",
     ordre: int = 0,
+    article: Article | None = None,
+    code_brut: str | None = None,
+    pu_ht: Decimal | None = None,
 ) -> Ligne:
     ligne = Ligne(
         document_id=document.id,
@@ -120,11 +125,24 @@ async def _creer_ligne(
         montant_ht=montant_ht,
         type_ligne=type_ligne,
         ordre=ordre,
+        article_id=article.id if article is not None else None,
+        code_brut=code_brut,
+        pu_ht=pu_ht,
     )
     db_session.add(ligne)
     await db_session.commit()
     await db_session.refresh(ligne)
     return ligne
+
+
+async def _creer_article(
+    db_session: AsyncSession, *, fournisseur: Fournisseur, code: str = "ART1"
+) -> Article:
+    article = Article(fournisseur_id=fournisseur.id, code=code, valide=True)
+    db_session.add(article)
+    await db_session.commit()
+    await db_session.refresh(article)
+    return article
 
 
 async def _creer_anomalie(
@@ -586,3 +604,73 @@ async def test_bilan_tri_ordonne_par_chantier_id_dans_la_requete_sql(
         and "chantier.id" in requetes_avec_tri[0].split("ORDER BY", 1)[1]
     )
     assert ok, "chantier_id doit être une clé de l'ORDER BY généré par la requête"
+
+
+# --------------------------------------------------------------------------
+# Test d'équivalence (tour de correction 2) : le chemin bloc_id renseigné à
+# la source (Ruling L5-R3) donne le même résultat que l'ancien contournement
+# COALESCE retiré au tour de correction 1
+# --------------------------------------------------------------------------
+
+
+async def test_bilan_rattache_une_anomalie_de_prix_reelle_au_bon_chantier(
+    db_session: AsyncSession,
+) -> None:
+    """Test de bout en bout (tour de correction 2) : un vrai rapprochement
+    qui produit une anomalie de prix (R07/R08/R09) doit se retrouver dans
+    `bilan_par_chantier`, rattachée au bon chantier. Preuve que le chemin
+    aujourd'hui pris par `bilan_par_chantier` (`Anomalie.bloc_id` lu
+    directement, renseigné à la source par `rapprocher_facture`, Ruling
+    L5-R3) donne le même résultat que l'ancien contournement `COALESCE`
+    retiré au tour de correction 1 -- sans ce test, plus rien ne protège ce
+    chemin (constat de la re-revue)."""
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = await _creer_chantier(db_session, nom="Chantier Equivalence")
+    article = await _creer_article(db_session, fournisseur=fournisseur, code="ART-EQ")
+
+    for mois, numero in ((5, "H-EQ-1"), (6, "H-EQ-2"), (7, "H-EQ-3")):
+        historique = await _creer_facture(
+            db_session,
+            fournisseur=fournisseur,
+            numero=numero,
+            date_doc=date(2026, mois, 1),
+        )
+        await _creer_ligne(
+            db_session,
+            document=historique,
+            article=article,
+            code_brut="ART-EQ",
+            pu_ht=Decimal("10.00"),
+            montant_ht=Decimal("10.00"),
+        )
+
+    facture = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="F-EQ", date_doc=date(2026, 8, 20)
+    )
+    bloc = await _creer_bloc(
+        db_session, facture=facture, chantier_id=chantier.id, numero_bl="L-EQ"
+    )
+    await _creer_ligne(
+        db_session,
+        document=facture,
+        bloc=bloc,
+        article=article,
+        code_brut="ART-EQ",
+        pu_ht=Decimal("12.00"),
+        montant_ht=Decimal("12.00"),
+    )
+
+    await rapprocher_facture(db_session, facture.id)
+
+    lignes = await bilan_par_chantier(db_session, mois=None, agence=None)
+
+    ligne_bilan = _ligne_du_chantier(lignes, chantier.id)
+    ok = (
+        ligne_bilan is not None
+        and ligne_bilan.montants.en_ecart == Decimal("12.00")
+        and ligne_bilan.montants.nb_anomalies_ouvertes >= 1
+    )
+    assert ok, (
+        "une anomalie de prix produite par un rapprochement réel doit "
+        "rattacher son bloc au bon chantier dans le bilan"
+    )
