@@ -7,13 +7,15 @@ export type GraviteAnomalie = "haute" | "moyenne" | "basse";
 
 export const CLE_ANOMALIES = ["anomalies"] as const;
 
-/** Filtres de `GET /api/anomalies` (décision du contrôleur, L4-T10) :
- * `depuis`/`jusquA` restent de simples dates (`"AAAA-MM-JJ"`, valeur d'un
- * `<input type="date">`) — c'est `construireRequete` ci-dessous qui les
- * élargit en horodatage (début/fin de journée) pour que la borne « jusqu'à »
- * inclue la journée choisie ; aucun calcul métier, seulement l'élargissement
- * d'une requête pour correspondre à ce qu'un sélecteur de date laisse
- * attendre à l'admin. */
+/** Filtres de `GET /api/anomalies` (décision du contrôleur, L4-T10, revue
+ * par le Ruling R21) : `depuis`/`jusquA` sont de simples dates
+ * (`"AAAA-MM-JJ"`, valeur brute d'un `<input type="date">`) — c'est
+ * `construireRequete` ci-dessous qui les transmet telles quelles à l'API,
+ * sans y ajouter d'heure. La conversion en bornes d'instants (début/fin de
+ * journée en Europe/Paris) se fait côté serveur (`api/anomalies.py`) :
+ * fabriquer ici un horodatage naïf (`"...T00:00:00"`) aurait été lu comme
+ * tel par Pydantic, avec un décalage silencieux face à une session Postgres
+ * en UTC alors que tout l'affichage est en Europe/Paris. */
 export interface FiltresAnomalies {
   regle?: string;
   gravite?: GraviteAnomalie;

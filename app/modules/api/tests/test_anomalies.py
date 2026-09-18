@@ -19,7 +19,6 @@ import itertools
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from urllib.parse import quote
 
 import httpx
 import pytest
@@ -31,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.auth import NOM_COOKIE
 from app.core.auth import router as auth_router
 from app.core.config import get_settings
+from app.core.fuseau import FUSEAU_PARIS
 from app.modules.api import router as api_router
 from app.modules.ingest.models import (
     Anomalie,
@@ -481,31 +481,36 @@ async def test_get_anomalies_filtre_periode(
     sessions_test: async_sessionmaker[AsyncSession],
     tmp_path: Path,
 ) -> None:
+    """Ruling R21 : `depuis`/`jusqu_a` sont des dates (`AAAA-MM-JJ`, valeur
+    brute d'un `<input type="date">`), jamais des horodatages — c'est le
+    serveur qui les convertit en bornes d'instants (début/fin de journée en
+    Europe/Paris)."""
     admin = await _creer_utilisateur(
         db_session, email="admin.anomalies7@example.invalid", role="admin"
     )
-    ancienne = await _creer_anomalie(db_session, created_at=_instant(0))
-    du_milieu = await _creer_anomalie(db_session, created_at=_instant(100))
-    await _creer_anomalie(db_session, created_at=_instant(200))
+    veille = await _creer_anomalie(
+        db_session, created_at=datetime(2026, 8, 14, 12, 0, tzinfo=FUSEAU_PARIS)
+    )
+    du_jour = await _creer_anomalie(
+        db_session, created_at=datetime(2026, 8, 15, 12, 0, tzinfo=FUSEAU_PARIS)
+    )
+    await _creer_anomalie(
+        db_session, created_at=datetime(2026, 8, 16, 12, 0, tzinfo=FUSEAU_PARIS)
+    )
     app_test = _app_test(sessions_test, tmp_path)
     cookie = await _login(app_test, email=admin.email)
 
-    # `quote` : le `+` du décalage horaire ISO 8601 (`+00:00`) serait sinon
-    # décodé comme une espace par le serveur (encodage `application/
-    # x-www-form-urlencoded` d'une chaîne de requête).
-    depuis = quote(_instant(50).isoformat())
-    jusqu_a = quote(_instant(150).isoformat())
     reponse = await _requete(
         app_test,
         "GET",
-        f"/api/anomalies?depuis={depuis}&jusqu_a={jusqu_a}",
+        "/api/anomalies?depuis=2026-08-15&jusqu_a=2026-08-15",
         cookie=cookie,
     )
 
     assert reponse.status_code == 200
     ids = {a["id"] for a in reponse.json()}
-    ok = ids == {str(du_milieu.id)} and str(ancienne.id) not in ids
-    assert ok, "seule l'anomalie de la période doit être renvoyée"
+    ok = ids == {str(du_jour.id)} and str(veille.id) not in ids
+    assert ok, "seule l'anomalie du jour demandé doit être renvoyée"
 
 
 async def test_get_anomalies_filtre_periode_bornes_incluses(
@@ -513,31 +518,49 @@ async def test_get_anomalies_filtre_periode_bornes_incluses(
     sessions_test: async_sessionmaker[AsyncSession],
     tmp_path: Path,
 ) -> None:
-    """Une anomalie créée exactement à la borne `depuis` ou `jusqu_a` est
-    renvoyée (`>=`/`<=`, jamais `>`/`<`) — écart de couverture signalé par
-    la revue de la tâche."""
+    """Bornes incluses (`>=`/`<=`, jamais `>`/`<`) **et** verrou du fuseau
+    (Ruling R21) : une anomalie créée juste après minuit à Paris appartient
+    au jour parisien demandé, pas au précédent — alors qu'exprimé en UTC
+    (session Postgres), cet instant tombe sur la veille (2026-08-15 est en
+    heure d'été, Europe/Paris = UTC+2 : minuit Paris le 15 == 22h00 UTC le
+    14). Une conversion naïve (bornes en UTC plutôt qu'en Europe/Paris)
+    exclurait à tort `juste_apres_minuit` de cette période."""
     admin = await _creer_utilisateur(
         db_session, email="admin.anomalies7b@example.invalid", role="admin"
     )
-    sur_borne_basse = await _creer_anomalie(db_session, created_at=_instant(50))
-    sur_borne_haute = await _creer_anomalie(db_session, created_at=_instant(150))
-    await _creer_anomalie(db_session, created_at=_instant(0))
-    await _creer_anomalie(db_session, created_at=_instant(200))
+    minuit_paris = datetime(2026, 8, 15, 0, 0, 0, tzinfo=FUSEAU_PARIS)
+    fin_journee_paris = datetime(2026, 8, 15, 23, 59, 59, 999999, tzinfo=FUSEAU_PARIS)
+
+    sur_borne_basse = await _creer_anomalie(db_session, created_at=minuit_paris)
+    juste_apres_minuit = await _creer_anomalie(
+        db_session, created_at=minuit_paris + timedelta(minutes=5)
+    )
+    sur_borne_haute = await _creer_anomalie(db_session, created_at=fin_journee_paris)
+    juste_avant_minuit = await _creer_anomalie(
+        db_session, created_at=minuit_paris - timedelta(minutes=5)
+    )
+    juste_apres_fin_journee = await _creer_anomalie(
+        db_session, created_at=fin_journee_paris + timedelta(microseconds=1)
+    )
     app_test = _app_test(sessions_test, tmp_path)
     cookie = await _login(app_test, email=admin.email)
 
-    depuis = quote(_instant(50).isoformat())
-    jusqu_a = quote(_instant(150).isoformat())
     reponse = await _requete(
         app_test,
         "GET",
-        f"/api/anomalies?depuis={depuis}&jusqu_a={jusqu_a}",
+        "/api/anomalies?depuis=2026-08-15&jusqu_a=2026-08-15",
         cookie=cookie,
     )
 
     assert reponse.status_code == 200
     ids = {a["id"] for a in reponse.json()}
-    assert ids == {str(sur_borne_basse.id), str(sur_borne_haute.id)}
+    assert ids == {
+        str(sur_borne_basse.id),
+        str(juste_apres_minuit.id),
+        str(sur_borne_haute.id),
+    }
+    assert str(juste_avant_minuit.id) not in ids
+    assert str(juste_apres_fin_journee.id) not in ids
 
 
 async def test_get_anomalies_limite_bornee(

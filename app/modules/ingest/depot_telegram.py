@@ -79,12 +79,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.fuseau import FUSEAU_PARIS
 from app.modules.ingest.commun import (
     Deposant,
     _ecrire_atomique,
@@ -105,7 +105,6 @@ from app.modules.messaging.base import (
     Messagerie,
 )
 
-_FUSEAU_PARIS = ZoneInfo("Europe/Paris")
 _MESSAGE_ECHEC_AGENT = "Échec de l'enregistrement, renvoyez la photo."
 _BL_NON_DETECTE = "non détecté"
 
@@ -251,7 +250,7 @@ def _ligne_supervision(
     alias). Heure de Paris (décision du contrôleur), calculée au moment de
     l'envoi (après la tentative d'OCR, donc après le traitement complet du
     dépôt)."""
-    heure = datetime.now(_FUSEAU_PARIS).strftime("%H:%M")
+    heure = datetime.now(FUSEAU_PARIS).strftime("%H:%M")
     bl = numero_bl if numero_bl is not None else _BL_NON_DETECTE
     fournisseur = fournisseur_nom if fournisseur_nom is not None else "—"
     chantier = chantier_brut if chantier_brut is not None else "—"
@@ -648,7 +647,7 @@ async def _decider_clic(session: AsyncSession, clic: ClicBouton) -> _DecisionCli
     await session.commit()
 
     texte_accuse, libelle_action = _TEXTES_CONFIRMATION[clic.action]
-    heure = confirme_le.astimezone(_FUSEAU_PARIS).strftime("%H:%M")
+    heure = confirme_le.astimezone(FUSEAU_PARIS).strftime("%H:%M")
     texte_edition = (
         f"Reçu — document n° {clic.numero_interne} · {libelle_action} par "
         f"{deposant.nom_affichage} à {heure}"

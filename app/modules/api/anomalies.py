@@ -20,12 +20,26 @@ retire le filtre de statut — traduit ici en `statut=None` passé au service
 « toutes », un `str | None` suffisait déjà : aucune vraie anomalie n'est
 jamais nommée « toutes », donc `Literal` + traduction dans le routeur,
 jamais dans le service).
+
+Ruling R21 (revue finale du lot 4, Important) : `depuis`/`jusqu_a` sont des
+`date` (`"AAAA-MM-JJ"`, valeur brute d'un `<input type="date">` du front),
+pas des horodatages — une borne de période est un jour, pas un instant.
+Avant ce correctif, le front fabriquait un horodatage naïf
+(`"AAAA-MM-JJT00:00:00"`/`"...T23:59:59"`), lu tel quel par Pydantic alors
+que la session Postgres est en UTC et que tout l'affichage est en
+Europe/Paris : décalage silencieux de 1 à 2 h selon l'heure d'été. La
+conversion en instants (début/fin de journée en Europe/Paris) se fait ici,
+dans le routeur, une seule fois, par `_debut_jour_paris`/`_fin_jour_paris`
+— même endroit et même convention que la traduction `statut="toutes"` ci-
+dessus : ce routeur valide et convertit déjà ce que FastAPI ne peut pas
+faire seul, `ingest.anomalies.lister_anomalies` continue de ne recevoir que
+des `datetime` déjà résolues, sans rien savoir d'un fuseau.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime, time
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -33,6 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import Utilisateur, admin_requis
 from app.core.db import get_session
+from app.core.fuseau import FUSEAU_PARIS
 from app.modules.api.schemas import AnomalieReponse, TraitementAnomalieRequete
 from app.modules.ingest.anomalies import (
     LIMITE_ANOMALIES_DEFAUT,
@@ -48,6 +63,20 @@ _LIMITE_MIN = 1
 _LIMITE_MAX = 500
 
 
+def _debut_jour_paris(jour: date) -> datetime:
+    """Instant (tz-aware) du début (00:00:00.000000) de `jour` en
+    Europe/Paris (Ruling R21) : borne basse d'une période, comparée à
+    `Anomalie.created_at` (colonne `DateTime(timezone=True)`, comparaison
+    par instant, indépendante du fuseau de la session Postgres)."""
+    return datetime.combine(jour, time.min, tzinfo=FUSEAU_PARIS)
+
+
+def _fin_jour_paris(jour: date) -> datetime:
+    """Symétrique de `_debut_jour_paris` : fin (23:59:59.999999) de `jour`
+    en Europe/Paris, borne haute d'une période."""
+    return datetime.combine(jour, time.max, tzinfo=FUSEAU_PARIS)
+
+
 @router.get("/anomalies", response_model=list[AnomalieReponse])
 async def lister_anomalies_endpoint(
     utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
@@ -59,8 +88,8 @@ async def lister_anomalies_endpoint(
     ] = "ouverte",
     chantier_id: Annotated[uuid.UUID | None, Query()] = None,
     fournisseur_id: Annotated[uuid.UUID | None, Query()] = None,
-    depuis: Annotated[datetime | None, Query()] = None,
-    jusqu_a: Annotated[datetime | None, Query()] = None,
+    depuis: Annotated[date | None, Query()] = None,
+    jusqu_a: Annotated[date | None, Query()] = None,
     limite: Annotated[
         int, Query(ge=_LIMITE_MIN, le=_LIMITE_MAX)
     ] = LIMITE_ANOMALIES_DEFAUT,
@@ -72,8 +101,8 @@ async def lister_anomalies_endpoint(
         statut=statut if statut != "toutes" else None,
         chantier_id=chantier_id,
         fournisseur_id=fournisseur_id,
-        depuis=depuis,
-        jusqu_a=jusqu_a,
+        depuis=_debut_jour_paris(depuis) if depuis is not None else None,
+        jusqu_a=_fin_jour_paris(jusqu_a) if jusqu_a is not None else None,
         limite=limite,
     )
     return [AnomalieReponse.model_validate(anomalie) for anomalie in anomalies]
