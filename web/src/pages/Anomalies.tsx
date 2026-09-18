@@ -83,8 +83,22 @@ function LienDocumentSource({ anomalie }: { anomalie: Anomalie }): ReactElement 
  * champ de commentaire obligatoire ; une anomalie déjà traitée affiche son
  * dénouement au lieu des boutons. Invalide `["anomalies"]` (toutes les
  * variantes de filtres, correspondance partielle de TanStack Query) et
- * `["a-traiter"]` après un traitement réussi (décision du contrôleur). */
-function ActionsAnomalie({ anomalie }: { anomalie: Anomalie }): ReactElement {
+ * `["a-traiter"]` après un traitement réussi (décision du contrôleur).
+ *
+ * `variante` (`"carte"` | `"ligne"`) distingue l'identifiant du champ de
+ * commentaire entre `AnomalieCarte` (téléphone) et `AnomalieLigne`
+ * (ordinateur) : les deux sont montés en permanence, seulement masqués par
+ * CSS (`md:hidden`/`hidden md:block`) — sans ce préfixe, les deux portaient
+ * le même `id="commentaire-<uuid>"`, et un redimensionnement de la fenêtre
+ * pendant une saisie faisait alors coexister deux champs de même
+ * identifiant, l'étiquette visible ciblant potentiellement le champ caché. */
+function ActionsAnomalie({
+  anomalie,
+  variante,
+}: {
+  anomalie: Anomalie;
+  variante: "carte" | "ligne";
+}): ReactElement {
   const queryClient = useQueryClient();
   const [action, setAction] = useState<"traitee" | "ignoree" | null>(null);
   const [commentaire, setCommentaire] = useState("");
@@ -165,11 +179,11 @@ function ActionsAnomalie({ anomalie }: { anomalie: Anomalie }): ReactElement {
 
   return (
     <form onSubmit={soumettre} className="space-y-2">
-      <label htmlFor={`commentaire-${anomalie.id}`} className={CLASSES_LABEL}>
+      <label htmlFor={`commentaire-${variante}-${anomalie.id}`} className={CLASSES_LABEL}>
         Commentaire ({action === "traitee" ? "anomalie traitée" : "anomalie ignorée"})
       </label>
       <textarea
-        id={`commentaire-${anomalie.id}`}
+        id={`commentaire-${variante}-${anomalie.id}`}
         value={commentaire}
         onChange={(evenement) => setCommentaire(evenement.target.value)}
         maxLength={500}
@@ -239,7 +253,7 @@ function AnomalieCarte({ anomalie }: { anomalie: Anomalie }): ReactElement {
       <div className="mb-3">
         <LiensAnomalie anomalie={anomalie} />
       </div>
-      <ActionsAnomalie anomalie={anomalie} />
+      <ActionsAnomalie anomalie={anomalie} variante="carte" />
     </li>
   );
 }
@@ -259,7 +273,7 @@ function AnomalieLigne({ anomalie }: { anomalie: Anomalie }): ReactElement {
         <LiensAnomalie anomalie={anomalie} />
       </td>
       <td className="px-4 py-3 align-top">
-        <ActionsAnomalie anomalie={anomalie} />
+        <ActionsAnomalie anomalie={anomalie} variante="ligne" />
       </td>
     </tr>
   );
