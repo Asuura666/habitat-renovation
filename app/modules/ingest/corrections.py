@@ -16,7 +16,9 @@ Décisions du contrôleur (L3-T8a) :
 - Une **facture** est introuvable pour toutes les routes de cette tâche
   (lecture et écritures) : `DocumentIntrouvable` (404), jamais un 409 —
   seuls les documents `bl`/`enlevement` existent pour ce service
-  (`_document_pour_lecture`/`_document_pour_ecriture`).
+  (`_document_pour_lecture`/`_document_pour_ecriture`). Exception posée par
+  le lot 4 (Ruling R25 ci-dessous) : `archiver_document` accepte aussi une
+  facture, via `_document_pour_archivage`, dédiée à cet unique usage.
 - Les motifs structurels recalculés après une correction ou pour la
   validation (`_recalculer_motifs_structurels`) réutilisent `extract
   .verification.verifier_bl`, mais avec `confiances=None`, `illisibles=
@@ -42,6 +44,16 @@ orchestration.md`) :
   `rollback()` interne à `rapprocher_facture_sans_echec` expire tous les
   objets de la session, dont `document`, et un accès synchrone à l'un de
   ses attributs sans ce rafraîchissement lève `MissingGreenlet`.
+- Ruling R25 (constat 3, Important) : `archiver_document` accepte aussi une
+  facture (`_document_pour_archivage`, élargie à ce seul type en plus de
+  `bl`/`enlevement` — l'archivage ne lit ni n'écrit aucun champ propre au
+  BL, contrairement aux autres écritures de ce fichier). Pour une facture,
+  archiver retire désormais ses anomalies de règles de facture (même forme
+  que `rapprocher_facture` : `synchroniser_anomalies` sur la portée du
+  document avec `REGLES_FACTURE`, mais une liste d'anomalies vide) — sans
+  quoi elles restaient `ouverte` pour toujours (`rapprocher_facture` sur un
+  document non `recu` ne les recalcule jamais). Un BL/enlèvement archivé
+  n'a pas ce traitement (hors périmètre de ce constat).
 """
 
 from __future__ import annotations
@@ -67,6 +79,7 @@ from app.modules.extract.verification import (
     motif_en_json,
     verifier_bl,
 )
+from app.modules.ingest.anomalies import synchroniser_anomalies
 from app.modules.ingest.extraction_bl import (
     CLE_SEUIL_CONFIANCE_OCR,
     CLE_TOLERANCE_TOTAL_HT,
@@ -97,6 +110,7 @@ from app.modules.ingest.referentiels import (
     resoudre_chantier,
 )
 from app.modules.normalize.article import proposer_article_bl
+from app.modules.rules.engine import REGLES_FACTURE
 
 # --------------------------------------------------------------------------
 # Champs correctibles d'un BL (L3-D13)
@@ -566,6 +580,31 @@ async def _document_pour_ecriture(
     return document
 
 
+# Types archivables par `archiver_document` (Ruling R25, revue finale du lot
+# 4, constat 3) : contrairement à `_document_pour_lecture`/
+# `_document_pour_ecriture` ci-dessus — strictement BL/enlèvement, décision
+# L3-T8a, parce que la correction/validation/relance exposent des champs et
+# des règles propres au BL — l'archivage ne lit ni n'écrit rien de tel : il
+# se contente de basculer `statut` et de journaliser, et doit donc pouvoir
+# s'appliquer aussi à une facture déjà rapprochée, pour purger ses anomalies
+# (voir `archiver_document`). Un BL/enlèvement archivé n'a pas ce traitement
+# symétrique (hors périmètre de ce constat, décision du contrôleur).
+_TYPES_ARCHIVABLES: tuple[str, ...] = ("bl", "enlevement", "facture")
+
+
+async def _document_pour_archivage(
+    session: AsyncSession, document_id: uuid.UUID
+) -> Document:
+    """Comme `_document_pour_ecriture`, mais élargie à la facture pour le
+    seul usage d'`archiver_document` (voir `_TYPES_ARCHIVABLES` ci-dessus)."""
+    document = await session.get(Document, document_id)
+    if document is None or document.type not in _TYPES_ARCHIVABLES:
+        raise DocumentIntrouvable(str(document_id))
+    if document.statut == "archive":
+        raise DocumentNonModifiable(str(document_id))
+    return document
+
+
 # --------------------------------------------------------------------------
 # Motifs structurels après une correction humaine (L3-D13/L3-D14)
 # --------------------------------------------------------------------------
@@ -995,7 +1034,7 @@ async def archiver_document(
     commentaire: str,
     auteur_id: uuid.UUID,
 ) -> DocumentDetail:
-    document = await _document_pour_ecriture(session, document_id)
+    document = await _document_pour_archivage(session, document_id)
     statut_avant = document.statut
     document.statut = "archive"
     session.add(
@@ -1008,6 +1047,26 @@ async def archiver_document(
             apres={"statut": "archive", "commentaire": commentaire},
         )
     )
+
+    # Ruling R25 (revue finale du lot 4, constat 3) : archiver une facture
+    # déjà rapprochée retirait ses anomalies pour toujours en pratique
+    # (`rapprocher_facture` sur un document non `recu` renvoie un résultat
+    # vide sans jamais appeler `synchroniser_anomalies`, L4-D12 — rien ne les
+    # levait donc plus jamais, y compris des anomalies de gravité haute
+    # comptées à l'écran « À traiter »). Même forme que `rapprocher_facture`
+    # (portée du document, ensemble exact des règles de facture), mais avec
+    # une liste d'anomalies vide : un balayage à vide qui les lève toutes,
+    # journalisé comme toute autre suppression d'anomalie
+    # (`synchroniser_anomalies` -> `anomalie_levee`). Un BL/enlèvement
+    # archivé n'a pas ce traitement (hors périmètre de ce constat).
+    if document.type == "facture":
+        await synchroniser_anomalies(
+            session,
+            anomalies=(),
+            portee_document_id=document_id,
+            portee_regles=tuple(REGLES_FACTURE),
+        )
+
     await session.commit()
     await session.refresh(document)
     return await _charger_detail(session, document, role="admin")

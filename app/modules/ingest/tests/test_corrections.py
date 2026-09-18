@@ -43,6 +43,7 @@ from app.modules.ingest.factures import LectureImpossible
 from app.modules.ingest.lecture import DocumentIntrouvable
 from app.modules.ingest.mistral import ErreurOCR
 from app.modules.ingest.models import (
+    Anomalie,
     Article,
     BlocFacture,
     ChantierAlias,
@@ -52,6 +53,7 @@ from app.modules.ingest.models import (
     Ligne,
     Utilisateur,
 )
+from app.modules.rules.engine import REGLES_FACTURE
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
 
@@ -963,6 +965,89 @@ async def test_archiver_document_deja_archive_refuse(
         await archiver_document(
             db_session, document.id, commentaire="second archivage", auteur_id=admin.id
         )
+
+
+async def test_archiver_document_facture_retire_ses_anomalies(
+    db_session: AsyncSession, admin: Utilisateur
+) -> None:
+    """Ruling R25 (revue finale du lot 4, constat 3) : archiver une facture
+    déjà rapprochée retire ses anomalies de règles de facture (ouvertes) —
+    sans quoi elles restaient `ouverte` pour toujours (`rapprocher_facture`
+    sur un document non `recu` ne les recalcule jamais)."""
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur R25")
+    facture = await _creer_document(
+        db_session,
+        type_="facture",
+        statut="recu",
+        fournisseur=fournisseur,
+        numero="F-R25",
+    )
+    regle_facture = next(iter(REGLES_FACTURE))
+    db_session.add(
+        Anomalie(
+            regle=regle_facture,
+            gravite="haute",
+            document_id=facture.id,
+            detail={"inventé": "valeur de test"},
+            statut="ouverte",
+        )
+    )
+    await db_session.commit()
+
+    detail = await archiver_document(
+        db_session, facture.id, commentaire="doublon corrigé", auteur_id=admin.id
+    )
+
+    assert detail.statut == "archive"
+    anomalies = (
+        (
+            await db_session.execute(
+                select(Anomalie).where(Anomalie.document_id == facture.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert anomalies == []
+    journal = await _dernier_journal(db_session, facture.id, "document_archive")
+    assert journal.utilisateur_id == admin.id
+
+
+async def test_archiver_document_bl_ne_touche_pas_aux_anomalies(
+    db_session: AsyncSession, admin: Utilisateur
+) -> None:
+    """Un BL archivé n'a pas le traitement du constat 3 (hors périmètre,
+    décision du contrôleur) : ses anomalies éventuelles restent intactes."""
+    document = await _creer_document(db_session, statut="a_verifier")
+    db_session.add(
+        Anomalie(
+            regle="R01",
+            gravite="haute",
+            document_id=document.id,
+            detail={"inventé": "valeur de test"},
+            statut="ouverte",
+        )
+    )
+    await db_session.commit()
+
+    await archiver_document(
+        db_session,
+        document.id,
+        commentaire="doublon d'un autre dépôt",
+        auteur_id=admin.id,
+    )
+
+    anomalies = (
+        (
+            await db_session.execute(
+                select(Anomalie).where(Anomalie.document_id == document.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(anomalies) == 1
+    assert anomalies[0].statut == "ouverte"
 
 
 # --------------------------------------------------------------------------

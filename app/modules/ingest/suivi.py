@@ -32,6 +32,15 @@ Décisions du contrôleur (fiche de cette tâche) :
   `BlocControle.lignes_bl_non_facturees` pendant `rapprocher_facture`, mais
   relue ici depuis la base plutôt que recalculée en mémoire, puisque
   `controles_differes` ne rejoue jamais le rapprochement lui-même).
+  Ruling R25 (revue finale du lot 4, constat 3) : exclut aussi les blocs
+  dont la **facture porteuse** (`BlocFacture.facture_id`) est `archive` —
+  une ligne appariée à une facture archivée (`rapprochement_ligne` jamais
+  nettoyée à l'archivage) resterait sinon comptée comme facturée pour
+  toujours, même si plus aucun document actif ne la facture. Même
+  formulation que les autres requêtes du lot qui excluent un document
+  archivé (`Document.statut != "archive"`, ex. `rapprochement
+  ._autres_blocs_meme_numero`), appliquée ici à la facture du bloc plutôt
+  qu'à son BL.
 - `alias_en_attente` (R14) : `chantier_alias` dont `chantier_id IS NULL`.
 - `bl_sans_confirmation` (R15) : documents `bl`/`enlevement` non archivés,
   `confirme_le IS NULL`.
@@ -61,6 +70,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.modules.ingest.anomalies import synchroniser_anomalies
 from app.modules.ingest.models import (
@@ -122,16 +132,20 @@ async def _lignes_bl_non_facturees(
 ) -> tuple[tuple[BlocControle, LigneControlee], ...]:
     """Matière de R06 (décision du contrôleur) : blocs `recu` dont le BL
     rapproché est lui-même `recu`, croisés avec les lignes de ce BL absentes
-    de `rapprochement_ligne`."""
+    de `rapprochement_ligne`. Exclut les blocs dont la facture porteuse est
+    `archive` (Ruling R25, voir docstring de module)."""
+    facture_doc = aliased(Document)
     blocs_db = (
         (
             await session.execute(
                 select(BlocFacture)
                 .join(Document, Document.id == BlocFacture.bl_document_id)
+                .join(facture_doc, facture_doc.id == BlocFacture.facture_id)
                 .where(
                     BlocFacture.statut_rapprochement == "recu",
                     BlocFacture.bl_document_id.is_not(None),
                     Document.statut == "recu",
+                    facture_doc.statut != "archive",
                 )
             )
         )

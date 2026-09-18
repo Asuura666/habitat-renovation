@@ -255,6 +255,35 @@ async def test_controles_differes_r06_ignore_une_ligne_deja_appariee(
     assert lignes == [] and nb == 0
 
 
+async def test_controles_differes_r06_ignore_un_bloc_dont_la_facture_est_archivee(
+    db_session: AsyncSession,
+) -> None:
+    """Ruling R25 (revue finale du lot 4, constat 3) : une ligne de BL
+    appariée à un bloc dont la facture porteuse est archivée n'est jamais
+    « non facturée », même après le délai — sans quoi une facture archivée
+    (ex. doublon corrigé par l'admin) laisserait invisible un vrai trou de
+    facturation sur les BL qu'elle référençait."""
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_document(
+        db_session, type_="facture", statut="archive", fournisseur=fournisseur
+    )
+    bl = await _creer_document(db_session, type_="bl", fournisseur=fournisseur)
+    date_bl = _MAINTENANT.date() - timedelta(days=46)
+    await _creer_bloc(
+        db_session,
+        facture=facture,
+        date_bl=date_bl,
+        bl_document_id=bl.id,
+        statut_rapprochement="recu",
+    )
+    await _creer_ligne(db_session, document=bl, bloc=None)
+
+    nb = await controles_differes(db_session, maintenant=_MAINTENANT)
+
+    lignes = (await db_session.execute(select(Anomalie))).scalars().all()
+    assert lignes == [] and nb == 0
+
+
 # --------------------------------------------------------------------------
 # R14 — alias en attente après le délai
 # --------------------------------------------------------------------------
