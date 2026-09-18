@@ -442,16 +442,34 @@ class Anomalie(Base):
       .synchroniser_anomalies`, L4-D13) — une anomalie sans article (niveau
       bloc ou document, ex. R01/R02/R10-R12) n'est jamais bloquée par cette
       règle.
-    - Index unique `(regle, document_id, bloc_id, ligne_id)`, `NULLS NOT
-      DISTINCT` (comme `chantier_alias`) : identité d'une anomalie (L4-D11).
-      Garantit qu'aucune ligne dupliquée ne peut jamais exister en base pour
-      la même clé, quel que soit le chemin applicatif ; l'upsert
-      (`ingest.anomalies.synchroniser_anomalies`) s'appuie dessus pour son
-      recherche par clé, mais ne fait pas d'`ON CONFLICT` — deux
-      rapprochements strictement concurrents sur la même facture (cas non
-      prévu par l'orchestration actuelle, toujours séquentielle) feraient
-      échouer le second avec une violation de contrainte plutôt que d'être
-      absorbés silencieusement.
+
+    Migration 0007 (Ruling R13 de la tâche L4-T11, `ingest/suivi.py` :
+    premier code à persister des anomalies de suivi R06/R14/R15/R16) :
+    - `chantier_id` (FK `chantier.id`) : porte la portée d'une anomalie R16
+      (chantier silencieux), qui n'est rattachée ni à un document, ni à un
+      bloc, ni à une ligne — sans lui, deux chantiers silencieux distincts
+      partageraient l'identité `(regle="R16", document_id=None, bloc_id=None,
+      ligne_id=None)` et se confondraient en une seule anomalie.
+    - `alias_id` (FK `chantier_alias.id`) : même besoin pour R14 (chantier
+      non résolu) — signalé par le docstring de `rules/rules/R14.py` (« sans
+      lui, deux alias en attente distincts partageraient la même identité »)
+      et son test `test_R14_deux_alias_distincts_portent_des_alias_id
+      _distincts`, alors que la fiche de cette tâche ne demandait
+      explicitement que `chantier_id` (écart signalé au contrôleur) : sans
+      `alias_id` ici aussi, deux alias en attente distincts se confondraient
+      de la même façon que deux chantiers silencieux.
+    - Index unique remplacé par `(regle, document_id, bloc_id, ligne_id,
+      chantier_id, alias_id)`, toujours `NULLS NOT DISTINCT`.
+
+    Index unique `NULLS NOT DISTINCT` (comme `chantier_alias`) : identité
+    d'une anomalie (L4-D11). Garantit qu'aucune ligne dupliquée ne peut
+    jamais exister en base pour la même clé, quel que soit le chemin
+    applicatif ; l'upsert (`ingest.anomalies.synchroniser_anomalies`)
+    s'appuie dessus pour sa recherche par clé, mais ne fait pas d'`ON
+    CONFLICT` — deux rapprochements strictement concurrents sur la même
+    facture (cas non prévu par l'orchestration actuelle, toujours
+    séquentielle) feraient échouer le second avec une violation de
+    contrainte plutôt que d'être absorbés silencieusement.
     """
 
     __tablename__ = "anomalie"
@@ -468,6 +486,8 @@ class Anomalie(Base):
             "document_id",
             "bloc_id",
             "ligne_id",
+            "chantier_id",
+            "alias_id",
             postgresql_nulls_not_distinct=True,
         ),
     )
@@ -486,6 +506,12 @@ class Anomalie(Base):
     )
     article_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("article.id"), nullable=True
+    )
+    chantier_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chantier.id"), nullable=True
+    )
+    alias_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chantier_alias.id"), nullable=True
     )
     detail: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     statut: Mapped[str] = mapped_column(Text, nullable=False)

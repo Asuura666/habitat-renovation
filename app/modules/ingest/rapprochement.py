@@ -92,6 +92,7 @@ from app.modules.rules.rules.R02 import mention_pas_de_bon
 __all__ = [
     "FactureIntrouvable",
     "ResultatRapprochement",
+    "factures_recues",
     "rapprocher_facture",
     "rapprocher_facture_sans_echec",
     "rapprocher_factures_du_bl",
@@ -505,6 +506,29 @@ async def _lignes_negatives_sans_origine(
             resultat.append((controlee, chantier_nom))
 
     return tuple(resultat)
+
+
+# --------------------------------------------------------------------------
+# factures_recues (matière de `rapprocher --tout`, CLI, L4-T11)
+# --------------------------------------------------------------------------
+
+
+async def factures_recues(session: AsyncSession) -> list[tuple[uuid.UUID, int]]:
+    """`(id, numero_interne)` de chaque facture `recu`, du plus ancien au
+    plus récent (`Document.created_at` croissant) — matière de `rapprocher
+    --tout` (CLI, décision du contrôleur de la tâche L4-T11 : « traite les
+    factures reçues de la plus ancienne à la plus récente »).
+
+    `numero_interne` (jamais une valeur du document client, L2-D5 : généré
+    par notre propre séquence, distinct de `Document.numero` lu sur la
+    facture) permet à la CLI d'afficher un repère par facture traitée sans
+    révéler de donnée du document source."""
+    resultat = await session.execute(
+        select(Document.id, Document.numero_interne)
+        .where(Document.type == "facture", Document.statut == "recu")
+        .order_by(Document.created_at.asc())
+    )
+    return [(id_, numero_interne) for id_, numero_interne in resultat.all()]
 
 
 # --------------------------------------------------------------------------

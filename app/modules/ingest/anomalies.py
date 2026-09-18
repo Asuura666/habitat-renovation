@@ -14,9 +14,17 @@ Décisions du contrôleur (L4-T8) :
   droit de l'importer (module pur, frontière déjà vérifiée par
   `tests/test_frontieres.py`) ; l'alias distingue cette dataclasse pure de
   l'`Anomalie` ORM d'`ingest/models.py`.
-- Identité d'une anomalie (L4-D11) : `(regle, document_id, bloc_id,
-  ligne_id)`, garantie par l'index unique `NULLS NOT DISTINCT` de la
-  migration 0006. `synchroniser_anomalies` upsert sur cette clé : une
+- Identité d'une anomalie (L4-D11, étendue par Ruling R13 de la tâche
+  L4-T11) : `(regle, document_id, bloc_id, ligne_id, chantier_id,
+  alias_id)`, garantie par l'index unique `NULLS NOT DISTINCT` de la
+  migration 0007 (qui remplace celui de la migration 0006, sans
+  `chantier_id`/`alias_id`). Extension nécessaire dès que ce module
+  persiste des anomalies de suivi (R06, R14, R15, R16, `ingest/suivi.py`,
+  L4-T11) : sans elle, deux chantiers silencieux (R16) ou deux alias en
+  attente distincts (R14) partageraient tous l'identité `(leur regle, None,
+  None, None)` et se confondraient en une seule anomalie — `chantier_id` et
+  `alias_id` (`rules.modeles.Anomalie`, déjà portés par le module pur)
+  lèvent l'ambiguïté. `synchroniser_anomalies` upsert sur cette clé : une
   anomalie `ouverte` existante voit `detail`/`gravite`/`article_id` mis à
   jour ; une anomalie `traitee`/`ignoree` n'est **jamais** touchée (L4-D12),
   qu'elle soit encore produite ou non.
@@ -119,10 +127,20 @@ def _cle_anomalie(
     document_id: uuid.UUID | None,
     bloc_id: uuid.UUID | None,
     ligne_id: uuid.UUID | None,
-) -> tuple[str, uuid.UUID | None, uuid.UUID | None, uuid.UUID | None]:
-    """Identité d'une anomalie (L4-D11), utilisée aussi bien pour une
-    `AnomaliePure` fraîchement produite que pour une ligne déjà en base."""
-    return (regle, document_id, bloc_id, ligne_id)
+    chantier_id: uuid.UUID | None,
+    alias_id: uuid.UUID | None,
+) -> tuple[
+    str,
+    uuid.UUID | None,
+    uuid.UUID | None,
+    uuid.UUID | None,
+    uuid.UUID | None,
+    uuid.UUID | None,
+]:
+    """Identité d'une anomalie (L4-D11, étendue par Ruling R13), utilisée
+    aussi bien pour une `AnomaliePure` fraîchement produite que pour une
+    ligne déjà en base."""
+    return (regle, document_id, bloc_id, ligne_id, chantier_id, alias_id)
 
 
 async def _trouver_par_cle(
@@ -131,10 +149,13 @@ async def _trouver_par_cle(
     document_id: uuid.UUID | None,
     bloc_id: uuid.UUID | None,
     ligne_id: uuid.UUID | None,
+    chantier_id: uuid.UUID | None,
+    alias_id: uuid.UUID | None,
 ) -> Anomalie | None:
-    """Une anomalie par sa clé d'identité (L4-D11) : `is_not_distinct_from`
-    reproduit en Python la sémantique `NULLS NOT DISTINCT` de l'index unique
-    de la migration 0006 (deux `NULL` sont considérés égaux)."""
+    """Une anomalie par sa clé d'identité (L4-D11, Ruling R13) :
+    `is_not_distinct_from` reproduit en Python la sémantique `NULLS NOT
+    DISTINCT` de l'index unique de la migration 0007 (deux `NULL` sont
+    considérés égaux)."""
     return (
         await session.execute(
             select(Anomalie).where(
@@ -142,6 +163,8 @@ async def _trouver_par_cle(
                 Anomalie.document_id.is_not_distinct_from(document_id),
                 Anomalie.bloc_id.is_not_distinct_from(bloc_id),
                 Anomalie.ligne_id.is_not_distinct_from(ligne_id),
+                Anomalie.chantier_id.is_not_distinct_from(chantier_id),
+                Anomalie.alias_id.is_not_distinct_from(alias_id),
             )
         )
     ).scalar_one_or_none()
@@ -229,7 +252,10 @@ async def synchroniser_anomalies(
         )
 
     cles_produites = {
-        _cle_anomalie(a.regle, a.document_id, a.bloc_id, a.ligne_id) for a in anomalies
+        _cle_anomalie(
+            a.regle, a.document_id, a.bloc_id, a.ligne_id, a.chantier_id, a.alias_id
+        )
+        for a in anomalies
     }
 
     duree_ignorance = await lire_parametre_decimal(
@@ -263,6 +289,8 @@ async def synchroniser_anomalies(
             anomalie_pure.document_id,
             anomalie_pure.bloc_id,
             anomalie_pure.ligne_id,
+            anomalie_pure.chantier_id,
+            anomalie_pure.alias_id,
         )
         if existante is not None:
             if existante.statut == "ouverte":
@@ -296,6 +324,8 @@ async def synchroniser_anomalies(
                 bloc_id=anomalie_pure.bloc_id,
                 ligne_id=anomalie_pure.ligne_id,
                 article_id=anomalie_pure.article_id,
+                chantier_id=anomalie_pure.chantier_id,
+                alias_id=anomalie_pure.alias_id,
                 detail=dict(anomalie_pure.detail),
                 statut="ouverte",
             )
@@ -315,6 +345,8 @@ async def synchroniser_anomalies(
             anomalie_db.document_id,
             anomalie_db.bloc_id,
             anomalie_db.ligne_id,
+            anomalie_db.chantier_id,
+            anomalie_db.alias_id,
         )
         if cle in cles_produites:
             continue

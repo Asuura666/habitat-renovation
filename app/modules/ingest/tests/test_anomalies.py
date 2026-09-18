@@ -30,6 +30,7 @@ from app.modules.ingest.models import (
     Article,
     BlocFacture,
     Chantier,
+    ChantierAlias,
     Document,
     Fournisseur,
     Journal,
@@ -791,6 +792,137 @@ async def test_synchroniser_anomalies_portee_suivi_restreint_aux_regles_donnees(
         "seule la règle R06 doit être levée par une portée suivi restreinte à R06"
     )
     assert nb == 0
+
+
+# --------------------------------------------------------------------------
+# synchroniser_anomalies — identité étendue à chantier_id/alias_id
+# (Ruling R13, tâche L4-T11 : ce module est le premier à persister des
+# anomalies de suivi R06/R14/R15/R16, migration 0007)
+# --------------------------------------------------------------------------
+
+
+async def test_synchroniser_anomalies_deux_chantiers_silencieux_distincts_coexistent(
+    db_session: AsyncSession,
+) -> None:
+    """Sans `chantier_id` dans la clé d'identité, deux anomalies R16 (deux
+    chantiers silencieux distincts, ni document ni bloc ni ligne) se
+    confondraient en une seule ligne — R16.py (déjà commité) le documente
+    explicitement."""
+    chantier_1 = await _creer_chantier(db_session, nom="Chantier Un")
+    chantier_2 = await _creer_chantier(db_session, nom="Chantier Deux")
+
+    nb = await synchroniser_anomalies(
+        db_session,
+        anomalies=[
+            AnomaliePure(
+                regle="R16",
+                gravite=Gravite.BASSE,
+                detail={"chantier": "1"},
+                chantier_id=chantier_1.id,
+            ),
+            AnomaliePure(
+                regle="R16",
+                gravite=Gravite.BASSE,
+                detail={"chantier": "2"},
+                chantier_id=chantier_2.id,
+            ),
+        ],
+        portee_regles=("R16",),
+    )
+    await db_session.commit()
+
+    lignes = (await db_session.execute(select(Anomalie))).scalars().all()
+    ok = (
+        len(lignes) == 2
+        and {ligne.chantier_id for ligne in lignes} == {chantier_1.id, chantier_2.id}
+        and nb == 2
+    )
+    assert ok, "deux chantiers silencieux distincts doivent produire deux anomalies"
+
+
+async def test_synchroniser_anomalies_deux_alias_en_attente_distincts_coexistent(
+    db_session: AsyncSession,
+) -> None:
+    """Même besoin pour `alias_id` (R14) : `rules/rules/R14.py` documente
+    explicitement que, sans lui, deux alias en attente distincts se
+    confondraient en une seule anomalie une fois persistés (mention
+    « L4-T11 » dans son docstring)."""
+    fournisseur = await _creer_fournisseur(db_session)
+    alias_1 = ChantierAlias(fournisseur_id=fournisseur.id, libelle_brut="ALIAS UN")
+    alias_2 = ChantierAlias(fournisseur_id=fournisseur.id, libelle_brut="ALIAS DEUX")
+    db_session.add_all([alias_1, alias_2])
+    await db_session.commit()
+    await db_session.refresh(alias_1)
+    await db_session.refresh(alias_2)
+
+    nb = await synchroniser_anomalies(
+        db_session,
+        anomalies=[
+            AnomaliePure(
+                regle="R14",
+                gravite=Gravite.MOYENNE,
+                detail={"alias": "1"},
+                alias_id=alias_1.id,
+            ),
+            AnomaliePure(
+                regle="R14",
+                gravite=Gravite.MOYENNE,
+                detail={"alias": "2"},
+                alias_id=alias_2.id,
+            ),
+        ],
+        portee_regles=("R14",),
+    )
+    await db_session.commit()
+
+    lignes = (await db_session.execute(select(Anomalie))).scalars().all()
+    ok = (
+        len(lignes) == 2
+        and {ligne.alias_id for ligne in lignes} == {alias_1.id, alias_2.id}
+        and nb == 2
+    )
+    assert ok, "deux alias en attente distincts doivent produire deux anomalies"
+
+
+async def test_synchroniser_anomalies_rejeu_chantier_silencieux_sans_doublon(
+    db_session: AsyncSession,
+) -> None:
+    """Idempotence (L4-D3) sur la nouvelle clé d'identité : rejouer la même
+    anomalie R16 (même `chantier_id`) met à jour la ligne existante, n'en
+    crée jamais une seconde."""
+    chantier = await _creer_chantier(db_session)
+
+    await synchroniser_anomalies(
+        db_session,
+        anomalies=[
+            AnomaliePure(
+                regle="R16",
+                gravite=Gravite.BASSE,
+                detail={"jours": "8"},
+                chantier_id=chantier.id,
+            )
+        ],
+        portee_regles=("R16",),
+    )
+    await db_session.commit()
+
+    await synchroniser_anomalies(
+        db_session,
+        anomalies=[
+            AnomaliePure(
+                regle="R16",
+                gravite=Gravite.BASSE,
+                detail={"jours": "9"},
+                chantier_id=chantier.id,
+            )
+        ],
+        portee_regles=("R16",),
+    )
+    await db_session.commit()
+
+    lignes = (await db_session.execute(select(Anomalie))).scalars().all()
+    ok = len(lignes) == 1 and lignes[0].detail == {"jours": "9"}
+    assert ok, "un rejeu identique (même chantier) met à jour, ne duplique jamais"
 
 
 # --------------------------------------------------------------------------

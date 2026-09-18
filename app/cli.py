@@ -36,17 +36,37 @@
   d'`ingest.router`) sur un client HTTP qu'elle ouvre et ferme elle-même —
   jamais sur un document client (R17, protocole détaillé dans
   `docs/protocole-mesure-ocr.md`).
+- `python -m app.cli rapprocher [--facture <uuid> | --tout]` (L4-T11) :
+  rejoue `ingest.rapprochement.rapprocher_facture` (déjà commité, idempotent
+  L4-D3). `--facture` traite une seule facture (code 2, message sur stderr,
+  si `FactureIntrouvable` — absente ou pas de type facture) ; `--tout`
+  traite chaque facture `recu` de la plus ancienne à la plus récente
+  (`ingest.rapprochement.factures_recues`), une transaction par facture via
+  `rapprocher_facture_sans_echec` (déjà commité : journalise l'échec,
+  absorbe l'exception, ne fait jamais échouer la boucle), compte les échecs
+  et sort en code 1 s'il y en a eu au moins un, 0 sinon. Sortie : un repère
+  par facture (`numero_interne`, jamais `Document.numero` du fournisseur)
+  suivi de comptes et taux, jamais une valeur du document client (décision
+  du contrôleur).
+- `python -m app.cli controles-differes` (L4-T11) : évalue les quatre règles
+  de suivi (R06, R14, R15, R16 — délais du CDC §5, L4-D14) via
+  `ingest.suivi.controles_differes` et affiche le nombre d'anomalies de
+  suivi ouvertes après synchronisation. Idempotente, sans argument (l'heure
+  d'exécution est lue une fois, `datetime.now(UTC)`) ; à lancer
+  quotidiennement par cron (`docs/exploitation-lot-4.md`) — pas de worker
+  (CDC §7).
 
 N'importe que `app.core` (config, db, auth) et `app.modules.ingest`
 (`factures.py`, `mistral.py` — depuis le découpage de l'ancien
 `ingest/service.py`, vague finale du lot 2, point 1 ; `referentiels.py`
-depuis L3-T5 ; `rapport_ocr.py`, `router.py` depuis L3-T11), plus
-`FactureIllisible` d'`extract` (nécessaire pour distinguer le code de
-sortie) et `OPTIONS_OCR_BL`/`SEUIL_CONFIANCE_DEFAUT`/
-`TOLERANCE_TOTAL_DEFAUT` d'`extract` (L3-T11, mêmes constantes que le reste
-du lot 3) : `ingest` reste le seul orchestrateur, la CLI ne fait que
-construire ses dépendances (client HTTP, moteur DB) et les brancher
-(décisions du contrôleur T7/L2-T1b/L3-T5/L3-T11).
+depuis L3-T5 ; `rapport_ocr.py`, `router.py` depuis L3-T11 ;
+`rapprochement.py`, `suivi.py` depuis L4-T11), plus `FactureIllisible`
+d'`extract` (nécessaire pour distinguer le code de sortie) et
+`OPTIONS_OCR_BL`/`SEUIL_CONFIANCE_DEFAUT`/`TOLERANCE_TOTAL_DEFAUT`
+d'`extract` (L3-T11, mêmes constantes que le reste du lot 3) : `ingest`
+reste le seul orchestrateur, la CLI ne fait que construire ses dépendances
+(client HTTP, moteur DB) et les brancher (décisions du contrôleur
+T7/L2-T1b/L3-T5/L3-T11/L4-T11).
 
 Import différé de `app.core.auth` (dans le corps de `_utilisateur_creer`/
 `_utilisateur_desactiver`, pas en tête de fichier) : ce module appelle
@@ -65,6 +85,8 @@ import argparse
 import asyncio
 import getpass
 import sys
+import uuid
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from functools import partial
 from pathlib import Path
@@ -87,8 +109,16 @@ from app.modules.ingest.factures import (
 )
 from app.modules.ingest.mistral import ErreurOCR, ocr_document
 from app.modules.ingest.rapport_ocr import mesurer_dossier, rapport_markdown
+from app.modules.ingest.rapprochement import (
+    FactureIntrouvable,
+    ResultatRapprochement,
+    factures_recues,
+    rapprocher_facture,
+    rapprocher_facture_sans_echec,
+)
 from app.modules.ingest.referentiels import definir_fournisseur
 from app.modules.ingest.router import DELAI_OCR_BL
+from app.modules.ingest.suivi import controles_differes
 
 _SIGNATURE_PDF = b"%PDF-"
 
@@ -393,6 +423,107 @@ async def _rapport_ocr(
     return 0
 
 
+def _formater_resultat_rapprochement(resultat: ResultatRapprochement) -> str:
+    """Sortie de `rapprocher` (décision du contrôleur : comptes et taux
+    seulement, jamais une valeur de document client — ni numéro de facture,
+    ni chantier, ni montant)."""
+    return (
+        f"{resultat.nb_blocs} blocs, {resultat.nb_blocs_recus} reçus, "
+        f"{resultat.nb_blocs_pas_de_bon} pas de bon, "
+        f"{resultat.nb_lignes_appariees} lignes appariées, "
+        f"{resultat.nb_anomalies} anomalies ouvertes"
+    )
+
+
+async def _rapprocher_facture(*, facture_id: uuid.UUID) -> int:
+    """Implémentation de `rapprocher --facture` (L4-T11). Toute la logique
+    est déjà dans `ingest.rapprochement.rapprocher_facture` (idempotent,
+    L4-D3) : cette CLI ne fait que construire ses dépendances (moteur DB) et
+    les brancher, comme les autres commandes de ce fichier. Code de sortie 2
+    si la facture est introuvable ou n'est pas une facture
+    (`FactureIntrouvable`), message court sur stderr."""
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            try:
+                resultat = await rapprocher_facture(session, facture_id)
+            except FactureIntrouvable as exc:
+                print(f"facture introuvable : {exc}", file=sys.stderr)
+                return 2
+    finally:
+        await engine.dispose()
+
+    print(_formater_resultat_rapprochement(resultat))
+    return 0
+
+
+async def _rapprocher_tout() -> int:
+    """Implémentation de `rapprocher --tout` (L4-T11, décision du
+    contrôleur) : traite les factures `recu` de la plus ancienne à la plus
+    récente (`ingest.rapprochement.factures_recues`), une transaction par
+    facture via `rapprocher_facture_sans_echec` (déjà commité : journalise
+    l'échec, absorbe l'exception, ne fait jamais échouer la boucle) — compte
+    les échecs plutôt que de s'arrêter à la première facture en erreur.
+
+    Une ligne par facture traitée (repère `numero_interne`, jamais
+    `Document.numero` du fournisseur — décision du contrôleur : « comptes et
+    taux seulement, jamais une valeur de document client »), puis une ligne
+    de synthèse. Code de sortie 1 s'il y a eu au moins un échec, 0 sinon."""
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            factures = await factures_recues(session)
+            nb_echecs = 0
+            nb_anomalies_total = 0
+            for facture_id, numero_interne in factures:
+                resultat = await rapprocher_facture_sans_echec(session, facture_id)
+                if resultat is None:
+                    nb_echecs += 1
+                    print(
+                        f"facture {numero_interne} : échec du rapprochement",
+                        file=sys.stderr,
+                    )
+                else:
+                    nb_anomalies_total += resultat.nb_anomalies
+                    print(
+                        f"facture {numero_interne} : "
+                        f"{_formater_resultat_rapprochement(resultat)}"
+                    )
+    finally:
+        await engine.dispose()
+
+    print(
+        f"{len(factures)} factures traitées, {nb_echecs} échecs, "
+        f"{nb_anomalies_total} anomalies ouvertes au total"
+    )
+    return 1 if nb_echecs > 0 else 0
+
+
+async def _controles_differes() -> int:
+    """Implémentation de `controles-differes` (L4-T11) : évalue les règles
+    de suivi (R06, R14, R15, R16, L4-D14) via `ingest.suivi
+    .controles_differes` et affiche le nombre d'anomalies de suivi ouvertes
+    après synchronisation. Toujours code 0 (aucune validation ne peut
+    échouer ici, comme `fournisseur-definir`)."""
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            nb_ouvertes = await controles_differes(
+                session, maintenant=datetime.now(UTC)
+            )
+    finally:
+        await engine.dispose()
+
+    print(f"{nb_ouvertes} anomalies de suivi ouvertes")
+    return 0
+
+
 def _construire_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="app.cli")
     sous_parsers = parser.add_subparsers(dest="commande", required=True)
@@ -478,6 +609,28 @@ def _construire_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    parser_rapprocher = sous_parsers.add_parser(
+        "rapprocher",
+        help="Rejoue le rapprochement d'une facture, ou de toutes les factures reçues",
+    )
+    groupe_rapprocher = parser_rapprocher.add_mutually_exclusive_group(required=True)
+    groupe_rapprocher.add_argument(
+        "--facture", type=uuid.UUID, help="identifiant de la facture à rapprocher"
+    )
+    groupe_rapprocher.add_argument(
+        "--tout",
+        action="store_true",
+        help="toutes les factures reçues, de la plus ancienne à la plus récente",
+    )
+
+    sous_parsers.add_parser(
+        "controles-differes",
+        help=(
+            "Évalue les règles de suivi (R06, R14, R15, R16) et synchronise "
+            "leurs anomalies"
+        ),
+    )
+
     return parser
 
 
@@ -516,6 +669,12 @@ def main(argv: list[str] | None = None) -> int:
                 seuil=args.seuil,
             )
         )
+    if args.commande == "rapprocher":
+        if args.tout:
+            return asyncio.run(_rapprocher_tout())
+        return asyncio.run(_rapprocher_facture(facture_id=args.facture))
+    if args.commande == "controles-differes":
+        return asyncio.run(_controles_differes())
     raise AssertionError(f"commande inconnue : {args.commande}")  # pragma: no cover
 
 

@@ -43,6 +43,19 @@ Tests transverses (le fichier vit à la racine `app/`, pas dans un module) :
   code 0, rapport Markdown écrit ; `--appeler-ocr` construit l'OCR de
   production avec les mêmes options/délai que `ingest/router.py::get_ocr`
   (`ocr_document` monkeypatché, R17 : jamais de vrai appel Mistral).
+- `rapprocher`/`controles-differes` (L4-T11) : la logique métier
+  (rapprochement, contrôles différés) est déjà testée en profondeur côté
+  `ingest` (`test_rapprochement.py`, `test_suivi.py`) — les tests ici ne
+  vérifient que le câblage CLI (arguments, codes de sortie, sortie sans
+  donnée client) avec des données minimales sur `bl_test`
+  (mécanique `_env_bl_test`) : `--facture` sur une facture introuvable (code
+  2) ou existante (code 0, compteurs affichés) ; `--tout` sur plusieurs
+  factures `recu` (une ligne par facture, code 0) et sur un échec simulé
+  (`rapprocher_facture_sans_echec` monkeypatché pour renvoyer `None`, code
+  1) ; erreurs d'arguments (`--facture`/`--tout` absents ou combinés, UUID
+  invalide) rejetées par `argparse` lui-même (`SystemExit(2)`, sans jamais
+  toucher la base) ; `controles-differes` sur un BL non confirmé (code 0,
+  compte affiché) et rejeu sans doublon.
 """
 
 from __future__ import annotations
@@ -55,6 +68,7 @@ import subprocess
 import sys
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -72,6 +86,7 @@ from app.modules.extract.verification import SEUIL_CONFIANCE_DEFAUT
 from app.modules.ingest.mistral import ErreurOCR
 from app.modules.ingest.models import (
     AgenceFournisseur,
+    Anomalie,
     Document,
     Fournisseur,
     Journal,
@@ -993,3 +1008,263 @@ def test_rapport_ocr_attendu_invalide_isole_stdout_et_rapport(
     assert "Documents non mesurés" in contenu
     assert "photo-ko" in contenu
     assert "attendus invalides : 1" in sortie_stdout
+
+
+# ---------------------------------------------------------------------------
+# `rapprocher` (L4-T11) — câblage CLI seulement, la logique métier
+# (`ingest.rapprochement.rapprocher_facture`) est déjà testée dans
+# `app/modules/ingest/tests/test_rapprochement.py`.
+# ---------------------------------------------------------------------------
+
+_PREFIXE_FICHIER_RAPPROCHER = "/invente/test-cli-rapprocher-"
+_SYNTHESE_RAPPROCHER_TOUT_RE = re.compile(
+    r"^(\d+) factures traitées, (\d+) échecs, (\d+) anomalies ouvertes au total$"
+)
+
+
+async def _creer_facture_recue(engine: AsyncEngine) -> tuple[uuid.UUID, int]:
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        document = Document(
+            type="facture",
+            source="upload",
+            statut="recu",
+            fichier_path=f"{_PREFIXE_FICHIER_RAPPROCHER}{uuid.uuid4()}.pdf",
+        )
+        session.add(document)
+        await session.commit()
+        await session.refresh(document)
+        return document.id, document.numero_interne
+
+
+async def _nettoyer_factures_rapprochees(engine: AsyncEngine) -> None:
+    """Nettoie les factures inventées par les tests `rapprocher` ci-dessous,
+    et tout ce qu'elles ont pu produire (anomalie, journal) : une facture ne
+    peut être supprimée tant qu'une anomalie la référence encore (FK sans
+    cascade, `ingest/models.py`)."""
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        document_ids = (
+            (
+                await session.execute(
+                    select(Document.id).where(
+                        Document.fichier_path.startswith(_PREFIXE_FICHIER_RAPPROCHER)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if document_ids:
+            await session.execute(
+                delete(Anomalie).where(Anomalie.document_id.in_(document_ids))
+            )
+            await session.execute(
+                delete(Journal).where(
+                    Journal.cible_id.in_([str(i) for i in document_ids])
+                )
+            )
+            await session.execute(delete(Document).where(Document.id.in_(document_ids)))
+        await session.commit()
+
+
+@pytest.mark.db
+def test_rapprocher_facture_introuvable_code_2(
+    _env_bl_test: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = cli.main(["rapprocher", "--facture", str(uuid.uuid4())])
+    sortie = capsys.readouterr()
+
+    assert code == 2
+    assert sortie.err.strip() != ""
+    assert sortie.out == ""
+
+
+@pytest.mark.db
+def test_rapprocher_facture_existante_affiche_les_compteurs_code_0(
+    db_engine: AsyncEngine, _env_bl_test: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    facture_id, _numero_interne = asyncio.run(_creer_facture_recue(db_engine))
+    try:
+        code = cli.main(["rapprocher", "--facture", str(facture_id)])
+        sortie = capsys.readouterr().out
+
+        assert code == 0
+        assert sortie.strip() == (
+            "0 blocs, 0 reçus, 0 pas de bon, 0 lignes appariées, 0 anomalies ouvertes"
+        )
+    finally:
+        asyncio.run(_nettoyer_factures_rapprochees(db_engine))
+
+
+@pytest.mark.db
+def test_rapprocher_tout_traite_les_factures_recues_une_par_une_code_0(
+    db_engine: AsyncEngine, _env_bl_test: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _facture_1_id, numero_1 = asyncio.run(_creer_facture_recue(db_engine))
+    _facture_2_id, numero_2 = asyncio.run(_creer_facture_recue(db_engine))
+    try:
+        code = cli.main(["rapprocher", "--tout"])
+        sortie = capsys.readouterr().out
+        lignes = sortie.rstrip("\n").split("\n")
+
+        assert code == 0
+        ligne_attendue = (
+            "0 blocs, 0 reçus, 0 pas de bon, 0 lignes appariées, 0 anomalies ouvertes"
+        )
+        assert f"facture {numero_1} : {ligne_attendue}" in lignes
+        assert f"facture {numero_2} : {ligne_attendue}" in lignes
+
+        correspondance = _SYNTHESE_RAPPROCHER_TOUT_RE.match(lignes[-1])
+        assert correspondance is not None, "ligne de synthèse au format inattendu"
+        traitees, echecs, _anomalies = (int(g) for g in correspondance.groups())
+        assert traitees >= 2
+        assert echecs == 0
+    finally:
+        asyncio.run(_nettoyer_factures_rapprochees(db_engine))
+
+
+@pytest.mark.db
+def test_rapprocher_tout_compte_les_echecs_code_1(
+    db_engine: AsyncEngine,
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`rapprocher_facture_sans_echec` monkeypatchée pour échouer
+    systématiquement (jamais un vrai échec provoqué en base) : prouve que
+    `--tout` compte les échecs et continue au lieu de s'arrêter à la
+    première facture en erreur."""
+    asyncio.run(_creer_facture_recue(db_engine))
+
+    async def _toujours_en_echec(session: Any, facture_id: uuid.UUID) -> None:
+        return None
+
+    monkeypatch.setattr(cli, "rapprocher_facture_sans_echec", _toujours_en_echec)
+    try:
+        code = cli.main(["rapprocher", "--tout"])
+        sortie = capsys.readouterr()
+
+        assert code == 1
+        assert "échec du rapprochement" in sortie.err
+        correspondance = _SYNTHESE_RAPPROCHER_TOUT_RE.match(
+            sortie.out.rstrip("\n").split("\n")[-1]
+        )
+        assert correspondance is not None
+        assert int(correspondance.group(2)) >= 1
+    finally:
+        asyncio.run(_nettoyer_factures_rapprochees(db_engine))
+
+
+def test_rapprocher_sans_argument_rejete_par_argparse_systemexit_2() -> None:
+    """`--facture`/`--tout` forment un groupe mutuellement exclusif
+    `required=True` : aucun des deux fait échouer l'analyse des arguments
+    avant tout accès à la configuration ou à la base."""
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["rapprocher"])
+
+    assert exc_info.value.code == 2
+
+
+def test_rapprocher_facture_et_tout_combines_rejete_par_argparse_systemexit_2() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["rapprocher", "--facture", str(uuid.uuid4()), "--tout"])
+
+    assert exc_info.value.code == 2
+
+
+def test_rapprocher_facture_uuid_invalide_rejete_par_argparse_systemexit_2() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["rapprocher", "--facture", "pas-un-uuid"])
+
+    assert exc_info.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# `controles-differes` (L4-T11) — câblage CLI seulement, la logique métier
+# (`ingest.suivi.controles_differes`) est déjà testée dans
+# `app/modules/ingest/tests/test_suivi.py`.
+# ---------------------------------------------------------------------------
+
+_PREFIXE_FICHIER_CONTROLES_DIFFERES = "/invente/test-cli-controles-differes-"
+
+
+async def _creer_bl_sans_confirmation(engine: AsyncEngine) -> uuid.UUID:
+    """Un BL déposé il y a plus de 24h, jamais confirmé : matière de R15
+    (`delai_confirmation_bl_h`, défaut 24 — L4-D10), suffisante pour prouver
+    que la CLI appelle bien `controles_differes` et en affiche le compte."""
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        document = Document(
+            type="bl",
+            source="telegram",
+            statut="recu",
+            fichier_path=f"{_PREFIXE_FICHIER_CONTROLES_DIFFERES}{uuid.uuid4()}.jpg",
+            created_at=datetime.now(UTC) - timedelta(hours=25),
+        )
+        session.add(document)
+        await session.commit()
+        await session.refresh(document)
+        return document.id
+
+
+async def _nettoyer_bl_controles_differes(engine: AsyncEngine) -> None:
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        document_ids = (
+            (
+                await session.execute(
+                    select(Document.id).where(
+                        Document.fichier_path.startswith(
+                            _PREFIXE_FICHIER_CONTROLES_DIFFERES
+                        )
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if document_ids:
+            await session.execute(
+                delete(Anomalie).where(Anomalie.document_id.in_(document_ids))
+            )
+            await session.execute(delete(Document).where(Document.id.in_(document_ids)))
+        await session.commit()
+
+
+@pytest.mark.db
+def test_controles_differes_affiche_le_nombre_ouvertes_code_0(
+    db_engine: AsyncEngine, _env_bl_test: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    asyncio.run(_creer_bl_sans_confirmation(db_engine))
+    try:
+        code = cli.main(["controles-differes"])
+        sortie = capsys.readouterr().out
+
+        assert code == 0
+        correspondance = re.match(
+            r"^(\d+) anomalies de suivi ouvertes$", sortie.strip()
+        )
+        assert correspondance is not None, "sortie au format inattendu"
+        assert int(correspondance.group(1)) >= 1
+    finally:
+        asyncio.run(_nettoyer_bl_controles_differes(db_engine))
+
+
+@pytest.mark.db
+def test_controles_differes_rejeu_meme_compte_sans_doublon(
+    db_engine: AsyncEngine, _env_bl_test: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    asyncio.run(_creer_bl_sans_confirmation(db_engine))
+    try:
+        premier = cli.main(["controles-differes"])
+        sortie_premiere = capsys.readouterr().out
+        second = cli.main(["controles-differes"])
+        sortie_seconde = capsys.readouterr().out
+
+        assert premier == 0 and second == 0
+        assert sortie_premiere == sortie_seconde, (
+            "un rejeu identique ne doit jamais faire grossir le compte affiché"
+        )
+    finally:
+        asyncio.run(_nettoyer_bl_controles_differes(db_engine))
