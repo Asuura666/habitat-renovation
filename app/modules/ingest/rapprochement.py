@@ -16,7 +16,14 @@ d'écart) :
   (il reçoit `DocumentControle.statut`, `rules.engine._evaluer_bloc`).
 - Conversion (Ruling R10, `normalize.unites.convertir_en_unite_fact`) :
   `unite_absente_acceptee=True` pour une ligne de facture (Unikalo n'imprime
-  aucune unité), `False` (défaut) pour une ligne de BL.
+  aucune unité), `False` (défaut) pour une ligne de BL. Ruling R14 (fix
+  round 1 de cette tâche, implémenté dans `convertir_en_unite_fact`
+  elle-même — `_ligne_controlee` ci-dessous ne change pas, elle délègue déjà
+  tout à cette fonction) : quand ni l'unité lue ni l'unité de facturation de
+  l'article ne sont connues, la quantité est renvoyée inchangée quel que
+  soit ce drapeau — sans quoi `qte_fact` restait `NULL` sur toutes les
+  lignes d'un fournisseur qui n'imprime d'unité nulle part (constat réel sur
+  la facture Unikalo d'août), rendant R03/R04 muettes en permanence.
 - Historique des prix (L4-D9) : une seule requête pour toute la facture,
   agrégée en Python (médiane par article).
 - Transaction : `rapprocher_facture` fait un seul `commit()` à la fin ; en
@@ -375,8 +382,18 @@ async def _autres_blocs_meme_numero(
     numeros_normalises: set[str],
 ) -> dict[str, tuple[uuid.UUID, str | None]]:
     """R12 (L4-D5) : pour chaque numéro de BL normalisé de cette facture, la
-    plus ancienne **autre** facture du même fournisseur dont un bloc porte
-    ce numéro -> `(autre_facture_id, autre_facture_numero)`."""
+    plus ancienne **autre** facture **non archivée** du même fournisseur
+    dont un bloc porte ce numéro -> `(autre_facture_id,
+    autre_facture_numero)`.
+
+    Exclusion des factures `archive` (fix round 1, finding 1 de la revue de
+    cette tâche) : un archivage est une action corrective normale de
+    l'admin (ex. facture déposée deux fois par erreur) — sans cette
+    exclusion, toute facture légitime réutilisant le même numéro de BL
+    resterait signalée « doublon de facturation » (gravité haute) contre la
+    facture archivée, indéfiniment. Même garde que `_candidats_bl` (L4-D5)
+    et `_lignes_negatives_sans_origine` (R13) : un document archivé ne
+    compte jamais comme une donnée active pour une autre règle."""
     if fournisseur_id is None or not numeros_normalises:
         return {}
     lignes = (
@@ -387,6 +404,7 @@ async def _autres_blocs_meme_numero(
                 Document.type == "facture",
                 Document.fournisseur_id == fournisseur_id,
                 Document.id != facture_id,
+                Document.statut != "archive",
                 BlocFacture.numero_bl.is_not(None),
             )
             .order_by(Document.created_at.asc())

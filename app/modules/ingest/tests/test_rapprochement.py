@@ -661,6 +661,47 @@ async def test_rapprocher_facture_doublon_numero_bl_autre_facture_anomalie_r12(
     assert any(a.regle == "R12" and a.bloc_id == bloc_seconde.id for a in anomalies)
 
 
+async def test_rapprocher_facture_doublon_facture_archivee_aucune_anomalie_r12(
+    db_session: AsyncSession,
+) -> None:
+    """Fix round 1, finding 1 de la revue : une facture archivée (action
+    corrective normale de l'admin, ex. déposée deux fois par erreur) ne doit
+    jamais faire signaler R12 sur une facture légitime qui réutilise le même
+    numéro de BL ensuite. Une facture non archivée avec le même numéro
+    continue, elle, de déclencher R12 (non-régression)."""
+    fournisseur = await _creer_fournisseur(db_session)
+    archivee = await _creer_facture(db_session, fournisseur=fournisseur, numero="F0012")
+    await _creer_bloc(db_session, facture=archivee, numero_bl="L0012")
+    await rapprocher_facture(db_session, archivee.id)
+    archivee.statut = "archive"
+    await db_session.commit()
+
+    legitime = await _creer_facture(db_session, fournisseur=fournisseur, numero="F0013")
+    await _creer_bloc(db_session, facture=legitime, numero_bl="L0012")
+
+    await rapprocher_facture(db_session, legitime.id)
+
+    anomalies = await _anomalies_de(db_session, legitime)
+    assert not any(a.regle == "R12" for a in anomalies), (
+        "une facture archivée ne doit jamais produire de doublon R12"
+    )
+
+    # Non-régression : une troisième facture, non archivée, avec le même
+    # numéro déclenche toujours R12 (contre `legitime`, la plus ancienne des
+    # deux non archivées).
+    troisieme = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="F0014"
+    )
+    bloc_troisieme = await _creer_bloc(db_session, facture=troisieme, numero_bl="L0012")
+
+    await rapprocher_facture(db_session, troisieme.id)
+
+    anomalies_troisieme = await _anomalies_de(db_session, troisieme)
+    assert any(
+        a.regle == "R12" and a.bloc_id == bloc_troisieme.id for a in anomalies_troisieme
+    ), "une facture non archivée avec le même numéro déclenche toujours R12"
+
+
 # --------------------------------------------------------------------------
 # R13 — avoir sans origine
 # --------------------------------------------------------------------------
@@ -1102,6 +1143,55 @@ async def test_fixture_reelle_rapprochement_28_blocs_3_recus(
         if bloc.statut_rapprochement == "recu"
     )
     assert aucun_recu_sans_bl, "un bloc reçu doit toujours porter un bl_document_id"
+
+    # Fix round 1, finding 2 (controller-confirmed sur la facture réelle) :
+    # Ruling R14 (`normalize.unites.convertir_en_unite_fact`) doit permettre
+    # une comparaison même sans unité imprimée nulle part chez Unikalo —
+    # `qte_fact` ne doit donc plus être `NULL` pour les lignes qui portent
+    # une quantité, au moins sur les blocs rapprochés (booléen calculé,
+    # message fixe, aucune valeur réelle affichée).
+    blocs_recus_ids = [bloc.id for bloc in blocs if bloc.statut_rapprochement == "recu"]
+    lignes_blocs_recus = (
+        (
+            await db_session.execute(
+                select(Ligne).where(Ligne.bloc_id.in_(blocs_recus_ids))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    qte_fact_remplie = all(
+        ligne.qte_fact is not None
+        for ligne in lignes_blocs_recus
+        if ligne.qte_totale is not None
+    )
+    assert qte_fact_remplie, (
+        "Ruling R14 : qte_fact doit être renseignée pour toute ligne "
+        "portant une quantité dans un bloc rapproché"
+    )
+
+    bl_document_ids = [
+        bloc.bl_document_id
+        for bloc in blocs
+        if bloc.statut_rapprochement == "recu" and bloc.bl_document_id is not None
+    ]
+    lignes_bl_recus = (
+        (
+            await db_session.execute(
+                select(Ligne).where(Ligne.document_id.in_(bl_document_ids))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    qte_fact_bl_remplie = all(
+        ligne.qte_fact is not None
+        for ligne in lignes_bl_recus
+        if ligne.qte_totale is not None
+    )
+    assert qte_fact_bl_remplie, (
+        "Ruling R14 : qte_fact doit aussi être renseignée côté BL rapproché"
+    )
 
     detail = await facture_detail(db_session, resultat_facture.id)
     coherent = sum(1 for b in detail.blocs if b.bl_recu) == NB_BLOCS_RECUS_ATTENDU
