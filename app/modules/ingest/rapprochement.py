@@ -31,6 +31,18 @@ d'écart) :
   .unite_implicite`) depuis la même source que l'appel à
   `convertir_en_unite_fact`, la garde elle-même vit dans `rules.rules.R03
   .ecart_qte_fact` (module pur).
+- Ruling R17 (fix round 2 de cette tâche) : les règles pures ne connaissent
+  qu'un bloc ou une ligne, jamais l'identifiant du document — seules
+  R10/R11/R15 portent nativement `document_id`. Juste avant l'appel à
+  `synchroniser_anomalies`, toute anomalie produite ici dont `document_id`
+  est `None` reçoit `document_id = facture_id` (`dataclasses.replace`,
+  `Anomalie` est un dataclass gelé) : sans cela, l'écran Anomalies
+  (CDC §4.6) ne peut pas remonter à la pièce pour la plupart des règles.
+  Sans danger pour l'idempotence (la valeur est stable d'un rejeu à
+  l'autre) ni pour la portée de suppression (`_conditions_portee` couvre
+  déjà « `document_id` = la facture » **ou** « bloc de cette facture »).
+  Les anomalies de suivi (R06, R14, R15, R16), produites hors
+  `rapprocher_facture`, ne sont jamais concernées.
 - Historique des prix (L4-D9) : une seule requête pour toute la facture,
   agrégée en Python (médiane par article).
 - Transaction : `rapprocher_facture` fait un seul `commit()` à la fin ; en
@@ -51,7 +63,7 @@ import calendar
 import uuid
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
@@ -907,6 +919,20 @@ async def rapprocher_facture(
     )
     for rapprochement in nouvelles_rapprochement_ligne:
         session.add(rapprochement)
+
+    # Ruling R17 (fix round 2, L4-T7) : les règles pures (R01-R09, R12,
+    # R13, R17) ne connaissent qu'un bloc ou une ligne, jamais l'identifiant
+    # du document -- seules R10/R11/R15 portent nativement `document_id`.
+    # `rapprocher_facture` évalue une facture à la fois : toute anomalie
+    # qu'il produit lui appartient, `dataclasses.replace` la complète donc
+    # ici (`Anomalie` est un dataclass gelé) pour que l'écran Anomalies
+    # (CDC §4.6) puisse toujours remonter à la pièce.
+    anomalies = tuple(
+        anomalie
+        if anomalie.document_id is not None
+        else replace(anomalie, document_id=facture_id)
+        for anomalie in anomalies
+    )
 
     nb_anomalies = await synchroniser_anomalies(
         session,

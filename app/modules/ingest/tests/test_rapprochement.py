@@ -24,6 +24,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.ingest.anomalies import lister_anomalies
 from app.modules.ingest.corrections import valider_document
 from app.modules.ingest.extraction_bl import enregistrer_extraction_bl
 from app.modules.ingest.factures import deposer_facture
@@ -755,6 +756,113 @@ async def test_rapprocher_facture_doublon_facture_archivee_aucune_anomalie_r12(
     assert any(
         a.regle == "R12" and a.bloc_id == bloc_troisieme.id for a in anomalies_troisieme
     ), "une facture non archivée avec le même numéro déclenche toujours R12"
+
+
+# --------------------------------------------------------------------------
+# Ruling R17 (fix round 2, L4-T7) : document_id sur les anomalies de facture
+# --------------------------------------------------------------------------
+
+
+async def test_rapprocher_facture_ruling_r17_document_id_sur_toutes_les_anomalies(
+    db_session: AsyncSession,
+) -> None:
+    """La fiche L4-T7 demande que toute anomalie produite par
+    `rapprocher_facture` porte `document_id = facture_id`, même une
+    anomalie de bloc (R01) ou de ligne (R17) qui ne le porte pas nativement
+    (seules R10/R11/R15 le font) -- sans quoi l'écran Anomalies ne peut pas
+    remonter à la pièce (CDC §4.6)."""
+    fournisseur = await _creer_fournisseur(db_session)
+    article = await _creer_article(
+        db_session, fournisseur=fournisseur, ratio=Decimal("10"), valide=True
+    )
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+
+    # Bloc 1 : sans BL ni mention -> R01 (anomalie de bloc, document_id
+    # natif None).
+    await _creer_bloc(db_session, facture=facture, numero_bl="L0020A")
+
+    # Bloc 2 : BL reçu, ligne avec conditionnement non entier -> R17
+    # (anomalie de ligne, document_id natif None).
+    bloc_2 = await _creer_bloc(db_session, facture=facture, numero_bl="L0020B")
+    await _creer_ligne(
+        db_session,
+        document=facture,
+        bloc=bloc_2,
+        article=article,
+        qte_livree=Decimal("2.5"),
+        qte_totale=Decimal("25"),
+        unite_brut=None,
+        montant_ht=Decimal("100.00"),
+    )
+    bl_2 = await _creer_bl(db_session, fournisseur=fournisseur, numero="L0020B")
+    await _creer_ligne(
+        db_session,
+        document=bl_2,
+        article=article,
+        qte_totale=Decimal("25"),
+        unite_brut=None,
+        montant_ht=Decimal("100.00"),
+    )
+
+    resultat = await rapprocher_facture(db_session, facture.id)
+    assert resultat.nb_anomalies >= 2
+
+    toutes = (
+        (
+            await db_session.execute(
+                select(Anomalie).where(Anomalie.document_id == facture.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    regles = {a.regle for a in toutes}
+    ok = "R01" in regles and "R17" in regles and len(toutes) == resultat.nb_anomalies
+    assert ok, "toutes les anomalies (bloc R01, ligne R17) doivent porter document_id"
+
+
+async def test_rapprocher_facture_ruling_r17_idempotent_sur_rejeu(
+    db_session: AsyncSession,
+) -> None:
+    """Deux rapprochements successifs ne doivent ni dupliquer l'anomalie de
+    bloc (R01), ni changer son identifiant, une fois `document_id` renseigné
+    par le correctif."""
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    await _creer_bloc(db_session, facture=facture, numero_bl="L0021")
+
+    await rapprocher_facture(db_session, facture.id)
+    premieres = (await db_session.execute(select(Anomalie))).scalars().all()
+
+    await rapprocher_facture(db_session, facture.id)
+    secondes = (await db_session.execute(select(Anomalie))).scalars().all()
+
+    ok = (
+        len(premieres) == 1
+        and len(secondes) == 1
+        and premieres[0].id == secondes[0].id
+        and premieres[0].document_id == facture.id
+        and secondes[0].document_id == facture.id
+    )
+    assert ok, "un rejeu identique doit retrouver la même anomalie R01, sans doublon"
+
+
+async def test_rapprocher_facture_ruling_r17_visible_du_filtre_fournisseur(
+    db_session: AsyncSession,
+) -> None:
+    """Avant ce correctif, une anomalie de bloc (R01, `document_id` natif
+    `None`) était invisible du filtre `fournisseur_id` de `lister_anomalies`
+    (`_requete_anomalies` résout le fournisseur via `Document.fournisseur_id`,
+    joint sur `Anomalie.document_id`)."""
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur R17")
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    await _creer_bloc(db_session, facture=facture, numero_bl="L0022")
+
+    await rapprocher_facture(db_session, facture.id)
+
+    resultat = await lister_anomalies(db_session, fournisseur_id=fournisseur.id)
+    ok = len(resultat) == 1 and resultat[0].regle == "R01"
+    assert ok, "l'anomalie de bloc doit être visible du filtre fournisseur"
 
 
 # --------------------------------------------------------------------------
