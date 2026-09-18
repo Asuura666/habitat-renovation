@@ -51,18 +51,35 @@ ligne.bloc_id)` — retiré depuis que `rapprocher_facture` complète lui-même
 `document_id`, Ruling R17 du lot 4) : une seule source de vérité, portée par
 l'orchestrateur qui sait ce que le module pur ignore, jamais recopiée dans
 chaque lecture.
+
+Ruling L5-R4 (tour de correction 1) : `MontantsBilan.nb_anomalies_ouvertes`
+compte désormais **toutes** les anomalies ouvertes rattachées à un bloc du
+périmètre, quelle que soit leur règle (CDC §4.6, « nombre d'anomalies
+ouvertes », sans restriction) — voir le docstring de `MontantsBilan` pour la
+distinction avec `en_ecart`, qui garde son périmètre restreint. Le Ruling
+L5-R3 ci-dessus rend cette extension sûre : toute anomalie de facture
+rattachée à une ligne porte désormais un `bloc_id`, donc son chantier se
+résout.
+
+Tour de correction 1, deuxième point : l'agrégation et le tri sont
+désormais entièrement portés par la requête SQL (deux sous-requêtes
+imbriquées, jamais un JOIN direct entre `ligne` et `anomalie` sur le même
+bloc, qui multiplierait les lignes de chacun par l'autre et fausserait les
+sommes) plutôt que combinés et triés en Python : `ORDER BY` avec
+`chantier_id` comme dernière clé de tri, pour que deux chantiers de même
+nom et de même montant facturé ne puissent plus s'échanger d'un appel à
+l'autre.
 """
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.fuseau import FUSEAU_PARIS
@@ -87,8 +104,22 @@ _STATUTS_NON_JUSTIFIE: tuple[str, ...] = ("non_recu", "pas_de_bon")
 @dataclass(frozen=True)
 class MontantsBilan:
     """Les quatre montants d'un périmètre (L5-D3) plus le nombre
-    d'anomalies ouvertes de quantité/prix qui s'y rattachent — tous des
-    `Decimal` sauf le compte (jamais de `float`, CLAUDE.md)."""
+    d'anomalies ouvertes qui s'y rattachent — tous des `Decimal` sauf le
+    compte (jamais de `float`, CLAUDE.md).
+
+    `en_ecart` et `nb_anomalies_ouvertes` répondent à deux questions
+    différentes (Ruling L5-R4, tour de correction 1) : `en_ecart` est un
+    **montant**, restreint aux anomalies de quantité ou de prix
+    (`REGLES_QUANTITE_OU_PRIX`) parce que ce sont les seules à remettre en
+    cause une somme facturée ; `nb_anomalies_ouvertes` est un **compte**,
+    qui porte sur toutes les anomalies ouvertes rattachées à un bloc du
+    périmètre, quelle que soit leur règle (CDC §4.6 : « nombre d'anomalies
+    ouvertes », sans restriction). Un chantier dont un bloc n'a jamais reçu
+    de BL (R01, gravité haute) affiche donc `nb_anomalies_ouvertes > 0`
+    alors que `en_ecart` peut rester à `0` : ce n'est pas un écart de
+    quantité ou de prix, mais ce n'en est pas moins une anomalie ouverte à
+    traiter. Les anomalies de document entier (R10/R11), jamais rattachées
+    à un bloc précis, n'entrent dans aucun des deux champs."""
 
     facture_ht: Decimal
     rapproche: Decimal
@@ -110,19 +141,6 @@ class LigneBilanChantier:
     montants: MontantsBilan
 
 
-@dataclass
-class _Accumulateur:
-    """Accumulateur mutable interne, un par chantier (y compris
-    `chantier_id=None`) — jamais exposé, converti en `MontantsBilan` gelé en
-    fin de fonction."""
-
-    facture_ht: Decimal = Decimal("0")
-    rapproche: Decimal = Decimal("0")
-    en_ecart: Decimal = Decimal("0")
-    non_justifie: Decimal = Decimal("0")
-    nb_anomalies_ouvertes: int = 0
-
-
 def _premier_jour_mois_suivant(premier_jour: date) -> date:
     """Premier jour du mois calendaire suivant `premier_jour` (qui doit
     déjà être un 1er du mois) — calcul en stdlib pur, comme
@@ -139,7 +157,16 @@ def _condition_mois(mois: date) -> Any:
     `document.created_at` converti en Europe/Paris (comparaison d'instants,
     même mécanique que `api.anomalies._debut_jour_paris`/`_fin_jour_paris`).
     Seuls le mois et l'année de `mois` comptent (le jour est ignoré, au cas
-    où l'appelant ne transmettrait pas strictement un 1er du mois)."""
+    où l'appelant ne transmettrait pas strictement un 1er du mois).
+
+    Cas limite couvert par
+    `test_bilan_filtre_mois_facture_creee_le_1er_a_paris_avant_minuit_utc`
+    (tour de correction 1) : une facture sans `date_doc`, créée le 1er du
+    mois à 00h30 heure de Paris, est encore la veille en UTC (heure d'été,
+    UTC+2) — `debut_instant`/`fin_instant` sont construits directement avec
+    `tzinfo=FUSEAU_PARIS`, jamais convertis depuis un instant UTC naïf, pour
+    que la comparaison porte sur le bon jour civil parisien quel que soit le
+    fuseau de la session Postgres."""
     premier_jour = date(mois.year, mois.month, 1)
     jour_suivant = _premier_jour_mois_suivant(premier_jour)
     debut_instant = datetime(
@@ -169,22 +196,33 @@ async def bilan_par_chantier(
     agence: str | None,
 ) -> list[LigneBilanChantier]:
     """Bilan agrégé par chantier (L5-T1), trié par `facture_ht` décroissant
-    puis par nom de chantier (ordre stable entre deux appels, décision du
-    contrôleur) — la ligne `chantier_id=None` (blocs sans chantier résolu)
-    se départage en dernier à montant égal (`nom_canonique` absent).
+    puis par nom de chantier puis par `chantier_id` (tour de correction 1 :
+    dernière clé de tri, pour que deux chantiers de même nom et de même
+    montant ne s'échangent jamais d'un appel à l'autre) — la ligne
+    `chantier_id=None` (blocs sans chantier résolu) se départage en dernier
+    à montant égal (`nom_canonique` absent, Postgres place les `NULL` en
+    dernier pour un tri ascendant par défaut).
 
-    Deux requêtes agrégées (même principe que
-    `rapprochement._construire_historiques`/`suivi._chantiers_suivis` :
-    une requête par grandeur, combinées en Python plutôt qu'un unique gros
-    JOIN — un JOIN direct entre `ligne` et `anomalie` sur le même bloc
+    Deux sous-requêtes agrégées, combinées et triées par la requête
+    elle-même (tour de correction 1 : jamais un tri Python sur une liste
+    déjà construite) :
+
+    1. `blocs` : une ligne par bloc du périmètre (facture non archivée,
+       mois filtré si fourni) — chantier résolu, statut de rapprochement,
+       montant HT (somme des lignes "article"/"eco" du bloc, `0` si
+       aucune) ;
+    2. `anomalies` : une ligne par bloc portant au moins une anomalie
+       **ouverte**, avec deux comptes côte à côte (`FILTER`, clause SQL
+       standard sur une fonction d'agrégat) : le total (Ruling L5-R4) et le
+       sous-ensemble `REGLES_QUANTITE_OU_PRIX` (matière de `en_ecart`).
+
+    Les deux ne sont jamais jointes directement à `ligne` dans la même
+    requête : un JOIN direct entre `ligne` et `anomalie` sur le même bloc
     multiplierait les lignes de chacun par l'autre et fausserait les
-    sommes) :
-
-    1. une ligne par bloc du périmètre (facture non archivée, mois filtré
-       si fourni) : chantier résolu, statut de rapprochement, montant HT
-       (somme des lignes "article"/"eco" du bloc, `0` si aucune) ;
-    2. une ligne par bloc portant au moins une anomalie **ouverte** de
-       `REGLES_QUANTITE_OU_PRIX` : nombre de ces anomalies.
+    sommes — chacune est d'abord agrégée par bloc dans sa propre
+    sous-requête (même principe que `rapprochement._construire_historiques`
+    / `suivi._chantiers_suivis`), puis les deux sont jointes 1-à-1 par
+    `bloc_id` avant l'agrégation finale par chantier.
 
     Un bloc de facture archivée n'entre dans aucun montant (`Document.statut
     != "archive"`, même formulation que le lot 4)."""
@@ -195,113 +233,120 @@ async def bilan_par_chantier(
     if mois is not None:
         conditions.append(_condition_mois(mois))
 
-    chantier_du_bloc = func.coalesce(BlocFacture.chantier_id, Document.chantier_id)
-
-    lignes_par_bloc = (
-        await session.execute(
-            select(
-                BlocFacture.id,
-                chantier_du_bloc,
-                BlocFacture.statut_rapprochement,
-                func.coalesce(func.sum(Ligne.montant_ht), Decimal("0")),
-            )
-            .select_from(BlocFacture)
-            .join(Document, Document.id == BlocFacture.facture_id)
-            .outerjoin(
-                Ligne,
-                and_(
-                    Ligne.bloc_id == BlocFacture.id,
-                    Ligne.type_ligne.in_(_TYPES_LIGNE_FACTUREE),
-                ),
-            )
-            .where(*conditions)
-            .group_by(
-                BlocFacture.id,
-                BlocFacture.chantier_id,
-                Document.chantier_id,
-                BlocFacture.statut_rapprochement,
-            )
+    blocs = (
+        select(
+            BlocFacture.id.label("bloc_id"),
+            func.coalesce(BlocFacture.chantier_id, Document.chantier_id).label(
+                "chantier_id"
+            ),
+            BlocFacture.statut_rapprochement.label("statut_rapprochement"),
+            func.coalesce(func.sum(Ligne.montant_ht), Decimal("0")).label("montant_ht"),
         )
-    ).all()
-
-    if not lignes_par_bloc:
-        return []
-
-    bloc_ids = [bloc_id for bloc_id, *_ in lignes_par_bloc]
-
-    # Bloc d'une anomalie de quantité/prix : `Anomalie.bloc_id` directement,
-    # toujours renseigné depuis le Ruling L5-R3 (`ingest/rapprochement.py`,
-    # tour de correction 1) -- plus besoin de retomber sur la ligne ici.
-    lignes_anomalies = (
-        await session.execute(
-            select(Anomalie.bloc_id, func.count())
-            .where(
-                Anomalie.statut == "ouverte",
-                Anomalie.regle.in_(tuple(REGLES_QUANTITE_OU_PRIX)),
-                Anomalie.bloc_id.in_(bloc_ids),
-            )
-            .group_by(Anomalie.bloc_id)
+        .select_from(BlocFacture)
+        .join(Document, Document.id == BlocFacture.facture_id)
+        .outerjoin(
+            Ligne,
+            and_(
+                Ligne.bloc_id == BlocFacture.id,
+                Ligne.type_ligne.in_(_TYPES_LIGNE_FACTUREE),
+            ),
         )
-    ).all()
-    nb_anomalies_par_bloc: dict[uuid.UUID, int] = {
-        bloc_id: nb for bloc_id, nb in lignes_anomalies if bloc_id is not None
-    }
-
-    accumulateurs: dict[uuid.UUID | None, _Accumulateur] = {}
-    for bloc_id, chantier_id, statut, montant in lignes_par_bloc:
-        accumulateur = accumulateurs.setdefault(chantier_id, _Accumulateur())
-        accumulateur.facture_ht += montant
-        if statut == "recu":
-            accumulateur.rapproche += montant
-        if statut in _STATUTS_NON_JUSTIFIE:
-            accumulateur.non_justifie += montant
-        nb_anomalies = nb_anomalies_par_bloc.get(bloc_id, 0)
-        accumulateur.nb_anomalies_ouvertes += nb_anomalies
-        if nb_anomalies > 0:
-            accumulateur.en_ecart += montant
-
-    chantier_ids = [
-        chantier_id for chantier_id in accumulateurs if chantier_id is not None
-    ]
-    chantiers_map: dict[uuid.UUID, Chantier] = {}
-    if chantier_ids:
-        chantiers_db: Sequence[Chantier] = (
-            (
-                await session.execute(
-                    select(Chantier).where(Chantier.id.in_(chantier_ids))
-                )
-            )
-            .scalars()
-            .all()
+        .where(*conditions)
+        .group_by(
+            BlocFacture.id,
+            BlocFacture.chantier_id,
+            Document.chantier_id,
+            BlocFacture.statut_rapprochement,
         )
-        chantiers_map = {chantier.id: chantier for chantier in chantiers_db}
+        .subquery()
+    )
 
-    resultat: list[LigneBilanChantier] = []
-    for chantier_id, accumulateur in accumulateurs.items():
-        chantier = chantiers_map.get(chantier_id) if chantier_id is not None else None
-        chantier_agence = chantier.agence if chantier is not None else None
-        if agence is not None and chantier_agence != agence:
-            continue
-        resultat.append(
-            LigneBilanChantier(
-                chantier_id=chantier_id,
-                nom_canonique=chantier.nom_canonique if chantier is not None else None,
-                agence=chantier_agence,
-                montants=MontantsBilan(
-                    facture_ht=accumulateur.facture_ht,
-                    rapproche=accumulateur.rapproche,
-                    en_ecart=accumulateur.en_ecart,
-                    non_justifie=accumulateur.non_justifie,
-                    nb_anomalies_ouvertes=accumulateur.nb_anomalies_ouvertes,
-                ),
-            )
+    # `Anomalie.bloc_id` est toujours renseigné depuis le Ruling L5-R3 pour
+    # toute anomalie de facture rattachée à une ligne -- R10/R11 (contrôles
+    # de document entier, jamais rattachés à un bloc) restent donc hors de
+    # ce compte : une anomalie sur la totalité de la facture n'appartient à
+    # aucun chantier précis.
+    anomalies = (
+        select(
+            Anomalie.bloc_id.label("bloc_id"),
+            func.count().label("nb_total"),
+            func.count()
+            .filter(Anomalie.regle.in_(tuple(REGLES_QUANTITE_OU_PRIX)))
+            .label("nb_qte_prix"),
         )
+        .where(Anomalie.statut == "ouverte", Anomalie.bloc_id.is_not(None))
+        .group_by(Anomalie.bloc_id)
+        .subquery()
+    )
 
-    resultat.sort(
-        key=lambda ligne: (
-            -ligne.montants.facture_ht,
-            ligne.nom_canonique is None,
-            ligne.nom_canonique or "",
+    facture_ht = func.sum(blocs.c.montant_ht)
+    rapproche = func.sum(
+        case((blocs.c.statut_rapprochement == "recu", blocs.c.montant_ht), else_=0)
+    )
+    en_ecart = func.sum(
+        case(
+            (func.coalesce(anomalies.c.nb_qte_prix, 0) > 0, blocs.c.montant_ht),
+            else_=0,
         )
     )
-    return resultat
+    non_justifie = func.sum(
+        case(
+            (
+                blocs.c.statut_rapprochement.in_(_STATUTS_NON_JUSTIFIE),
+                blocs.c.montant_ht,
+            ),
+            else_=0,
+        )
+    )
+    nb_anomalies_ouvertes = func.coalesce(
+        func.sum(func.coalesce(anomalies.c.nb_total, 0)), 0
+    )
+
+    requete = (
+        select(
+            Chantier.id,
+            Chantier.nom_canonique,
+            Chantier.agence,
+            facture_ht.label("facture_ht"),
+            rapproche.label("rapproche"),
+            en_ecart.label("en_ecart"),
+            non_justifie.label("non_justifie"),
+            nb_anomalies_ouvertes.label("nb_anomalies_ouvertes"),
+        )
+        .select_from(blocs)
+        .outerjoin(anomalies, anomalies.c.bloc_id == blocs.c.bloc_id)
+        .outerjoin(Chantier, Chantier.id == blocs.c.chantier_id)
+        .group_by(Chantier.id, Chantier.nom_canonique, Chantier.agence)
+    )
+    if agence is not None:
+        requete = requete.where(Chantier.agence == agence)
+
+    requete = requete.order_by(
+        facture_ht.desc(), Chantier.nom_canonique.asc(), Chantier.id.asc()
+    )
+
+    lignes = (await session.execute(requete)).all()
+    return [
+        LigneBilanChantier(
+            chantier_id=chantier_id,
+            nom_canonique=nom_canonique,
+            agence=chantier_agence,
+            montants=MontantsBilan(
+                facture_ht=montant_facture_ht,
+                rapproche=montant_rapproche,
+                en_ecart=montant_en_ecart,
+                non_justifie=montant_non_justifie,
+                nb_anomalies_ouvertes=nb_anomalies,
+            ),
+        )
+        for (
+            chantier_id,
+            nom_canonique,
+            chantier_agence,
+            montant_facture_ht,
+            montant_rapproche,
+            montant_en_ecart,
+            montant_non_justifie,
+            nb_anomalies,
+        ) in lignes
+    ]

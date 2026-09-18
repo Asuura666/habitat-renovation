@@ -10,10 +10,13 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import Any
 
 import pytest
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.fuseau import FUSEAU_PARIS
 from app.modules.ingest.bilan import LigneBilanChantier, bilan_par_chantier
 from app.modules.ingest.models import (
     Anomalie,
@@ -62,6 +65,7 @@ async def _creer_facture(
     numero: str = "F0001",
     statut: str = "recu",
     date_doc: date | None = date(2026, 8, 15),
+    created_at: datetime | None = None,
 ) -> Document:
     document = Document(
         type="facture",
@@ -71,6 +75,7 @@ async def _creer_facture(
         numero=numero,
         fournisseur_id=fournisseur.id,
         date_doc=date_doc,
+        **({"created_at": created_at} if created_at is not None else {}),
     )
     db_session.add(document)
     await db_session.commit()
@@ -456,3 +461,128 @@ async def test_bilan_filtre_agence_ne_retient_que_les_chantiers_de_cette_agence(
         and lignes[0].agence == "Nord"
     )
     assert ok, "le filtre agence ne doit retenir que les chantiers de cette agence"
+
+
+# --------------------------------------------------------------------------
+# Ruling L5-R4 (tour de correction 1, L5-T1) : nb_anomalies_ouvertes compte
+# toutes les anomalies ouvertes, pas seulement quantité/prix
+# --------------------------------------------------------------------------
+
+
+async def test_bilan_anomalie_r01_seule_compte_mais_ne_met_rien_en_ecart(
+    db_session: AsyncSession,
+) -> None:
+    """Un chantier dont le bloc n'a jamais reçu de BL porte une anomalie R01
+    (gravité haute) ouverte : `nb_anomalies_ouvertes` doit la compter même
+    si R01 n'est pas une règle de quantité/prix -- `en_ecart` reste à zéro,
+    ce n'est pas le même signal (Ruling L5-R4, docstring de
+    `MontantsBilan`)."""
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = await _creer_chantier(db_session, nom="Chantier R01")
+    facture = await _creer_facture(db_session, fournisseur=fournisseur, numero="F1")
+    bloc = await _creer_bloc(
+        db_session,
+        facture=facture,
+        chantier_id=chantier.id,
+        statut_rapprochement="non_recu",
+    )
+    await _creer_ligne(
+        db_session, document=facture, bloc=bloc, montant_ht=Decimal("30.00")
+    )
+    await _creer_anomalie(db_session, regle="R01", statut="ouverte", bloc_id=bloc.id)
+
+    lignes = await bilan_par_chantier(db_session, mois=None, agence=None)
+
+    ligne_bilan = _ligne_du_chantier(lignes, chantier.id)
+    ok = (
+        ligne_bilan is not None
+        and ligne_bilan.montants.nb_anomalies_ouvertes == 1
+        and ligne_bilan.montants.en_ecart == Decimal("0")
+    )
+    assert ok, (
+        "une anomalie R01 seule doit compter dans nb_anomalies_ouvertes, "
+        "jamais dans en_ecart"
+    )
+
+
+# --------------------------------------------------------------------------
+# Cas limite du filtre mois : repli sur created_at, heure de Paris
+# --------------------------------------------------------------------------
+
+
+async def test_bilan_filtre_mois_facture_creee_le_1er_a_paris_avant_minuit_utc(
+    db_session: AsyncSession,
+) -> None:
+    """Cas limite du repli `created_at` (L5-D4) : une facture sans
+    `date_doc`, créée le 1er du mois à 00h30 heure de Paris -- donc encore
+    la veille en UTC (heure d'été, UTC+2) -- doit tomber dans le mois
+    parisien demandé, pas dans le mois calendaire UTC."""
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = await _creer_chantier(db_session, nom="Chantier Minuit Paris")
+    facture = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F1",
+        date_doc=None,
+        created_at=datetime(2026, 8, 1, 0, 30, tzinfo=FUSEAU_PARIS),
+    )
+    bloc = await _creer_bloc(db_session, facture=facture, chantier_id=chantier.id)
+    await _creer_ligne(
+        db_session, document=facture, bloc=bloc, montant_ht=Decimal("15.00")
+    )
+
+    lignes = await bilan_par_chantier(db_session, mois=date(2026, 8, 1), agence=None)
+
+    ligne_bilan = _ligne_du_chantier(lignes, chantier.id)
+    ok = ligne_bilan is not None and ligne_bilan.montants.facture_ht == Decimal("15.00")
+    assert ok, (
+        "une facture créée le 1er du mois à 00h30 heure de Paris doit "
+        "tomber dans ce mois parisien, même si c'est encore la veille en UTC"
+    )
+
+
+# --------------------------------------------------------------------------
+# Tri : chantier_id comme départage ultime
+# --------------------------------------------------------------------------
+
+
+async def test_bilan_tri_ordonne_par_chantier_id_dans_la_requete_sql(
+    db_session: AsyncSession,
+) -> None:
+    """Le tri est porté par la requête elle-même, pas par un tri Python sur
+    une liste déjà construite (tour de correction 1) : `chantier_id` doit
+    apparaître comme dernière clé de l'`ORDER BY` généré, pour que deux
+    chantiers de même nom et de même montant facturé ne s'échangent jamais
+    d'un appel à l'autre.
+
+    Vérifié sur le texte SQL compilé, pas sur l'ordre observé : avec deux
+    lignes seulement, Postgres peut renvoyer un ordre déjà croissant même
+    sans départage explicite (vérifié empiriquement en retirant la clé
+    pendant la préparation de ce correctif -- l'ordre observé ne changeait
+    pas), ce qui rendrait un test purement comportemental peu fiable ici."""
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = await _creer_chantier(db_session, nom="Chantier SQL")
+    facture = await _creer_facture(db_session, fournisseur=fournisseur, numero="F1")
+    bloc = await _creer_bloc(db_session, facture=facture, chantier_id=chantier.id)
+    await _creer_ligne(db_session, document=facture, bloc=bloc)
+
+    instructions: list[str] = []
+
+    def _capturer(
+        conn: Any, cursor: Any, statement: str, *args: Any, **kwargs: Any
+    ) -> None:
+        instructions.append(statement)
+
+    moteur_sync = db_session.get_bind()
+    event.listen(moteur_sync, "before_cursor_execute", _capturer)
+    try:
+        await bilan_par_chantier(db_session, mois=None, agence=None)
+    finally:
+        event.remove(moteur_sync, "before_cursor_execute", _capturer)
+
+    requetes_avec_tri = [sql for sql in instructions if "ORDER BY" in sql]
+    ok = (
+        len(requetes_avec_tri) == 1
+        and "chantier.id" in requetes_avec_tri[0].split("ORDER BY", 1)[1]
+    )
+    assert ok, "chantier_id doit être une clé de l'ORDER BY généré par la requête"
