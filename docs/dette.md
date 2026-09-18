@@ -429,3 +429,29 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   avant la première mise en service, par un rejeu complet du rapprochement
   sur toutes les factures reçues (commande `rapprocher --tout`) si des
   anomalies s'étaient entre-temps accumulées en base de production.
+
+## Revue finale du lot 4 — une facture « à vérifier » ne se corrige pas depuis l'application
+
+- **Constat.** Le rapprochement se déclenche au dépôt d'une facture
+  (décision L4-D3). Si ce rapprochement place la facture en « à vérifier »
+  — typiquement parce que sa somme est incohérente (règle R10) — personne ne
+  peut la corriger ni la valider depuis l'application : les routes de
+  correction, de validation, d'archivage et de relance d'extraction ne
+  reconnaissent que les bons de livraison et les enlèvements (décision
+  L3-T8a, dette L3-D17 déjà notée). La facture reste donc en l'état jusqu'à
+  ce qu'un rejeu en ligne de commande (`rapprocher --facture <id>` ou
+  `rapprocher --tout`) soit lancé après correction en base.
+- **Ce qui a été écarté.** La revue finale du lot 4 a d'abord lu cette
+  situation comme un défaut du rapprochement : « une facture validée n'est
+  jamais rapprochée ». Vérification faite, le scénario n'existe pas — une
+  facture ne peut pas atteindre la validation, et même en levant ce verrou
+  elle serait refusée par le recalcul des motifs, qui exige des champs
+  propres au bon de livraison. Aucun branchement n'a donc été ajouté :
+  brancher un rapprochement sur un chemin inatteignable aurait produit du
+  code mort, impossible à couvrir par un test honnête.
+- **À traiter.** La correction d'une facture depuis l'application est un
+  sujet à part entière (quels champs sont corrigeables, quelles règles se
+  rejouent, quelle trace au journal). Elle se construira avec les écrans de
+  restitution, pas en marge du rapprochement. L'archivage, lui, est déjà
+  ouvert aux factures depuis cette même revue finale : il purge leurs
+  anomalies.
