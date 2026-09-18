@@ -156,6 +156,28 @@ def test_R03_ligne_commentaire_ne_produit_rien() -> None:
     assert R03(_bloc(), rapprochee, {}) is None
 
 
+def test_R03_ligne_bl_eco_alors_que_facture_est_un_article_ne_produit_rien() -> None:
+    """Ruling R20 (revue finale du lot 4, Minor) : le garde doit être
+    symétrique. Avant le correctif, seul `facture.type_ligne` était vérifié
+    -- une ligne de facture "article" appariée (même code) à une ligne de
+    BL "eco" produisait un écart chiffré entre deux grandeurs qui n'ont
+    rien à voir."""
+    ligne_bl = _ligne(qte_fact=Decimal("18"), type_ligne="eco")
+    ligne_facture = _ligne(qte_fact=Decimal("20"), type_ligne="article")
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+
+    assert R03(_bloc(), rapprochee, {}) is None
+
+
+def test_R03_ligne_bl_commentaire_alors_que_facture_est_article() -> None:
+    """Même garde, avec une ligne de BL "commentaire" plutôt que "eco"."""
+    ligne_bl = _ligne(qte_fact=Decimal("18"), type_ligne="commentaire")
+    ligne_facture = _ligne(qte_fact=Decimal("20"), type_ligne="article")
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+
+    assert R03(_bloc(), rapprochee, {}) is None
+
+
 def test_R03_paire_unite_implicite_des_deux_cotes_produit_anomalie() -> None:
     """Ruling R16 (fix round 2, L4-T7) : deux lignes en cas 2 (unité connue
     nulle part) des deux côtés restent comparables entre elles --

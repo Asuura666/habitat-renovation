@@ -12,8 +12,12 @@ garde, écart de signe opposé) — décision du contrôleur, même convention q
 
 Une ligne dont la conversion est impossible d'un côté ou de l'autre
 (`conversion_impossible`, L4-D7) ne produit ni R03 ni R04 (CDC §10 : « 0
-anomalie R03/R04 due à une unité ») ; une ligne `eco`/`commentaire` n'en
-produit jamais non plus (décision du contrôleur).
+anomalie R03/R04 due à une unité ») ; une ligne `eco`/`commentaire`, côté
+facture ou côté BL, n'en produit jamais non plus (décision du contrôleur,
+garde rendue symétrique par le Ruling R20, revue finale du lot 4 : le garde
+d'origine ne vérifiait que le type de la ligne de facture, laissant passer
+une ligne de facture "article" appariée par erreur, même code, à une ligne
+de BL "eco"/"commentaire").
 
 Ruling R16 (fix round 2 de L4-T7) : une quantité rendue inchangée faute
 d'unité connue des deux côtés (`LigneControlee.unite_implicite`, cas 2 de
@@ -42,14 +46,17 @@ TIRET = "—"  # tiret cadratin — valeur manquante dans un detail (décision d
 
 
 def ecart_qte_fact(facture: LigneControlee, bl: LigneControlee) -> Decimal | None:
-    """Écart `qte_facture - qte_bl` en unité de facturation. `None` si la
-    ligne facturée n'est pas de type "article", si la conversion est
-    impossible d'un côté ou de l'autre, si l'une des deux quantités
-    converties est absente (L4-D7), ou si `unite_implicite` diffère entre
-    les deux lignes (Ruling R16 : une quantité rendue inchangée faute
-    d'unité connue des deux côtés n'est comparable qu'à une autre quantité
-    rendue de la même façon)."""
-    if facture.type_ligne != "article":
+    """Écart `qte_facture - qte_bl` en unité de facturation. `None` si l'une
+    des deux lignes (facture ou BL) n'est pas de type "article" (Ruling
+    R20, revue finale du lot 4 : garde symétrique -- une ligne de facture
+    "article" appariée par erreur, même code, à une ligne de BL "eco" ou
+    "commentaire" ne doit jamais produire d'écart chiffré entre deux
+    grandeurs qui n'ont rien à voir), si la conversion est impossible d'un
+    côté ou de l'autre, si l'une des deux quantités converties est absente
+    (L4-D7), ou si `unite_implicite` diffère entre les deux lignes (Ruling
+    R16 : une quantité rendue inchangée faute d'unité connue des deux côtés
+    n'est comparable qu'à une autre quantité rendue de la même façon)."""
+    if facture.type_ligne != "article" or bl.type_ligne != "article":
         return None
     if facture.conversion_impossible or bl.conversion_impossible:
         return None

@@ -148,6 +148,18 @@ def test_R04_ligne_eco_ne_produit_rien() -> None:
     assert R04(_bloc(), rapprochee, {}) is None
 
 
+def test_R04_ligne_bl_eco_alors_que_facture_est_un_article_ne_produit_rien() -> None:
+    """Ruling R20 (revue finale du lot 4, Minor), symétrique de la même
+    vérification côté R03 : le garde partagé (`ecart_qte_fact`) doit
+    refuser la comparaison dès que l'une des deux lignes n'est pas de type
+    "article", pas seulement la ligne de facture."""
+    ligne_bl = _ligne(qte_fact=Decimal("20"), type_ligne="eco")
+    ligne_facture = _ligne(qte_fact=Decimal("18"), type_ligne="article")
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+
+    assert R04(_bloc(), rapprochee, {}) is None
+
+
 def test_R04_paire_unite_implicite_des_deux_cotes_produit_anomalie() -> None:
     """Ruling R16 (fix round 2, L4-T7) : non-régression, symétrique de la
     même vérification côté R03."""
