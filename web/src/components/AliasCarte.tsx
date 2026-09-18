@@ -6,6 +6,7 @@ import { ErreurApi } from "../api/client";
 import {
   type Chantier,
   CLE_CHANTIERS,
+  CLE_CHANTIERS_SILENCIEUX,
   ChantierEnDoubleErreur,
   creerChantier,
   validerAlias,
@@ -89,7 +90,16 @@ export function AliasCarte({
       void queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS });
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: CLE_A_TRAITER });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: CLE_A_TRAITER }),
+        // Ruling L5-R11 (tour de correction 2 de L5-T8) : valider un alias
+        // écrit `document.chantier_id`, précisément le champ sur lequel
+        // repose le calcul du silence — sans cette invalidation, un
+        // chantier qui vient de recevoir un rattachement restait dans
+        // l'encadré ambre des chantiers silencieux jusqu'à un rechargement
+        // manuel ou l'expiration du `staleTime` global (5 min, `main.tsx`).
+        queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS_SILENCIEUX }),
+      ]);
       setModeCreation(false);
       setChantierChoisi("");
       setNom("");

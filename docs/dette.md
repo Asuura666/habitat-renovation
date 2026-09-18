@@ -481,3 +481,15 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   chantier depuis l'application (`POST /api/chantiers` ne crée qu'avec
   `actif=true`) ; à traiter quand la gestion du cycle de vie d'un chantier
   (fermeture, réouverture) sera abordée.
+
+## L5-T8 fix2 — web (deux points d'ergonomie, non corrigés)
+
+- **Cibles tactiles sous 44 px.** Motif hérité de tous les écrans du
+  projet (boutons, liens et cases de formulaire souvent plus petits que la
+  cible tactile minimale recommandée), pas une régression de cette tâche ;
+  à reprendre globalement, pas écran par écran.
+- **Bandeau d'erreur global.** Les erreurs réseau/API sont aujourd'hui
+  gérées section par section (chaque requête affiche ou non son propre
+  message) plutôt que par un bandeau d'erreur global cohérent ; corriger
+  proprement demande de repenser la gestion d'erreur par section, hors
+  périmètre de cette tâche.

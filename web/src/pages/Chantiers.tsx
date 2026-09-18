@@ -10,7 +10,9 @@ import {
   CLE_FOURNISSEURS,
   type Chantier,
   ChantierEnDoubleErreur,
+  type ChantierSilencieux,
   creerChantier,
+  type DepotAgent,
   type Fournisseur,
   listerChantiers,
   listerFournisseurs,
@@ -62,7 +64,13 @@ function FormulaireCreationChantier({ chantiers }: { chantiers: Chantier[] }): R
   const creation = useMutation({
     mutationFn: () => creerChantier(nom, agence.trim() === "" ? null : agence.trim()),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS }),
+        // Ruling L5-R11 (tour de correction 2 de L5-T8) : un chantier neuf
+        // n'a par définition aucun dépôt — il est silencieux au sens du
+        // calcul dès sa création, l'encadré doit le montrer aussitôt.
+        queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS_SILENCIEUX }),
+      ]);
       setNom("");
       setAgence("");
     },
@@ -242,11 +250,7 @@ function SectionFournisseurs({ fournisseurs }: { fournisseurs: Fournisseur[] }):
  * contient les agents et tout compte ayant déposé, y compris un
  * administrateur (Ruling L5-R7) — sans elle, un lecteur croirait à un agent
  * de plus. */
-function SectionDepotsParAgent({
-  depots,
-}: {
-  depots: { agent_id: string; nom: string | null; email: string; role: string; nombre_depots: number }[];
-}): ReactElement {
+function SectionDepotsParAgent({ depots }: { depots: DepotAgent[] }): ReactElement {
   return (
     <div>
       <h3 className="mb-3 text-sm font-semibold text-slate-900">
@@ -292,7 +296,7 @@ function SectionDepotsParAgent({
 function SectionChantiersSilencieux({
   chantiers,
 }: {
-  chantiers: { chantier_id: string; nom_canonique: string; agence: string | null; dernier_depot_le: string | null }[];
+  chantiers: ChantierSilencieux[];
 }): ReactElement {
   if (chantiers.length === 0) {
     return (
