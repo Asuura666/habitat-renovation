@@ -4,9 +4,13 @@ import type { components } from "./schema";
 export type Chantier = components["schemas"]["ChantierReponse"];
 export type Fournisseur = components["schemas"]["FournisseurReponse"];
 export type ValidationAliasReponse = components["schemas"]["ValidationAliasReponse"];
+export type DepotAgent = components["schemas"]["DepotAgentReponse"];
+export type ChantierSilencieux = components["schemas"]["ChantierSilencieuxReponse"];
 
 export const CLE_CHANTIERS = ["chantiers"] as const;
 export const CLE_FOURNISSEURS = ["fournisseurs"] as const;
+export const CLE_DEPOTS_PAR_AGENT = ["referentiels", "depots-par-agent"] as const;
+export const CLE_CHANTIERS_SILENCIEUX = ["referentiels", "chantiers-silencieux"] as const;
 
 export function listerChantiers(): Promise<Chantier[]> {
   return appelerApi<Chantier[]>("/api/chantiers");
@@ -105,4 +109,29 @@ export function validerArticle(
       ratio: params.ratio,
     }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Vue des référentiels (L5-T7, consommée par l'écran « Chantiers &
+// fournisseurs », L5-T8) : qui a déposé quoi, quels chantiers ne remontent
+// plus rien — voir `ingest/referentiels_vue.py` pour toute la logique.
+// ---------------------------------------------------------------------------
+
+/** `GET /api/referentiels/depots-par-agent` (admin) : nombre de documents
+ * déposés sur les 30 derniers jours calendaires (Europe/Paris), pour tout
+ * agent (y compris à 0) et tout compte ayant effectivement déposé sur la
+ * fenêtre (Ruling L5-R7 : le rôle compose la liste de référence, jamais un
+ * filtre sur les dépôts). Aucun paramètre `jours` transmis ici (décision du
+ * contrôleur L5-T8 : cet écran affiche la fenêtre par défaut de l'API, pas
+ * de filtre — la fiche ne demande que « sur 30 jours »). */
+export function obtenirDepotsParAgent(): Promise<DepotAgent[]> {
+  return appelerApi<DepotAgent[]>("/api/referentiels/depots-par-agent");
+}
+
+/** `GET /api/referentiels/chantiers-silencieux` (admin) : chantiers actifs
+ * et non fermés dont le dernier dépôt (`document.chantier_id`) dépasse le
+ * seuil de silence — lu par le service depuis la table `parametre`, jamais
+ * reçu en paramètre de requête (voir `ingest/referentiels_vue.py`). */
+export function obtenirChantiersSansDepot(): Promise<ChantierSilencieux[]> {
+  return appelerApi<ChantierSilencieux[]>("/api/referentiels/chantiers-silencieux");
 }

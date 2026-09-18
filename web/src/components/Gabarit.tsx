@@ -19,8 +19,10 @@ function classesOnglet({ isActive }: { isActive: boolean }): string {
 
 /** Gabarit de l'application : en-tête (nom, rôle, déconnexion), onglets de
  * navigation (décision du contrôleur : « À traiter », « Anomalies » (L4-D17,
- * juste après « À traiter ») et « Factures » réservés à l'admin, L3-D18 ;
- * « BL déposés » ouvert aux deux rôles) et
+ * juste après « À traiter »), « Factures » et « Chantiers » (L5-T8, écran
+ * « Chantiers & fournisseurs » du CDC §4.6) réservés à l'admin, L3-D18 ;
+ * « Bilan » et « Chantiers » réservés à l'admin ; « BL déposés » ouvert aux
+ * deux rôles) et
  * contenu de la route active (`<Outlet />`). N'est monté qu'à l'intérieur de
  * `RouteProtegee`, donc `["moi"]` est déjà en cache (même clé de requête) :
  * pas d'appel réseau supplémentaire tant que les données ne sont pas jugées
@@ -62,8 +64,19 @@ export function Gabarit(): ReactElement {
       </header>
 
       {moi && (
-        <nav aria-label="Navigation principale" className="overflow-x-auto border-b border-slate-200 bg-white px-4 sm:px-6">
-          <ul className="flex w-max gap-6">
+        <nav
+          aria-label="Navigation principale"
+          className="overflow-x-auto border-b border-slate-200 bg-white px-4 sm:px-6"
+        >
+          {/* `whitespace-nowrap` (L5-T8, cinquième onglet « Chantiers ») :
+              cinq onglets admin ne tiennent plus sur 375 px (mesuré : 453 px
+              de large contre 375 px de viewport, avant ce correctif) — sans
+              lui, `overflow-x-auto` seul ne suffit pas à empêcher un
+              retour à la ligne qui casserait la mise en page. Défilement
+              horizontal du bandeau plutôt que débordement de toute la page
+              (même principe que les tableaux « ordinateur », jamais une
+              réduction du nombre d'onglets ou de leur libellé). */}
+          <ul className="flex w-max gap-6 whitespace-nowrap">
             {moi.role === "admin" && (
               <>
                 <li>
@@ -84,6 +97,11 @@ export function Gabarit(): ReactElement {
                 <li>
                   <NavLink to="/bilan" className={classesOnglet}>
                     Bilan
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink to="/chantiers" className={classesOnglet}>
+                    Chantiers
                   </NavLink>
                 </li>
               </>

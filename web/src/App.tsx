@@ -13,6 +13,7 @@ import {
   BilanFournisseursGlobal,
 } from "./pages/BilanFournisseur";
 import { BlDeposes } from "./pages/BlDeposes";
+import { Chantiers } from "./pages/Chantiers";
 import { Connexion } from "./pages/Connexion";
 import { DocumentDetail } from "./pages/DocumentDetail";
 import { FactureDetail } from "./pages/FactureDetail";
@@ -91,6 +92,14 @@ export function App(): ReactElement {
           <Route
             path="bilan/:chantierId/:fournisseurId"
             element={<GardeAdmin><BilanBl /></GardeAdmin>}
+          />
+          <Route
+            path="chantiers"
+            element={
+              <GardeAdmin>
+                <Chantiers />
+              </GardeAdmin>
+            }
           />
           <Route path="bl" element={<BlDeposes />} />
           {/* Admin (tous) et agent (ses dépôts, lecture seule) — L3-D19 :
