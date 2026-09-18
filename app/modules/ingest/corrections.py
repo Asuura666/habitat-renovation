@@ -32,6 +32,16 @@ Décisions du contrôleur (L3-T8a) :
   tâche) et `ingest.lecture.fichier_document` (résolution sûre du chemin de
   fichier, pour `relancer_extraction`) — aucune règle de droits ni de
   chemin n'est réécrite ici.
+
+Fix (revue finale du lot 4, `.superpowers/sdd/plan-lot-4/revue-finale-
+orchestration.md`) :
+- Ruling R23 (constat 1, Critical) : `valider_document` rafraîchit
+  `document` une seconde fois juste avant `_charger_detail`, après l'appel
+  à `rapprocher_factures_du_bl` — même piège et même correctif que
+  `relancer_extraction` (voir son docstring, « Fix round 1 ») : un
+  `rollback()` interne à `rapprocher_facture_sans_echec` expire tous les
+  objets de la session, dont `document`, et un accès synchrone à l'un de
+  ses attributs sans ce rafraîchissement lève `MissingGreenlet`.
 """
 
 from __future__ import annotations
@@ -956,6 +966,19 @@ async def valider_document(
     # arrivée après la facture) — rejeu encapsulé, ne fait jamais échouer la
     # validation elle-même (déjà commitée).
     await rapprocher_factures_du_bl(session, document_id)
+
+    # Fix (revue finale du lot 4, Ruling R23) : même piège et même correctif
+    # que `relancer_extraction` ci-dessous (voir son docstring, « Fix round
+    # 1 »). `rapprocher_factures_du_bl` encapsule chaque rapprochement
+    # (`rapprocher_facture_sans_echec`), qui peut faire un `rollback()`
+    # interne avant d'avaler son exception — ce `rollback()` expire tous les
+    # objets de la session, dont `document` déjà rafraîchi ci-dessus. Sans ce
+    # second `session.refresh(document)`, l'accès synchrone suivant à un
+    # attribut de `document` (dans `_charger_detail`) lève
+    # `sqlalchemy.exc.MissingGreenlet` : la validation reste bien commitée,
+    # mais la requête HTTP finit en 500 au lieu de renvoyer le détail
+    # attendu.
+    await session.refresh(document)
 
     return await _charger_detail(session, document, role="admin")
 

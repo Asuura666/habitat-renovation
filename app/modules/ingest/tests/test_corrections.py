@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.extract.verification import CodeMotif
 from app.modules.ingest import extraction_bl as ingest_extraction_bl
+from app.modules.ingest import rapprochement as ingest_rapprochement
 from app.modules.ingest.corrections import (
     CorrectionEntete,
     DocumentNonModifiable,
@@ -43,6 +44,7 @@ from app.modules.ingest.lecture import DocumentIntrouvable
 from app.modules.ingest.mistral import ErreurOCR
 from app.modules.ingest.models import (
     Article,
+    BlocFacture,
     ChantierAlias,
     Document,
     Fournisseur,
@@ -845,6 +847,68 @@ async def test_valider_document_ok_passe_recu(
     journal = await _dernier_journal(db_session, document.id, "document_valide")
     assert journal.utilisateur_id == admin.id
     assert journal.apres == {"statut": "recu"}
+
+
+async def test_valider_document_rafraichit_document_apres_rapprochement_en_echec(
+    db_session: AsyncSession,
+    admin: Utilisateur,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ruling R23 (revue finale du lot 4) : si `rapprocher_factures_du_bl`
+    échoue en interne (`rapprocher_facture_sans_echec` avale l'exception
+    après un `rollback()`), `document` est expiré par ce `rollback()`.
+    Reproduit exactement la trouvaille de la revue : sans le second
+    `session.refresh(document)` (même correctif que `relancer_extraction`),
+    l'accès synchrone suivant à un attribut de `document` dans
+    `_charger_detail` lève `sqlalchemy.exc.MissingGreenlet` au lieu de
+    renvoyer le détail attendu, alors que la validation est déjà commitée."""
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur R23")
+    bl = await _creer_document(
+        db_session,
+        type_="bl",
+        statut="a_verifier",
+        fournisseur=fournisseur,
+        numero="BL-R23",
+        date_doc=date(2026, 1, 1),
+        chantier_brut="CHANTIER R23",
+        total_ht=Decimal("10.00"),
+    )
+    await _creer_ligne(db_session, document=bl, ordre=0, montant_ht=Decimal("10.00"))
+
+    facture = await _creer_document(
+        db_session,
+        type_="facture",
+        statut="recu",
+        fournisseur=fournisseur,
+        numero="F-R23",
+    )
+    db_session.add(BlocFacture(facture_id=facture.id, ordre=0, numero_bl="BL-R23"))
+    await db_session.commit()
+
+    async def _rapprocher_facture_qui_echoue(
+        session: AsyncSession, facture_id: uuid.UUID
+    ) -> None:
+        # Touche la session avant d'échouer (même repro que la revue) :
+        # garantit qu'une transaction est bien active au moment du
+        # `rollback()` de `rapprocher_facture_sans_echec`, donc que
+        # `document` est effectivement expiré ensuite.
+        await session.execute(select(Document.id).where(Document.id == facture_id))
+        raise RuntimeError("échec inventé pour le test")
+
+    monkeypatch.setattr(
+        ingest_rapprochement, "rapprocher_facture", _rapprocher_facture_qui_echoue
+    )
+
+    # Avant le correctif : lève `sqlalchemy.exc.MissingGreenlet` ici (le
+    # `rollback()` interne à `rapprocher_facture_sans_echec` expire
+    # `document`, déjà rafraîchi juste avant l'appel à
+    # `rapprocher_factures_du_bl`). Après le correctif : renvoie le détail,
+    # la validation reste effective.
+    detail = await valider_document(db_session, bl.id, auteur_id=admin.id)
+
+    assert detail.statut == "recu"
+    await db_session.refresh(bl)
+    assert bl.statut == "recu"
 
 
 async def test_valider_document_statut_non_a_verifier_refuse(
