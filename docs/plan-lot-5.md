@@ -132,7 +132,9 @@ Tests avec base : un chantier avec un bloc reçu sans anomalie, un avec un bloc 
 Tests : cohérence entre niveaux (la somme des fournisseurs d'un chantier égale le chantier), un bloc sans chantier résolu (regroupé sous « chantier non résolu », jamais ignoré silencieusement), la vue inverse qui retrouve les mêmes montants.
 
 ### L5-T3 — `api: routes du bilan`
-`api/bilan.py` : `GET /api/bilan/chantiers`, `GET /api/bilan/chantiers/{chantier_id}/fournisseurs`, `GET /api/bilan/chantiers/{chantier_id}/fournisseurs/{fournisseur_id}/bl`, `GET /api/bilan/fournisseurs` (vue inverse), `GET /api/bilan/agences`. Filtres `mois` (type `date`, premier jour du mois, converti en journée parisienne comme au lot 4 — **pas** de chaîne libre) et `agence`. Admin uniquement. Schémas Pydantic dans `api/schemas.py`, montants sérialisés en chaînes décimales (jamais `float`).
+`api/bilan.py` : `GET /api/bilan/chantiers`, `GET /api/bilan/chantiers/{chantier_id}/fournisseurs`, `GET /api/bilan/chantiers/{chantier_id}/fournisseurs/{fournisseur_id}/bl`, `GET /api/bilan/fournisseurs` (vue inverse). Filtres `mois` (type `date`, premier jour du mois, converti en journée parisienne comme au lot 4 — **pas** de chaîne libre) et `agence`. Admin uniquement. Schémas Pydantic dans `api/schemas.py`, montants sérialisés en chaînes décimales (jamais `float`).
+
+**Pas de route d'agences ici** (Ruling L5-R10) : la liste des agences est déjà rendue par `GET /api/referentiels/agences` (L5-T7). Une même liste exposée par deux routes, c'est une divergence programmée ; l'écran Bilan appelle celle des référentiels pour son filtre.
 Tests d'API : 401 anonyme, 403 agent, 200 admin, filtre par mois, filtre par agence, 422 sur un mois mal formé, chantier inconnu → liste vide et non 404 (c'est une vue, pas une ressource).
 
 ### L5-T4 — `ingest/api: export CSV`
