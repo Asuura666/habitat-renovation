@@ -455,3 +455,20 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   restitution, pas en marge du rapprochement. L'archivage, lui, est déjà
   ouvert aux factures depuis cette même revue finale : il purge leurs
   anomalies.
+
+## L5-T7 fix1 — ingest (vue des dépôts : factures hors périmètre)
+
+- **Les factures ne comptent pas comme des « dépôts ».** `depots_par_agent`
+  et `chantiers_sans_depot` ne lisent que `document.chantier_id`, jamais
+  `bloc_facture.chantier_id` : ce sont les agents de terrain qui déposent
+  des bons de livraison, et le chantier d'une facture vit à la maille du
+  bloc, pas du document qui la porte. Ne couvre pas un futur cas où
+  `document.chantier_id` serait renseigné pour une facture ; à revoir si le
+  modèle évolue en ce sens.
+- **Un chantier n'est jugé silencieux que sur ses bons de livraison.**
+  `chantiers_sans_depot` ignore entièrement la facturation reçue pour un
+  chantier : un chantier qui continue de recevoir des factures sans
+  qu'aucun agent n'y dépose de BL est signalé silencieux quand même. Ne
+  couvre pas le cas où la seule facturation attesterait d'une activité
+  persistante ; à revoir si un signal combiné (BL + facture) devenait
+  nécessaire.

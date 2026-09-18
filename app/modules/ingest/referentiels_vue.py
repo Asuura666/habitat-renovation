@@ -12,6 +12,17 @@ Décisions du contrôleur (L5-T7) :
   cacher précisément ceux qu'on veut voir. Aucun filtre non plus sur
   `Utilisateur.is_active` : un agent désactivé qui a cessé de déposer est
   justement ce que ce tableau doit pouvoir montrer.
+- Ruling L5-R7 (tour de correction 1) : le rôle sert à composer la **liste
+  de référence** de `depots_par_agent` (tout compte `role == 'agent'`, pour
+  que les agents à zéro apparaissent), jamais à **filtrer les dépôts**
+  eux-mêmes. Le rattachement Telegram d'un dépôt ne regarde pas le rôle du
+  compte : un bon de livraison déposé par un administrateur est possible,
+  et ce projet refuse les disparitions silencieuses (une valeur illisible
+  produit un motif nommé, un bloc sans chantier reste visible sous une
+  ligne « non résolu » — un dépôt invisible serait du même ordre). La liste
+  finale est donc l'union de tous les agents et de tout compte ayant
+  effectivement déposé sur la fenêtre, quel que soit son rôle ; un
+  administrateur qui n'a rien déposé n'y figure pas pour autant.
 - Le décompte de `depots_par_agent` porte sur tous les documents déposés
   par l'agent, quel que soit leur statut (y compris `archive`) : c'est une
   mesure d'activité de l'agent, pas de la qualité de ce qu'il a déposé.
@@ -45,6 +56,10 @@ Décisions du contrôleur (L5-T7) :
 - `agences_connues` renvoie les valeurs distinctes non nulles et non vides
   de `chantier.agence`, triées (L5-D6) : aucune table d'agences, la liste
   peut être vide (cas normal, pas une erreur).
+- Tour de correction 1, point 2 : `chantiers_sans_depot` trie par
+  `chantier_id` en dernière clé (`Chantier.nom_canonique` n'est pas
+  garanti unique en base) — même correctif, pour la même raison, que
+  `ingest.bilan.bilan_par_chantier` (tour de correction 1).
 """
 
 from __future__ import annotations
@@ -80,10 +95,11 @@ def _debut_periode_paris(jours: int) -> datetime:
 
 @dataclass(frozen=True)
 class DepotAgent:
-    """Une ligne de `GET /api/referentiels/depots-par-agent` : un agent
-    (`Utilisateur.role == 'agent'`), actif ou non, et son nombre de dépôts
-    sur la fenêtre demandée (`0` s'il n'a rien déposé, décision du
-    contrôleur)."""
+    """Une ligne de `GET /api/referentiels/depots-par-agent` : un compte de
+    la liste de référence — tout agent (`Utilisateur.role == 'agent'`),
+    actif ou non, plus tout compte ayant effectivement déposé sur la
+    fenêtre quel que soit son rôle (Ruling L5-R7) — et son nombre de dépôts
+    (`0` pour un agent qui n'a rien déposé)."""
 
     agent_id: uuid.UUID
     nom: str | None
@@ -94,10 +110,12 @@ class DepotAgent:
 async def depots_par_agent(
     session: AsyncSession, *, jours: int = DEPOTS_PAR_AGENT_JOURS_DEFAUT
 ) -> list[DepotAgent]:
-    """Nombre de documents déposés par chaque agent sur les `jours` derniers
-    jours calendaires (Europe/Paris). Tous les agents apparaissent, y
-    compris ceux à `0` ; le compte porte sur tous les documents déposés,
-    quel que soit leur statut (voir docstring de module)."""
+    """Nombre de documents déposés sur les `jours` derniers jours
+    calendaires (Europe/Paris), pour tout agent (y compris à `0`) et tout
+    compte ayant effectivement déposé sur la fenêtre quel que soit son
+    rôle (Ruling L5-R7 : le rôle compose la liste de référence, il ne
+    filtre jamais les dépôts). Le compte porte sur tous les documents
+    déposés, quel que soit leur statut (voir docstring de module)."""
     borne = _debut_periode_paris(jours)
 
     depots = (
@@ -122,7 +140,12 @@ async def depots_par_agent(
         )
         .select_from(Utilisateur)
         .outerjoin(depots, depots.c.deposant_id == Utilisateur.id)
-        .where(Utilisateur.role == "agent")
+        .where(
+            or_(
+                Utilisateur.role == "agent",
+                depots.c.deposant_id.is_not(None),
+            )
+        )
         .order_by(Utilisateur.nom.asc().nulls_last(), Utilisateur.email.asc())
     )
     return [
@@ -187,7 +210,7 @@ async def chantiers_sans_depot(session: AsyncSession) -> list[ChantierSilencieux
                 derniers_depots.c.dernier_depot_le < borne,
             ),
         )
-        .order_by(Chantier.nom_canonique.asc())
+        .order_by(Chantier.nom_canonique.asc(), Chantier.id.asc())
     )
     return [
         ChantierSilencieux(
