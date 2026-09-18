@@ -40,21 +40,17 @@ sinon `document.created_at` converti en Europe/Paris
 (`app.core.fuseau.FUSEAU_PARIS`) — jamais `date_bl`.
 
 `REGLES_QUANTITE_OU_PRIX` (R03 à R09) est définie une seule fois ici, nommée
-(décision du contrôleur), et utilisée à deux endroits : pour `en_ecart`
-et pour `MontantsBilan.nb_anomalies_ouvertes`. Point non couvert par la
-fiche/L5-D3 (qui ne définit que les quatre montants) : voir le doute
-consigné dans `L5-T1-report.md` sur le choix de compter ici uniquement les
-anomalies de ce même ensemble (cohérent avec `en_ecart`), plutôt que la
-totalité des anomalies ouvertes du chantier via
-`ingest.anomalies.CHANTIER_ID_RESOLU` (qui, pour R07/R08/R09, ne porte
-jamais `Anomalie.bloc_id` — seulement `ligne_id`/`article_id` — et
-résoudrait donc ces trois règles sur `Document.chantier_id`, presque
-toujours `NULL` pour une facture ; réutiliser `CHANTIER_ID_RESOLU` tel quel
-aurait donc silencieusement fait disparaître la moitié de l'ensemble
-`REGLES_QUANTITE_OU_PRIX` de ce compte). La résolution du bloc d'une
-anomalie ci-dessous (`bloc_id_anomalie`, dans `bilan_par_chantier`) contourne
-ce trou en retombant sur `Ligne.bloc_id` via `Anomalie.ligne_id` quand
-`Anomalie.bloc_id` est absent.
+(décision du contrôleur), et sert à déterminer `en_ecart`.
+
+Ruling L5-R3 (tour de correction 1, `ingest/rapprochement.py`) : R07, R08,
+R09, R13 et R17 ne posaient que `ligne_id` sur l'anomalie qu'elles
+produisent, jamais `bloc_id` (la règle pure ne reçoit que la ligne). Ce
+module contournait le trou par un `COALESCE(anomalie.bloc_id,
+ligne.bloc_id)` — retiré depuis que `rapprocher_facture` complète lui-même
+`bloc_id` à partir de la ligne (même idiome que son complément de
+`document_id`, Ruling R17 du lot 4) : une seule source de vérité, portée par
+l'orchestrateur qui sait ce que le module pur ignore, jamais recopiée dans
+chaque lecture.
 """
 
 from __future__ import annotations
@@ -68,7 +64,6 @@ from typing import Any
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
 
 from app.core.fuseau import FUSEAU_PARIS
 from app.modules.ingest.models import Anomalie, BlocFacture, Chantier, Document, Ligne
@@ -234,25 +229,18 @@ async def bilan_par_chantier(
 
     bloc_ids = [bloc_id for bloc_id, *_ in lignes_par_bloc]
 
-    # Bloc d'une anomalie de quantité/prix (voir docstring de module) :
-    # `Anomalie.bloc_id` d'abord (porté par R03-R06), sinon celui de la
-    # ligne de facture visée par `Anomalie.ligne_id` (seul champ que portent
-    # R07/R08/R09) -- sans ce repli, ces trois règles resteraient sans bloc
-    # résolu et disparaîtraient du décompte.
-    ligne_anomalie = aliased(Ligne)
-    bloc_id_anomalie = func.coalesce(Anomalie.bloc_id, ligne_anomalie.bloc_id)
-
+    # Bloc d'une anomalie de quantité/prix : `Anomalie.bloc_id` directement,
+    # toujours renseigné depuis le Ruling L5-R3 (`ingest/rapprochement.py`,
+    # tour de correction 1) -- plus besoin de retomber sur la ligne ici.
     lignes_anomalies = (
         await session.execute(
-            select(bloc_id_anomalie, func.count())
-            .select_from(Anomalie)
-            .outerjoin(ligne_anomalie, ligne_anomalie.id == Anomalie.ligne_id)
+            select(Anomalie.bloc_id, func.count())
             .where(
                 Anomalie.statut == "ouverte",
                 Anomalie.regle.in_(tuple(REGLES_QUANTITE_OU_PRIX)),
-                bloc_id_anomalie.in_(bloc_ids),
+                Anomalie.bloc_id.in_(bloc_ids),
             )
-            .group_by(bloc_id_anomalie)
+            .group_by(Anomalie.bloc_id)
         )
     ).all()
     nb_anomalies_par_bloc: dict[uuid.UUID, int] = {

@@ -1042,6 +1042,232 @@ async def test_rapprocher_facture_prix_conforme_sans_historique_suffisant(
 
 
 # --------------------------------------------------------------------------
+# Ruling L5-R3 (tour de correction 1, L5-T1) : bloc_id sur les anomalies de
+# ligne (R07-R09, R13, R17)
+# --------------------------------------------------------------------------
+
+
+async def test_rapprocher_facture_ruling_l5r3_bloc_id_sur_anomalie_prix_et_r17(
+    db_session: AsyncSession,
+) -> None:
+    """R07/R08/R09 (prix) et R17 (conditionnement non entier) ne posent
+    nativement que `ligne_id` sur l'anomalie qu'elles produisent -- la règle
+    pure ne reçoit que la ligne, jamais le bloc. `rapprocher_facture` doit
+    compléter `bloc_id` depuis la ligne, comme il complète déjà
+    `document_id` (Ruling R17 du lot 4) : sans ce complément,
+    `CHANTIER_ID_RESOLU` (`ingest/anomalies.py`) ne peut résoudre le
+    chantier d'aucune de ces anomalies."""
+    fournisseur = await _creer_fournisseur(db_session)
+    article_prix = await _creer_article(
+        db_session, fournisseur=fournisseur, code="ART-L5R3-PRIX"
+    )
+    article_r17 = await _creer_article(
+        db_session, fournisseur=fournisseur, ratio=Decimal("10"), valide=True
+    )
+
+    for mois, numero in ((5, "H-L5R3-1"), (6, "H-L5R3-2"), (7, "H-L5R3-3")):
+        historique = await _creer_facture(
+            db_session,
+            fournisseur=fournisseur,
+            numero=numero,
+            date_doc=date(2026, mois, 1),
+        )
+        await _creer_ligne(
+            db_session,
+            document=historique,
+            bloc=None,
+            article=article_prix,
+            code_brut="ART-L5R3-PRIX",
+            pu_ht=Decimal("10.00"),
+            montant_ht=Decimal("10.00"),
+        )
+
+    facture = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="F-L5R3", date_doc=date(2026, 8, 15)
+    )
+
+    bloc_prix = await _creer_bloc(db_session, facture=facture, numero_bl="L-L5R3-PRIX")
+    await _creer_ligne(
+        db_session,
+        document=facture,
+        bloc=bloc_prix,
+        article=article_prix,
+        code_brut="ART-L5R3-PRIX",
+        pu_ht=Decimal("12.00"),
+        montant_ht=Decimal("12.00"),
+    )
+
+    bloc_r17 = await _creer_bloc(db_session, facture=facture, numero_bl="L-L5R3-R17")
+    await _creer_ligne(
+        db_session,
+        document=facture,
+        bloc=bloc_r17,
+        article=article_r17,
+        qte_livree=Decimal("2.5"),
+        qte_totale=Decimal("25"),
+        unite_brut=None,
+        montant_ht=Decimal("100.00"),
+    )
+    bl_r17 = await _creer_bl(db_session, fournisseur=fournisseur, numero="L-L5R3-R17")
+    await _creer_ligne(
+        db_session,
+        document=bl_r17,
+        article=article_r17,
+        qte_totale=Decimal("25"),
+        unite_brut=None,
+        montant_ht=Decimal("100.00"),
+    )
+
+    await rapprocher_facture(db_session, facture.id)
+
+    anomalies = await _anomalies_de(db_session, facture)
+    anomalie_prix = next(
+        (a for a in anomalies if a.regle in ("R07", "R08", "R09")), None
+    )
+    anomalie_r17 = next((a for a in anomalies if a.regle == "R17"), None)
+
+    ok = (
+        anomalie_prix is not None
+        and anomalie_prix.bloc_id == bloc_prix.id
+        and anomalie_r17 is not None
+        and anomalie_r17.bloc_id == bloc_r17.id
+    )
+    assert ok, (
+        "les anomalies de prix et R17 doivent porter le bloc_id de leur "
+        "propre ligne, jamais bloc_id=None"
+    )
+
+
+async def test_rapprocher_facture_ruling_l5r3_anomalie_prix_visible_du_filtre_chantier(
+    db_session: AsyncSession,
+) -> None:
+    """Avant ce correctif, une anomalie de prix (`bloc_id` natif `None`)
+    était invisible du filtre `chantier_id` de `lister_anomalies` :
+    `CHANTIER_ID_RESOLU` ne passe jamais par la ligne, retombait donc sur
+    `Document.chantier_id`, presque toujours vide pour une facture."""
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = await _creer_chantier(db_session, nom="Chantier L5R3")
+    article = await _creer_article(
+        db_session, fournisseur=fournisseur, code="ART-L5R3-CHANTIER"
+    )
+
+    for mois, numero in ((5, "H-L5R3B-1"), (6, "H-L5R3B-2"), (7, "H-L5R3B-3")):
+        historique = await _creer_facture(
+            db_session,
+            fournisseur=fournisseur,
+            numero=numero,
+            date_doc=date(2026, mois, 1),
+        )
+        await _creer_ligne(
+            db_session,
+            document=historique,
+            bloc=None,
+            article=article,
+            code_brut="ART-L5R3-CHANTIER",
+            pu_ht=Decimal("10.00"),
+            montant_ht=Decimal("10.00"),
+        )
+
+    facture = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-L5R3B",
+        date_doc=date(2026, 8, 20),
+    )
+    bloc = await _creer_bloc(
+        db_session, facture=facture, numero_bl="L-L5R3B", chantier_id=chantier.id
+    )
+    await _creer_ligne(
+        db_session,
+        document=facture,
+        bloc=bloc,
+        article=article,
+        code_brut="ART-L5R3-CHANTIER",
+        pu_ht=Decimal("12.00"),
+        montant_ht=Decimal("12.00"),
+    )
+
+    await rapprocher_facture(db_session, facture.id)
+
+    resultat = await lister_anomalies(db_session, chantier_id=chantier.id)
+    ok = any(a.regle in ("R07", "R08", "R09") for a in resultat)
+    assert ok, "l'anomalie de prix doit être visible du filtre chantier"
+
+
+async def test_rapprocher_facture_ruling_l5r3_idempotent_sur_rejeu(
+    db_session: AsyncSession,
+) -> None:
+    """Deux rapprochements successifs ne doivent ni dupliquer l'anomalie de
+    prix, ni changer son identifiant, ni changer son `bloc_id` (désormais
+    renseigné par le correctif) -- même garantie que le Ruling R17 du lot 4
+    pour `document_id`."""
+    fournisseur = await _creer_fournisseur(db_session)
+    article = await _creer_article(
+        db_session, fournisseur=fournisseur, code="ART-L5R3-IDEMP"
+    )
+
+    for mois, numero in ((5, "H-L5R3C-1"), (6, "H-L5R3C-2"), (7, "H-L5R3C-3")):
+        historique = await _creer_facture(
+            db_session,
+            fournisseur=fournisseur,
+            numero=numero,
+            date_doc=date(2026, mois, 1),
+        )
+        await _creer_ligne(
+            db_session,
+            document=historique,
+            bloc=None,
+            article=article,
+            code_brut="ART-L5R3-IDEMP",
+            pu_ht=Decimal("10.00"),
+            montant_ht=Decimal("10.00"),
+        )
+
+    facture = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-L5R3C",
+        date_doc=date(2026, 8, 20),
+    )
+    bloc = await _creer_bloc(db_session, facture=facture, numero_bl="L-L5R3C")
+    await _creer_ligne(
+        db_session,
+        document=facture,
+        bloc=bloc,
+        article=article,
+        code_brut="ART-L5R3-IDEMP",
+        pu_ht=Decimal("12.00"),
+        montant_ht=Decimal("12.00"),
+    )
+
+    await rapprocher_facture(db_session, facture.id)
+    premieres = [
+        a
+        for a in await _anomalies_de(db_session, facture)
+        if a.regle in ("R07", "R08", "R09")
+    ]
+
+    await rapprocher_facture(db_session, facture.id)
+    secondes = [
+        a
+        for a in await _anomalies_de(db_session, facture)
+        if a.regle in ("R07", "R08", "R09")
+    ]
+
+    ok = (
+        len(premieres) == 1
+        and len(secondes) == 1
+        and premieres[0].id == secondes[0].id
+        and premieres[0].bloc_id == bloc.id
+        and secondes[0].bloc_id == bloc.id
+    )
+    assert ok, (
+        "un rejeu identique doit retrouver la même anomalie de prix, "
+        "avec le même bloc_id"
+    )
+
+
+# --------------------------------------------------------------------------
 # Déclenchements : dépôt de facture, validation d'un BL, extraction d'un BL
 # --------------------------------------------------------------------------
 

@@ -43,6 +43,19 @@ d'écart) :
   déjà « `document_id` = la facture » **ou** « bloc de cette facture »).
   Les anomalies de suivi (R06, R14, R15, R16), produites hors
   `rapprocher_facture`, ne sont jamais concernées.
+- Ruling L5-R3 (tour de correction 1 de L5-T1) : même idiome que le Ruling
+  R17 ci-dessus, pour `bloc_id` cette fois. R07, R08, R09, R13 et R17 ne
+  posent que `ligne_id` sur leur anomalie (la règle pure ne reçoit que la
+  ligne, jamais le bloc) ; juste après le complément de `document_id`,
+  toute anomalie qui porte un `ligne_id` mais pas de `bloc_id` reçoit celui
+  de sa ligne (`lignes_facture_db`, déjà chargée pour cette facture). Sans
+  cela, `ingest.anomalies.CHANTIER_ID_RESOLU` ne pouvait résoudre le
+  chantier d'aucune de ces cinq règles (il ne passe jamais par la ligne) et
+  retombait sur `Document.chantier_id`, presque toujours vide pour une
+  facture — l'anomalie s'affichait sans chantier et échappait au filtre par
+  chantier de l'écran Anomalies (constat fait en préparant L5-T1). Même
+  garantie d'idempotence que le Ruling R17 (la ligne ne change pas de bloc
+  d'un rejeu à l'autre).
 - Historique des prix (L4-D9) : une seule requête pour toute la facture,
   agrégée en Python (médiane par article).
 - Transaction : `rapprocher_facture` fait un seul `commit()` à la fin ; en
@@ -931,6 +944,26 @@ async def rapprocher_facture(
         anomalie
         if anomalie.document_id is not None
         else replace(anomalie, document_id=facture_id)
+        for anomalie in anomalies
+    )
+
+    # Ruling L5-R3 (tour de correction 1, L5-T1) : R07, R08, R09, R13 et R17
+    # ne posent que `ligne_id` sur l'anomalie qu'elles produisent, jamais
+    # `bloc_id` -- la règle pure ne reçoit que la ligne (`LigneControlee`),
+    # elle ne peut pas connaître le bloc. Conséquence, déjà dans `main`
+    # depuis le lot 4 : `CHANTIER_ID_RESOLU` (`ingest/anomalies.py`) ne
+    # passe jamais par la ligne, retombe sur `Document.chantier_id`
+    # (presque toujours vide pour une facture), et une telle anomalie
+    # s'affichait sans chantier, en échappant au filtre par chantier de
+    # l'écran Anomalies. Même idiome que le complément de `document_id`
+    # ci-dessus (Ruling R17 du lot 4) : l'orchestrateur complète ce que le
+    # module pur ignore, jamais l'inverse. Valeur stable d'un rejeu à
+    # l'autre (la ligne ne change pas de bloc) : l'idempotence tient.
+    bloc_id_par_ligne = {ligne.id: ligne.bloc_id for ligne in lignes_facture_db}
+    anomalies = tuple(
+        anomalie
+        if anomalie.bloc_id is not None or anomalie.ligne_id is None
+        else replace(anomalie, bloc_id=bloc_id_par_ligne.get(anomalie.ligne_id))
         for anomalie in anomalies
     )
 
