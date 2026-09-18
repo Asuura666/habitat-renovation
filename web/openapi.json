@@ -835,6 +835,96 @@
     }
    }
   },
+  "/api/referentiels/depots-par-agent": {
+   "get": {
+    "summary": "Depots Par Agent Endpoint",
+    "operationId": "depots_par_agent_endpoint_api_referentiels_depots_par_agent_get",
+    "parameters": [
+     {
+      "name": "jours",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 365,
+       "minimum": 1,
+       "default": 30,
+       "title": "Jours"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/DepotAgentReponse"
+         },
+         "title": "Response Depots Par Agent Endpoint Api Referentiels Depots Par Agent Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/referentiels/chantiers-silencieux": {
+   "get": {
+    "summary": "Chantiers Sans Depot Endpoint",
+    "operationId": "chantiers_sans_depot_endpoint_api_referentiels_chantiers_silencieux_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/ChantierSilencieuxReponse"
+         },
+         "type": "array",
+         "title": "Response Chantiers Sans Depot Endpoint Api Referentiels Chantiers Silencieux Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/referentiels/agences": {
+   "get": {
+    "summary": "Agences Connues Endpoint",
+    "operationId": "agences_connues_endpoint_api_referentiels_agences_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "type": "string"
+         },
+         "type": "array",
+         "title": "Response Agences Connues Endpoint Api Referentiels Agences Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/anomalies": {
    "get": {
     "summary": "Lister Anomalies Endpoint",
@@ -2590,6 +2680,51 @@
     "title": "ChantierReponse",
     "description": "Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest\n.referentiels.ChantierResume`."
    },
+   "ChantierSilencieuxReponse": {
+    "properties": {
+     "chantier_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Chantier Id"
+     },
+     "nom_canonique": {
+      "type": "string",
+      "title": "Nom Canonique"
+     },
+     "agence": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Agence"
+     },
+     "dernier_depot_le": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Dernier Depot Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "chantier_id",
+     "nom_canonique",
+     "agence",
+     "dernier_depot_le"
+    ],
+    "title": "ChantierSilencieuxReponse",
+    "description": "Une ligne de `GET /api/referentiels/chantiers-silencieux` (L5-T7) —\nmêmes attributs qu'`ingest.referentiels_vue.ChantierSilencieux`."
+   },
    "CorrectionEnteteRequete": {
     "properties": {
      "type": {
@@ -2724,6 +2859,43 @@
     "type": "object",
     "title": "CorrectionEnteteRequete",
     "description": "`PATCH /api/documents/{id}` : tous les champs sont optionnels\n(`None` par défaut) — seuls ceux présents dans `model_fields_set` sont\ntransmis au service (décision du contrôleur), pour distinguer « non\nenvoyé » de « envoyé à `null` »."
+   },
+   "DepotAgentReponse": {
+    "properties": {
+     "agent_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Agent Id"
+     },
+     "nom": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Nom"
+     },
+     "email": {
+      "type": "string",
+      "title": "Email"
+     },
+     "nombre_depots": {
+      "type": "integer",
+      "title": "Nombre Depots"
+     }
+    },
+    "type": "object",
+    "required": [
+     "agent_id",
+     "nom",
+     "email",
+     "nombre_depots"
+    ],
+    "title": "DepotAgentReponse",
+    "description": "Une ligne de `GET /api/referentiels/depots-par-agent` (L5-T7) —\nmêmes attributs qu'`ingest.referentiels_vue.DepotAgent`."
    },
    "DocumentATraiterReponse": {
     "properties": {

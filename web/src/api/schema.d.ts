@@ -342,6 +342,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/referentiels/depots-par-agent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Depots Par Agent Endpoint */
+        get: operations["depots_par_agent_endpoint_api_referentiels_depots_par_agent_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/referentiels/chantiers-silencieux": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Chantiers Sans Depot Endpoint */
+        get: operations["chantiers_sans_depot_endpoint_api_referentiels_chantiers_silencieux_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/referentiels/agences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Agences Connues Endpoint */
+        get: operations["agences_connues_endpoint_api_referentiels_agences_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/anomalies": {
         parameters: {
             query?: never;
@@ -845,6 +896,24 @@ export interface components {
             actif: boolean;
         };
         /**
+         * ChantierSilencieuxReponse
+         * @description Une ligne de `GET /api/referentiels/chantiers-silencieux` (L5-T7) —
+         *     mêmes attributs qu'`ingest.referentiels_vue.ChantierSilencieux`.
+         */
+        ChantierSilencieuxReponse: {
+            /**
+             * Chantier Id
+             * Format: uuid
+             */
+            chantier_id: string;
+            /** Nom Canonique */
+            nom_canonique: string;
+            /** Agence */
+            agence: string | null;
+            /** Dernier Depot Le */
+            dernier_depot_le: string | null;
+        };
+        /**
          * CorrectionEnteteRequete
          * @description `PATCH /api/documents/{id}` : tous les champs sont optionnels
          *     (`None` par défaut) — seuls ceux présents dans `model_fields_set` sont
@@ -872,6 +941,24 @@ export interface components {
             total_tva?: number | string | null;
             /** Total Ttc */
             total_ttc?: number | string | null;
+        };
+        /**
+         * DepotAgentReponse
+         * @description Une ligne de `GET /api/referentiels/depots-par-agent` (L5-T7) —
+         *     mêmes attributs qu'`ingest.referentiels_vue.DepotAgent`.
+         */
+        DepotAgentReponse: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Nom */
+            nom: string | null;
+            /** Email */
+            email: string;
+            /** Nombre Depots */
+            nombre_depots: number;
         };
         /**
          * DocumentATraiterReponse
@@ -2025,6 +2112,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    depots_par_agent_endpoint_api_referentiels_depots_par_agent_get: {
+        parameters: {
+            query?: {
+                jours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DepotAgentReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chantiers_sans_depot_endpoint_api_referentiels_chantiers_silencieux_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChantierSilencieuxReponse"][];
+                };
+            };
+        };
+    };
+    agences_connues_endpoint_api_referentiels_agences_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
                 };
             };
         };

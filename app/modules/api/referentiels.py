@@ -4,6 +4,13 @@
 ses formulaires de validation — voir `ingest/referentiels.py` pour toute la
 logique métier.
 
+`GET /api/referentiels/depots-par-agent`, `GET /api/referentiels
+/chantiers-silencieux` et `GET /api/referentiels/agences` (L5-T7) : vue des
+référentiels (qui a déposé quoi, quels chantiers n'ont plus rien envoyé) —
+voir `ingest/referentiels_vue.py` pour toute la logique métier. Aucune
+somme, aucun seuil calculé ici (décision globale du lot 5) : ce routeur
+valide les paramètres de requête, appelle le service, sérialise.
+
 Couche d'entrée (L2-D3) : ce routeur n'importe que `app.core` et
 `app.modules.ingest` (garde vérifiée par `tests/test_frontieres.py`). Toutes
 les routes sont réservées à l'admin (`admin_requis`) : un agent reçoit 403
@@ -15,7 +22,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +31,8 @@ from app.core.db import get_session
 from app.modules.api.schemas import (
     ChantierCreationRequete,
     ChantierReponse,
+    ChantierSilencieuxReponse,
+    DepotAgentReponse,
     FournisseurReponse,
     ValidationAliasReponse,
     ValidationAliasRequete,
@@ -41,8 +50,20 @@ from app.modules.ingest.referentiels import (
     valider_alias,
     valider_article,
 )
+from app.modules.ingest.referentiels_vue import (
+    DEPOTS_PAR_AGENT_JOURS_DEFAUT,
+    agences_connues,
+    chantiers_sans_depot,
+    depots_par_agent,
+)
 
 router = APIRouter()
+
+# Bornes de `jours` sur `GET /api/referentiels/depots-par-agent` (décision du
+# contrôleur, brief L5-T7 : « borné ») : un an au plus, jamais `0` (une
+# fenêtre vide n'a pas de sens pour ce tableau).
+_DEPOTS_JOURS_MIN = 1
+_DEPOTS_JOURS_MAX = 365
 
 
 @router.get("/chantiers", response_model=list[ChantierReponse])
@@ -149,3 +170,43 @@ async def valider_article_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="article introuvable"
         ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Vue des référentiels (L5-T7)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/referentiels/depots-par-agent", response_model=list[DepotAgentReponse])
+async def depots_par_agent_endpoint(
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    jours: Annotated[
+        int, Query(ge=_DEPOTS_JOURS_MIN, le=_DEPOTS_JOURS_MAX)
+    ] = DEPOTS_PAR_AGENT_JOURS_DEFAUT,
+) -> list[DepotAgentReponse]:
+    depots = await depots_par_agent(session, jours=jours)
+    return [DepotAgentReponse.model_validate(depot) for depot in depots]
+
+
+@router.get(
+    "/referentiels/chantiers-silencieux",
+    response_model=list[ChantierSilencieuxReponse],
+)
+async def chantiers_sans_depot_endpoint(
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[ChantierSilencieuxReponse]:
+    # Aucun paramètre `jours` ici (décision du contrôleur, `ingest
+    # .referentiels_vue.chantiers_sans_depot`) : le seuil est lu depuis la
+    # table `parametre` par le service, jamais par ce routeur.
+    chantiers = await chantiers_sans_depot(session)
+    return [ChantierSilencieuxReponse.model_validate(c) for c in chantiers]
+
+
+@router.get("/referentiels/agences", response_model=list[str])
+async def agences_connues_endpoint(
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[str]:
+    return await agences_connues(session)

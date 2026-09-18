@@ -531,3 +531,27 @@ class LigneBilanBlReponse(BaseModel):
     bl_document_id: uuid.UUID | None
     facture_id: uuid.UUID
     montants: MontantsBilanReponse
+
+
+class DepotAgentReponse(BaseModel):
+    """Une ligne de `GET /api/referentiels/depots-par-agent` (L5-T7) —
+    mêmes attributs qu'`ingest.referentiels_vue.DepotAgent`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    agent_id: uuid.UUID
+    nom: str | None
+    email: str
+    nombre_depots: int
+
+
+class ChantierSilencieuxReponse(BaseModel):
+    """Une ligne de `GET /api/referentiels/chantiers-silencieux` (L5-T7) —
+    mêmes attributs qu'`ingest.referentiels_vue.ChantierSilencieux`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    chantier_id: uuid.UUID
+    nom_canonique: str
+    agence: str | None
+    dernier_depot_le: datetime | None

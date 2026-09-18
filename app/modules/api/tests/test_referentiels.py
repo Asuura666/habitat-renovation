@@ -1,15 +1,17 @@
 """Tests de `GET /api/chantiers`, `POST /api/chantiers`, `GET
-/api/fournisseurs`, `POST /api/alias-chantier/{id}/validation` et `POST
-/api/articles/{id}/validation` (L3-T8b) : autorisation, codes HTTP, forme
-JSON.
+/api/fournisseurs`, `POST /api/alias-chantier/{id}/validation`, `POST
+/api/articles/{id}/validation` (L3-T8b) et `GET /api/referentiels
+/depots-par-agent`, `GET /api/referentiels/chantiers-silencieux`, `GET
+/api/referentiels/agences` (L5-T7) : autorisation, codes HTTP, forme JSON.
 
 Ce fichier ne teste que le routeur (couche d'entrée, L2-D3) : les scénarios
-métier détaillés (propagation d'un alias, complétion d'un article, journal)
-vivent dans `app/modules/ingest/tests/test_referentiels.py`.
+métier détaillés vivent dans `app/modules/ingest/tests/test_referentiels.py`
+(L3-T8b) et `app/modules/ingest/tests/test_referentiels_vue.py` (L5-T7).
 
 Même schéma que `test_documents_detail.py` : `FastAPI` isolé, `app.state
-.sessions` branché sur `bl_test`, IP dédiées (`10.82.0.x`) pour ne jamais
-partager le quota `slowapi` du login avec un autre fichier de test.
+.sessions` branché sur `bl_test_wt` (arbre de travail), IP dédiées
+(`10.82.0.x`) pour ne jamais partager le quota `slowapi` du login avec un
+autre fichier de test.
 """
 
 from __future__ import annotations
@@ -532,3 +534,171 @@ async def test_validation_article_ratio_negatif_422(
     )
 
     assert reponse.status_code == 422
+
+
+# --------------------------------------------------------------------------
+# GET /api/referentiels/depots-par-agent, /chantiers-silencieux, /agences
+# (L5-T7) — voir `ingest/tests/test_referentiels_vue.py` pour les scénarios
+# métier détaillés.
+# --------------------------------------------------------------------------
+
+
+async def test_depots_par_agent_anonyme_renvoie_401(
+    sessions_test: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    app_test = _app_test(sessions_test, tmp_path)
+
+    reponse = await _requete(
+        app_test, "GET", "/api/referentiels/depots-par-agent", cookie=None
+    )
+
+    assert reponse.status_code == 401
+
+
+async def test_depots_par_agent_agent_renvoie_403(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    agent = await _creer_utilisateur(
+        db_session, email="agent.depots1@example.invalid", role="agent"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=agent.email)
+
+    reponse = await _requete(
+        app_test, "GET", "/api/referentiels/depots-par-agent", cookie=cookie
+    )
+
+    assert reponse.status_code == 403
+
+
+async def test_depots_par_agent_admin_200(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.depots1@example.invalid", role="admin"
+    )
+    agent_sans_depot = await _creer_utilisateur(
+        db_session, email="agent.depots2@example.invalid", role="agent"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test, "GET", "/api/referentiels/depots-par-agent", cookie=cookie
+    )
+
+    assert reponse.status_code == 200
+    lignes = {ligne["agent_id"]: ligne for ligne in reponse.json()}
+    assert str(agent_sans_depot.id) in lignes
+    assert lignes[str(agent_sans_depot.id)]["nombre_depots"] == 0
+
+
+async def test_chantiers_silencieux_anonyme_renvoie_401(
+    sessions_test: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    app_test = _app_test(sessions_test, tmp_path)
+
+    reponse = await _requete(
+        app_test, "GET", "/api/referentiels/chantiers-silencieux", cookie=None
+    )
+
+    assert reponse.status_code == 401
+
+
+async def test_chantiers_silencieux_agent_renvoie_403(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    agent = await _creer_utilisateur(
+        db_session, email="agent.silencieux1@example.invalid", role="agent"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=agent.email)
+
+    reponse = await _requete(
+        app_test, "GET", "/api/referentiels/chantiers-silencieux", cookie=cookie
+    )
+
+    assert reponse.status_code == 403
+
+
+async def test_chantiers_silencieux_admin_200(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.silencieux1@example.invalid", role="admin"
+    )
+    chantier = await _creer_chantier(db_session, nom="Chantier Silencieux API")
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test, "GET", "/api/referentiels/chantiers-silencieux", cookie=cookie
+    )
+
+    assert reponse.status_code == 200
+    # Aucun dépôt jamais enregistré pour ce chantier tout neuf : il est
+    # signalé (décision du contrôleur, voir `ingest.referentiels_vue
+    # .chantiers_sans_depot`).
+    ids = {ligne["chantier_id"] for ligne in reponse.json()}
+    assert str(chantier.id) in ids
+
+
+async def test_agences_anonyme_renvoie_401(
+    sessions_test: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    app_test = _app_test(sessions_test, tmp_path)
+
+    reponse = await _requete(app_test, "GET", "/api/referentiels/agences", cookie=None)
+
+    assert reponse.status_code == 401
+
+
+async def test_agences_agent_renvoie_403(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    agent = await _creer_utilisateur(
+        db_session, email="agent.agences1@example.invalid", role="agent"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=agent.email)
+
+    reponse = await _requete(
+        app_test, "GET", "/api/referentiels/agences", cookie=cookie
+    )
+
+    assert reponse.status_code == 403
+
+
+async def test_agences_admin_200(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.agences1@example.invalid", role="admin"
+    )
+    await _creer_chantier(db_session, nom="Chantier Agence API")
+    chantier_avec_agence = Chantier(
+        nom_canonique="Chantier Avec Agence API", agence="Agence API Testeur"
+    )
+    db_session.add(chantier_avec_agence)
+    await db_session.commit()
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test, "GET", "/api/referentiels/agences", cookie=cookie
+    )
+
+    assert reponse.status_code == 200
+    assert reponse.json() == ["Agence API Testeur"]
