@@ -52,6 +52,7 @@ contrôleur : ne jamais la dupliquer entre les deux.
 from __future__ import annotations
 
 import uuid
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -428,11 +429,27 @@ class ChantierResume:
 
 
 @dataclass(frozen=True)
-class FournisseurResume:
-    """Une ligne de `GET /api/fournisseurs`."""
+class AgenceResume:
+    """Une agence (point de vente) d'un fournisseur, dans `GET /api
+    /fournisseurs` (Ruling L5-R9, tour de correction 1 de L5-T8) : le point
+    de vente est ce qui distingue deux dépôts d'un même fournisseur, la
+    table `agence_fournisseur` existe depuis le lot 1 mais n'était encore
+    lue par aucune route de lecture. `adresse` est incluse car elle vient de
+    la même ligne, sans coût supplémentaire (décision du contrôleur)."""
 
     id: uuid.UUID
     nom: str
+    adresse: str | None
+
+
+@dataclass(frozen=True)
+class FournisseurResume:
+    """Une ligne de `GET /api/fournisseurs`, agences comprises (Ruling
+    L5-R9)."""
+
+    id: uuid.UUID
+    nom: str
+    agences: list[AgenceResume]
 
 
 class ChantierEnDouble(Exception):
@@ -537,12 +554,42 @@ async def creer_chantier(
 
 
 async def lister_fournisseurs(session: AsyncSession) -> list[FournisseurResume]:
-    """Référentiel fournisseur complet (nom seul), trié par nom — pour le
-    formulaire de validation d'un alias."""
-    resultat = await session.execute(
-        select(Fournisseur.id, Fournisseur.nom).order_by(Fournisseur.nom.asc())
+    """Référentiel fournisseur complet (nom et agences), trié par nom — pour
+    le formulaire de validation d'un alias et l'écran « Chantiers &
+    fournisseurs » (Ruling L5-R9, tour de correction 1 de L5-T8).
+
+    Une requête pour les fournisseurs, une pour toutes leurs agences
+    (jamais une requête par fournisseur, décision du contrôleur) : les
+    agences sont regroupées en mémoire par `fournisseur_id`, triées par
+    nom. Un fournisseur sans agence reçoit une liste vide, jamais `None`
+    (`defaultdict` : accéder à une clé absente rend `[]`, jamais une
+    exception)."""
+    fournisseurs = (
+        await session.execute(
+            select(Fournisseur.id, Fournisseur.nom).order_by(Fournisseur.nom.asc())
+        )
+    ).all()
+
+    agences_par_fournisseur: defaultdict[uuid.UUID, list[AgenceResume]] = defaultdict(
+        list
     )
-    return [FournisseurResume(id=id_, nom=nom) for id_, nom in resultat.all()]
+    resultat_agences = await session.execute(
+        select(
+            AgenceFournisseur.fournisseur_id,
+            AgenceFournisseur.id,
+            AgenceFournisseur.nom,
+            AgenceFournisseur.adresse,
+        ).order_by(AgenceFournisseur.nom.asc())
+    )
+    for fournisseur_id, agence_id, nom_agence, adresse in resultat_agences:
+        agences_par_fournisseur[fournisseur_id].append(
+            AgenceResume(id=agence_id, nom=nom_agence, adresse=adresse)
+        )
+
+    return [
+        FournisseurResume(id=id_, nom=nom, agences=agences_par_fournisseur[id_])
+        for id_, nom in fournisseurs
+    ]
 
 
 async def _documents_candidats_alias(

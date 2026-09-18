@@ -629,6 +629,70 @@ async def test_lister_fournisseurs_trie_par_nom(db_session: AsyncSession) -> Non
     assert noms == ["Alpha Fournisseur", "Zeta Fournisseur"]
 
 
+async def test_lister_fournisseurs_sans_agence_rend_liste_vide(
+    db_session: AsyncSession,
+) -> None:
+    """Ruling L5-R9 (tour de correction 1 de L5-T8) : un fournisseur sans
+    agence rend une liste vide, jamais `None` — l'écran ne doit jamais avoir
+    à distinguer les deux cas."""
+    await _creer_fournisseur(db_session, nom="Fournisseur Sans Agence")
+
+    fournisseurs = await lister_fournisseurs(db_session)
+
+    ok = len(fournisseurs) == 1 and fournisseurs[0].agences == []
+    assert ok, "un fournisseur sans agence doit rendre une liste vide"
+
+
+async def test_lister_fournisseurs_agences_associees(db_session: AsyncSession) -> None:
+    """Ruling L5-R9 : les deux agences d'un fournisseur sont toutes les
+    deux rendues, triées par nom — une seule requête pour toutes les
+    agences (jamais une requête par fournisseur), voir docstring de
+    `lister_fournisseurs`."""
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur Multi Agences")
+    agence_b = AgenceFournisseur(
+        fournisseur_id=fournisseur.id, nom="Agence B", adresse=None
+    )
+    agence_a = AgenceFournisseur(
+        fournisseur_id=fournisseur.id, nom="Agence A", adresse="1 rue Test"
+    )
+    db_session.add_all([agence_b, agence_a])
+    await db_session.commit()
+
+    fournisseurs = await lister_fournisseurs(db_session)
+
+    noms_agences = [a.nom for a in fournisseurs[0].agences]
+    adresses_agences = [a.adresse for a in fournisseurs[0].agences]
+    ok = noms_agences == ["Agence A", "Agence B"] and adresses_agences == [
+        "1 rue Test",
+        None,
+    ]
+    assert ok, "les deux agences doivent être rendues, triées par nom"
+
+
+async def test_lister_fournisseurs_agences_isolees_par_fournisseur(
+    db_session: AsyncSession,
+) -> None:
+    """Les agences d'un fournisseur ne doivent jamais apparaître sous un
+    autre (regroupement en mémoire par `fournisseur_id`, décision du
+    contrôleur)."""
+    fournisseur_1 = await _creer_fournisseur(db_session, nom="Fournisseur Un")
+    await _creer_fournisseur(db_session, nom="Fournisseur Deux")
+    db_session.add(
+        AgenceFournisseur(
+            fournisseur_id=fournisseur_1.id, nom="Agence Un", adresse=None
+        )
+    )
+    await db_session.commit()
+
+    fournisseurs = await lister_fournisseurs(db_session)
+
+    par_nom = {f.nom: f for f in fournisseurs}
+    ok = [a.nom for a in par_nom["Fournisseur Un"].agences] == [
+        "Agence Un"
+    ] and par_nom["Fournisseur Deux"].agences == []
+    assert ok, "les agences d'un fournisseur ne doivent pas apparaître sous un autre"
+
+
 # ---------------------------------------------------------------------------
 # valider_alias (L3-T8b)
 # ---------------------------------------------------------------------------

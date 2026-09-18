@@ -11,6 +11,7 @@ import {
   type Chantier,
   ChantierEnDoubleErreur,
   creerChantier,
+  type Fournisseur,
   listerChantiers,
   listerFournisseurs,
   obtenirChantiersSansDepot,
@@ -172,15 +173,35 @@ function SectionChantiers({ chantiers }: { chantiers: Chantier[] }): ReactElemen
   );
 }
 
-/** Section 2 : référentiel fournisseur. `GET /api/fournisseurs` n'expose à
- * ce jour que `id`/`nom` (`ingest.referentiels.FournisseurResume`) — les
- * agences d'un fournisseur (table `agence_fournisseur`) ne sont lues que
- * pour la résolution automatique (`normalize.fournisseur.resoudre_agence`)
- * et par la CLI `fournisseur-definir`, jamais renvoyées par une route de
- * lecture. Écart signalé au contrôleur (fiche L5-T8 §6 : « Fournisseurs et
- * leurs agences ») plutôt que d'ajouter une route ou de la deviner : cette
- * tâche ne construit aucune route (consigne du contrôleur). */
-function SectionFournisseurs({ fournisseurs }: { fournisseurs: { id: string; nom: string }[] }): ReactElement {
+/** Agences (points de vente) d'un fournisseur, dans la cellule
+ * correspondante du tableau (Ruling L5-R9, tour de correction 1 de L5-T8) :
+ * une liste à puces, l'adresse à la suite du nom quand elle est renseignée
+ * — jamais une somme, un tri ou un filtre calculé ici (déjà triées par
+ * l'API, `ingest.referentiels.lister_fournisseurs`). */
+function ListeAgences({ agences }: { agences: Fournisseur["agences"] }): ReactElement {
+  if (agences.length === 0) {
+    return <>{TIRET}</>;
+  }
+  return (
+    <ul className="list-disc space-y-0.5 pl-4">
+      {agences.map((agence) => (
+        <li key={agence.id}>
+          {agence.nom}
+          {agence.adresse !== null && (
+            <span className="text-slate-500"> · {agence.adresse}</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Section 2 : référentiel fournisseur et ses agences (points de vente,
+ * Ruling L5-R9, tour de correction 1 de L5-T8 : le point de vente est ce
+ * qui distingue deux dépôts d'un même fournisseur). `GET /api/fournisseurs`
+ * rend désormais `agences` pour chaque fournisseur (liste vide si aucune,
+ * jamais `null`) — plus d'écart à signaler ici. */
+function SectionFournisseurs({ fournisseurs }: { fournisseurs: Fournisseur[] }): ReactElement {
   return (
     <section>
       <h2 className="mb-3 text-base font-semibold text-slate-900">
@@ -190,27 +211,27 @@ function SectionFournisseurs({ fournisseurs }: { fournisseurs: { id: string; nom
         <p className="text-sm text-slate-600">Aucun fournisseur enregistré.</p>
       ) : (
         <div className={CLASSES_TABLEAU}>
-          <table className="w-full min-w-[320px] divide-y divide-slate-200 text-sm">
-            <caption className="sr-only">Référentiel des fournisseurs</caption>
+          <table className="w-full min-w-[480px] divide-y divide-slate-200 text-sm">
+            <caption className="sr-only">Référentiel des fournisseurs et de leurs agences</caption>
             <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
               <tr>
                 <th scope="col" className="px-4 py-3">Fournisseur</th>
+                <th scope="col" className="px-4 py-3">Agences (points de vente)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {fournisseurs.map((fournisseur) => (
                 <tr key={fournisseur.id}>
-                  <td className="px-4 py-3 font-medium text-slate-900">{fournisseur.nom}</td>
+                  <td className="px-4 py-3 font-medium text-slate-900 align-top">{fournisseur.nom}</td>
+                  <td className="px-4 py-3 text-slate-700">
+                    <ListeAgences agences={fournisseur.agences} />
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      <p className="mt-2 text-xs text-slate-500">
-        Les agences par fournisseur ne sont pas exposées par l'API à ce jour (signalé au
-        contrôleur).
-      </p>
     </section>
   );
 }

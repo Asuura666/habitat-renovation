@@ -1939,6 +1939,38 @@
     "title": "ATraiterReponse",
     "description": "`GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18),\ncomplété par `anomalies_hautes` (anomalies ouvertes de gravité haute,\nL4-D18)."
    },
+   "AgenceFournisseurReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "nom": {
+      "type": "string",
+      "title": "Nom"
+     },
+     "adresse": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Adresse"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "nom",
+     "adresse"
+    ],
+    "title": "AgenceFournisseurReponse",
+    "description": "Une agence (point de vente) d'un fournisseur, dans `GET /api\n/fournisseurs` (Ruling L5-R9, tour de correction 1 de L5-T8) — mêmes\nattributs qu'`ingest.referentiels.AgenceResume`."
+   },
    "AliasEnAttenteReponse": {
     "properties": {
      "id": {
@@ -3564,15 +3596,23 @@
      "nom": {
       "type": "string",
       "title": "Nom"
+     },
+     "agences": {
+      "items": {
+       "$ref": "#/components/schemas/AgenceFournisseurReponse"
+      },
+      "type": "array",
+      "title": "Agences"
      }
     },
     "type": "object",
     "required": [
      "id",
-     "nom"
+     "nom",
+     "agences"
     ],
     "title": "FournisseurReponse",
-    "description": "Une ligne de `GET /api/fournisseurs` — mêmes attributs qu'`ingest\n.referentiels.FournisseurResume`."
+    "description": "Une ligne de `GET /api/fournisseurs` — mêmes attributs qu'`ingest\n.referentiels.FournisseurResume`. `agences` : liste vide si le\nfournisseur n'en a aucune, jamais `null` (Ruling L5-R9)."
    },
    "HTTPValidationError": {
     "properties": {

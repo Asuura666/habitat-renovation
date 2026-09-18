@@ -428,14 +428,28 @@ class ChantierCreationRequete(BaseModel):
         return valeur
 
 
-class FournisseurReponse(BaseModel):
-    """Une ligne de `GET /api/fournisseurs` — mêmes attributs qu'`ingest
-    .referentiels.FournisseurResume`."""
+class AgenceFournisseurReponse(BaseModel):
+    """Une agence (point de vente) d'un fournisseur, dans `GET /api
+    /fournisseurs` (Ruling L5-R9, tour de correction 1 de L5-T8) — mêmes
+    attributs qu'`ingest.referentiels.AgenceResume`."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     nom: str
+    adresse: str | None
+
+
+class FournisseurReponse(BaseModel):
+    """Une ligne de `GET /api/fournisseurs` — mêmes attributs qu'`ingest
+    .referentiels.FournisseurResume`. `agences` : liste vide si le
+    fournisseur n'en a aucune, jamais `null` (Ruling L5-R9)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    nom: str
+    agences: list[AgenceFournisseurReponse]
 
 
 class ValidationAliasRequete(BaseModel):

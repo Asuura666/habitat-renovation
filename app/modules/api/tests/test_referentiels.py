@@ -309,8 +309,13 @@ async def test_get_fournisseurs_admin_liste(
     reponse = await _requete(app_test, "GET", "/api/fournisseurs", cookie=cookie)
 
     assert reponse.status_code == 200
-    ids = {f["id"] for f in reponse.json()}
+    corps = reponse.json()
+    ids = {f["id"] for f in corps}
     assert str(fournisseur.id) in ids
+    # Ruling L5-R9 (tour de correction 1 de L5-T8) : `agences` est toujours
+    # une liste, vide ici (aucune créée), jamais `null`.
+    ligne = next(f for f in corps if f["id"] == str(fournisseur.id))
+    assert ligne["agences"] == []
 
 
 # --------------------------------------------------------------------------

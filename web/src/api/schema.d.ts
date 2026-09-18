@@ -649,6 +649,23 @@ export interface components {
             anomalies_hautes: components["schemas"]["AnomalieReponse"][];
         };
         /**
+         * AgenceFournisseurReponse
+         * @description Une agence (point de vente) d'un fournisseur, dans `GET /api
+         *     /fournisseurs` (Ruling L5-R9, tour de correction 1 de L5-T8) — mêmes
+         *     attributs qu'`ingest.referentiels.AgenceResume`.
+         */
+        AgenceFournisseurReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Nom */
+            nom: string;
+            /** Adresse */
+            adresse: string | null;
+        };
+        /**
          * AliasEnAttenteReponse
          * @description Un alias chantier en attente de validation, dans `GET /api/a-traiter`
          *     — mêmes attributs qu'`ingest.a_traiter.AliasEnAttente`.
@@ -1178,7 +1195,8 @@ export interface components {
         /**
          * FournisseurReponse
          * @description Une ligne de `GET /api/fournisseurs` — mêmes attributs qu'`ingest
-         *     .referentiels.FournisseurResume`.
+         *     .referentiels.FournisseurResume`. `agences` : liste vide si le
+         *     fournisseur n'en a aucune, jamais `null` (Ruling L5-R9).
          */
         FournisseurReponse: {
             /**
@@ -1188,6 +1206,8 @@ export interface components {
             id: string;
             /** Nom */
             nom: string;
+            /** Agences */
+            agences: components["schemas"]["AgenceFournisseurReponse"][];
         };
         /** HTTPValidationError */
         HTTPValidationError: {

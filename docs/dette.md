@@ -472,3 +472,12 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   couvre pas le cas où la seule facturation attesterait d'une activité
   persistante ; à revoir si un signal combiné (BL + facture) devenait
   nécessaire.
+
+## L5-T8 fix1 — web (chantier inactif non désactivable)
+
+- **Le statut d'un chantier s'affiche mais ne se change pas.** L'écran
+  « Chantiers & fournisseurs » affiche `chantier.actif` (badge Actif/
+  Inactif), mais aucune route ne permet de désactiver ou de fermer un
+  chantier depuis l'application (`POST /api/chantiers` ne crée qu'avec
+  `actif=true`) ; à traiter quand la gestion du cycle de vie d'un chantier
+  (fermeture, réouverture) sera abordée.

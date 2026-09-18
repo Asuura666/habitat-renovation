@@ -1,6 +1,6 @@
-import type { ReactElement } from "react";
+import { type ReactElement, useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { NavLink, Outlet, useNavigate } from "react-router";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
 import { appelerApi } from "../api/client";
 import { CLE_MOI, recupererMoi } from "../api/moi";
@@ -29,8 +29,10 @@ function classesOnglet({ isActive }: { isActive: boolean }): string {
  * périmées. */
 export function Gabarit(): ReactElement {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { data: moi } = useQuery({ queryKey: CLE_MOI, queryFn: recupererMoi });
+  const navRef = useRef<HTMLElement>(null);
 
   const deconnexion = useMutation({
     mutationFn: () => appelerApi("/api/auth/logout", { method: "POST" }),
@@ -39,6 +41,20 @@ export function Gabarit(): ReactElement {
       navigate("/connexion", { replace: true });
     },
   });
+
+  // Onglet actif toujours atteignable sans que l'utilisateur devine qu'il
+  // doit défiler (L5-T8 fix1, Ruling L5-R9) : depuis que le bandeau défile
+  // horizontalement (cinq onglets ne tiennent plus à 375 px), un changement
+  // de route doit amener l'onglet actif dans la zone visible plutôt que de
+  // laisser le défilement là où il était sur l'écran précédent — mesuré
+  // sans ce correctif : « Chantiers » et « BL déposés » restaient hors
+  // champ après une navigation directe (ex. lien profond, rechargement).
+  // `"nearest"` sur les deux axes : jamais de défilement vertical de toute
+  // la page pour un ajustement purement horizontal du bandeau.
+  useEffect(() => {
+    const actif = navRef.current?.querySelector<HTMLElement>("a[aria-current='page']");
+    actif?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [location.pathname]);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -65,6 +81,7 @@ export function Gabarit(): ReactElement {
 
       {moi && (
         <nav
+          ref={navRef}
           aria-label="Navigation principale"
           className="overflow-x-auto border-b border-slate-200 bg-white px-4 sm:px-6"
         >
