@@ -8,11 +8,12 @@ intégration) pendant que l'arbre principal avançait sur `ingest`/`api`/
 `web`, avec intégration par report de commits. Aucune donnée réelle
 (numéro, chantier, montant, nom, SIRET/TVA, contenu de fichier client) dans
 ce document : comptes et taux uniquement, comme les recettes des lots
-précédents. **Rien n'est fusionné dans `main`** : le lot reste sur sa
-branche. Les 11 tâches techniques (L4-T1 à L4-T11) sont faites et relues,
-chaque revue de tâche s'est refermée sans point ouvert ; il reste la revue
-finale de l'ensemble de la branche avant fusion (mandat de fusion déjà donné
-par Ilane le 17/09/2026, cf. `docs/passation-lot-4.md` §3.1).
+précédents. Les 11 tâches techniques (L4-T1 à L4-T11) sont faites et
+relues, chaque revue de tâche s'est refermée sans point ouvert, et la
+**revue finale de l'ensemble de la branche a eu lieu** : elle a trouvé un
+défaut critique et trois points importants, tous corrigés et re-relus (§1.1).
+Le lot est donc clos côté code et prêt à fusionner dans `main` (mandat de
+fusion donné par Ilane le 17/09/2026, cf. `docs/passation-lot-4.md` §3.1).
 
 ## À lire d'abord (Ilane)
 
@@ -76,6 +77,31 @@ par Ilane le 17/09/2026, cf. `docs/passation-lot-4.md` §3.1).
 | L4-T10 | `e070805` + correction `3a0a01b` | `web: écran Anomalies` + `web: quantités formatées à la française`. Revue → spec ✅, qualité bonne ; 3 points Important : quantités affichées avec un point décimal à côté de montants en français (corrigé par ce tour) ; 9 règles sur 12 sans lien vers leur facture (déjà pris en charge par la deuxième correction de L4-T7, rien à refaire ici) ; le correctif d'un plantage sur une valeur absente n'a aucun test automatisé (dette front déjà connue, aucun outillage de test côté front). Re-revue → 1 point corrigé, aucun ouvert. 2 points mineurs reportés. Terminé. |
 | L4-T11 | `c342580` | `ingest/cli: contrôles différés et rejeu du rapprochement`. Revue → spec ✅, qualité solide, aucun point Critical ; un point Important préexistant relevé (la résolution du chantier d'une anomalie en lecture ne regardait jamais le chantier propre à l'anomalie elle-même), pris en charge par la deuxième correction de L4-T7 ci-dessus. 2 points mineurs reportés. Terminé. |
 | L4-T12 | (ce commit) | `docs: recette et passation du lot 4` — ce document, `docs/passation-lot-4.md`, `docs/dette.md` et `CLAUDE.md` mis à jour. |
+
+### 1.1 Revue finale de la branche
+
+Les revues ci-dessus ne voyaient chacune qu'une tâche. Une revue finale a
+ensuite relu **l'ensemble de la branche**, découpée en trois périmètres
+menés en parallèle : le moteur de règles, l'orchestration et la base, puis
+l'interface. Elle a trouvé ce que les revues par tâche ne pouvaient pas
+voir.
+
+| Ce qui a été trouvé | Gravité | Suite donnée |
+| --- | --- | --- |
+| Archiver une facture laissait ses anomalies ouvertes pour toujours, et ses lignes restaient comptées comme facturées par les contrôles de suivi — un vrai trou de facturation serait resté invisible | Important | Corrigé (`ac3ecc3`) : l'archivage purge les anomalies de la facture et les contrôles de suivi ignorent ses blocs |
+| La validation d'un bon de livraison pouvait finir en erreur 500 alors que la validation elle-même était bien enregistrée, si le rejeu du rapprochement échouait | Critical | Corrigé (`c5bf1c1`) |
+| Les bornes du filtre de période de l'écran Anomalies étaient envoyées sans fuseau, avec un décalage silencieux de 1 à 2 h par rapport au jour choisi | Important | Corrigé (`4618b97`, puis `c87ed2e` côté front) : une borne est une date, le serveur la convertit lui-même en journée parisienne |
+| « Une facture validée n'est jamais rapprochée » | Critical annoncé | **Écarté après vérification** : une facture ne peut pas être validée depuis l'application, les routes de correction ne reconnaissent que les bons de livraison. Aucun code ajouté ; la vraie limite est consignée dans `docs/dette.md` |
+| Le filtre par règle n'était pas validé : une faute de frappe rendait une liste vide au lieu d'une erreur | Mineur | Corrigé (`9a1bb55`) |
+| La comparaison de quantités ne vérifiait le type de ligne que du côté facture | Mineur | Corrigé (`1db9e7d`) |
+| Les deux mises en page de l'écran Anomalies posaient le même identifiant de champ de commentaire | Mineur | Corrigé (`cc0a721`) |
+
+La correction du filtre de période a elle-même introduit une régression —
+le serveur attendait désormais une date, le front continuait d'envoyer une
+heure, et la liste d'anomalies renvoyait une erreur dès qu'on renseignait
+la borne haute. La re-revue de la vague l'a attrapée ; elle est corrigée
+(`c87ed2e`), avec un garde-fou versionné, faute d'outillage de test côté
+front.
 
 ## 2. Décisions
 
@@ -218,13 +244,13 @@ dépôt, jamais commitées).
 
 ### Suite complète et qualité (dernière vérification de branche)
 
-Sur la branche complète, au commit `3a0a01b` :
+Sur la branche complète, après la revue finale et ses corrections (§1.1) :
 
 ```bash
 uv run pytest -q
 ```
 ```
-1139 passed
+1149 passed
 ```
 ```bash
 uv run ruff check
@@ -232,13 +258,13 @@ uv run ruff format --check
 ```
 ```
 All checks passed!
-175 files already formatted
+180 files already formatted
 ```
 ```bash
 uv run mypy
 ```
 ```
-Success: no issues found in 150 source files
+Success: no issues found in 153 source files
 ```
 ```bash
 npm --prefix web run typecheck

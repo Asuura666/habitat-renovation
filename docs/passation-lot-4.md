@@ -18,8 +18,14 @@ foi), `docs/passation-lot-3.md` (lot précédent), `docs/lot-4-recette.md`
   Chaque revue de tâche s'est refermée sans point ouvert, y compris après
   correction quand une revue en avait relevé (détail commit par commit et
   revue par revue dans `docs/lot-4-recette.md` §1). **La revue finale de
-  l'ensemble de la branche reste à faire** avant la fusion dans `main` —
-  elle n'a pas encore eu lieu au moment de la rédaction de ce document.
+  l'ensemble de la branche a eu lieu**, menée en trois périmètres parallèles
+  (moteur de règles, orchestration et base, interface) : elle a trouvé un
+  défaut critique — la validation d'un bon de livraison pouvait finir en
+  erreur alors qu'elle était bien enregistrée — et trois points importants,
+  dont l'archivage d'une facture qui laissait ses anomalies ouvertes pour
+  toujours. Tous corrigés, re-relus, et détaillés dans
+  `docs/lot-4-recette.md` §1.1. Un constat critique annoncé a été écarté
+  après vérification (§4).
 - **Deux arbres de travail simultanés**, comme au lot 3 : l'arbre principal
   (`/home/debian/habitat_reno`, branche `lot-4-rapprochement`) et un arbre
   séparé (`/home/debian/habitat_reno-wt-l4`, branche `lot-4-pur`, supprimé
@@ -241,8 +247,8 @@ valables) :
 
 **Prérequis avant de commencer** :
 1. Fusionner `lot-4-rapprochement` dans `main` (mandat déjà donné, §3.1) —
-   revue finale de la branche complète d'abord (elle n'a pas encore eu
-   lieu, §1), puis vérifier la suite complète sur le résultat fusionné
+   la revue finale de la branche complète est faite et ses corrections
+   intégrées (§1) ; vérifier la suite complète sur le résultat fusionné
    avant de supprimer la branche.
 2. Relire `docs/dette.md` (sections des lots 3 et 4 en particulier) et les
    questions ouvertes (§4 ci-dessus) — en particulier l'accès Google Drive,

@@ -73,8 +73,9 @@ Lots 1 (Socle), 2 (Collecte) et 3 (Extraction) faits et fusionnés dans
 `main`. Lot 4 (Rapprochement) fait sur la branche `lot-4-rapprochement`
 (dépôt `/home/debian/habitat_reno`), **pas encore fusionné dans `main`** :
 les 11 tâches techniques sont faites et relues, chaque revue de tâche s'est
-refermée sans point ouvert, mais la revue finale de l'ensemble de la
-branche n'a pas encore eu lieu. **Avant tout travail, lire
+refermée sans point ouvert, et la revue finale de l'ensemble de la branche
+a eu lieu — un défaut critique et trois points importants trouvés, tous
+corrigés et re-relus (`docs/lot-4-recette.md` §1.1). **Avant tout travail, lire
 `docs/passation-lot-4.md`** (état, décisions, questions ouvertes, méthode,
 pièges rencontrés, point de départ du lot 5) et `docs/passation-lot-3.md`/
 `docs/passation-lots-1-2.md` pour les lots précédents. Recettes :
