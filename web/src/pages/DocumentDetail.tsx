@@ -22,7 +22,13 @@ import {
   relancerExtraction,
   validerDocument,
 } from "../api/documents";
-import { CLE_FOURNISSEURS, type Fournisseur, listerFournisseurs } from "../api/referentiels";
+import {
+  CLE_CHANTIERS,
+  CLE_CHANTIERS_SILENCIEUX,
+  CLE_FOURNISSEURS,
+  type Fournisseur,
+  listerFournisseurs,
+} from "../api/referentiels";
 import { formaterDate, formaterDateHeure, formaterMontant, formaterQuantite, TIRET } from "../lib/formats";
 import { libelleMotif } from "../lib/motifs";
 
@@ -971,6 +977,19 @@ export function DocumentDetail(): ReactElement {
     enabled: enEditionEntete,
   });
 
+  /** Écriture réussie, quelle que soit la mutation (correction d'en-tête,
+   * correction de lignes, validation, relance d'extraction, archivage —
+   * toutes partagent ce même point de sortie). Invalide aussi les
+   * référentiels chantier (Ruling L5-R11, tour de correction 3 de L5-T8) :
+   * la correction d'en-tête (`chantier_brut` modifié) et la relance
+   * d'extraction (`ingest.extraction_bl._extraire_et_committer` réécrit
+   * `document.chantier_id` à chaque relance, y compris quand le chantier
+   * résolu ne change pas) réécrivent toutes deux le champ sur lequel
+   * repose le calcul du silence — même trou que `valider_alias`/`creer
+   * _chantier` sur l'écran « Chantiers & fournisseurs », corrigé ici pour
+   * ce même symptôme sur cet écran-ci. Validation et archivage ne touchent
+   * jamais `chantier_id` : l'invalidation est inoffensive pour eux (elle
+   * ne fait que marquer une liste non montée comme périmée). */
   function surEcriture(detail: DocumentDetailApi): void {
     if (id === undefined) {
       return;
@@ -978,6 +997,8 @@ export function DocumentDetail(): ReactElement {
     queryClient.setQueryData(cleDocument(id), detail);
     void queryClient.invalidateQueries({ queryKey: CLE_A_TRAITER });
     void queryClient.invalidateQueries({ queryKey: CLE_DOCUMENTS });
+    void queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS });
+    void queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS_SILENCIEUX });
   }
 
   /** Fix round 1 (revue L3-T10), corrigé au fix round 2 : une correction
