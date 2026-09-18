@@ -595,6 +595,8 @@ async def test_depots_par_agent_admin_200(
     lignes = {ligne["agent_id"]: ligne for ligne in reponse.json()}
     assert str(agent_sans_depot.id) in lignes
     assert lignes[str(agent_sans_depot.id)]["nombre_depots"] == 0
+    # Tour de correction 1 bis : `role` traverse jusqu'à la réponse JSON.
+    assert lignes[str(agent_sans_depot.id)]["role"] == "agent"
 
 
 async def test_chantiers_silencieux_anonyme_renvoie_401(

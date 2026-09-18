@@ -2882,6 +2882,10 @@
       "type": "string",
       "title": "Email"
      },
+     "role": {
+      "type": "string",
+      "title": "Role"
+     },
      "nombre_depots": {
       "type": "integer",
       "title": "Nombre Depots"
@@ -2892,10 +2896,11 @@
      "agent_id",
      "nom",
      "email",
+     "role",
      "nombre_depots"
     ],
     "title": "DepotAgentReponse",
-    "description": "Une ligne de `GET /api/referentiels/depots-par-agent` (L5-T7) —\nmêmes attributs qu'`ingest.referentiels_vue.DepotAgent`."
+    "description": "Une ligne de `GET /api/referentiels/depots-par-agent` (L5-T7) —\nmêmes attributs qu'`ingest.referentiels_vue.DepotAgent`. `role`\n(tour de correction 1 bis) : la valeur brute de `Utilisateur.role`,\npour distinguer un administrateur d'un agent depuis que la liste peut\ncontenir les deux (Ruling L5-R7)."
    },
    "DocumentATraiterReponse": {
     "properties": {

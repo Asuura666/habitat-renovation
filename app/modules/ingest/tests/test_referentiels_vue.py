@@ -114,6 +114,7 @@ async def test_depots_par_agent_agent_sans_depot_apparait_avec_zero(
             agent_id=agent.id,
             nom="Agent Sans Dépôt",
             email=agent.email,
+            role="agent",
             nombre_depots=0,
         )
     ]
@@ -129,7 +130,13 @@ async def test_depots_par_agent_depot_hors_fenetre_non_compte(
     resultat = await depots_par_agent(db_session, jours=30)
 
     assert resultat == [
-        DepotAgent(agent_id=agent.id, nom=agent.nom, email=agent.email, nombre_depots=1)
+        DepotAgent(
+            agent_id=agent.id,
+            nom=agent.nom,
+            email=agent.email,
+            role="agent",
+            nombre_depots=1,
+        )
     ]
 
 
@@ -144,7 +151,13 @@ async def test_depots_par_agent_compte_quel_que_soit_le_statut(
     resultat = await depots_par_agent(db_session, jours=30)
 
     assert resultat == [
-        DepotAgent(agent_id=agent.id, nom=agent.nom, email=agent.email, nombre_depots=1)
+        DepotAgent(
+            agent_id=agent.id,
+            nom=agent.nom,
+            email=agent.email,
+            role="agent",
+            nombre_depots=1,
+        )
     ]
 
 
@@ -176,8 +189,32 @@ async def test_depots_par_agent_administrateur_ayant_depose_apparait(
     resultat = await depots_par_agent(db_session)
 
     assert resultat == [
-        DepotAgent(agent_id=admin.id, nom=admin.nom, email=admin.email, nombre_depots=1)
+        DepotAgent(
+            agent_id=admin.id,
+            nom=admin.nom,
+            email=admin.email,
+            role="admin",
+            nombre_depots=1,
+        )
     ]
+
+
+async def test_depots_par_agent_expose_le_role_reel(
+    db_session: AsyncSession,
+) -> None:
+    """Le champ `role` distingue un agent d'un administrateur ayant déposé
+    (tour de correction 1 bis, prolongement du Ruling L5-R7) : depuis que la
+    liste peut contenir un administrateur, rien d'autre dans la sortie ne
+    permettrait de le distinguer d'un agent — un écran qui l'ignorerait
+    ferait croire à un agent de plus."""
+    agent = await _creer_utilisateur(db_session, role="agent", nom="Agent Rôle")
+    admin = await _creer_utilisateur(db_session, role="admin", nom="Admin Rôle")
+    await _creer_document(db_session, deposant=admin, created_at=_il_y_a(1))
+
+    resultat = {ligne.agent_id: ligne for ligne in await depots_par_agent(db_session)}
+
+    assert resultat[agent.id].role == "agent"
+    assert resultat[admin.id].role == "admin"
 
 
 async def test_depots_par_agent_serre_la_limite_du_jour_parisien(
@@ -207,7 +244,13 @@ async def test_depots_par_agent_serre_la_limite_du_jour_parisien(
     resultat = await depots_par_agent(db_session, jours=jours)
 
     assert resultat == [
-        DepotAgent(agent_id=agent.id, nom=agent.nom, email=agent.email, nombre_depots=1)
+        DepotAgent(
+            agent_id=agent.id,
+            nom=agent.nom,
+            email=agent.email,
+            role="agent",
+            nombre_depots=1,
+        )
     ]
 
 

@@ -535,13 +535,17 @@ class LigneBilanBlReponse(BaseModel):
 
 class DepotAgentReponse(BaseModel):
     """Une ligne de `GET /api/referentiels/depots-par-agent` (L5-T7) —
-    mêmes attributs qu'`ingest.referentiels_vue.DepotAgent`."""
+    mêmes attributs qu'`ingest.referentiels_vue.DepotAgent`. `role`
+    (tour de correction 1 bis) : la valeur brute de `Utilisateur.role`,
+    pour distinguer un administrateur d'un agent depuis que la liste peut
+    contenir les deux (Ruling L5-R7)."""
 
     model_config = ConfigDict(from_attributes=True)
 
     agent_id: uuid.UUID
     nom: str | None
     email: str
+    role: str
     nombre_depots: int
 
 

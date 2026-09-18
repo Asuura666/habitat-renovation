@@ -60,6 +60,12 @@ Décisions du contrôleur (L5-T7) :
   `chantier_id` en dernière clé (`Chantier.nom_canonique` n'est pas
   garanti unique en base) — même correctif, pour la même raison, que
   `ingest.bilan.bilan_par_chantier` (tour de correction 1).
+- Tour de correction 1 bis : `DepotAgent.role` (valeur brute de
+  `Utilisateur.role`) expose désormais le rôle réel de chaque ligne. Depuis
+  le Ruling L5-R7, la liste peut contenir un administrateur ; sans ce
+  champ, rien ne le distinguerait d'un agent de terrain dans un écran qui
+  affiche cette vue — la confusion serait celle-là même que le Ruling
+  L5-R7 cherchait à éviter, déplacée du calcul vers l'affichage.
 """
 
 from __future__ import annotations
@@ -99,11 +105,19 @@ class DepotAgent:
     la liste de référence — tout agent (`Utilisateur.role == 'agent'`),
     actif ou non, plus tout compte ayant effectivement déposé sur la
     fenêtre quel que soit son rôle (Ruling L5-R7) — et son nombre de dépôts
-    (`0` pour un agent qui n'a rien déposé)."""
+    (`0` pour un agent qui n'a rien déposé).
+
+    `role` (valeur brute de `Utilisateur.role`, tour de correction 1 bis) :
+    depuis que la liste peut contenir un administrateur, `agent_id` seul ne
+    suffit plus à distinguer un agent de terrain d'un administrateur ayant
+    déposé — un écran qui l'ignorerait ferait croire à un agent de plus.
+    `agent_id` garde son nom d'origine (pas de renommage : une cascade sans
+    bénéfice, `role` lève l'ambiguïté à lui seul)."""
 
     agent_id: uuid.UUID
     nom: str | None
     email: str
+    role: str
     nombre_depots: int
 
 
@@ -136,6 +150,7 @@ async def depots_par_agent(
             Utilisateur.id,
             Utilisateur.nom,
             Utilisateur.email,
+            Utilisateur.role,
             func.coalesce(depots.c.nombre_depots, 0),
         )
         .select_from(Utilisateur)
@@ -149,8 +164,10 @@ async def depots_par_agent(
         .order_by(Utilisateur.nom.asc().nulls_last(), Utilisateur.email.asc())
     )
     return [
-        DepotAgent(agent_id=agent_id, nom=nom, email=email, nombre_depots=nombre)
-        for agent_id, nom, email, nombre in resultat.all()
+        DepotAgent(
+            agent_id=agent_id, nom=nom, email=email, role=role, nombre_depots=nombre
+        )
+        for agent_id, nom, email, role, nombre in resultat.all()
     ]
 
 
