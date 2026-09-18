@@ -18,8 +18,9 @@ function classesOnglet({ isActive }: { isActive: boolean }): string {
 }
 
 /** Gabarit de l'application : en-tête (nom, rôle, déconnexion), onglets de
- * navigation (décision du contrôleur : « À traiter » et « Factures »
- * réservés à l'admin, L3-D18 ; « BL déposés » ouvert aux deux rôles) et
+ * navigation (décision du contrôleur : « À traiter », « Anomalies » (L4-D17,
+ * juste après « À traiter ») et « Factures » réservés à l'admin, L3-D18 ;
+ * « BL déposés » ouvert aux deux rôles) et
  * contenu de la route active (`<Outlet />`). N'est monté qu'à l'intérieur de
  * `RouteProtegee`, donc `["moi"]` est déjà en cache (même clé de requête) :
  * pas d'appel réseau supplémentaire tant que les données ne sont pas jugées
@@ -68,6 +69,11 @@ export function Gabarit(): ReactElement {
                 <li>
                   <NavLink to="/a-traiter" className={classesOnglet}>
                     À traiter
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink to="/anomalies" className={classesOnglet}>
+                    Anomalies
                   </NavLink>
                 </li>
                 <li>

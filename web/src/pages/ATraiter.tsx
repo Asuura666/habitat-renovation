@@ -9,6 +9,7 @@ import {
   type DocumentATraiter,
   obtenirATraiter,
 } from "../api/aTraiter";
+import type { Anomalie } from "../api/anomalies";
 import { ErreurApi } from "../api/client";
 import {
   CLE_CHANTIERS,
@@ -21,6 +22,7 @@ import {
 } from "../api/referentiels";
 import { formaterDateHeure, TIRET } from "../lib/formats";
 import { libelleMotif } from "../lib/motifs";
+import { justification, libelleRegle } from "../lib/regles";
 
 /** `type` d'un document « à vérifier » (BL, enlèvement ou facture, L3-D18) :
  * présentation uniquement, décision du contrôleur — même principe que
@@ -48,6 +50,64 @@ function libelleTypeDocument(type: string): string {
  * ici. */
 function cheminDocument(document: DocumentATraiter): string {
   return document.type === "facture" ? `/factures/${document.id}` : `/documents/${document.id}`;
+}
+
+/** Même logique que `cheminDocument` ci-dessus, appliquée à une anomalie
+ * (`document_id`/`type` d'`AnomalieReponse`) : `null` si l'anomalie n'a pas
+ * de document rattaché (R14 — alias, R16 — chantier, décision du
+ * contrôleur, jamais le cas ici car la section ne montre que des anomalies
+ * de gravité haute, mais la garde reste défensive). */
+function cheminDocumentAnomalie(anomalie: Anomalie): string | null {
+  if (anomalie.document_id === null) {
+    return null;
+  }
+  return anomalie.type === "facture" ? `/factures/${anomalie.document_id}` : `/documents/${anomalie.document_id}`;
+}
+
+function BadgeHaute(): ReactElement {
+  return (
+    <span className="inline-flex shrink-0 items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
+      Haute
+    </span>
+  );
+}
+
+/** Carte compacte d'une anomalie « ouverte de gravité haute » (L4-D18) :
+ * règle, justification chiffrée et lien vers le document source — jamais
+ * les actions « Traitée »/« Ignorée » (elles vivent sur l'écran complet,
+ * `pages/Anomalies.tsx`, vers lequel cette section renvoie). */
+function AnomalieHauteCarte({ anomalie }: { anomalie: Anomalie }): ReactElement {
+  const chemin = cheminDocumentAnomalie(anomalie);
+  return (
+    <li className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+        <p className="text-sm font-semibold text-slate-900">{libelleRegle(anomalie.regle)}</p>
+        <BadgeHaute />
+      </div>
+      <p className="mb-2 text-sm text-slate-700">{justification(anomalie)}</p>
+      {chemin !== null && (
+        <Link
+          to={chemin}
+          className="text-sm font-medium text-blue-700 underline outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+        >
+          {anomalie.type === "facture" ? "Voir la facture" : "Voir le document"}
+        </Link>
+      )}
+    </li>
+  );
+}
+
+function SectionAnomaliesHautes({ anomalies }: { anomalies: Anomalie[] }): ReactElement {
+  if (anomalies.length === 0) {
+    return <p className="text-sm text-slate-600">Rien à traiter.</p>;
+  }
+  return (
+    <ul className="space-y-3">
+      {anomalies.map((anomalie) => (
+        <AnomalieHauteCarte key={anomalie.id} anomalie={anomalie} />
+      ))}
+    </ul>
+  );
 }
 
 function BadgeEcart(): ReactElement {
@@ -493,11 +553,12 @@ function ArticleCarte({ article }: { article: ArticleAValider }): ReactElement {
   );
 }
 
-/** Écran « À traiter » de l'admin (L3-D18), mobile d'abord : documents « à
- * vérifier » (BL, enlèvements, factures), alias chantier en attente de
- * validation et articles à valider. Réservé à l'admin par `GardeAdmin` (voir
- * `App.tsx`) : aucune vérification de rôle ici. Rafraîchi toutes les 30 s
- * (décision du contrôleur). */
+/** Écran « À traiter » de l'admin (L3-D18), mobile d'abord : anomalies
+ * ouvertes de gravité haute (L4-D18, section ajoutée avant les documents),
+ * documents « à vérifier » (BL, enlèvements, factures), alias chantier en
+ * attente de validation et articles à valider. Réservé à l'admin par
+ * `GardeAdmin` (voir `App.tsx`) : aucune vérification de rôle ici. Rafraîchi
+ * toutes les 30 s (décision du contrôleur). */
 export function ATraiter(): ReactElement {
   const aTraiter = useQuery({
     queryKey: CLE_A_TRAITER,
@@ -523,6 +584,21 @@ export function ATraiter(): ReactElement {
 
       {aTraiter.data && (
         <>
+          <section>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-base font-semibold text-slate-900">
+                Anomalies à traiter ({aTraiter.data.anomalies_hautes.length})
+              </h2>
+              <Link
+                to="/anomalies"
+                className="text-sm font-medium text-blue-700 underline outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              >
+                Voir toutes les anomalies
+              </Link>
+            </div>
+            <SectionAnomaliesHautes anomalies={aTraiter.data.anomalies_hautes} />
+          </section>
+
           <section>
             <h2 className="mb-3 text-base font-semibold text-slate-900">
               Documents à vérifier ({aTraiter.data.documents.length})

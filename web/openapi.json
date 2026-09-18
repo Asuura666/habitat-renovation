@@ -835,6 +835,223 @@
     }
    }
   },
+  "/api/anomalies": {
+   "get": {
+    "summary": "Lister Anomalies Endpoint",
+    "operationId": "lister_anomalies_endpoint_api_anomalies_get",
+    "parameters": [
+     {
+      "name": "regle",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Regle"
+      }
+     },
+     {
+      "name": "gravite",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "enum": [
+          "haute",
+          "moyenne",
+          "basse"
+         ],
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Gravite"
+      }
+     },
+     {
+      "name": "statut",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "ouverte",
+        "traitee",
+        "ignoree",
+        "toutes"
+       ],
+       "type": "string",
+       "default": "ouverte",
+       "title": "Statut"
+      }
+     },
+     {
+      "name": "chantier_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uuid"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Chantier Id"
+      }
+     },
+     {
+      "name": "fournisseur_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uuid"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Fournisseur Id"
+      }
+     },
+     {
+      "name": "depuis",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Depuis"
+      }
+     },
+     {
+      "name": "jusqu_a",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Jusqu A"
+      }
+     },
+     {
+      "name": "limite",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 500,
+       "minimum": 1,
+       "default": 100,
+       "title": "Limite"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/AnomalieReponse"
+         },
+         "title": "Response Lister Anomalies Endpoint Api Anomalies Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/anomalies/{anomalie_id}/traitement": {
+   "post": {
+    "summary": "Traiter Anomalie Endpoint",
+    "operationId": "traiter_anomalie_endpoint_api_anomalies__anomalie_id__traitement_post",
+    "parameters": [
+     {
+      "name": "anomalie_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Anomalie Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TraitementAnomalieRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnomalieReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/health": {
    "get": {
     "summary": "Health",
@@ -877,16 +1094,24 @@
       },
       "type": "array",
       "title": "Articles"
+     },
+     "anomalies_hautes": {
+      "items": {
+       "$ref": "#/components/schemas/AnomalieReponse"
+      },
+      "type": "array",
+      "title": "Anomalies Hautes"
      }
     },
     "type": "object",
     "required": [
      "documents",
      "alias",
-     "articles"
+     "articles",
+     "anomalies_hautes"
     ],
     "title": "ATraiterReponse",
-    "description": "`GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18)."
+    "description": "`GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18),\ncomplété par `anomalies_hautes` (anomalies ouvertes de gravité haute,\nL4-D18)."
    },
    "AliasEnAttenteReponse": {
     "properties": {
@@ -935,6 +1160,224 @@
     ],
     "title": "AliasEnAttenteReponse",
     "description": "Un alias chantier en attente de validation, dans `GET /api/a-traiter`\n— mêmes attributs qu'`ingest.a_traiter.AliasEnAttente`."
+   },
+   "AnomalieReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "regle": {
+      "type": "string",
+      "title": "Regle"
+     },
+     "gravite": {
+      "type": "string",
+      "title": "Gravite"
+     },
+     "statut": {
+      "type": "string",
+      "title": "Statut"
+     },
+     "detail": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Detail"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     },
+     "traitee_le": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Traitee Le"
+     },
+     "traitee_par": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Traitee Par"
+     },
+     "commentaire": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Commentaire"
+     },
+     "document_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Id"
+     },
+     "numero_interne": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero Interne"
+     },
+     "type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Type"
+     },
+     "numero": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero"
+     },
+     "bloc_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Bloc Id"
+     },
+     "numero_bl": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero Bl"
+     },
+     "chantier_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chantier Id"
+     },
+     "chantier": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chantier"
+     },
+     "fournisseur_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fournisseur Id"
+     },
+     "fournisseur": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fournisseur"
+     },
+     "bl_document_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Bl Document Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "regle",
+     "gravite",
+     "statut",
+     "detail",
+     "cree_le",
+     "traitee_le",
+     "traitee_par",
+     "commentaire",
+     "document_id",
+     "numero_interne",
+     "type",
+     "numero",
+     "bloc_id",
+     "numero_bl",
+     "chantier_id",
+     "chantier",
+     "fournisseur_id",
+     "fournisseur",
+     "bl_document_id"
+    ],
+    "title": "AnomalieReponse",
+    "description": "Une anomalie, telle qu'exposée par `GET /api/anomalies` et par\n`POST /api/anomalies/{id}/traitement` — mêmes attributs qu'`ingest\n.anomalies.AnomalieLue`. `detail` est exposé tel quel (`dict[str,\nstr]`, décision du contrôleur) : la phrase de justification est\nconstruite côté front à partir de ce champ (L4-D17), jamais ici."
    },
    "ArchivageRequete": {
     "properties": {
@@ -2714,6 +3157,31 @@
     ],
     "title": "MotifReponse",
     "description": "Un motif de mise « à vérifier » (L3-T7), tel que renvoyé par `GET\n/api/factures`/`GET /api/factures/{id}` (réutilisé par L3-T8a/L3-T8b) —\nmêmes champs qu'`ingest.lecture.MotifLu`."
+   },
+   "TraitementAnomalieRequete": {
+    "properties": {
+     "statut": {
+      "type": "string",
+      "enum": [
+       "traitee",
+       "ignoree"
+      ],
+      "title": "Statut"
+     },
+     "commentaire": {
+      "type": "string",
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Commentaire"
+     }
+    },
+    "type": "object",
+    "required": [
+     "statut",
+     "commentaire"
+    ],
+    "title": "TraitementAnomalieRequete",
+    "description": "Corps de `POST /api/anomalies/{id}/traitement` (L4-D15) : `statut`\nrestreint aux deux transitions autorisées (`Literal`, un `statut` hors\nde cet ensemble est un 422, jamais transmis au service), commentaire\nobligatoire (1 à 500 caractères, blanc refusé — même convention que\n`ArchivageRequete` ci-dessus)."
    },
    "ValidationAliasReponse": {
     "properties": {

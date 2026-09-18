@@ -342,6 +342,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/anomalies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lister Anomalies Endpoint */
+        get: operations["lister_anomalies_endpoint_api_anomalies_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/anomalies/{anomalie_id}/traitement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Traiter Anomalie Endpoint */
+        post: operations["traiter_anomalie_endpoint_api_anomalies__anomalie_id__traitement_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -369,7 +403,9 @@ export interface components {
     schemas: {
         /**
          * ATraiterReponse
-         * @description `GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18).
+         * @description `GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18),
+         *     complété par `anomalies_hautes` (anomalies ouvertes de gravité haute,
+         *     L4-D18).
          */
         ATraiterReponse: {
             /** Documents */
@@ -378,6 +414,8 @@ export interface components {
             alias: components["schemas"]["AliasEnAttenteReponse"][];
             /** Articles */
             articles: components["schemas"]["ArticleAValiderReponse"][];
+            /** Anomalies Hautes */
+            anomalies_hautes: components["schemas"]["AnomalieReponse"][];
         };
         /**
          * AliasEnAttenteReponse
@@ -403,6 +441,64 @@ export interface components {
              * Format: date-time
              */
             cree_le: string;
+        };
+        /**
+         * AnomalieReponse
+         * @description Une anomalie, telle qu'exposée par `GET /api/anomalies` et par
+         *     `POST /api/anomalies/{id}/traitement` — mêmes attributs qu'`ingest
+         *     .anomalies.AnomalieLue`. `detail` est exposé tel quel (`dict[str,
+         *     str]`, décision du contrôleur) : la phrase de justification est
+         *     construite côté front à partir de ce champ (L4-D17), jamais ici.
+         */
+        AnomalieReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Regle */
+            regle: string;
+            /** Gravite */
+            gravite: string;
+            /** Statut */
+            statut: string;
+            /** Detail */
+            detail: {
+                [key: string]: string;
+            };
+            /**
+             * Cree Le
+             * Format: date-time
+             */
+            cree_le: string;
+            /** Traitee Le */
+            traitee_le: string | null;
+            /** Traitee Par */
+            traitee_par: string | null;
+            /** Commentaire */
+            commentaire: string | null;
+            /** Document Id */
+            document_id: string | null;
+            /** Numero Interne */
+            numero_interne: number | null;
+            /** Type */
+            type: string | null;
+            /** Numero */
+            numero: string | null;
+            /** Bloc Id */
+            bloc_id: string | null;
+            /** Numero Bl */
+            numero_bl: string | null;
+            /** Chantier Id */
+            chantier_id: string | null;
+            /** Chantier */
+            chantier: string | null;
+            /** Fournisseur Id */
+            fournisseur_id: string | null;
+            /** Fournisseur */
+            fournisseur: string | null;
+            /** Bl Document Id */
+            bl_document_id: string | null;
         };
         /**
          * ArchivageRequete
@@ -952,6 +1048,23 @@ export interface components {
             detail: {
                 [key: string]: string;
             };
+        };
+        /**
+         * TraitementAnomalieRequete
+         * @description Corps de `POST /api/anomalies/{id}/traitement` (L4-D15) : `statut`
+         *     restreint aux deux transitions autorisées (`Literal`, un `statut` hors
+         *     de cet ensemble est un 422, jamais transmis au service), commentaire
+         *     obligatoire (1 à 500 caractères, blanc refusé — même convention que
+         *     `ArchivageRequete` ci-dessus).
+         */
+        TraitementAnomalieRequete: {
+            /**
+             * Statut
+             * @enum {string}
+             */
+            statut: "traitee" | "ignoree";
+            /** Commentaire */
+            commentaire: string;
         };
         /**
          * ValidationAliasReponse
@@ -1643,6 +1756,79 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lister_anomalies_endpoint_api_anomalies_get: {
+        parameters: {
+            query?: {
+                regle?: string | null;
+                gravite?: ("haute" | "moyenne" | "basse") | null;
+                statut?: "ouverte" | "traitee" | "ignoree" | "toutes";
+                chantier_id?: string | null;
+                fournisseur_id?: string | null;
+                depuis?: string | null;
+                jusqu_a?: string | null;
+                limite?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnomalieReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    traiter_anomalie_endpoint_api_anomalies__anomalie_id__traitement_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                anomalie_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TraitementAnomalieRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnomalieReponse"];
+                };
             };
             /** @description Validation Error */
             422: {
