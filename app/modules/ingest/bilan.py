@@ -69,11 +69,42 @@ sommes) plutôt que combinés et triés en Python : `ORDER BY` avec
 `chantier_id` comme dernière clé de tri, pour que deux chantiers de même
 nom et de même montant facturé ne puissent plus s'échanger d'un appel à
 l'autre.
-"""
+
+L5-T2 : niveaux fournisseur et BL, plus la vue inverse. Décision du
+contrôleur (le vrai enjeu de la tâche) : ne jamais réécrire les quatre
+montants une deuxième fois. `_sous_requete_blocs`/`_sous_requete_anomalies`
+(les deux sous-requêtes ci-dessus, désormais partagées) et
+`_expressions_montants` (les quatre `CASE WHEN`/le compte, ci-dessus)
+portent le calcul une seule fois pour les cinq fonctions du module ; seule
+la clé de regroupement change (`Chantier`, `Fournisseur`, ou l'identité du
+bloc lui-même pour le niveau BL) : `_bilan_par_chantier_interne` est
+partagée par `bilan_par_chantier` et sa vue inverse
+`bilan_chantiers_du_fournisseur`, `_bilan_par_fournisseur_interne` par
+`bilan_par_fournisseur` et sa vue inverse `bilan_par_fournisseur_global` —
+un filtre de périmètre supplémentaire (`filtre_perimetre`, une fonction de
+la sous-requête `blocs` vers une condition SQL) est la seule différence
+entre une fonction et sa vue inverse, exactement ce que demandait la
+décision du contrôleur (« si [la vue inverse] a besoin d'une requête
+différente, c'est que la factorisation n'est pas la bonne »).
+
+Le fournisseur d'un bloc n'est jamais recalculé comme le chantier : une
+facture porte son fournisseur (`Document.fournisseur_id`), un bloc n'en a
+pas de propre (pas de `chantier_brut`/`chantier_id` équivalent), donc pas
+de `COALESCE` ici -- juste `Document.fournisseur_id`, nul quand la facture
+n'a pas de fournisseur résolu. Même règle que pour le chantier (décision du
+contrôleur) : un bloc sans fournisseur résolu ne disparaît pas, il rejoint
+une ligne `fournisseur_id=None`.
+
+Le niveau BL (décision du contrôleur) est le bloc de facture, pas le
+document BL : c'est le bloc qui porte le montant facturé et le statut de
+rapprochement. `bl_document_id`/`facture_id` sont renvoyés tels quels
+(`bl_document_id` reste `None` tant que la photo du BL n'a pas été
+retrouvée par le rapprochement, L4-D4)."""
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -83,7 +114,14 @@ from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.fuseau import FUSEAU_PARIS
-from app.modules.ingest.models import Anomalie, BlocFacture, Chantier, Document, Ligne
+from app.modules.ingest.models import (
+    Anomalie,
+    BlocFacture,
+    Chantier,
+    Document,
+    Fournisseur,
+    Ligne,
+)
 
 # Règles de quantité et de prix (CDC §5) : les seules dont une anomalie
 # ouverte fait entrer un bloc dans « en écart » (décision du contrôleur,
@@ -141,6 +179,39 @@ class LigneBilanChantier:
     montants: MontantsBilan
 
 
+@dataclass(frozen=True)
+class LigneBilanFournisseur:
+    """Une ligne du bilan au niveau fournisseur (L5-T2), dans un chantier
+    donné ou au niveau global de la vue inverse. `fournisseur_id=None`
+    regroupe les blocs dont le fournisseur n'a pas pu être résolu (la
+    facture porteuse n'a pas de `fournisseur_id`, décision du contrôleur —
+    même principe que `LigneBilanChantier.chantier_id=None`) : `nom` vaut
+    alors `None`, c'est au front de nommer cette ligne."""
+
+    fournisseur_id: uuid.UUID | None
+    nom: str | None
+    montants: MontantsBilan
+
+
+@dataclass(frozen=True)
+class LigneBilanBl:
+    """Une ligne du bilan au niveau BL (L5-T2) : un bloc de facture
+    (« Concerne le B.L. n°... »), pas le document BL lui-même — décision du
+    contrôleur, c'est le bloc qui porte le montant facturé et le statut de
+    rapprochement. `bl_document_id` est renseigné quand la photo du BL a
+    été retrouvée par le rapprochement (L4-D4), `None` sinon : c'est ce qui
+    permet au front d'ouvrir le document source. `facture_id` identifie la
+    facture porteuse du bloc."""
+
+    bloc_id: uuid.UUID
+    numero_bl: str | None
+    date_bl: date | None
+    statut_rapprochement: str | None
+    bl_document_id: uuid.UUID | None
+    facture_id: uuid.UUID
+    montants: MontantsBilan
+
+
 def _premier_jour_mois_suivant(premier_jour: date) -> date:
     """Premier jour du mois calendaire suivant `premier_jour` (qui doit
     déjà être un 1er du mois) — calcul en stdlib pur, comme
@@ -189,57 +260,60 @@ def _condition_mois(mois: date) -> Any:
     )
 
 
-async def bilan_par_chantier(
-    session: AsyncSession,
-    *,
-    mois: date | None,
-    agence: str | None,
-) -> list[LigneBilanChantier]:
-    """Bilan agrégé par chantier (L5-T1), trié par `facture_ht` décroissant
-    puis par nom de chantier puis par `chantier_id` (tour de correction 1 :
-    dernière clé de tri, pour que deux chantiers de même nom et de même
-    montant ne s'échangent jamais d'un appel à l'autre) — la ligne
-    `chantier_id=None` (blocs sans chantier résolu) se départage en dernier
-    à montant égal (`nom_canonique` absent, Postgres place les `NULL` en
-    dernier pour un tri ascendant par défaut).
+@dataclass(frozen=True)
+class _ExpressionsMontants:
+    """Les quatre montants (L5-D3) et le compte d'anomalies ouvertes
+    (Ruling L5-R4), sous forme d'expressions SQL agrégées -- calculées une
+    seule fois par `_expressions_montants` et réutilisées par les cinq
+    fonctions publiques du module. Champs typés `Any` : ce sont des
+    expressions SQLAlchemy (`func.sum(...)`/`case(...)`), pas des valeurs,
+    comme les autres expressions de ce module (`_condition_mois`)."""
 
-    Deux sous-requêtes agrégées, combinées et triées par la requête
-    elle-même (tour de correction 1 : jamais un tri Python sur une liste
-    déjà construite) :
+    facture_ht: Any
+    rapproche: Any
+    en_ecart: Any
+    non_justifie: Any
+    nb_anomalies_ouvertes: Any
 
-    1. `blocs` : une ligne par bloc du périmètre (facture non archivée,
-       mois filtré si fourni) — chantier résolu, statut de rapprochement,
-       montant HT (somme des lignes "article"/"eco" du bloc, `0` si
-       aucune) ;
-    2. `anomalies` : une ligne par bloc portant au moins une anomalie
-       **ouverte**, avec deux comptes côte à côte (`FILTER`, clause SQL
-       standard sur une fonction d'agrégat) : le total (Ruling L5-R4) et le
-       sous-ensemble `REGLES_QUANTITE_OU_PRIX` (matière de `en_ecart`).
 
-    Les deux ne sont jamais jointes directement à `ligne` dans la même
-    requête : un JOIN direct entre `ligne` et `anomalie` sur le même bloc
-    multiplierait les lignes de chacun par l'autre et fausserait les
-    sommes — chacune est d'abord agrégée par bloc dans sa propre
-    sous-requête (même principe que `rapprochement._construire_historiques`
-    / `suivi._chantiers_suivis`), puis les deux sont jointes 1-à-1 par
-    `bloc_id` avant l'agrégation finale par chantier.
-
-    Un bloc de facture archivée n'entre dans aucun montant (`Document.statut
-    != "archive"`, même formulation que le lot 4)."""
+def _conditions_base(mois: date | None) -> list[Any]:
+    """Conditions communes aux cinq niveaux du bilan : type facture, non
+    archivée (même formulation que le lot 4), plus le filtre mois (L5-D4)
+    si fourni."""
     conditions: list[Any] = [
         Document.type == "facture",
         Document.statut != "archive",
     ]
     if mois is not None:
         conditions.append(_condition_mois(mois))
+    return conditions
 
-    blocs = (
+
+def _sous_requete_blocs(conditions: list[Any]) -> Any:
+    """Sous-requête commune aux cinq niveaux du bilan (L5-T1, étendue en
+    L5-T2) : une ligne par bloc du périmètre (`conditions`), avec le
+    chantier résolu (`COALESCE(bloc_facture.chantier_id,
+    document.chantier_id)`, constat 2 du plan), le fournisseur résolu
+    (`Document.fournisseur_id` -- une facture porte son fournisseur, un
+    bloc n'a pas de `chantier_brut`/`chantier_id` équivalent pour le
+    fournisseur, donc pas de `COALESCE` ici), le statut de rapprochement,
+    le montant HT (somme des lignes "article"/"eco" du bloc, `0` si
+    aucune), plus les champs propres au niveau BL (`numero_bl`, `date_bl`,
+    `bl_document_id`, `facture_id`) : ces colonnes supplémentaires ne
+    coûtent rien aux niveaux chantier et fournisseur, qui ne les
+    sélectionnent simplement pas dans la requête englobante."""
+    return (
         select(
             BlocFacture.id.label("bloc_id"),
             func.coalesce(BlocFacture.chantier_id, Document.chantier_id).label(
                 "chantier_id"
             ),
+            Document.fournisseur_id.label("fournisseur_id"),
             BlocFacture.statut_rapprochement.label("statut_rapprochement"),
+            BlocFacture.numero_bl.label("numero_bl"),
+            BlocFacture.date_bl.label("date_bl"),
+            BlocFacture.bl_document_id.label("bl_document_id"),
+            BlocFacture.facture_id.label("facture_id"),
             func.coalesce(func.sum(Ligne.montant_ht), Decimal("0")).label("montant_ht"),
         )
         .select_from(BlocFacture)
@@ -256,17 +330,28 @@ async def bilan_par_chantier(
             BlocFacture.id,
             BlocFacture.chantier_id,
             Document.chantier_id,
+            Document.fournisseur_id,
             BlocFacture.statut_rapprochement,
+            BlocFacture.numero_bl,
+            BlocFacture.date_bl,
+            BlocFacture.bl_document_id,
+            BlocFacture.facture_id,
         )
         .subquery()
     )
 
-    # `Anomalie.bloc_id` est toujours renseigné depuis le Ruling L5-R3 pour
-    # toute anomalie de facture rattachée à une ligne -- R10/R11 (contrôles
-    # de document entier, jamais rattachés à un bloc) restent donc hors de
-    # ce compte : une anomalie sur la totalité de la facture n'appartient à
-    # aucun chantier précis.
-    anomalies = (
+
+def _sous_requete_anomalies() -> Any:
+    """Sous-requête commune aux cinq niveaux du bilan : une ligne par bloc
+    portant au moins une anomalie **ouverte**, avec deux comptes côte à
+    côte (`FILTER`, clause SQL standard sur une fonction d'agrégat) : le
+    total (Ruling L5-R4) et le sous-ensemble `REGLES_QUANTITE_OU_PRIX`
+    (matière de `en_ecart`). `Anomalie.bloc_id` est toujours renseigné
+    depuis le Ruling L5-R3 pour toute anomalie de facture rattachée à une
+    ligne -- R10/R11 (contrôles de document entier, jamais rattachés à un
+    bloc) restent donc hors de ce compte : une anomalie sur la totalité de
+    la facture n'appartient à aucun chantier ni fournisseur précis."""
+    return (
         select(
             Anomalie.bloc_id.label("bloc_id"),
             func.count().label("nb_total"),
@@ -279,74 +364,342 @@ async def bilan_par_chantier(
         .subquery()
     )
 
-    facture_ht = func.sum(blocs.c.montant_ht)
-    rapproche = func.sum(
-        case((blocs.c.statut_rapprochement == "recu", blocs.c.montant_ht), else_=0)
+
+def _expressions_montants(blocs: Any, anomalies: Any) -> _ExpressionsMontants:
+    """Les quatre montants et le compte d'anomalies (L5-D3/Ruling L5-R4),
+    à partir des deux sous-requêtes ci-dessus -- le point que la revue de
+    L5-T1 réclamait de ne jamais recopier. `blocs` et `anomalies` doivent
+    déjà être joints par la requête appelante
+    (`outerjoin(anomalies, anomalies.c.bloc_id == blocs.c.bloc_id)`), sans
+    quoi `anomalies.c.*` n'est pas résoluble par le moteur SQL. Ces
+    expressions sont des agrégats (`func.sum`/`func.count`) : la requête
+    englobante peut les grouper par n'importe quelle clé (chantier,
+    fournisseur, ou l'identité du bloc lui-même pour le niveau BL, où
+    chaque groupe ne contient jamais plus d'une ligne `blocs`) sans changer
+    un seul `CASE WHEN`."""
+    return _ExpressionsMontants(
+        facture_ht=func.sum(blocs.c.montant_ht),
+        rapproche=func.sum(
+            case((blocs.c.statut_rapprochement == "recu", blocs.c.montant_ht), else_=0)
+        ),
+        en_ecart=func.sum(
+            case(
+                (func.coalesce(anomalies.c.nb_qte_prix, 0) > 0, blocs.c.montant_ht),
+                else_=0,
+            )
+        ),
+        non_justifie=func.sum(
+            case(
+                (
+                    blocs.c.statut_rapprochement.in_(_STATUTS_NON_JUSTIFIE),
+                    blocs.c.montant_ht,
+                ),
+                else_=0,
+            )
+        ),
+        nb_anomalies_ouvertes=func.coalesce(
+            func.sum(func.coalesce(anomalies.c.nb_total, 0)), 0
+        ),
     )
-    en_ecart = func.sum(
-        case(
-            (func.coalesce(anomalies.c.nb_qte_prix, 0) > 0, blocs.c.montant_ht),
-            else_=0,
-        )
+
+
+def _montants_bilan(ligne: Any) -> MontantsBilan:
+    """Extrait les cinq colonnes de montants d'une ligne de résultat --
+    partagé par les cinq fonctions publiques, qui sélectionnent toutes ces
+    colonnes sous les mêmes noms (`facture_ht`, `rapproche`, `en_ecart`,
+    `non_justifie`, `nb_anomalies_ouvertes`, via `_expressions_montants`)."""
+    return MontantsBilan(
+        facture_ht=ligne.facture_ht,
+        rapproche=ligne.rapproche,
+        en_ecart=ligne.en_ecart,
+        non_justifie=ligne.non_justifie,
+        nb_anomalies_ouvertes=ligne.nb_anomalies_ouvertes,
     )
-    non_justifie = func.sum(
-        case(
-            (
-                blocs.c.statut_rapprochement.in_(_STATUTS_NON_JUSTIFIE),
-                blocs.c.montant_ht,
-            ),
-            else_=0,
-        )
-    )
-    nb_anomalies_ouvertes = func.coalesce(
-        func.sum(func.coalesce(anomalies.c.nb_total, 0)), 0
-    )
+
+
+def _condition_agence(blocs: Any, agence: str) -> Any:
+    """Filtre par agence (L5-D6) : l'agence est un attribut du chantier
+    résolu du bloc, jamais du bloc lui-même. Exprimé par une sous-requête
+    corrélée sur les chantiers de cette agence plutôt que par une jointure,
+    pour s'appliquer identiquement que le niveau englobant groupe par
+    chantier, par fournisseur ou par bloc -- le chantier n'y est alors pas
+    forcément joint pour l'affichage (ex. `bilan_par_fournisseur`)."""
+    return blocs.c.chantier_id.in_(select(Chantier.id).where(Chantier.agence == agence))
+
+
+def _condition_exact_ou_nul(colonne: Any, valeur: uuid.UUID | None) -> Any:
+    """Condition d'égalité sur une colonne résolue d'un bloc (`chantier_id`
+    ou `fournisseur_id`) qui accepte `valeur=None` : sélectionne alors les
+    blocs dont cette colonne n'a pas pu être résolue (décision du
+    contrôleur -- le « chantier non résolu » ou le « fournisseur non
+    résolu » d'un périmètre, jamais silencieusement ignorés), plutôt que de
+    ne rien filtrer."""
+    return colonne.is_(None) if valeur is None else colonne == valeur
+
+
+async def _bilan_par_chantier_interne(
+    session: AsyncSession,
+    *,
+    mois: date | None,
+    agence: str | None,
+    filtre_perimetre: Callable[[Any], Any] | None,
+) -> list[LigneBilanChantier]:
+    """Construction partagée par `bilan_par_chantier` et sa vue inverse
+    `bilan_chantiers_du_fournisseur` (L5-T2) : même regroupement par
+    chantier, `filtre_perimetre` (une fonction de la sous-requête `blocs`
+    vers une condition SQL) porte le seul filtre de périmètre propre à
+    l'appelant -- aucun pour `bilan_par_chantier`, un fournisseur donné pour
+    `bilan_chantiers_du_fournisseur`. Si la vue inverse avait besoin d'une
+    requête différente, la factorisation serait la mauvaise (décision du
+    contrôleur) : elle n'en a pas besoin.
+
+    Triée par `facture_ht` décroissant puis par nom de chantier puis par
+    `chantier_id` (tour de correction 1, L5-T1 : dernière clé de tri, pour
+    que deux chantiers de même nom et de même montant ne s'échangent jamais
+    d'un appel à l'autre) -- la ligne `chantier_id=None` (blocs sans
+    chantier résolu) se départage en dernier à montant égal."""
+    blocs = _sous_requete_blocs(_conditions_base(mois))
+    anomalies = _sous_requete_anomalies()
+    montants = _expressions_montants(blocs, anomalies)
 
     requete = (
         select(
-            Chantier.id,
-            Chantier.nom_canonique,
-            Chantier.agence,
-            facture_ht.label("facture_ht"),
-            rapproche.label("rapproche"),
-            en_ecart.label("en_ecart"),
-            non_justifie.label("non_justifie"),
-            nb_anomalies_ouvertes.label("nb_anomalies_ouvertes"),
+            Chantier.id.label("chantier_id"),
+            Chantier.nom_canonique.label("nom_canonique"),
+            Chantier.agence.label("agence"),
+            montants.facture_ht.label("facture_ht"),
+            montants.rapproche.label("rapproche"),
+            montants.en_ecart.label("en_ecart"),
+            montants.non_justifie.label("non_justifie"),
+            montants.nb_anomalies_ouvertes.label("nb_anomalies_ouvertes"),
         )
         .select_from(blocs)
         .outerjoin(anomalies, anomalies.c.bloc_id == blocs.c.bloc_id)
         .outerjoin(Chantier, Chantier.id == blocs.c.chantier_id)
         .group_by(Chantier.id, Chantier.nom_canonique, Chantier.agence)
     )
+    if filtre_perimetre is not None:
+        requete = requete.where(filtre_perimetre(blocs))
     if agence is not None:
-        requete = requete.where(Chantier.agence == agence)
+        requete = requete.where(_condition_agence(blocs, agence))
 
     requete = requete.order_by(
-        facture_ht.desc(), Chantier.nom_canonique.asc(), Chantier.id.asc()
+        montants.facture_ht.desc(), Chantier.nom_canonique.asc(), Chantier.id.asc()
     )
 
     lignes = (await session.execute(requete)).all()
     return [
         LigneBilanChantier(
-            chantier_id=chantier_id,
-            nom_canonique=nom_canonique,
-            agence=chantier_agence,
-            montants=MontantsBilan(
-                facture_ht=montant_facture_ht,
-                rapproche=montant_rapproche,
-                en_ecart=montant_en_ecart,
-                non_justifie=montant_non_justifie,
-                nb_anomalies_ouvertes=nb_anomalies,
-            ),
+            chantier_id=ligne.chantier_id,
+            nom_canonique=ligne.nom_canonique,
+            agence=ligne.agence,
+            montants=_montants_bilan(ligne),
         )
-        for (
-            chantier_id,
-            nom_canonique,
-            chantier_agence,
-            montant_facture_ht,
-            montant_rapproche,
-            montant_en_ecart,
-            montant_non_justifie,
-            nb_anomalies,
-        ) in lignes
+        for ligne in lignes
+    ]
+
+
+async def bilan_par_chantier(
+    session: AsyncSession,
+    *,
+    mois: date | None,
+    agence: str | None,
+) -> list[LigneBilanChantier]:
+    """Bilan agrégé par chantier (L5-T1). Un bloc de facture archivée
+    n'entre dans aucun montant (`Document.statut != "archive"`, même
+    formulation que le lot 4). Voir `_bilan_par_chantier_interne` pour la
+    construction (partagée avec la vue inverse, L5-T2)."""
+    return await _bilan_par_chantier_interne(
+        session, mois=mois, agence=agence, filtre_perimetre=None
+    )
+
+
+async def bilan_chantiers_du_fournisseur(
+    session: AsyncSession,
+    *,
+    fournisseur_id: uuid.UUID | None,
+    mois: date | None,
+    agence: str | None,
+) -> list[LigneBilanChantier]:
+    """Vue inverse (L5-T2), second niveau : bilan agrégé par chantier,
+    restreint aux blocs d'un fournisseur donné (`fournisseur_id=None`
+    sélectionne le fournisseur non résolu, décision du contrôleur). Même
+    construction que `bilan_par_chantier` (`_bilan_par_chantier_interne`),
+    avec ce filtre de périmètre en plus -- point d'entrée de la navigation
+    « du fournisseur vers le chantier »."""
+    return await _bilan_par_chantier_interne(
+        session,
+        mois=mois,
+        agence=agence,
+        filtre_perimetre=lambda blocs: _condition_exact_ou_nul(
+            blocs.c.fournisseur_id, fournisseur_id
+        ),
+    )
+
+
+async def _bilan_par_fournisseur_interne(
+    session: AsyncSession,
+    *,
+    mois: date | None,
+    agence: str | None,
+    filtre_perimetre: Callable[[Any], Any] | None,
+) -> list[LigneBilanFournisseur]:
+    """Construction partagée par `bilan_par_fournisseur` et sa vue inverse
+    `bilan_par_fournisseur_global` (L5-T2) : même principe que
+    `_bilan_par_chantier_interne`, groupé par fournisseur plutôt que par
+    chantier."""
+    blocs = _sous_requete_blocs(_conditions_base(mois))
+    anomalies = _sous_requete_anomalies()
+    montants = _expressions_montants(blocs, anomalies)
+
+    requete = (
+        select(
+            Fournisseur.id.label("fournisseur_id"),
+            Fournisseur.nom.label("nom"),
+            montants.facture_ht.label("facture_ht"),
+            montants.rapproche.label("rapproche"),
+            montants.en_ecart.label("en_ecart"),
+            montants.non_justifie.label("non_justifie"),
+            montants.nb_anomalies_ouvertes.label("nb_anomalies_ouvertes"),
+        )
+        .select_from(blocs)
+        .outerjoin(anomalies, anomalies.c.bloc_id == blocs.c.bloc_id)
+        .outerjoin(Fournisseur, Fournisseur.id == blocs.c.fournisseur_id)
+        .group_by(Fournisseur.id, Fournisseur.nom)
+    )
+    if filtre_perimetre is not None:
+        requete = requete.where(filtre_perimetre(blocs))
+    if agence is not None:
+        requete = requete.where(_condition_agence(blocs, agence))
+
+    requete = requete.order_by(
+        montants.facture_ht.desc(), Fournisseur.nom.asc(), Fournisseur.id.asc()
+    )
+
+    lignes = (await session.execute(requete)).all()
+    return [
+        LigneBilanFournisseur(
+            fournisseur_id=ligne.fournisseur_id,
+            nom=ligne.nom,
+            montants=_montants_bilan(ligne),
+        )
+        for ligne in lignes
+    ]
+
+
+async def bilan_par_fournisseur(
+    session: AsyncSession,
+    *,
+    chantier_id: uuid.UUID | None,
+    mois: date | None,
+    agence: str | None,
+) -> list[LigneBilanFournisseur]:
+    """Bilan agrégé par fournisseur (L5-T2), restreint aux blocs d'un
+    chantier donné (`chantier_id=None` sélectionne le chantier non résolu,
+    même principe qu'un `chantier_id=None` en sortie de
+    `bilan_par_chantier`, décision du contrôleur). Les blocs sans
+    fournisseur résolu sont regroupés sous une ligne `fournisseur_id=None`,
+    jamais ignorés (même règle que pour le chantier). Voir
+    `_bilan_par_fournisseur_interne` pour la construction (partagée avec la
+    vue inverse)."""
+    return await _bilan_par_fournisseur_interne(
+        session,
+        mois=mois,
+        agence=agence,
+        filtre_perimetre=lambda blocs: _condition_exact_ou_nul(
+            blocs.c.chantier_id, chantier_id
+        ),
+    )
+
+
+async def bilan_par_fournisseur_global(
+    session: AsyncSession,
+    *,
+    mois: date | None,
+    agence: str | None,
+) -> list[LigneBilanFournisseur]:
+    """Vue inverse (L5-T2), premier niveau : bilan agrégé par fournisseur
+    sur l'ensemble des chantiers -- même construction que
+    `bilan_par_fournisseur` (`_bilan_par_fournisseur_interne`), sans filtre
+    de périmètre par chantier. Point d'entrée de la navigation « du
+    fournisseur vers le chantier »."""
+    return await _bilan_par_fournisseur_interne(
+        session, mois=mois, agence=agence, filtre_perimetre=None
+    )
+
+
+async def bilan_par_bl(
+    session: AsyncSession,
+    *,
+    chantier_id: uuid.UUID | None,
+    fournisseur_id: uuid.UUID | None,
+    mois: date | None,
+) -> list[LigneBilanBl]:
+    """Bilan agrégé au niveau BL (L5-T2) : une ligne par bloc de facture
+    (« Concerne le B.L. n°... »), restreint à un chantier et un fournisseur
+    donnés (`None` sélectionne le côté non résolu de chacun, même principe
+    que les deux niveaux précédents). Le niveau BL est le bloc, pas le
+    document BL (décision du contrôleur) : c'est le bloc qui porte le
+    montant facturé. Pas de paramètre `agence` (absent de la fiche pour ce
+    niveau -- le chantier est déjà fixé par `chantier_id`, l'agence n'y
+    ajoute aucune restriction supplémentaire).
+
+    Même construction que les deux niveaux précédents
+    (`_sous_requete_blocs`/`_sous_requete_anomalies`/
+    `_expressions_montants`), mais groupée sur l'identité du bloc lui-même
+    (déjà la granularité de `_sous_requete_blocs`) plutôt que sur un
+    référentiel joint : chaque groupe ne contient donc jamais plus d'une
+    ligne `blocs` et au plus une ligne `anomalies` -- l'agrégat `func.sum`
+    d'un groupe à une seule ligne renvoie simplement cette ligne."""
+    blocs = _sous_requete_blocs(_conditions_base(mois))
+    anomalies = _sous_requete_anomalies()
+    montants = _expressions_montants(blocs, anomalies)
+
+    requete = (
+        select(
+            blocs.c.bloc_id,
+            blocs.c.numero_bl,
+            blocs.c.date_bl,
+            blocs.c.statut_rapprochement,
+            blocs.c.bl_document_id,
+            blocs.c.facture_id,
+            montants.facture_ht.label("facture_ht"),
+            montants.rapproche.label("rapproche"),
+            montants.en_ecart.label("en_ecart"),
+            montants.non_justifie.label("non_justifie"),
+            montants.nb_anomalies_ouvertes.label("nb_anomalies_ouvertes"),
+        )
+        .select_from(blocs)
+        .outerjoin(anomalies, anomalies.c.bloc_id == blocs.c.bloc_id)
+        .group_by(
+            blocs.c.bloc_id,
+            blocs.c.numero_bl,
+            blocs.c.date_bl,
+            blocs.c.statut_rapprochement,
+            blocs.c.bl_document_id,
+            blocs.c.facture_id,
+        )
+        .where(
+            _condition_exact_ou_nul(blocs.c.chantier_id, chantier_id),
+            _condition_exact_ou_nul(blocs.c.fournisseur_id, fournisseur_id),
+        )
+        .order_by(
+            montants.facture_ht.desc(),
+            blocs.c.numero_bl.asc(),
+            blocs.c.bloc_id.asc(),
+        )
+    )
+
+    lignes = (await session.execute(requete)).all()
+    return [
+        LigneBilanBl(
+            bloc_id=ligne.bloc_id,
+            numero_bl=ligne.numero_bl,
+            date_bl=ligne.date_bl,
+            statut_rapprochement=ligne.statut_rapprochement,
+            bl_document_id=ligne.bl_document_id,
+            facture_id=ligne.facture_id,
+            montants=_montants_bilan(ligne),
+        )
+        for ligne in lignes
     ]

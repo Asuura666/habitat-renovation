@@ -1,4 +1,5 @@
-"""Tests de `ingest/bilan.py` (L5-T1) : agrégats du bilan par chantier.
+"""Tests de `ingest/bilan.py` : agrégats du bilan par chantier (L5-T1), par
+fournisseur et par BL, plus la vue inverse (L5-T2).
 
 Base de test réelle (`bl_test`), données entièrement inventées (R17).
 `db_session` (fixture locale, `app/modules/ingest/tests/conftest.py`) vide
@@ -17,7 +18,16 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.fuseau import FUSEAU_PARIS
-from app.modules.ingest.bilan import LigneBilanChantier, bilan_par_chantier
+from app.modules.ingest.bilan import (
+    LigneBilanBl,
+    LigneBilanChantier,
+    LigneBilanFournisseur,
+    bilan_chantiers_du_fournisseur,
+    bilan_par_bl,
+    bilan_par_chantier,
+    bilan_par_fournisseur,
+    bilan_par_fournisseur_global,
+)
 from app.modules.ingest.models import (
     Anomalie,
     Article,
@@ -93,6 +103,7 @@ async def _creer_bloc(
     numero_bl: str | None = "L0001",
     chantier_id: uuid.UUID | None = None,
     statut_rapprochement: str | None = "recu",
+    bl_document_id: uuid.UUID | None = None,
 ) -> BlocFacture:
     bloc = BlocFacture(
         facture_id=facture.id,
@@ -100,11 +111,49 @@ async def _creer_bloc(
         numero_bl=numero_bl,
         chantier_id=chantier_id,
         statut_rapprochement=statut_rapprochement,
+        bl_document_id=bl_document_id,
     )
     db_session.add(bloc)
     await db_session.commit()
     await db_session.refresh(bloc)
     return bloc
+
+
+async def _creer_document_bl(db_session: AsyncSession) -> Document:
+    """Un document BL minimal (données inventées), utilisé uniquement pour
+    fournir un `bl_document_id` valide à un bloc de facture (niveau BL,
+    L5-T2) -- son contenu réel n'importe pas à ces tests."""
+    document = Document(
+        type="bl",
+        source="telegram",
+        statut="recu",
+        fichier_path=f"chemin-invente-{uuid.uuid4()}.jpg",
+    )
+    db_session.add(document)
+    await db_session.commit()
+    await db_session.refresh(document)
+    return document
+
+
+async def _creer_facture_sans_fournisseur(
+    db_session: AsyncSession, *, numero: str = "F-SANS-FOURN"
+) -> Document:
+    """Une facture sans fournisseur résolu (`fournisseur_id=None`) :
+    `_creer_facture` exige un `Fournisseur`, ce cas a besoin d'en construire
+    une directement (données inventées, comme le reste du module)."""
+    document = Document(
+        type="facture",
+        source="upload",
+        statut="recu",
+        fichier_path=f"chemin-invente-{uuid.uuid4()}.pdf",
+        numero=numero,
+        fournisseur_id=None,
+        date_doc=date(2026, 8, 15),
+    )
+    db_session.add(document)
+    await db_session.commit()
+    await db_session.refresh(document)
+    return document
 
 
 async def _creer_ligne(
@@ -182,6 +231,115 @@ def _ligne_du_chantier(
         if ligne.chantier_id == chantier_id:
             return ligne
     return None
+
+
+def _ligne_du_fournisseur(
+    lignes: list[LigneBilanFournisseur], fournisseur_id: uuid.UUID | None
+) -> LigneBilanFournisseur | None:
+    """La ligne de bilan portant `fournisseur_id`, `None` si absente."""
+    for ligne in lignes:
+        if ligne.fournisseur_id == fournisseur_id:
+            return ligne
+    return None
+
+
+def _ligne_du_bl(lignes: list[LigneBilanBl], bloc_id: uuid.UUID) -> LigneBilanBl | None:
+    """La ligne de bilan portant `bloc_id`, `None` si absente."""
+    for ligne in lignes:
+        if ligne.bloc_id == bloc_id:
+            return ligne
+    return None
+
+
+def _somme_montants(montants: list[Any]) -> dict[str, Decimal | int]:
+    """Somme composant par composant d'une liste de `MontantsBilan` --
+    utilitaire des tests d'invariant (§ »cohérence entre niveaux« ci-dessous,
+    décision du contrôleur) : la somme des fournisseurs d'un chantier doit
+    égaler ce chantier, et la somme des BL d'un fournisseur doit égaler ce
+    fournisseur."""
+    return {
+        "facture_ht": sum((m.facture_ht for m in montants), Decimal("0")),
+        "rapproche": sum((m.rapproche for m in montants), Decimal("0")),
+        "en_ecart": sum((m.en_ecart for m in montants), Decimal("0")),
+        "non_justifie": sum((m.non_justifie for m in montants), Decimal("0")),
+        "nb_anomalies_ouvertes": sum(m.nb_anomalies_ouvertes for m in montants),
+    }
+
+
+def _montants_dict(montants: Any) -> dict[str, Decimal | int]:
+    """Un `MontantsBilan` sous la même forme que `_somme_montants`, pour les
+    comparer directement."""
+    return {
+        "facture_ht": montants.facture_ht,
+        "rapproche": montants.rapproche,
+        "en_ecart": montants.en_ecart,
+        "non_justifie": montants.non_justifie,
+        "nb_anomalies_ouvertes": montants.nb_anomalies_ouvertes,
+    }
+
+
+async def _construire_jeu_non_trivial(
+    db_session: AsyncSession,
+) -> tuple[Chantier, Fournisseur, Fournisseur, BlocFacture, BlocFacture, BlocFacture]:
+    """Jeu de données non trivial (décision du contrôleur : plusieurs
+    fournisseurs, plusieurs blocs, au moins une anomalie ouverte), réutilisé
+    par les tests de cohérence entre niveaux et de vue inverse : un
+    chantier, deux fournisseurs, trois blocs (un reçu, un non reçu, un reçu
+    portant une anomalie de quantité ouverte)."""
+    chantier = await _creer_chantier(db_session, nom="Chantier Multi")
+    fournisseur_1 = await _creer_fournisseur(db_session, nom="Fournisseur Un")
+    fournisseur_2 = await _creer_fournisseur(db_session, nom="Fournisseur Deux")
+
+    facture_1a = await _creer_facture(
+        db_session, fournisseur=fournisseur_1, numero="F1A"
+    )
+    bloc_1a = await _creer_bloc(
+        db_session,
+        facture=facture_1a,
+        chantier_id=chantier.id,
+        numero_bl="BL-1A",
+        statut_rapprochement="recu",
+    )
+    await _creer_ligne(
+        db_session, document=facture_1a, bloc=bloc_1a, montant_ht=Decimal("100.00")
+    )
+
+    facture_1b = await _creer_facture(
+        db_session, fournisseur=fournisseur_1, numero="F1B"
+    )
+    bloc_1b = await _creer_bloc(
+        db_session,
+        facture=facture_1b,
+        chantier_id=chantier.id,
+        numero_bl="BL-1B",
+        statut_rapprochement="non_recu",
+    )
+    await _creer_ligne(
+        db_session, document=facture_1b, bloc=bloc_1b, montant_ht=Decimal("50.00")
+    )
+
+    facture_2a = await _creer_facture(
+        db_session, fournisseur=fournisseur_2, numero="F2A"
+    )
+    bloc_2a = await _creer_bloc(
+        db_session,
+        facture=facture_2a,
+        chantier_id=chantier.id,
+        numero_bl="BL-2A",
+        statut_rapprochement="recu",
+    )
+    ligne_2a = await _creer_ligne(
+        db_session, document=facture_2a, bloc=bloc_2a, montant_ht=Decimal("70.00")
+    )
+    await _creer_anomalie(
+        db_session,
+        regle="R04",
+        statut="ouverte",
+        bloc_id=bloc_2a.id,
+        ligne_id=ligne_2a.id,
+    )
+
+    return chantier, fournisseur_1, fournisseur_2, bloc_1a, bloc_1b, bloc_2a
 
 
 # --------------------------------------------------------------------------
@@ -674,3 +832,496 @@ async def test_bilan_rattache_une_anomalie_de_prix_reelle_au_bon_chantier(
         "une anomalie de prix produite par un rapprochement réel doit "
         "rattacher son bloc au bon chantier dans le bilan"
     )
+
+
+# ==========================================================================
+# L5-T2 : niveaux fournisseur et BL, vue inverse
+# ==========================================================================
+
+
+# --------------------------------------------------------------------------
+# Cohérence entre niveaux (décision du contrôleur) : la somme des
+# fournisseurs d'un chantier égale ce chantier, la somme des BL d'un
+# fournisseur égale ce fournisseur
+# --------------------------------------------------------------------------
+
+
+async def test_bilan_somme_des_fournisseurs_dun_chantier_egale_le_chantier(
+    db_session: AsyncSession,
+) -> None:
+    chantier, _f1, _f2, *_ = await _construire_jeu_non_trivial(db_session)
+
+    lignes_chantier = await bilan_par_chantier(db_session, mois=None, agence=None)
+    lignes_fournisseur = await bilan_par_fournisseur(
+        db_session, chantier_id=chantier.id, mois=None, agence=None
+    )
+
+    ligne_chantier = _ligne_du_chantier(lignes_chantier, chantier.id)
+    ok = (
+        ligne_chantier is not None
+        and len(lignes_fournisseur) == 2
+        and _somme_montants([ligne.montants for ligne in lignes_fournisseur])
+        == _montants_dict(ligne_chantier.montants)
+    )
+    assert ok, (
+        "la somme des montants des fournisseurs d'un chantier doit égaler "
+        "les montants de ce chantier"
+    )
+
+
+async def test_bilan_somme_des_bl_dun_fournisseur_egale_le_fournisseur(
+    db_session: AsyncSession,
+) -> None:
+    (
+        chantier,
+        fournisseur_1,
+        _f2,
+        bloc_1a,
+        bloc_1b,
+        _b2a,
+    ) = await _construire_jeu_non_trivial(db_session)
+
+    lignes_fournisseur = await bilan_par_fournisseur(
+        db_session, chantier_id=chantier.id, mois=None, agence=None
+    )
+    lignes_bl = await bilan_par_bl(
+        db_session, chantier_id=chantier.id, fournisseur_id=fournisseur_1.id, mois=None
+    )
+
+    ligne_fournisseur_1 = _ligne_du_fournisseur(lignes_fournisseur, fournisseur_1.id)
+    ids_bl = {ligne.bloc_id for ligne in lignes_bl}
+    ok = (
+        ligne_fournisseur_1 is not None
+        and ids_bl == {bloc_1a.id, bloc_1b.id}
+        and _somme_montants([ligne.montants for ligne in lignes_bl])
+        == _montants_dict(ligne_fournisseur_1.montants)
+    )
+    assert ok, (
+        "la somme des montants des BL d'un fournisseur (dans un chantier) doit "
+        "égaler les montants de ce fournisseur"
+    )
+
+
+# --------------------------------------------------------------------------
+# Blocs sans chantier ou sans fournisseur résolu : jamais ignorés
+# --------------------------------------------------------------------------
+
+
+async def test_bilan_par_fournisseur_retrouve_les_blocs_du_chantier_non_resolu(
+    db_session: AsyncSession,
+) -> None:
+    """`chantier_id=None` sélectionne le côté « chantier non résolu » du
+    périmètre (décision du contrôleur) -- le fournisseur, lui, reste résolu
+    normalement."""
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur Sans Chantier")
+    facture = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="F-SANS-CHANT"
+    )
+    bloc = await _creer_bloc(db_session, facture=facture, chantier_id=None)
+    await _creer_ligne(
+        db_session, document=facture, bloc=bloc, montant_ht=Decimal("77.00")
+    )
+
+    lignes = await bilan_par_fournisseur(
+        db_session, chantier_id=None, mois=None, agence=None
+    )
+
+    ligne = _ligne_du_fournisseur(lignes, fournisseur.id)
+    ok = ligne is not None and ligne.montants.facture_ht == Decimal("77.00")
+    assert ok, (
+        "bilan_par_fournisseur(chantier_id=None) doit retrouver les blocs du "
+        "chantier non résolu, jamais renvoyer une liste vide"
+    )
+
+
+async def test_bilan_par_fournisseur_bloc_sans_fournisseur_resolu_ligne_nulle(
+    db_session: AsyncSession,
+) -> None:
+    chantier = await _creer_chantier(db_session, nom="Chantier Fournisseur Nul")
+    facture = await _creer_facture_sans_fournisseur(db_session, numero="F-SANS-FOURN")
+    bloc = await _creer_bloc(db_session, facture=facture, chantier_id=chantier.id)
+    await _creer_ligne(
+        db_session, document=facture, bloc=bloc, montant_ht=Decimal("33.00")
+    )
+
+    lignes = await bilan_par_fournisseur(
+        db_session, chantier_id=chantier.id, mois=None, agence=None
+    )
+
+    ligne = _ligne_du_fournisseur(lignes, None)
+    ok = (
+        ligne is not None
+        and ligne.nom is None
+        and ligne.montants.facture_ht == Decimal("33.00")
+    )
+    assert ok, (
+        "un bloc sans fournisseur résolu doit apparaître sous une ligne "
+        "fournisseur_id=None, jamais disparaître du bilan"
+    )
+
+
+async def test_bilan_par_bl_bloc_sans_chantier_ni_fournisseur_resolu(
+    db_session: AsyncSession,
+) -> None:
+    facture = await _creer_facture_sans_fournisseur(db_session, numero="F-BL-SANS-RIEN")
+    bloc = await _creer_bloc(
+        db_session, facture=facture, chantier_id=None, numero_bl="BL-SANS-RIEN"
+    )
+    await _creer_ligne(
+        db_session, document=facture, bloc=bloc, montant_ht=Decimal("21.00")
+    )
+
+    lignes = await bilan_par_bl(
+        db_session, chantier_id=None, fournisseur_id=None, mois=None
+    )
+
+    ligne = _ligne_du_bl(lignes, bloc.id)
+    ok = ligne is not None and ligne.montants.facture_ht == Decimal("21.00")
+    assert ok, (
+        "un bloc sans chantier ni fournisseur résolu doit apparaître au niveau "
+        "BL sous chantier_id=None/fournisseur_id=None, jamais disparaître"
+    )
+
+
+# --------------------------------------------------------------------------
+# Vue inverse : mêmes montants que la vue directe
+# --------------------------------------------------------------------------
+
+
+async def test_bilan_vue_inverse_retrouve_les_memes_montants_que_la_vue_directe(
+    db_session: AsyncSession,
+) -> None:
+    chantier_a = await _creer_chantier(db_session, nom="Chantier Inverse A")
+    chantier_b = await _creer_chantier(db_session, nom="Chantier Inverse B")
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur Inverse")
+
+    facture_a = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="INV-A"
+    )
+    bloc_a = await _creer_bloc(
+        db_session, facture=facture_a, chantier_id=chantier_a.id, numero_bl="INV-BL-A"
+    )
+    await _creer_ligne(
+        db_session, document=facture_a, bloc=bloc_a, montant_ht=Decimal("40.00")
+    )
+
+    facture_b = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="INV-B"
+    )
+    bloc_b = await _creer_bloc(
+        db_session,
+        facture=facture_b,
+        chantier_id=chantier_b.id,
+        numero_bl="INV-BL-B",
+        statut_rapprochement="non_recu",
+    )
+    await _creer_ligne(
+        db_session, document=facture_b, bloc=bloc_b, montant_ht=Decimal("25.00")
+    )
+
+    lignes_globales = await bilan_par_fournisseur_global(
+        db_session, mois=None, agence=None
+    )
+    lignes_chantiers_du_fournisseur = await bilan_chantiers_du_fournisseur(
+        db_session, fournisseur_id=fournisseur.id, mois=None, agence=None
+    )
+    lignes_fournisseur_a = await bilan_par_fournisseur(
+        db_session, chantier_id=chantier_a.id, mois=None, agence=None
+    )
+
+    ligne_globale = _ligne_du_fournisseur(lignes_globales, fournisseur.id)
+    ligne_directe_a = _ligne_du_fournisseur(lignes_fournisseur_a, fournisseur.id)
+    ligne_inverse_a = _ligne_du_chantier(lignes_chantiers_du_fournisseur, chantier_a.id)
+    ok = (
+        ligne_globale is not None
+        and ligne_directe_a is not None
+        and ligne_inverse_a is not None
+        and len(lignes_chantiers_du_fournisseur) == 2
+        and _somme_montants(
+            [ligne.montants for ligne in lignes_chantiers_du_fournisseur]
+        )
+        == _montants_dict(ligne_globale.montants)
+        and _montants_dict(ligne_directe_a.montants)
+        == _montants_dict(ligne_inverse_a.montants)
+    )
+    assert ok, (
+        "la vue inverse (bilan_par_fournisseur_global / "
+        "bilan_chantiers_du_fournisseur) doit retrouver les mêmes montants "
+        "que la vue directe"
+    )
+
+
+# --------------------------------------------------------------------------
+# Filtres mois et agence : s'appliquent aux niveaux fournisseur et à la vue
+# inverse (le niveau BL n'a pas de paramètre agence, décision du
+# contrôleur -- le chantier y est déjà fixé par chantier_id)
+# --------------------------------------------------------------------------
+
+
+async def test_bilan_filtre_agence_sapplique_au_niveau_fournisseur_et_a_la_vue_inverse(
+    db_session: AsyncSession,
+) -> None:
+    chantier_nord = await _creer_chantier(
+        db_session, nom="Chantier Agence Nord", agence="Nord"
+    )
+    chantier_sud = await _creer_chantier(
+        db_session, nom="Chantier Agence Sud", agence="Sud"
+    )
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur Agences")
+
+    facture_nord = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="AG-NORD"
+    )
+    bloc_nord = await _creer_bloc(
+        db_session,
+        facture=facture_nord,
+        chantier_id=chantier_nord.id,
+        numero_bl="AG-BL-N",
+    )
+    await _creer_ligne(
+        db_session, document=facture_nord, bloc=bloc_nord, montant_ht=Decimal("11.00")
+    )
+
+    facture_sud = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="AG-SUD"
+    )
+    bloc_sud = await _creer_bloc(
+        db_session,
+        facture=facture_sud,
+        chantier_id=chantier_sud.id,
+        numero_bl="AG-BL-S",
+    )
+    await _creer_ligne(
+        db_session, document=facture_sud, bloc=bloc_sud, montant_ht=Decimal("22.00")
+    )
+
+    lignes_fournisseur_nord = await bilan_par_fournisseur(
+        db_session, chantier_id=chantier_nord.id, mois=None, agence="Nord"
+    )
+    lignes_fournisseur_sud_filtre_nord = await bilan_par_fournisseur(
+        db_session, chantier_id=chantier_sud.id, mois=None, agence="Nord"
+    )
+    lignes_globales_nord = await bilan_par_fournisseur_global(
+        db_session, mois=None, agence="Nord"
+    )
+    lignes_chantiers_nord = await bilan_chantiers_du_fournisseur(
+        db_session, fournisseur_id=fournisseur.id, mois=None, agence="Nord"
+    )
+
+    ok = (
+        len(lignes_fournisseur_nord) == 1
+        and lignes_fournisseur_nord[0].montants.facture_ht == Decimal("11.00")
+        and len(lignes_fournisseur_sud_filtre_nord) == 0
+        and len(lignes_globales_nord) == 1
+        and lignes_globales_nord[0].montants.facture_ht == Decimal("11.00")
+        and len(lignes_chantiers_nord) == 1
+        and lignes_chantiers_nord[0].chantier_id == chantier_nord.id
+    )
+    assert ok, (
+        "le filtre agence doit s'appliquer au niveau fournisseur (direct et "
+        "restreint à un chantier d'une autre agence) et à la vue inverse"
+    )
+
+
+async def test_bilan_filtre_mois_sapplique_au_niveau_fournisseur_et_bl(
+    db_session: AsyncSession,
+) -> None:
+    chantier = await _creer_chantier(db_session, nom="Chantier Mois F")
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur Mois F")
+
+    facture_aout = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="MOIS-AOUT",
+        date_doc=date(2026, 8, 12),
+    )
+    bloc_aout = await _creer_bloc(
+        db_session,
+        facture=facture_aout,
+        chantier_id=chantier.id,
+        numero_bl="MOIS-BL-AOUT",
+    )
+    await _creer_ligne(
+        db_session, document=facture_aout, bloc=bloc_aout, montant_ht=Decimal("15.00")
+    )
+
+    facture_sept = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="MOIS-SEPT",
+        date_doc=date(2026, 9, 3),
+    )
+    bloc_sept = await _creer_bloc(
+        db_session,
+        facture=facture_sept,
+        chantier_id=chantier.id,
+        numero_bl="MOIS-BL-SEPT",
+    )
+    await _creer_ligne(
+        db_session, document=facture_sept, bloc=bloc_sept, montant_ht=Decimal("9.00")
+    )
+
+    lignes_fournisseur_aout = await bilan_par_fournisseur(
+        db_session, chantier_id=chantier.id, mois=date(2026, 8, 1), agence=None
+    )
+    lignes_bl_aout = await bilan_par_bl(
+        db_session,
+        chantier_id=chantier.id,
+        fournisseur_id=fournisseur.id,
+        mois=date(2026, 8, 1),
+    )
+
+    ok = (
+        len(lignes_fournisseur_aout) == 1
+        and lignes_fournisseur_aout[0].montants.facture_ht == Decimal("15.00")
+        and len(lignes_bl_aout) == 1
+        and lignes_bl_aout[0].bloc_id == bloc_aout.id
+    )
+    assert ok, "le filtre mois doit s'appliquer au niveau fournisseur et au niveau BL"
+
+
+# --------------------------------------------------------------------------
+# Facture archivée : exclue à tous les niveaux
+# --------------------------------------------------------------------------
+
+
+async def test_bilan_bloc_facture_archivee_exclu_au_niveau_fournisseur_et_bl(
+    db_session: AsyncSession,
+) -> None:
+    chantier = await _creer_chantier(db_session, nom="Chantier Archive F")
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur Archive F")
+    facture = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="ARCH-F", statut="archive"
+    )
+    bloc = await _creer_bloc(db_session, facture=facture, chantier_id=chantier.id)
+    await _creer_ligne(
+        db_session, document=facture, bloc=bloc, montant_ht=Decimal("60.00")
+    )
+
+    lignes_fournisseur = await bilan_par_fournisseur(
+        db_session, chantier_id=chantier.id, mois=None, agence=None
+    )
+    lignes_bl = await bilan_par_bl(
+        db_session, chantier_id=chantier.id, fournisseur_id=fournisseur.id, mois=None
+    )
+    lignes_globales = await bilan_par_fournisseur_global(
+        db_session, mois=None, agence=None
+    )
+
+    ok = (
+        len(lignes_fournisseur) == 0
+        and len(lignes_bl) == 0
+        and _ligne_du_fournisseur(lignes_globales, fournisseur.id) is None
+    )
+    assert ok, (
+        "un bloc de facture archivée ne doit produire aucune ligne de bilan, "
+        "à aucun niveau"
+    )
+
+
+# --------------------------------------------------------------------------
+# Niveau BL : bl_document_id renseigné ou vide
+# --------------------------------------------------------------------------
+
+
+async def test_bilan_par_bl_rend_bl_document_id_quand_la_photo_existe(
+    db_session: AsyncSession,
+) -> None:
+    chantier = await _creer_chantier(db_session, nom="Chantier BL Photo")
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur BL Photo")
+    facture = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="BL-PHOTO-F"
+    )
+    bl_photo = await _creer_document_bl(db_session)
+    bloc = await _creer_bloc(
+        db_session,
+        facture=facture,
+        chantier_id=chantier.id,
+        numero_bl="BL-PHOTO",
+        bl_document_id=bl_photo.id,
+    )
+    await _creer_ligne(
+        db_session, document=facture, bloc=bloc, montant_ht=Decimal("18.00")
+    )
+
+    lignes = await bilan_par_bl(
+        db_session, chantier_id=chantier.id, fournisseur_id=fournisseur.id, mois=None
+    )
+
+    ligne = _ligne_du_bl(lignes, bloc.id)
+    ok = (
+        ligne is not None
+        and ligne.bl_document_id == bl_photo.id
+        and ligne.facture_id == facture.id
+    )
+    assert ok, (
+        "bilan_par_bl doit renvoyer bl_document_id quand la photo du BL a été "
+        "retrouvée par le rapprochement"
+    )
+
+
+async def test_bilan_par_bl_rend_bl_document_id_vide_quand_absent(
+    db_session: AsyncSession,
+) -> None:
+    chantier = await _creer_chantier(db_session, nom="Chantier BL Sans Photo")
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur BL Sans Photo")
+    facture = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="BL-SANS-F"
+    )
+    bloc = await _creer_bloc(
+        db_session, facture=facture, chantier_id=chantier.id, numero_bl="BL-SANS"
+    )
+    await _creer_ligne(
+        db_session, document=facture, bloc=bloc, montant_ht=Decimal("9.00")
+    )
+
+    lignes = await bilan_par_bl(
+        db_session, chantier_id=chantier.id, fournisseur_id=fournisseur.id, mois=None
+    )
+
+    ligne = _ligne_du_bl(lignes, bloc.id)
+    ok = ligne is not None and ligne.bl_document_id is None
+    assert ok, (
+        "bilan_par_bl doit renvoyer bl_document_id=None quand la photo du BL "
+        "n'a pas été retrouvée"
+    )
+
+
+# --------------------------------------------------------------------------
+# Tri : dernière clé de départage, comme à L5-T1 -- vérifié sur un niveau
+# supplémentaire (fournisseur), le mécanisme étant partagé
+# (`_bilan_par_fournisseur_interne`)
+# --------------------------------------------------------------------------
+
+
+async def test_bilan_par_fournisseur_tri_ordonne_par_fournisseur_id_dans_la_requete_sql(
+    db_session: AsyncSession,
+) -> None:
+    chantier = await _creer_chantier(db_session, nom="Chantier Tri Fournisseur")
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur Tri")
+    facture = await _creer_facture(db_session, fournisseur=fournisseur, numero="TRI-F")
+    bloc = await _creer_bloc(db_session, facture=facture, chantier_id=chantier.id)
+    await _creer_ligne(db_session, document=facture, bloc=bloc)
+
+    instructions: list[str] = []
+
+    def _capturer(
+        conn: Any, cursor: Any, statement: str, *args: Any, **kwargs: Any
+    ) -> None:
+        instructions.append(statement)
+
+    moteur_sync = db_session.get_bind()
+    event.listen(moteur_sync, "before_cursor_execute", _capturer)
+    try:
+        await bilan_par_fournisseur(
+            db_session, chantier_id=chantier.id, mois=None, agence=None
+        )
+    finally:
+        event.remove(moteur_sync, "before_cursor_execute", _capturer)
+
+    requetes_avec_tri = [sql for sql in instructions if "ORDER BY" in sql]
+    ok = (
+        len(requetes_avec_tri) == 1
+        and "fournisseur.id" in requetes_avec_tri[0].split("ORDER BY", 1)[1]
+    )
+    assert ok, "fournisseur_id doit être une clé de l'ORDER BY généré par la requête"
