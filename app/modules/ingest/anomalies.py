@@ -71,6 +71,15 @@ Décisions du contrôleur (L4-T8) :
 - `AnomalieLue.traitee_par` (comme `DocumentDetail.confirme_par`,
   `ingest/corrections.py`) porte le **nom** résolu de l'utilisateur, jamais
   son UUID brut — c'est la valeur affichée par le front (L4-T9/T10).
+- Ruling R19 (fix round 2 de la tâche L4-T7) : le chantier d'une anomalie
+  (`_requete_anomalies`, `lister_anomalies`) se résout par
+  `CHANTIER_ID_RESOLU` = `COALESCE(Anomalie.chantier_id,
+  BlocFacture.chantier_id, Document.chantier_id)` — la colonne
+  `Anomalie.chantier_id` (migration 0007, portée d'une anomalie de suivi
+  comme R16) n'était jamais lue avant ce correctif, laissant les anomalies
+  de suivi sans chantier à l'écran et invisibles du filtre. La portée
+  explicitement posée par la règle prime sur toute déduction depuis le bloc
+  ou le document.
 """
 
 from __future__ import annotations
@@ -119,6 +128,20 @@ _ORDRE_GRAVITE = case(
     (Anomalie.gravite == "moyenne", 1),
     (Anomalie.gravite == "basse", 2),
     else_=3,
+)
+
+# Chantier effectif d'une anomalie (Ruling R19, fix round 2 de L4-T7) :
+# `Anomalie.chantier_id` -- portée explicitement posée par une règle de
+# suivi (ex. R16 « chantier silencieux »), ajoutée par la migration 0007 --
+# prime sur celui du bloc, qui prime sur celui du document (un
+# BL/enlèvement porte son propre `chantier_id`, une facture n'en porte pas
+# directement, CDC §6) : une valeur explicite n'est jamais une déduction.
+# Factorisé en une seule expression, partagée par `_requete_anomalies` (ce
+# qu'affiche l'écran Anomalies) et `lister_anomalies` (son filtre
+# `chantier_id`) -- sinon l'écran afficherait un chantier sur lequel il
+# refuse de filtrer.
+CHANTIER_ID_RESOLU = func.coalesce(
+    Anomalie.chantier_id, BlocFacture.chantier_id, Document.chantier_id
 )
 
 
@@ -421,11 +444,10 @@ class TransitionInterdite(Exception):
 def _requete_anomalies(*conditions: Any) -> Select[Any]:
     """Requête commune à `lister_anomalies` et à la relecture d'une
     anomalie après `traiter_anomalie` (décision du contrôleur : jamais
-    dupliquer les jointures). Chantier résolu par `COALESCE` (bloc d'abord,
-    sinon le document lui-même — un BL/enlèvement porte son propre
-    `chantier_id`, une facture n'en porte pas directement, CDC §6)."""
+    dupliquer les jointures). Chantier résolu par `CHANTIER_ID_RESOLU`
+    (Ruling R19, fix round 2 de L4-T7) : `Anomalie.chantier_id` d'abord,
+    sinon le bloc, sinon le document lui-même."""
     traitee_par_alias = aliased(Utilisateur)
-    chantier_id_resolu = func.coalesce(BlocFacture.chantier_id, Document.chantier_id)
     return (
         select(
             Anomalie,
@@ -434,7 +456,7 @@ def _requete_anomalies(*conditions: Any) -> Select[Any]:
             Document.numero,
             BlocFacture.numero_bl,
             BlocFacture.bl_document_id,
-            chantier_id_resolu.label("chantier_id"),
+            CHANTIER_ID_RESOLU.label("chantier_id"),
             Chantier.nom_canonique,
             Document.fournisseur_id,
             Fournisseur.nom,
@@ -442,7 +464,7 @@ def _requete_anomalies(*conditions: Any) -> Select[Any]:
         )
         .outerjoin(Document, Document.id == Anomalie.document_id)
         .outerjoin(BlocFacture, BlocFacture.id == Anomalie.bloc_id)
-        .outerjoin(Chantier, Chantier.id == chantier_id_resolu)
+        .outerjoin(Chantier, Chantier.id == CHANTIER_ID_RESOLU)
         .outerjoin(Fournisseur, Fournisseur.id == Document.fournisseur_id)
         .outerjoin(traitee_par_alias, traitee_par_alias.id == Anomalie.traitee_par)
         .where(*conditions)
@@ -505,8 +527,12 @@ async def lister_anomalies(
     """Liste des anomalies (`GET /api/anomalies`, L4-T9), filtres
     combinables, triée par gravité (haute, moyenne, basse) puis
     `created_at` croissant (décision du contrôleur). `limite` est bornée par
-    l'appelant (le routeur), comme `ingest.lecture.lister_documents`."""
-    chantier_id_resolu = func.coalesce(BlocFacture.chantier_id, Document.chantier_id)
+    l'appelant (le routeur), comme `ingest.lecture.lister_documents`.
+
+    Le filtre `chantier_id` porte sur `CHANTIER_ID_RESOLU` (Ruling R19,
+    fix round 2 de L4-T7) -- exactement la même expression que celle
+    affichée par `_requete_anomalies`, sinon l'écran montrerait un chantier
+    sur lequel il refuse de filtrer."""
     conditions: list[Any] = []
     if regle is not None:
         conditions.append(Anomalie.regle == regle)
@@ -515,7 +541,7 @@ async def lister_anomalies(
     if statut is not None:
         conditions.append(Anomalie.statut == statut)
     if chantier_id is not None:
-        conditions.append(chantier_id_resolu == chantier_id)
+        conditions.append(chantier_id == CHANTIER_ID_RESOLU)
     if fournisseur_id is not None:
         conditions.append(Document.fournisseur_id == fournisseur_id)
     if depuis is not None:

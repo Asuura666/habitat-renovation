@@ -1104,6 +1104,95 @@ async def test_lister_anomalies_expose_bl_document_id_quand_il_existe(
     assert ok
 
 
+# --------------------------------------------------------------------------
+# Ruling R19 (fix round 2, L4-T7) : chantier propre d'une anomalie de suivi,
+# prioritaire sur celui déduit du bloc ou du document
+# --------------------------------------------------------------------------
+
+
+async def test_lister_anomalies_chantier_propre_anomalie_de_suivi(
+    db_session: AsyncSession,
+) -> None:
+    """Une anomalie de suivi (R16, sans document ni bloc) porte son propre
+    `chantier_id` -- avant Ruling R19, `_requete_anomalies` ne lisait jamais
+    `Anomalie.chantier_id` et l'affichait sans chantier, invisible du
+    filtre `chantier_id`."""
+    chantier = await _creer_chantier(db_session, nom="Chantier Silencieux")
+    db_session.add(
+        Anomalie(
+            regle="R16",
+            gravite="basse",
+            chantier_id=chantier.id,
+            detail={"jours": "8"},
+            statut="ouverte",
+        )
+    )
+    await db_session.commit()
+
+    tous = await lister_anomalies(db_session)
+    ok = len(tous) == 1 and tous[0].chantier_id == chantier.id
+    assert ok, "le chantier de l'anomalie de suivi doit être affiché"
+
+    filtres = await lister_anomalies(db_session, chantier_id=chantier.id)
+    assert len(filtres) == 1, (
+        "le filtre doit retrouver l'anomalie de suivi par son chantier propre"
+    )
+
+
+async def test_lister_anomalies_chantier_du_document_sans_bloc(
+    db_session: AsyncSession,
+) -> None:
+    """Non-régression : une anomalie de document (sans bloc, ex. R10/R15)
+    garde le chantier du document quand `Anomalie.chantier_id` est absent."""
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = await _creer_chantier(db_session, nom="Chantier Document")
+    document = await _creer_document(
+        db_session, type_="bl", fournisseur=fournisseur, chantier_id=chantier.id
+    )
+    db_session.add(
+        Anomalie(
+            regle="R15",
+            gravite="moyenne",
+            document_id=document.id,
+            detail={"a": "1"},
+            statut="ouverte",
+        )
+    )
+    await db_session.commit()
+
+    resultat = await lister_anomalies(db_session, chantier_id=chantier.id)
+    ok = len(resultat) == 1 and resultat[0].chantier_id == chantier.id
+    assert ok, "une anomalie de document sans bloc doit garder le chantier du document"
+
+
+async def test_lister_anomalies_chantier_propre_prime_sur_celui_du_bloc(
+    db_session: AsyncSession,
+) -> None:
+    """Une anomalie de bloc qui porterait aussi un `chantier_id` propre :
+    c'est le sien qui l'emporte (Ruling R19)."""
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier_bloc = await _creer_chantier(db_session, nom="Chantier Du Bloc")
+    chantier_propre = await _creer_chantier(db_session, nom="Chantier Propre")
+    facture = await _creer_document(db_session, fournisseur=fournisseur, numero="F19")
+    bloc = await _creer_bloc(db_session, facture=facture, chantier_id=chantier_bloc.id)
+    db_session.add(
+        Anomalie(
+            regle="R01",
+            gravite="haute",
+            document_id=facture.id,
+            bloc_id=bloc.id,
+            chantier_id=chantier_propre.id,
+            detail={"a": "1"},
+            statut="ouverte",
+        )
+    )
+    await db_session.commit()
+
+    resultat = await lister_anomalies(db_session)
+    ok = len(resultat) == 1 and resultat[0].chantier_id == chantier_propre.id
+    assert ok, "le chantier propre de l'anomalie doit l'emporter sur celui du bloc"
+
+
 async def test_lister_anomalies_limite(db_session: AsyncSession) -> None:
     fournisseur = await _creer_fournisseur(db_session)
     facture = await _creer_document(db_session, fournisseur=fournisseur, numero="F1")
