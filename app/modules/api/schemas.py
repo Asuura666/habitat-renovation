@@ -332,14 +332,73 @@ class ArticleAValiderReponse(BaseModel):
     cree_le: datetime
 
 
+# --------------------------------------------------------------------------
+# Anomalies (L4-T9) : schéma construit à partir d'`ingest.anomalies
+# .AnomalieLue` (`GET /api/anomalies`, section `anomalies_hautes` de `GET
+# /api/a-traiter`) et corps de `POST /api/anomalies/{id}/traitement`.
+# --------------------------------------------------------------------------
+
+
+class AnomalieReponse(BaseModel):
+    """Une anomalie, telle qu'exposée par `GET /api/anomalies` et par
+    `POST /api/anomalies/{id}/traitement` — mêmes attributs qu'`ingest
+    .anomalies.AnomalieLue`. `detail` est exposé tel quel (`dict[str,
+    str]`, décision du contrôleur) : la phrase de justification est
+    construite côté front à partir de ce champ (L4-D17), jamais ici."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    regle: str
+    gravite: str
+    statut: str
+    detail: dict[str, str]
+    cree_le: datetime
+    traitee_le: datetime | None
+    traitee_par: str | None
+    commentaire: str | None
+    document_id: uuid.UUID | None
+    numero_interne: int | None
+    type: str | None
+    numero: str | None
+    bloc_id: uuid.UUID | None
+    numero_bl: str | None
+    chantier_id: uuid.UUID | None
+    chantier: str | None
+    fournisseur_id: uuid.UUID | None
+    fournisseur: str | None
+    bl_document_id: uuid.UUID | None
+
+
+class TraitementAnomalieRequete(BaseModel):
+    """Corps de `POST /api/anomalies/{id}/traitement` (L4-D15) : `statut`
+    restreint aux deux transitions autorisées (`Literal`, un `statut` hors
+    de cet ensemble est un 422, jamais transmis au service), commentaire
+    obligatoire (1 à 500 caractères, blanc refusé — même convention que
+    `ArchivageRequete` ci-dessus)."""
+
+    statut: Literal["traitee", "ignoree"]
+    commentaire: str = Field(min_length=1, max_length=500)
+
+    @field_validator("commentaire")
+    @classmethod
+    def _commentaire_non_blanc(cls, valeur: str) -> str:
+        if not valeur.strip():
+            raise ValueError("commentaire requis")
+        return valeur
+
+
 class ATraiterReponse(BaseModel):
-    """`GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18)."""
+    """`GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18),
+    complété par `anomalies_hautes` (anomalies ouvertes de gravité haute,
+    L4-D18)."""
 
     model_config = ConfigDict(from_attributes=True)
 
     documents: list[DocumentATraiterReponse]
     alias: list[AliasEnAttenteReponse]
     articles: list[ArticleAValiderReponse]
+    anomalies_hautes: list[AnomalieReponse]
 
 
 class ChantierReponse(BaseModel):

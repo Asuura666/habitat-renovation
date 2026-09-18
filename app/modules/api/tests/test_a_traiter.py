@@ -148,6 +148,8 @@ async def test_a_traiter_admin_renvoie_le_contenu(
 
     assert reponse.status_code == 200
     corps = reponse.json()
-    assert set(corps.keys()) == {"documents", "alias", "articles"}
+    # `anomalies_hautes` ajouté en L4-T9 (L4-D18) : les scénarios détaillés
+    # de cette section vivent dans `app/modules/api/tests/test_anomalies.py`.
+    assert set(corps.keys()) == {"documents", "alias", "articles", "anomalies_hautes"}
     ids_documents = {d["id"] for d in corps["documents"]}
     assert str(document.id) in ids_documents
