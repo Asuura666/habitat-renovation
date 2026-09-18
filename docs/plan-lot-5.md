@@ -11,7 +11,7 @@
 - Chaque document déposé est retrouvable dans le Drive du client sous `Fournisseurs/<fournisseur>/<AAAA-MM>/`.
 - Toute action d'un utilisateur est retrouvable dans le journal, avec auteur et horodatage.
 
-**Architecture :** on s'appuie sur les lots 1 à 4. Ce lot ajoute un service de lecture agrégée dans `ingest` (`bilan.py`, `referentiels_vue.py`), les routes `api/bilan.py`, `api/journal.py`, `api/parametres.py`, les écrans `web/src/pages/Bilan.tsx` et `web/src/pages/Chantiers.tsx`, le paquet `app/modules/jobs/` (qui n'existe pas encore) pour la synchronisation Drive, et la migration `0008`.
+**Architecture :** on s'appuie sur les lots 1 à 4. Ce lot ajoute un service de lecture agrégée dans `ingest` (`bilan.py`, `referentiels_vue.py`), les routes `api/bilan.py`, `api/journal.py`, `api/parametres.py`, les écrans `web/src/pages/Bilan.tsx` et `web/src/pages/Chantiers.tsx`, le paquet `app/modules/jobs/` (qui n'existe pas encore) pour la synchronisation Drive, et deux migrations (`0008`, `0009`).
 
 **Spec :** `docs/cahier-des-charges.md` (§4.6, §4.7, §6, §8, §10, §11). À lire aussi : `docs/passation-lot-4.md`, `docs/lot-4-recette.md`, `docs/dette.md`, `docs/exploitation-lot-4.md`.
 
@@ -68,7 +68,7 @@ Celles des lots 1 à 4 (`docs/plan-lot-4.md` §1, `CLAUDE.md`) s'appliquent tout
 - **L5-D4 — Le mois d'un bloc est celui de sa facture.** `document.date_doc` de la facture, faute de quoi `document.created_at` converti en Europe/Paris. Pas `date_bl` : un BL de fin de mois facturé le mois suivant appartient au mois de facturation, qui est ce que le client rapproche de ses comptes. *Si faux : un regroupement à changer, visible immédiatement sur le bilan d'août.*
 - **L5-D5 — Export CSV : le niveau affiché, rien de plus.** Une route par niveau, mêmes colonnes que le tableau, même filtre. `text/csv; charset=utf-8` avec BOM, séparateur `;`, virgule décimale (Excel français ouvre le fichier sans assistant d'importation). Généré côté serveur, jamais reconstitué par le front. *Si faux : des colonnes à ajouter.*
 - **L5-D6 — Le filtre par agence liste l'existant.** Les valeurs distinctes non nulles de `chantier.agence`, triées. Aucune table d'agences, aucune saisie. *Si faux : une table à créer plus tard, sans migration de données.*
-- **L5-D7 — Drive : une commande, pas un service.** Pas de Redis, pas de Celery (interdits). Une commande CLI `drive-sync` appelée par cron, sur le modèle de `controles-differes` (lot 4). L'état de synchronisation est porté par le document (migration 0008 : `drive_sync_le`, `drive_sync_echec_le`, `drive_sync_erreur`). Réessai à chaque passage, signalement sur le canal de supervision Telegram après 24 h d'échec. *Si faux : une commande à transformer en boucle, sans changer le modèle.*
+- **L5-D7 — Drive : une commande, pas un service.** Pas de Redis, pas de Celery (interdits). Une commande CLI `drive-sync` appelée par cron, sur le modèle de `controles-differes` (lot 4). L'état de synchronisation est porté par le document (migration 0009 : `drive_sync_le`, `drive_sync_echec_le`, `drive_sync_erreur`). Réessai à chaque passage, signalement sur le canal de supervision Telegram après 24 h d'échec. *Si faux : une commande à transformer en boucle, sans changer le modèle.*
 - **L5-D8 — Le client Drive est derrière une interface.** `jobs/drive.py` définit un protocole minimal (`televerser(chemin, dossier, nom) -> url`) et une implémentation Google ; les tests utilisent une implémentation en mémoire. C'est la seule abstraction « pour plus tard » autorisée de ce lot, et elle l'est pour la même raison que `messaging/base.py` : sans elle, aucun test ne peut tourner sans réseau. *Si faux : une indirection à retirer.*
 - **L5-D9 — Paramétrage : les neuf clés connues, pas une de plus.** L'écran liste les neuf clés du lot 4, chacune avec son libellé français, son unité et ses bornes. Une clé inconnue n'est pas créable depuis l'écran. Les bornes sont validées **dans le service**, pas dans le front. Toute écriture est journalisée avec l'ancienne et la nouvelle valeur. *Si faux : des bornes à ajuster.*
 - **L5-D10 — Le journal est lu en pagination simple.** Filtres : auteur, action, table cible, période. Pas de recherche plein texte dans `avant`/`apres` (JSONB, coûteux, non demandé). Plafond de pagination comme pour les anomalies. *Si faux : un filtre à ajouter.*
@@ -112,7 +112,8 @@ web/src/
   lib/
     formats.ts                   (étendu si besoin)
 migrations/versions/
-  0008_drive_sync.py             NOUVEAU
+  0008_anomalie_bloc_origine.py  NOUVEAU (L5-T1, tour 2 — Ruling L5-R6)
+  0009_drive_sync.py             NOUVEAU (L5-T11)
 docs/
   plan-lot-5.md                  (ce document)
   lot-5-recette.md               NOUVEAU (L5-T12)
@@ -163,7 +164,7 @@ Tests : filtres, plafond de pagination, 403 agent, une décision automatique (au
 Tests : clé inconnue refusée, valeur hors bornes refusée, écriture journalisée, la valeur modifiée est bien celle relue par le rapprochement au passage suivant.
 
 ### L5-T11 — `jobs/migration/cli: synchronisation Drive`
-Migration `0008_drive_sync.py` (`document.drive_sync_le`, `drive_sync_echec_le`, `drive_sync_erreur`). Paquet `app/modules/jobs/` : `drive.py` (protocole `ClientDrive` + implémentation Google, L5-D8), `drive_sync.py::synchroniser_documents(session, client, *, limite)` — chemin `Fournisseurs/<fournisseur>/<AAAA-MM>/`, nom `<type>_<numero>_<chantier>.<ext>`, `document.drive_url` renseigné, échec réessayé au passage suivant, signalement sur le canal de supervision après 24 h. Commande CLI `drive-sync`. `docs/exploitation-lot-5.md` avec la ligne cron.
+Migration `0009_drive_sync.py` (`document.drive_sync_le`, `drive_sync_echec_le`, `drive_sync_erreur`). Paquet `app/modules/jobs/` : `drive.py` (protocole `ClientDrive` + implémentation Google, L5-D8), `drive_sync.py::synchroniser_documents(session, client, *, limite)` — chemin `Fournisseurs/<fournisseur>/<AAAA-MM>/`, nom `<type>_<numero>_<chantier>.<ext>`, `document.drive_url` renseigné, échec réessayé au passage suivant, signalement sur le canal de supervision après 24 h. Commande CLI `drive-sync`. `docs/exploitation-lot-5.md` avec la ligne cron.
 Rappel de frontière : `jobs` n'importe que `ingest` et `app.core`. Tests avec un client en mémoire, sans réseau : nom normalisé (accents, espaces, caractères interdits), idempotence (un document déjà synchronisé n'est pas renvoyé), échec puis succès au passage suivant, signalement après 24 h et une seule fois.
 **Si le secret Google n'est pas fourni** (Q1), la commande refuse de démarrer avec un message clair — `app/core/config.py` est en *fail-fast*, on ne démarre pas à moitié.
 
