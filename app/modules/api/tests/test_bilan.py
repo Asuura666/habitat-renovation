@@ -215,15 +215,18 @@ async def _scenario_simple(
     date_doc: date | None = date(2026, 7, 15),
     montant_ht: Decimal = Decimal("100.00"),
     fournisseur: Fournisseur | None = None,
+    numero: str = "F0001",
 ) -> tuple[Chantier, Fournisseur, BlocFacture]:
     """Un chantier, un fournisseur, une facture avec un bloc et une ligne
     (données inventées) -- le scénario minimal réutilisé par la plupart des
-    tests de ce fichier."""
+    tests de ce fichier. `numero` est à passer explicitement quand
+    l'appelant réutilise le même `fournisseur` pour deux scénarios (`numero`
+    est unique par fournisseur, contrainte `uq_document_fournisseur_id_numero`)."""
     chantier = await _creer_chantier(db_session, agence=agence)
     if fournisseur is None:
         fournisseur = await _creer_fournisseur(db_session)
     facture = await _creer_facture(
-        db_session, fournisseur=fournisseur, date_doc=date_doc
+        db_session, fournisseur=fournisseur, numero=numero, date_doc=date_doc
     )
     bloc = await _creer_bloc(db_session, facture=facture, chantier_id=chantier.id)
     await _creer_ligne(db_session, document=facture, bloc=bloc, montant_ht=montant_ht)
@@ -357,6 +360,59 @@ async def test_get_bilan_fournisseurs_du_chantier_inconnu_liste_vide(
 
     reponse = await _requete(
         app_test, f"/api/bilan/chantiers/{uuid.uuid4()}/fournisseurs", cookie=cookie
+    )
+
+    assert reponse.status_code == 200
+    assert reponse.json() == []
+
+
+async def test_get_bilan_bl_fournisseur_id_inconnu_liste_vide(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Tour de correction 1, Minor : même principe qu'un chantier inconnu
+    (ci-dessus), étendu à la route BL avec un `fournisseur_id` inconnu
+    (chantier connu) -- 200 et liste vide, jamais 404. Preuve RED : un
+    routeur qui ajouterait une vérification d'existence du fournisseur
+    avant de déléguer au service renverrait 404 au lieu de 200 avec une
+    liste vide."""
+    chantier, _fournisseur, _bloc = await _scenario_simple(db_session)
+    await _creer_utilisateur(
+        db_session, email="admin.bilan13@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.bilan13@example.invalid")
+
+    reponse = await _requete(
+        app_test,
+        f"/api/bilan/chantiers/{chantier.id}/fournisseurs/{uuid.uuid4()}/bl",
+        cookie=cookie,
+    )
+
+    assert reponse.status_code == 200
+    assert reponse.json() == []
+
+
+async def test_get_bilan_bl_chantier_et_fournisseur_inconnus_liste_vide(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Tour de correction 1, Minor : les deux identifiants de la route BL
+    inconnus à la fois -- 200 et liste vide, même principe. Preuve RED :
+    même raisonnement que ci-dessus, avec les deux identifiants inconnus au
+    lieu d'un seul."""
+    await _creer_utilisateur(
+        db_session, email="admin.bilan14@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.bilan14@example.invalid")
+
+    reponse = await _requete(
+        app_test,
+        f"/api/bilan/chantiers/{uuid.uuid4()}/fournisseurs/{uuid.uuid4()}/bl",
+        cookie=cookie,
     )
 
     assert reponse.status_code == 200
@@ -525,6 +581,49 @@ async def test_get_bilan_chantiers_filtre_mois_change_le_resultat(
     assert montants_aout["facture_ht"] == "250.00"
 
 
+async def test_get_bilan_chantiers_filtre_mois_milieu_de_mois_ramene_au_meme_mois(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Tour de correction 1, Important : la fiche exige explicitement
+    (« une valeur qui n'est pas un premier de mois est acceptée telle
+    quelle et ramenée à son mois — ne refuse pas ») qu'une date médiane du
+    mois se comporte comme le 1er du même mois. Preuve RED : un routeur qui
+    se mettrait à refuser (422) ou à décaler une date médiane vers un autre
+    mois ferait échouer ce test -- tous les autres tests de ce fichier
+    n'utilisent que des 1ers du mois et ne détecteraient pas une telle
+    régression."""
+    chantier, _fournisseur, _bloc = await _scenario_simple(
+        db_session, date_doc=date(2026, 7, 15), montant_ht=Decimal("100.00")
+    )
+    await _creer_utilisateur(
+        db_session, email="admin.bilan12@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.bilan12@example.invalid")
+
+    reponse_premier = await _requete(
+        app_test, "/api/bilan/chantiers", cookie=cookie, params={"mois": "2026-07-01"}
+    )
+    reponse_milieu = await _requete(
+        app_test, "/api/bilan/chantiers", cookie=cookie, params={"mois": "2026-07-15"}
+    )
+    reponse_mois_voisin = await _requete(
+        app_test, "/api/bilan/chantiers", cookie=cookie, params={"mois": "2026-08-01"}
+    )
+
+    assert reponse_premier.status_code == 200
+    assert reponse_milieu.status_code == 200
+    assert reponse_mois_voisin.status_code == 200
+    # Une date médiane du mois rend le même résultat qu'un 1er du mois.
+    assert reponse_milieu.json() == reponse_premier.json()
+    # Un mois voisin exclut ce chantier (aucun bloc facturé en août ici).
+    assert str(chantier.id) not in {
+        ligne["chantier_id"] for ligne in reponse_mois_voisin.json()
+    }
+
+
 async def test_get_bilan_chantiers_mois_malforme_422(
     db_session: AsyncSession,
     sessions_test: async_sessionmaker[AsyncSession],
@@ -576,6 +675,309 @@ async def test_get_bilan_chantiers_filtre_agence_change_le_resultat(
     ids_nord = {ligne["chantier_id"] for ligne in reponse_nord.json()}
     assert ids_sans_filtre == {str(chantier_nord.id), str(chantier_sud.id)}
     assert ids_nord == {str(chantier_nord.id)}
+
+
+async def test_get_bilan_fournisseurs_du_chantier_filtre_mois_change_le_resultat(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Tour de correction 1, Minor : `mois` n'était vérifié de bout en bout
+    que sur `/api/bilan/chantiers`. Preuve RED : un routeur qui cesserait de
+    transmettre `mois` au service, ou le transmettrait à la mauvaise route,
+    laisserait passer les deux requêtes avec le même résultat."""
+    chantier = await _creer_chantier(db_session)
+    fournisseur = await _creer_fournisseur(db_session)
+    facture_juillet = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-JUIL-2",
+        date_doc=date(2026, 7, 15),
+    )
+    bloc_juillet = await _creer_bloc(
+        db_session, facture=facture_juillet, chantier_id=chantier.id
+    )
+    await _creer_ligne(
+        db_session,
+        document=facture_juillet,
+        bloc=bloc_juillet,
+        montant_ht=Decimal("100.00"),
+    )
+    facture_aout = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-AOUT-2",
+        date_doc=date(2026, 8, 3),
+    )
+    bloc_aout = await _creer_bloc(
+        db_session, facture=facture_aout, chantier_id=chantier.id
+    )
+    await _creer_ligne(
+        db_session, document=facture_aout, bloc=bloc_aout, montant_ht=Decimal("250.00")
+    )
+    await _creer_utilisateur(
+        db_session, email="admin.bilan15@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.bilan15@example.invalid")
+
+    reponse_juillet = await _requete(
+        app_test,
+        f"/api/bilan/chantiers/{chantier.id}/fournisseurs",
+        cookie=cookie,
+        params={"mois": "2026-07-01"},
+    )
+    reponse_aout = await _requete(
+        app_test,
+        f"/api/bilan/chantiers/{chantier.id}/fournisseurs",
+        cookie=cookie,
+        params={"mois": "2026-08-01"},
+    )
+
+    assert reponse_juillet.status_code == 200
+    assert reponse_aout.status_code == 200
+    ligne_juillet = _trouver(
+        reponse_juillet.json(), "fournisseur_id", str(fournisseur.id)
+    )
+    ligne_aout = _trouver(reponse_aout.json(), "fournisseur_id", str(fournisseur.id))
+    montants_juillet = ligne_juillet["montants"]
+    montants_aout = ligne_aout["montants"]
+    assert isinstance(montants_juillet, dict)
+    assert isinstance(montants_aout, dict)
+    assert montants_juillet["facture_ht"] == "100.00"
+    assert montants_aout["facture_ht"] == "250.00"
+
+
+async def test_get_bilan_fournisseurs_du_chantier_filtre_agence_change_le_resultat(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Tour de correction 1, Minor : `agence` n'était vérifié de bout en
+    bout que sur `/api/bilan/chantiers`. Preuve RED : un routeur qui
+    cesserait de transmettre `agence` au service laisserait la requête
+    filtrée sur une agence différente renvoyer la même liste non vide."""
+    chantier, fournisseur, _bloc = await _scenario_simple(
+        db_session, agence="Agence Test Chantier"
+    )
+    await _creer_utilisateur(
+        db_session, email="admin.bilan16@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.bilan16@example.invalid")
+
+    reponse_bonne_agence = await _requete(
+        app_test,
+        f"/api/bilan/chantiers/{chantier.id}/fournisseurs",
+        cookie=cookie,
+        params={"agence": "Agence Test Chantier"},
+    )
+    reponse_autre_agence = await _requete(
+        app_test,
+        f"/api/bilan/chantiers/{chantier.id}/fournisseurs",
+        cookie=cookie,
+        params={"agence": "Agence Qui Na Rien"},
+    )
+
+    assert reponse_bonne_agence.status_code == 200
+    assert reponse_autre_agence.status_code == 200
+    assert {ligne["fournisseur_id"] for ligne in reponse_bonne_agence.json()} == {
+        str(fournisseur.id)
+    }
+    assert reponse_autre_agence.json() == []
+
+
+async def test_get_bilan_bl_filtre_mois_change_le_resultat(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Tour de correction 1, Minor : `mois` non vérifié de bout en bout sur
+    la route BL. Preuve RED : un routeur qui cesserait de transmettre
+    `mois` au service renverrait les deux blocs aux deux requêtes, au lieu
+    d'un seul à chaque fois."""
+    chantier = await _creer_chantier(db_session)
+    fournisseur = await _creer_fournisseur(db_session)
+    facture_juillet = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-JUIL-3",
+        date_doc=date(2026, 7, 15),
+    )
+    bloc_juillet = await _creer_bloc(
+        db_session, facture=facture_juillet, numero_bl="L-JUIL", chantier_id=chantier.id
+    )
+    await _creer_ligne(
+        db_session,
+        document=facture_juillet,
+        bloc=bloc_juillet,
+        montant_ht=Decimal("100.00"),
+    )
+    facture_aout = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-AOUT-3",
+        date_doc=date(2026, 8, 3),
+    )
+    bloc_aout = await _creer_bloc(
+        db_session, facture=facture_aout, numero_bl="L-AOUT", chantier_id=chantier.id
+    )
+    await _creer_ligne(
+        db_session, document=facture_aout, bloc=bloc_aout, montant_ht=Decimal("250.00")
+    )
+    await _creer_utilisateur(
+        db_session, email="admin.bilan17@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.bilan17@example.invalid")
+
+    reponse_juillet = await _requete(
+        app_test,
+        f"/api/bilan/chantiers/{chantier.id}/fournisseurs/{fournisseur.id}/bl",
+        cookie=cookie,
+        params={"mois": "2026-07-01"},
+    )
+    reponse_aout = await _requete(
+        app_test,
+        f"/api/bilan/chantiers/{chantier.id}/fournisseurs/{fournisseur.id}/bl",
+        cookie=cookie,
+        params={"mois": "2026-08-01"},
+    )
+
+    assert reponse_juillet.status_code == 200
+    assert reponse_aout.status_code == 200
+    assert {ligne["bloc_id"] for ligne in reponse_juillet.json()} == {
+        str(bloc_juillet.id)
+    }
+    assert {ligne["bloc_id"] for ligne in reponse_aout.json()} == {str(bloc_aout.id)}
+
+
+async def test_get_bilan_fournisseurs_global_filtre_mois_change_le_resultat(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Tour de correction 1, Minor : `mois` non vérifié de bout en bout sur
+    la vue inverse. Preuve RED : un routeur qui cesserait de transmettre
+    `mois` au service renverrait le même `facture_ht` aux deux requêtes."""
+    chantier = await _creer_chantier(db_session)
+    fournisseur = await _creer_fournisseur(db_session)
+    facture_juillet = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-JUIL-4",
+        date_doc=date(2026, 7, 15),
+    )
+    bloc_juillet = await _creer_bloc(
+        db_session, facture=facture_juillet, chantier_id=chantier.id
+    )
+    await _creer_ligne(
+        db_session,
+        document=facture_juillet,
+        bloc=bloc_juillet,
+        montant_ht=Decimal("100.00"),
+    )
+    facture_aout = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-AOUT-4",
+        date_doc=date(2026, 8, 3),
+    )
+    bloc_aout = await _creer_bloc(
+        db_session, facture=facture_aout, chantier_id=chantier.id
+    )
+    await _creer_ligne(
+        db_session, document=facture_aout, bloc=bloc_aout, montant_ht=Decimal("250.00")
+    )
+    await _creer_utilisateur(
+        db_session, email="admin.bilan18@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.bilan18@example.invalid")
+
+    reponse_juillet = await _requete(
+        app_test,
+        "/api/bilan/fournisseurs",
+        cookie=cookie,
+        params={"mois": "2026-07-01"},
+    )
+    reponse_aout = await _requete(
+        app_test,
+        "/api/bilan/fournisseurs",
+        cookie=cookie,
+        params={"mois": "2026-08-01"},
+    )
+
+    assert reponse_juillet.status_code == 200
+    assert reponse_aout.status_code == 200
+    ligne_juillet = _trouver(
+        reponse_juillet.json(), "fournisseur_id", str(fournisseur.id)
+    )
+    ligne_aout = _trouver(reponse_aout.json(), "fournisseur_id", str(fournisseur.id))
+    montants_juillet = ligne_juillet["montants"]
+    montants_aout = ligne_aout["montants"]
+    assert isinstance(montants_juillet, dict)
+    assert isinstance(montants_aout, dict)
+    assert montants_juillet["facture_ht"] == "100.00"
+    assert montants_aout["facture_ht"] == "250.00"
+
+
+async def test_get_bilan_fournisseurs_global_filtre_agence_change_le_resultat(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Tour de correction 1, Minor : `agence` non vérifié de bout en bout
+    sur la vue inverse. Preuve RED : un routeur qui cesserait de transmettre
+    `agence` au service renverrait le même `facture_ht` (150.00, les deux
+    chantiers cumulés) aux deux requêtes, au lieu de le restreindre à
+    100.00 pour la seule agence filtrée."""
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier_nord, _f1, _b1 = await _scenario_simple(
+        db_session,
+        agence="Agence Nord Globale",
+        montant_ht=Decimal("100.00"),
+        fournisseur=fournisseur,
+        numero="F-NORD-GLOBALE",
+    )
+    chantier_sud, _f2, _b2 = await _scenario_simple(
+        db_session,
+        agence="Agence Sud Globale",
+        montant_ht=Decimal("50.00"),
+        fournisseur=fournisseur,
+        numero="F-SUD-GLOBALE",
+    )
+    await _creer_utilisateur(
+        db_session, email="admin.bilan19@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.bilan19@example.invalid")
+
+    reponse_sans_filtre = await _requete(
+        app_test, "/api/bilan/fournisseurs", cookie=cookie
+    )
+    reponse_nord = await _requete(
+        app_test,
+        "/api/bilan/fournisseurs",
+        cookie=cookie,
+        params={"agence": "Agence Nord Globale"},
+    )
+
+    assert reponse_sans_filtre.status_code == 200
+    assert reponse_nord.status_code == 200
+    ligne_sans_filtre = _trouver(
+        reponse_sans_filtre.json(), "fournisseur_id", str(fournisseur.id)
+    )
+    ligne_nord = _trouver(reponse_nord.json(), "fournisseur_id", str(fournisseur.id))
+    montants_sans_filtre = ligne_sans_filtre["montants"]
+    montants_nord = ligne_nord["montants"]
+    assert isinstance(montants_sans_filtre, dict)
+    assert isinstance(montants_nord, dict)
+    assert montants_sans_filtre["facture_ht"] == "150.00"
+    assert montants_nord["facture_ht"] == "100.00"
+    # Les deux chantiers existent bien (agences distinctes) : la différence
+    # ci-dessus vient du filtre, pas d'un chantier absent.
+    assert chantier_nord.id != chantier_sud.id
 
 
 # --------------------------------------------------------------------------
