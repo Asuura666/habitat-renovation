@@ -19,10 +19,10 @@ function classesOnglet({ isActive }: { isActive: boolean }): string {
 
 /** Gabarit de l'application : en-tête (nom, rôle, déconnexion), onglets de
  * navigation (décision du contrôleur : « À traiter », « Anomalies » (L4-D17,
- * juste après « À traiter »), « Factures » et « Chantiers » (L5-T8, écran
- * « Chantiers & fournisseurs » du CDC §4.6) réservés à l'admin, L3-D18 ;
- * « Bilan » et « Chantiers » réservés à l'admin ; « BL déposés » ouvert aux
- * deux rôles) et
+ * juste après « À traiter »), « Factures », « Bilan », « Chantiers » (L5-T8, écran
+ * « Chantiers & fournisseurs » du CDC §4.6) et « Journal » (L5-T9, écran de
+ * lecture de la table `journal`, CDC §4.6) réservés à l'admin, L3-D18 ;
+ * « BL déposés » ouvert aux deux rôles) et
  * contenu de la route active (`<Outlet />`). N'est monté qu'à l'intérieur de
  * `RouteProtegee`, donc `["moi"]` est déjà en cache (même clé de requête) :
  * pas d'appel réseau supplémentaire tant que les données ne sont pas jugées
@@ -44,7 +44,7 @@ export function Gabarit(): ReactElement {
 
   // Onglet actif toujours atteignable sans que l'utilisateur devine qu'il
   // doit défiler (L5-T8 fix1, Ruling L5-R9) : depuis que le bandeau défile
-  // horizontalement (cinq onglets ne tiennent plus à 375 px), un changement
+  // horizontalement (sept onglets ne tiennent plus à 375 px), un changement
   // de route doit amener l'onglet actif dans la zone visible plutôt que de
   // laisser le défilement là où il était sur l'écran précédent — mesuré
   // sans ce correctif : « Chantiers » et « BL déposés » restaient hors
@@ -85,8 +85,8 @@ export function Gabarit(): ReactElement {
           aria-label="Navigation principale"
           className="overflow-x-auto border-b border-slate-200 bg-white px-4 sm:px-6"
         >
-          {/* `whitespace-nowrap` (L5-T8, cinquième onglet « Chantiers ») :
-              cinq onglets admin ne tiennent plus sur 375 px (mesuré : 453 px
+          {/* `whitespace-nowrap` (L5-T8) : les onglets admin ne tiennent plus
+              sur 375 px (mesuré dès le cinquième onglet : 453 px
               de large contre 375 px de viewport, avant ce correctif) — sans
               lui, `overflow-x-auto` seul ne suffit pas à empêcher un
               retour à la ligne qui casserait la mise en page. Défilement
@@ -119,6 +119,11 @@ export function Gabarit(): ReactElement {
                 <li>
                   <NavLink to="/chantiers" className={classesOnglet}>
                     Chantiers
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink to="/journal" className={classesOnglet}>
+                    Journal
                   </NavLink>
                 </li>
               </>

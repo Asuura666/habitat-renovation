@@ -607,6 +607,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/journal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lister Journal Endpoint */
+        get: operations["lister_journal_endpoint_api_journal_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1213,6 +1230,45 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * JournalReponse
+         * @description Une entrée de journal, telle qu'exposée par `GET /api/journal`
+         *     (L5-T9) — mêmes attributs qu'`ingest.journal.JournalLue`. `avant`/
+         *     `apres` sont exposés tels quels (JSON brut : `dict[str, Any] | None`,
+         *     décision du contrôleur) — aucune interprétation métier ici, la mise en
+         *     forme lisible revient au front (`Journal.tsx`), même principe que
+         *     `detail` sur `AnomalieReponse`.
+         */
+        JournalReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Utilisateur Id */
+            utilisateur_id: string | null;
+            /** Auteur */
+            auteur: string | null;
+            /** Action */
+            action: string;
+            /** Cible Table */
+            cible_table: string | null;
+            /** Cible Id */
+            cible_id: string | null;
+            /** Avant */
+            avant: {
+                [key: string]: unknown;
+            } | null;
+            /** Apres */
+            apres: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Horodatage
+             * Format: date-time
+             */
+            horodatage: string;
         };
         /**
          * LigneBilanBlReponse
@@ -2605,6 +2661,42 @@ export interface operations {
                 };
                 content: {
                     "text/csv": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lister_journal_endpoint_api_journal_get: {
+        parameters: {
+            query?: {
+                utilisateur_id?: string | null;
+                action?: string | null;
+                cible_table?: string | null;
+                depuis?: string | null;
+                jusqu_a?: string | null;
+                limite?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JournalReponse"][];
                 };
             };
             /** @description Validation Error */

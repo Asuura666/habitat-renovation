@@ -1878,6 +1878,135 @@
     }
    }
   },
+  "/api/journal": {
+   "get": {
+    "summary": "Lister Journal Endpoint",
+    "operationId": "lister_journal_endpoint_api_journal_get",
+    "parameters": [
+     {
+      "name": "utilisateur_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uuid"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Utilisateur Id"
+      }
+     },
+     {
+      "name": "action",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Action"
+      }
+     },
+     {
+      "name": "cible_table",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Cible Table"
+      }
+     },
+     {
+      "name": "depuis",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Depuis"
+      }
+     },
+     {
+      "name": "jusqu_a",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Jusqu A"
+      }
+     },
+     {
+      "name": "limite",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 500,
+       "minimum": 1,
+       "default": 100,
+       "title": "Limite"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/JournalReponse"
+         },
+         "title": "Response Lister Journal Endpoint Api Journal Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/health": {
    "get": {
     "summary": "Health",
@@ -3626,6 +3755,107 @@
     },
     "type": "object",
     "title": "HTTPValidationError"
+   },
+   "JournalReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "utilisateur_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Utilisateur Id"
+     },
+     "auteur": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Auteur"
+     },
+     "action": {
+      "type": "string",
+      "title": "Action"
+     },
+     "cible_table": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cible Table"
+     },
+     "cible_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cible Id"
+     },
+     "avant": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Avant"
+     },
+     "apres": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Apres"
+     },
+     "horodatage": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Horodatage"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "utilisateur_id",
+     "auteur",
+     "action",
+     "cible_table",
+     "cible_id",
+     "avant",
+     "apres",
+     "horodatage"
+    ],
+    "title": "JournalReponse",
+    "description": "Une entrée de journal, telle qu'exposée par `GET /api/journal`\n(L5-T9) — mêmes attributs qu'`ingest.journal.JournalLue`. `avant`/\n`apres` sont exposés tels quels (JSON brut : `dict[str, Any] | None`,\ndécision du contrôleur) — aucune interprétation métier ici, la mise en\nforme lisible revient au front (`Journal.tsx`), même principe que\n`detail` sur `AnomalieReponse`."
    },
    "LigneBilanBlReponse": {
     "properties": {

@@ -18,7 +18,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -573,3 +573,24 @@ class ChantierSilencieuxReponse(BaseModel):
     nom_canonique: str
     agence: str | None
     dernier_depot_le: datetime | None
+
+
+class JournalReponse(BaseModel):
+    """Une entrée de journal, telle qu'exposée par `GET /api/journal`
+    (L5-T9) — mêmes attributs qu'`ingest.journal.JournalLue`. `avant`/
+    `apres` sont exposés tels quels (JSON brut : `dict[str, Any] | None`,
+    décision du contrôleur) — aucune interprétation métier ici, la mise en
+    forme lisible revient au front (`Journal.tsx`), même principe que
+    `detail` sur `AnomalieReponse`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    utilisateur_id: uuid.UUID | None
+    auteur: str | None
+    action: str
+    cible_table: str | None
+    cible_id: str | None
+    avant: dict[str, Any] | None
+    apres: dict[str, Any] | None
+    horodatage: datetime

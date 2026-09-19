@@ -17,6 +17,7 @@ from app.modules.api import (
     bilan,
     documents,
     factures,
+    journal,
     moi,
     referentiels,
 )
@@ -29,5 +30,6 @@ router.include_router(a_traiter.router)
 router.include_router(referentiels.router)
 router.include_router(anomalies.router)
 router.include_router(bilan.router)
+router.include_router(journal.router)
 
 __all__ = ["router"]
