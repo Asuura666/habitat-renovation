@@ -120,6 +120,7 @@ async def lister_anomalies_endpoint(
     statut: Annotated[
         Literal["ouverte", "traitee", "ignoree", "toutes"], Query()
     ] = "ouverte",
+    bloc_id: Annotated[uuid.UUID | None, Query()] = None,
     chantier_id: Annotated[uuid.UUID | None, Query()] = None,
     fournisseur_id: Annotated[uuid.UUID | None, Query()] = None,
     depuis: Annotated[date | None, Query()] = None,
@@ -133,6 +134,7 @@ async def lister_anomalies_endpoint(
         regle=regle,
         gravite=gravite,
         statut=statut if statut != "toutes" else None,
+        bloc_id=bloc_id,
         chantier_id=chantier_id,
         fournisseur_id=fournisseur_id,
         depuis=_debut_jour_paris(depuis) if depuis is not None else None,

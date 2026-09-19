@@ -74,6 +74,7 @@ from app.modules.api.schemas import (
     LigneBilanFournisseurReponse,
 )
 from app.modules.ingest.bilan import (
+    bilan_chantiers_du_fournisseur,
     bilan_par_bl,
     bilan_par_chantier,
     bilan_par_fournisseur,
@@ -182,6 +183,23 @@ async def bilan_fournisseurs_endpoint(
     return [LigneBilanFournisseurReponse.model_validate(ligne) for ligne in lignes]
 
 
+@router.get(
+    "/bilan/fournisseurs/{fournisseur_id}/chantiers",
+    response_model=list[LigneBilanChantierReponse],
+)
+async def bilan_chantiers_du_fournisseur_endpoint(
+    fournisseur_id: uuid.UUID,
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    mois: Annotated[date | None, Query()] = None,
+    agence: Annotated[str | None, Query()] = None,
+) -> list[LigneBilanChantierReponse]:
+    lignes = await bilan_chantiers_du_fournisseur(
+        session, fournisseur_id=fournisseur_id, mois=mois, agence=agence
+    )
+    return [LigneBilanChantierReponse.model_validate(ligne) for ligne in lignes]
+
+
 # --------------------------------------------------------------------------
 # Export CSV (L5-T4) : une route `.csv` par route JSON ci-dessus, même
 # service, mêmes filtres, même tri -- voir le docstring d'en-tête.
@@ -256,4 +274,25 @@ async def bilan_fournisseurs_csv_endpoint(
     return _reponse_csv(
         csv_bilan_fournisseurs(lignes),
         nom_fichier=_nom_fichier_csv("fournisseurs", mois),
+    )
+
+
+@router.get(
+    "/bilan/fournisseurs/{fournisseur_id}/chantiers.csv",
+    response_class=Response,
+    responses=_REPONSES_CSV,
+)
+async def bilan_chantiers_du_fournisseur_csv_endpoint(
+    fournisseur_id: uuid.UUID,
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    mois: Annotated[date | None, Query()] = None,
+    agence: Annotated[str | None, Query()] = None,
+) -> Response:
+    lignes = await bilan_chantiers_du_fournisseur(
+        session, fournisseur_id=fournisseur_id, mois=mois, agence=agence
+    )
+    return _reponse_csv(
+        csv_bilan_chantiers(lignes),
+        nom_fichier=_nom_fichier_csv("chantiers", mois),
     )

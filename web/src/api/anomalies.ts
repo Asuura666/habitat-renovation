@@ -20,6 +20,7 @@ export interface FiltresAnomalies {
   regle?: string;
   gravite?: GraviteAnomalie;
   statut?: StatutAnomalie;
+  blocId?: string;
   chantierId?: string;
   fournisseurId?: string;
   depuis?: string;
@@ -43,6 +44,9 @@ function construireRequete(filtres: FiltresAnomalies): string {
   }
   if (filtres.statut) {
     params.set("statut", filtres.statut);
+  }
+  if (filtres.blocId) {
+    params.set("bloc_id", filtres.blocId);
   }
   if (filtres.chantierId) {
     params.set("chantier_id", filtres.chantierId);

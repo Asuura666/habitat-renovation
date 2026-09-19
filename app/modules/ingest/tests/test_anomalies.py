@@ -1008,6 +1008,19 @@ async def test_lister_anomalies_filtre_statut(
     assert ok
 
 
+async def test_lister_anomalies_filtre_bloc(
+    db_session: AsyncSession, jeu_anomalies: dict[str, object]
+) -> None:
+    anomalie_a = jeu_anomalies["anomalie_a"]
+    assert isinstance(anomalie_a, Anomalie)
+    assert anomalie_a.bloc_id is not None
+
+    resultat = await lister_anomalies(db_session, bloc_id=anomalie_a.bloc_id)
+
+    ok = len(resultat) == 1 and resultat[0].id == anomalie_a.id
+    assert ok
+
+
 async def test_lister_anomalies_filtre_chantier(
     db_session: AsyncSession, jeu_anomalies: dict[str, object]
 ) -> None:

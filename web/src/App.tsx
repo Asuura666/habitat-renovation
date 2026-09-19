@@ -6,6 +6,12 @@ import { Gabarit } from "./components/Gabarit";
 import { Anomalies } from "./pages/Anomalies";
 import { ATraiter } from "./pages/ATraiter";
 import { Bilan } from "./pages/Bilan";
+import {
+  BilanBl,
+  BilanChantiersFournisseur,
+  BilanFournisseursChantier,
+  BilanFournisseursGlobal,
+} from "./pages/BilanFournisseur";
 import { BlDeposes } from "./pages/BlDeposes";
 import { Connexion } from "./pages/Connexion";
 import { DocumentDetail } from "./pages/DocumentDetail";
@@ -69,6 +75,22 @@ export function App(): ReactElement {
                 <Bilan />
               </GardeAdmin>
             }
+          />
+          <Route
+            path="bilan/fournisseurs"
+            element={<GardeAdmin><BilanFournisseursGlobal /></GardeAdmin>}
+          />
+          <Route
+            path="bilan/fournisseurs/:fournisseurId"
+            element={<GardeAdmin><BilanChantiersFournisseur /></GardeAdmin>}
+          />
+          <Route
+            path="bilan/:chantierId"
+            element={<GardeAdmin><BilanFournisseursChantier /></GardeAdmin>}
+          />
+          <Route
+            path="bilan/:chantierId/:fournisseurId"
+            element={<GardeAdmin><BilanBl /></GardeAdmin>}
           />
           <Route path="bl" element={<BlDeposes />} />
           {/* Admin (tous) et agent (ses dépôts, lecture seule) — L3-D19 :

@@ -518,6 +518,7 @@ async def lister_anomalies(
     regle: str | None = None,
     gravite: str | None = None,
     statut: str | None = None,
+    bloc_id: uuid.UUID | None = None,
     chantier_id: uuid.UUID | None = None,
     fournisseur_id: uuid.UUID | None = None,
     depuis: datetime | None = None,
@@ -540,6 +541,8 @@ async def lister_anomalies(
         conditions.append(Anomalie.gravite == gravite)
     if statut is not None:
         conditions.append(Anomalie.statut == statut)
+    if bloc_id is not None:
+        conditions.append(Anomalie.bloc_id == bloc_id)
     if chantier_id is not None:
         conditions.append(chantier_id == CHANTIER_ID_RESOLU)
     if fournisseur_id is not None:

@@ -442,6 +442,32 @@ async def test_get_anomalies_statut_invalide_422(
     assert reponse.status_code == 422
 
 
+async def test_get_anomalies_filtre_bloc_id(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.anomalies-bloc@example.invalid", role="admin"
+    )
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_document(db_session, fournisseur=fournisseur)
+    bloc_a = await _creer_bloc(db_session, facture=facture)
+    bloc_b = await _creer_bloc(db_session, facture=facture)
+    anomalie_a = await _creer_anomalie(db_session, bloc_id=bloc_a.id)
+    await _creer_anomalie(db_session, bloc_id=bloc_b.id)
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test, "GET", f"/api/anomalies?bloc_id={bloc_a.id}", cookie=cookie
+    )
+
+    assert reponse.status_code == 200
+    ids = {a["id"] for a in reponse.json()}
+    assert ids == {str(anomalie_a.id)}
+
+
 async def test_get_anomalies_filtre_chantier_id(
     db_session: AsyncSession,
     sessions_test: async_sessionmaker[AsyncSession],

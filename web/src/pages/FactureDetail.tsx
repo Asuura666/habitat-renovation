@@ -37,7 +37,7 @@ function PastilleReception({ recu }: { recu: boolean }): ReactElement {
 
 function BlocCarte({ bloc }: { bloc: BlocFacture }): ReactElement {
   return (
-    <li className="rounded-lg border border-slate-200 bg-white p-4">
+    <li id={`bloc-${bloc.id}`} className="scroll-mt-4 rounded-lg border border-slate-200 bg-white p-4">
       <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="text-sm font-semibold text-slate-900">

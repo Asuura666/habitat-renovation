@@ -523,6 +523,30 @@ async def test_get_bilan_fournisseurs_global_admin_200(
     assert lignes[0]["fournisseur_id"] == str(fournisseur.id)
 
 
+async def test_get_bilan_chantiers_du_fournisseur_admin_200(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    chantier, fournisseur, _bloc = await _scenario_simple(db_session)
+    await _creer_utilisateur(
+        db_session, email="admin.bilan-inverse@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.bilan-inverse@example.invalid")
+
+    reponse = await _requete(
+        app_test,
+        f"/api/bilan/fournisseurs/{fournisseur.id}/chantiers",
+        cookie=cookie,
+    )
+
+    assert reponse.status_code == 200
+    lignes = reponse.json()
+    assert len(lignes) == 1
+    assert lignes[0]["chantier_id"] == str(chantier.id)
+
+
 # --------------------------------------------------------------------------
 # Filtres `mois`/`agence`
 # --------------------------------------------------------------------------

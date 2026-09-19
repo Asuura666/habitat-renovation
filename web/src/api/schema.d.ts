@@ -449,6 +449,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bilan/fournisseurs/{fournisseur_id}/chantiers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Bilan Chantiers Du Fournisseur Endpoint */
+        get: operations["bilan_chantiers_du_fournisseur_endpoint_api_bilan_fournisseurs__fournisseur_id__chantiers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/bilan/chantiers.csv": {
         parameters: {
             query?: never;
@@ -514,6 +531,23 @@ export interface paths {
          *     chantier ci-dessus, les deux renvoyant des `LigneBilanFournisseur`.
          */
         get: operations["bilan_fournisseurs_csv_endpoint_api_bilan_fournisseurs_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bilan/fournisseurs/{fournisseur_id}/chantiers.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Bilan Chantiers Du Fournisseur Csv Endpoint */
+        get: operations["bilan_chantiers_du_fournisseur_csv_endpoint_api_bilan_fournisseurs__fournisseur_id__chantiers_csv_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2001,6 +2035,7 @@ export interface operations {
                 regle?: ("R01" | "R02" | "R03" | "R04" | "R05" | "R06" | "R07" | "R08" | "R09" | "R10" | "R11" | "R12" | "R13" | "R14" | "R15" | "R16" | "R17") | null;
                 gravite?: ("haute" | "moyenne" | "basse") | null;
                 statut?: "ouverte" | "traitee" | "ignoree" | "toutes";
+                bloc_id?: string | null;
                 chantier_id?: string | null;
                 fournisseur_id?: string | null;
                 depuis?: string | null;
@@ -2200,6 +2235,40 @@ export interface operations {
             };
         };
     };
+    bilan_chantiers_du_fournisseur_endpoint_api_bilan_fournisseurs__fournisseur_id__chantiers_get: {
+        parameters: {
+            query?: {
+                mois?: string | null;
+                agence?: string | null;
+            };
+            header?: never;
+            path: {
+                fournisseur_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LigneBilanChantierReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     bilan_chantiers_csv_endpoint_api_bilan_chantiers_csv_get: {
         parameters: {
             query?: {
@@ -2308,6 +2377,40 @@ export interface operations {
             };
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Export CSV UTF-8 du bilan. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bilan_chantiers_du_fournisseur_csv_endpoint_api_bilan_fournisseurs__fournisseur_id__chantiers_csv_get: {
+        parameters: {
+            query?: {
+                mois?: string | null;
+                agence?: string | null;
+            };
+            header?: never;
+            path: {
+                fournisseur_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;

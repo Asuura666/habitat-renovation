@@ -1,6 +1,6 @@
 import { type FormEvent, type ReactElement, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import {
   type Anomalie,
@@ -479,7 +479,10 @@ function FormFiltres({ filtres, onChange, chantiers, fournisseurs }: FormFiltres
  * — même convention que `ATraiter.tsx`). Réservé à l'admin par `GardeAdmin`
  * (voir `App.tsx`) : aucune vérification de rôle ici. */
 export function Anomalies(): ReactElement {
-  const [filtres, setFiltres] = useState<FiltresAnomalies>({ statut: "ouverte" });
+  const [parametres] = useSearchParams();
+  const blocId = parametres.get("blocId") || undefined;
+  const [filtresLocaux, setFiltresLocaux] = useState<FiltresAnomalies>({ statut: "ouverte" });
+  const filtres: FiltresAnomalies = { ...filtresLocaux, blocId };
   const chantiers = useQuery({ queryKey: CLE_CHANTIERS, queryFn: listerChantiers });
   const fournisseurs = useQuery({ queryKey: CLE_FOURNISSEURS, queryFn: listerFournisseurs });
   const anomalies = useQuery({
@@ -491,9 +494,15 @@ export function Anomalies(): ReactElement {
     <div className="space-y-6">
       <h1 className="text-lg font-semibold text-slate-900">Anomalies</h1>
 
+      {blocId !== undefined && (
+        <p className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+          Anomalies du BL sélectionné. <Link to="/anomalies" className="font-medium underline">Afficher toutes les anomalies</Link>
+        </p>
+      )}
+
       <FormFiltres
         filtres={filtres}
-        onChange={setFiltres}
+        onChange={setFiltresLocaux}
         chantiers={chantiers.data ?? []}
         fournisseurs={fournisseurs.data ?? []}
       />

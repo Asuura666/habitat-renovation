@@ -913,6 +913,23 @@
       }
      },
      {
+      "name": "bloc_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uuid"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Bloc Id"
+      }
+     },
+     {
       "name": "chantier_id",
       "in": "query",
       "required": false,
@@ -1354,6 +1371,83 @@
     }
    }
   },
+  "/api/bilan/fournisseurs/{fournisseur_id}/chantiers": {
+   "get": {
+    "summary": "Bilan Chantiers Du Fournisseur Endpoint",
+    "operationId": "bilan_chantiers_du_fournisseur_endpoint_api_bilan_fournisseurs__fournisseur_id__chantiers_get",
+    "parameters": [
+     {
+      "name": "fournisseur_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Fournisseur Id"
+      }
+     },
+     {
+      "name": "mois",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Mois"
+      }
+     },
+     {
+      "name": "agence",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Agence"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/LigneBilanChantierReponse"
+         },
+         "title": "Response Bilan Chantiers Du Fournisseur Endpoint Api Bilan Fournisseurs  Fournisseur Id  Chantiers Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/bilan/chantiers.csv": {
    "get": {
     "summary": "Bilan Chantiers Csv Endpoint",
@@ -1563,6 +1657,79 @@
     "description": "Vue inverse (même niveau que `bilan_fournisseurs_endpoint`) : même\nfonction de sérialisation que la route `.csv` imbriquée dans un\nchantier ci-dessus, les deux renvoyant des `LigneBilanFournisseur`.",
     "operationId": "bilan_fournisseurs_csv_endpoint_api_bilan_fournisseurs_csv_get",
     "parameters": [
+     {
+      "name": "mois",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Mois"
+      }
+     },
+     {
+      "name": "agence",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Agence"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Export CSV UTF-8 du bilan.",
+      "content": {
+       "text/csv": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/bilan/fournisseurs/{fournisseur_id}/chantiers.csv": {
+   "get": {
+    "summary": "Bilan Chantiers Du Fournisseur Csv Endpoint",
+    "operationId": "bilan_chantiers_du_fournisseur_csv_endpoint_api_bilan_fournisseurs__fournisseur_id__chantiers_csv_get",
+    "parameters": [
+     {
+      "name": "fournisseur_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Fournisseur Id"
+      }
+     },
      {
       "name": "mois",
       "in": "query",
