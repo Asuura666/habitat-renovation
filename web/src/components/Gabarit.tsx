@@ -62,8 +62,8 @@ export function Gabarit(): ReactElement {
       </header>
 
       {moi && (
-        <nav aria-label="Navigation principale" className="border-b border-slate-200 bg-white px-4 sm:px-6">
-          <ul className="flex gap-6">
+        <nav aria-label="Navigation principale" className="overflow-x-auto border-b border-slate-200 bg-white px-4 sm:px-6">
+          <ul className="flex w-max gap-6">
             {moi.role === "admin" && (
               <>
                 <li>
@@ -79,6 +79,11 @@ export function Gabarit(): ReactElement {
                 <li>
                   <NavLink to="/factures" className={classesOnglet}>
                     Factures
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink to="/bilan" className={classesOnglet}>
+                    Bilan
                   </NavLink>
                 </li>
               </>

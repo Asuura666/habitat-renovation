@@ -5,6 +5,7 @@ import { EcouteAuthentification } from "./components/EcouteAuthentification";
 import { Gabarit } from "./components/Gabarit";
 import { Anomalies } from "./pages/Anomalies";
 import { ATraiter } from "./pages/ATraiter";
+import { Bilan } from "./pages/Bilan";
 import { BlDeposes } from "./pages/BlDeposes";
 import { Connexion } from "./pages/Connexion";
 import { DocumentDetail } from "./pages/DocumentDetail";
@@ -58,6 +59,14 @@ export function App(): ReactElement {
             element={
               <GardeAdmin>
                 <FactureDetail />
+              </GardeAdmin>
+            }
+          />
+          <Route
+            path="bilan"
+            element={
+              <GardeAdmin>
+                <Bilan />
               </GardeAdmin>
             }
           />
