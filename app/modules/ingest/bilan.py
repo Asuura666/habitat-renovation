@@ -158,8 +158,9 @@ class MontantsBilan:
     de BL (R01, gravité haute) affiche donc `nb_anomalies_ouvertes > 0`
     alors que `en_ecart` peut rester à `0` : ce n'est pas un écart de
     quantité ou de prix, mais ce n'en est pas moins une anomalie ouverte à
-    traiter. Les anomalies de document entier (R10/R11), jamais rattachées
-    à un bloc précis, n'entrent dans aucun des deux champs."""
+    traiter. Une anomalie sans bloc n'entre jamais dans `en_ecart`; elle
+    entre dans le compte des niveaux auxquels son document ou son chantier
+    explicite permet de l'attribuer."""
 
     facture_ht: Decimal
     rapproche: Decimal
@@ -223,7 +224,7 @@ def _premier_jour_mois_suivant(premier_jour: date) -> date:
     return date(premier_jour.year, premier_jour.month + 1, 1)
 
 
-def _condition_mois(mois: date) -> Any:
+def _condition_mois(mois: date, document: Any = Document) -> Any:
     """Condition SQL du filtre `mois` (L5-D4) : le mois d'un bloc est celui
     de sa facture, lue sur `document.date_doc` (comparaison de dates civiles,
     aucune conversion de fuseau nécessaire) ; à défaut, celui de
@@ -250,14 +251,14 @@ def _condition_mois(mois: date) -> Any:
     )
     return or_(
         and_(
-            Document.date_doc.is_not(None),
-            Document.date_doc >= premier_jour,
-            Document.date_doc < jour_suivant,
+            document.date_doc.is_not(None),
+            document.date_doc >= premier_jour,
+            document.date_doc < jour_suivant,
         ),
         and_(
-            Document.date_doc.is_(None),
-            Document.created_at >= debut_instant,
-            Document.created_at < fin_instant,
+            document.date_doc.is_(None),
+            document.created_at >= debut_instant,
+            document.created_at < fin_instant,
         ),
     )
 
@@ -343,7 +344,7 @@ def _sous_requete_blocs(conditions: list[Any]) -> Any:
     )
 
 
-def _sous_requete_anomalies() -> Any:
+def _sous_requete_anomalies(mois: date | None) -> Any:
     """Une ligne par anomalie ouverte avec ses origines attribuables.
 
     Le chantier réutilise strictement `CHANTIER_ID_RESOLU`, comme l'écran
@@ -351,9 +352,61 @@ def _sous_requete_anomalies() -> Any:
     puis de la facture portée par son bloc ; le BL vient de son `bloc_id`.
     Une anomalie R16 est donc attribuable au chantier mais ni au fournisseur
     ni au BL ; une R11/R15 de document peut l'être au chantier et au
-    fournisseur sans l'être à un BL.
+    fournisseur sans l'être à un BL. Les anomalies de bloc suivent le mois
+    et le statut de leur facture (L5-D4), celles de document suivent le mois
+    et le statut de ce document. Pour une anomalie sans bloc ni document,
+    le mois porte sur `Anomalie.created_at`, comme le filtre de période de
+    l'écran Anomalies. Chaque branche est exclusive, donc une anomalie ne
+    peut entrer qu'une fois dans la sous-requête.
     """
     facture_bloc = aliased(Document)
+    conditions: list[Any] = [
+        Anomalie.statut == "ouverte",
+        or_(
+            and_(
+                Anomalie.bloc_id.is_not(None),
+                facture_bloc.type == "facture",
+                facture_bloc.statut != "archive",
+            ),
+            and_(
+                Anomalie.bloc_id.is_(None),
+                Anomalie.document_id.is_not(None),
+                Document.statut != "archive",
+            ),
+            and_(
+                Anomalie.bloc_id.is_(None),
+                Anomalie.document_id.is_(None),
+            ),
+        ),
+    ]
+    if mois is not None:
+        premier_jour = date(mois.year, mois.month, 1)
+        jour_suivant = _premier_jour_mois_suivant(premier_jour)
+        debut_instant = datetime(
+            premier_jour.year, premier_jour.month, 1, tzinfo=FUSEAU_PARIS
+        )
+        fin_instant = datetime(
+            jour_suivant.year, jour_suivant.month, 1, tzinfo=FUSEAU_PARIS
+        )
+        conditions.append(
+            or_(
+                and_(
+                    Anomalie.bloc_id.is_not(None),
+                    _condition_mois(mois, facture_bloc),
+                ),
+                and_(
+                    Anomalie.bloc_id.is_(None),
+                    Anomalie.document_id.is_not(None),
+                    _condition_mois(mois),
+                ),
+                and_(
+                    Anomalie.bloc_id.is_(None),
+                    Anomalie.document_id.is_(None),
+                    Anomalie.created_at >= debut_instant,
+                    Anomalie.created_at < fin_instant,
+                ),
+            )
+        )
     return (
         select(
             Anomalie.id.label("anomalie_id"),
@@ -368,7 +421,7 @@ def _sous_requete_anomalies() -> Any:
         .outerjoin(Document, Document.id == Anomalie.document_id)
         .outerjoin(BlocFacture, BlocFacture.id == Anomalie.bloc_id)
         .outerjoin(facture_bloc, facture_bloc.id == BlocFacture.facture_id)
-        .where(Anomalie.statut == "ouverte")
+        .where(*conditions)
         .subquery()
     )
 
@@ -467,6 +520,22 @@ def _condition_agence(blocs: Any, agence: str) -> Any:
     return blocs.c.chantier_id.in_(select(Chantier.id).where(Chantier.agence == agence))
 
 
+def _filtre_anomalies_portee(
+    anomalies: Any,
+    *,
+    agence: str | None,
+    filtre_anomalies: Callable[[Any], Any] | None,
+) -> Any | None:
+    """Reprend sur les comptes d'anomalies les filtres hors mois/statut,
+    déjà portés directement par `_sous_requete_anomalies`."""
+    conditions: list[Any] = []
+    if filtre_anomalies is not None:
+        conditions.append(filtre_anomalies(anomalies))
+    if agence is not None:
+        conditions.append(_condition_agence(anomalies, agence))
+    return and_(*conditions) if conditions else None
+
+
 def _condition_exact_ou_nul(colonne: Any, valeur: uuid.UUID | None) -> Any:
     """Condition d'égalité sur une colonne résolue d'un bloc (`chantier_id`
     ou `fournisseur_id`) qui accepte `valeur=None` : sélectionne alors les
@@ -500,13 +569,15 @@ async def _bilan_par_chantier_interne(
     d'un appel à l'autre) -- la ligne `chantier_id=None` (blocs sans
     chantier résolu) se départage en dernier à montant égal."""
     blocs = _sous_requete_blocs(_conditions_base(mois))
-    anomalies = _sous_requete_anomalies()
+    anomalies = _sous_requete_anomalies(mois)
     anomalies_qte_prix = _anomalies_qte_prix_par_bloc(anomalies)
     comptes_anomalies = _comptes_anomalies(
         anomalies,
         anomalies.c.chantier_id,
-        filtre_perimetre=(
-            filtre_anomalies(anomalies) if filtre_anomalies is not None else None
+        filtre_perimetre=_filtre_anomalies_portee(
+            anomalies,
+            agence=agence,
+            filtre_anomalies=filtre_anomalies,
         ),
     )
     montants = _expressions_montants(
@@ -528,7 +599,7 @@ async def _bilan_par_chantier_interne(
         .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
         .outerjoin(
             comptes_anomalies,
-            comptes_anomalies.c.chantier_id.is_not_distinct_from(blocs.c.chantier_id),
+            comptes_anomalies.c.chantier_id == blocs.c.chantier_id,
         )
         .outerjoin(Chantier, Chantier.id == blocs.c.chantier_id)
         .group_by(
@@ -617,13 +688,15 @@ async def _bilan_par_fournisseur_interne(
     `_bilan_par_chantier_interne`, groupé par fournisseur plutôt que par
     chantier."""
     blocs = _sous_requete_blocs(_conditions_base(mois))
-    anomalies = _sous_requete_anomalies()
+    anomalies = _sous_requete_anomalies(mois)
     anomalies_qte_prix = _anomalies_qte_prix_par_bloc(anomalies)
     comptes_anomalies = _comptes_anomalies(
         anomalies,
         anomalies.c.fournisseur_id,
-        filtre_perimetre=(
-            filtre_anomalies(anomalies) if filtre_anomalies is not None else None
+        filtre_perimetre=_filtre_anomalies_portee(
+            anomalies,
+            agence=agence,
+            filtre_anomalies=filtre_anomalies,
         ),
     )
     montants = _expressions_montants(
@@ -644,9 +717,7 @@ async def _bilan_par_fournisseur_interne(
         .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
         .outerjoin(
             comptes_anomalies,
-            comptes_anomalies.c.fournisseur_id.is_not_distinct_from(
-                blocs.c.fournisseur_id
-            ),
+            comptes_anomalies.c.fournisseur_id == blocs.c.fournisseur_id,
         )
         .outerjoin(Fournisseur, Fournisseur.id == blocs.c.fournisseur_id)
         .group_by(Fournisseur.id, Fournisseur.nom, comptes_anomalies.c.nb_total)
@@ -743,7 +814,7 @@ async def bilan_par_bl(
     ligne `blocs` et au plus une ligne `anomalies` -- l'agrégat `func.sum`
     d'un groupe à une seule ligne renvoie simplement cette ligne."""
     blocs = _sous_requete_blocs(_conditions_base(mois))
-    anomalies = _sous_requete_anomalies()
+    anomalies = _sous_requete_anomalies(mois)
     anomalies_qte_prix = _anomalies_qte_prix_par_bloc(anomalies)
     comptes_anomalies = _comptes_anomalies(anomalies, anomalies.c.bloc_id)
     montants = _expressions_montants(

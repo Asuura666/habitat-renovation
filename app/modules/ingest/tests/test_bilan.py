@@ -124,6 +124,8 @@ async def _creer_document_bl(
     *,
     chantier_id: uuid.UUID | None = None,
     fournisseur_id: uuid.UUID | None = None,
+    date_doc: date | None = None,
+    statut: str = "recu",
 ) -> Document:
     """Un document BL minimal (données inventées), utilisé uniquement pour
     fournir un `bl_document_id` valide à un bloc de facture (niveau BL,
@@ -131,10 +133,11 @@ async def _creer_document_bl(
     document = Document(
         type="bl",
         source="telegram",
-        statut="recu",
+        statut=statut,
         fichier_path=f"chemin-invente-{uuid.uuid4()}.jpg",
         chantier_id=chantier_id,
         fournisseur_id=fournisseur_id,
+        date_doc=date_doc,
     )
     db_session.add(document)
     await db_session.commit()
@@ -212,6 +215,7 @@ async def _creer_anomalie(
     article_id: uuid.UUID | None = None,
     chantier_id: uuid.UUID | None = None,
     gravite: str = "haute",
+    created_at: datetime | None = None,
 ) -> Anomalie:
     anomalie = Anomalie(
         regle=regle,
@@ -225,6 +229,7 @@ async def _creer_anomalie(
         detail={"cle": "valeur"},
         traitee_le=datetime.now(UTC) if statut != "ouverte" else None,
         commentaire="Traitée (test)." if statut != "ouverte" else None,
+        **({"created_at": created_at} if created_at is not None else {}),
     )
     db_session.add(anomalie)
     await db_session.commit()
@@ -549,6 +554,55 @@ async def test_bilan_filtre_mois_exclut_le_bloc_du_mois_voisin(
     assert ok, "le filtre mois=août ne doit retenir que le bloc de la facture d'août"
 
 
+async def test_bilan_filtre_mois_exclut_anomalie_du_bloc_du_mois_voisin(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = await _creer_chantier(db_session, nom="Chantier Mois Anomalie")
+    facture_aout = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="ANOM-AOUT",
+        date_doc=date(2026, 8, 20),
+    )
+    bloc_aout = await _creer_bloc(
+        db_session,
+        facture=facture_aout,
+        chantier_id=chantier.id,
+        numero_bl="ANOM-BL-AOUT",
+    )
+    await _creer_ligne(db_session, document=facture_aout, bloc=bloc_aout)
+
+    facture_septembre = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="ANOM-SEPT",
+        date_doc=date(2026, 9, 5),
+    )
+    bloc_septembre = await _creer_bloc(
+        db_session,
+        facture=facture_septembre,
+        chantier_id=chantier.id,
+        numero_bl="ANOM-BL-SEPT",
+    )
+    ligne_septembre = await _creer_ligne(
+        db_session, document=facture_septembre, bloc=bloc_septembre
+    )
+    await _creer_anomalie(
+        db_session,
+        regle="R03",
+        bloc_id=bloc_septembre.id,
+        ligne_id=ligne_septembre.id,
+    )
+
+    lignes = await bilan_par_chantier(db_session, mois=date(2026, 8, 1), agence=None)
+
+    ligne = _ligne_du_chantier(lignes, chantier.id)
+    assert ligne is not None
+    assert ligne.montants.nb_anomalies_ouvertes == 0
+    assert ligne.montants.en_ecart == Decimal("0")
+
+
 # --------------------------------------------------------------------------
 # 6. facture archivée : exclue de tous les montants
 # --------------------------------------------------------------------------
@@ -576,6 +630,48 @@ async def test_bilan_bloc_de_facture_archivee_exclu_de_tous_les_montants(
 
     ok = _ligne_du_chantier(lignes, chantier.id) is None
     assert ok, "un bloc d'une facture archivée ne doit produire aucune ligne de bilan"
+
+
+async def test_bilan_exclut_anomalie_dune_facture_archivee(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = await _creer_chantier(db_session, nom="Chantier Archive Anomalie")
+    facture_active = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="ACTIVE"
+    )
+    bloc_actif = await _creer_bloc(
+        db_session, facture=facture_active, chantier_id=chantier.id
+    )
+    await _creer_ligne(db_session, document=facture_active, bloc=bloc_actif)
+
+    facture_archivee = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="ARCHIVEE", statut="archive"
+    )
+    bloc_archive = await _creer_bloc(
+        db_session, facture=facture_archivee, chantier_id=chantier.id
+    )
+    ligne_archivee = await _creer_ligne(
+        db_session, document=facture_archivee, bloc=bloc_archive
+    )
+    await _creer_anomalie(
+        db_session,
+        regle="R03",
+        bloc_id=bloc_archive.id,
+        ligne_id=ligne_archivee.id,
+    )
+
+    lignes_chantier = await bilan_par_chantier(db_session, mois=None, agence=None)
+    lignes_fournisseur = await bilan_par_fournisseur(
+        db_session, chantier_id=chantier.id, mois=None, agence=None
+    )
+
+    ligne_chantier = _ligne_du_chantier(lignes_chantier, chantier.id)
+    ligne_fournisseur = _ligne_du_fournisseur(lignes_fournisseur, fournisseur.id)
+    assert ligne_chantier is not None
+    assert ligne_fournisseur is not None
+    assert ligne_chantier.montants.nb_anomalies_ouvertes == 0
+    assert ligne_fournisseur.montants.nb_anomalies_ouvertes == 0
 
 
 # --------------------------------------------------------------------------
@@ -705,11 +801,45 @@ async def test_bilan_chantier_compte_r16_sans_bloc_sans_modifier_en_ecart(
     await _creer_anomalie(db_session, regle="R16", chantier_id=autre_chantier.id)
 
     lignes = await bilan_par_chantier(db_session, mois=None, agence=None)
+    lignes_fournisseur = await bilan_par_fournisseur(
+        db_session, chantier_id=chantier.id, mois=None, agence=None
+    )
+
+    ligne = _ligne_du_chantier(lignes, chantier.id)
+    ligne_fournisseur = _ligne_du_fournisseur(lignes_fournisseur, fournisseur.id)
+    assert ligne is not None
+    assert ligne_fournisseur is not None
+    assert ligne.montants.nb_anomalies_ouvertes == 1
+    assert ligne.montants.en_ecart == Decimal("0")
+    assert ligne_fournisseur.montants.nb_anomalies_ouvertes == 0
+
+
+async def test_bilan_filtre_mois_anomalie_sans_document_par_date_de_creation(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = await _creer_chantier(db_session, nom="Chantier R16 Mois")
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    bloc = await _creer_bloc(db_session, facture=facture, chantier_id=chantier.id)
+    await _creer_ligne(db_session, document=facture, bloc=bloc)
+    await _creer_anomalie(
+        db_session,
+        regle="R16",
+        chantier_id=chantier.id,
+        created_at=datetime(2026, 8, 20, 12, tzinfo=FUSEAU_PARIS),
+    )
+    await _creer_anomalie(
+        db_session,
+        regle="R14",
+        chantier_id=chantier.id,
+        created_at=datetime(2026, 9, 2, 12, tzinfo=FUSEAU_PARIS),
+    )
+
+    lignes = await bilan_par_chantier(db_session, mois=date(2026, 8, 1), agence=None)
 
     ligne = _ligne_du_chantier(lignes, chantier.id)
     assert ligne is not None
     assert ligne.montants.nb_anomalies_ouvertes == 1
-    assert ligne.montants.en_ecart == Decimal("0")
 
 
 async def test_bilan_compte_anomalie_document_sans_bloc_aux_niveaux_attribuables(
@@ -733,6 +863,56 @@ async def test_bilan_compte_anomalie_document_sans_bloc_aux_niveaux_attribuables
     )
     lignes_bl = await bilan_par_bl(
         db_session, chantier_id=chantier.id, fournisseur_id=fournisseur.id, mois=None
+    )
+
+    ligne_chantier = _ligne_du_chantier(lignes_chantier, chantier.id)
+    ligne_fournisseur = _ligne_du_fournisseur(lignes_fournisseur, fournisseur.id)
+    ligne_bl = _ligne_du_bl(lignes_bl, bloc.id)
+    assert ligne_chantier is not None
+    assert ligne_fournisseur is not None
+    assert ligne_bl is not None
+    assert ligne_chantier.montants.nb_anomalies_ouvertes == 1
+    assert ligne_fournisseur.montants.nb_anomalies_ouvertes == 1
+    assert ligne_bl.montants.nb_anomalies_ouvertes == 0
+
+
+async def test_bilan_filtre_mois_anomalies_documentaires_selon_le_document(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = await _creer_chantier(db_session, nom="Chantier Document Mois")
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    bloc = await _creer_bloc(db_session, facture=facture, chantier_id=chantier.id)
+    await _creer_ligne(db_session, document=facture, bloc=bloc)
+    document_aout = await _creer_document_bl(
+        db_session,
+        chantier_id=chantier.id,
+        fournisseur_id=fournisseur.id,
+        date_doc=date(2026, 8, 18),
+    )
+    document_septembre = await _creer_document_bl(
+        db_session,
+        chantier_id=chantier.id,
+        fournisseur_id=fournisseur.id,
+        date_doc=date(2026, 9, 3),
+    )
+    await _creer_anomalie(db_session, regle="R11", document_id=document_aout.id)
+    await _creer_anomalie(db_session, regle="R15", document_id=document_septembre.id)
+
+    lignes_chantier = await bilan_par_chantier(
+        db_session, mois=date(2026, 8, 1), agence=None
+    )
+    lignes_fournisseur = await bilan_par_fournisseur(
+        db_session,
+        chantier_id=chantier.id,
+        mois=date(2026, 8, 1),
+        agence=None,
+    )
+    lignes_bl = await bilan_par_bl(
+        db_session,
+        chantier_id=chantier.id,
+        fournisseur_id=fournisseur.id,
+        mois=date(2026, 8, 1),
     )
 
     ligne_chantier = _ligne_du_chantier(lignes_chantier, chantier.id)
@@ -1048,6 +1228,31 @@ async def test_bilan_par_bl_bloc_sans_chantier_ni_fournisseur_resolu(
     )
 
 
+async def test_bilan_ne_compte_pas_anomalie_sans_origine_sur_lignes_non_resolues(
+    db_session: AsyncSession,
+) -> None:
+    facture = await _creer_facture_sans_fournisseur(
+        db_session, numero="F-ORIGINE-NULLE"
+    )
+    bloc = await _creer_bloc(
+        db_session, facture=facture, chantier_id=None, numero_bl="BL-ORIGINE-NULLE"
+    )
+    await _creer_ligne(db_session, document=facture, bloc=bloc)
+    await _creer_anomalie(db_session, regle="R16")
+
+    lignes_chantier = await bilan_par_chantier(db_session, mois=None, agence=None)
+    lignes_fournisseur = await bilan_par_fournisseur(
+        db_session, chantier_id=None, mois=None, agence=None
+    )
+
+    ligne_chantier = _ligne_du_chantier(lignes_chantier, None)
+    ligne_fournisseur = _ligne_du_fournisseur(lignes_fournisseur, None)
+    assert ligne_chantier is not None
+    assert ligne_fournisseur is not None
+    assert ligne_chantier.montants.nb_anomalies_ouvertes == 0
+    assert ligne_fournisseur.montants.nb_anomalies_ouvertes == 0
+
+
 # --------------------------------------------------------------------------
 # Vue inverse : mêmes montants que la vue directe
 # --------------------------------------------------------------------------
@@ -1186,6 +1391,42 @@ async def test_bilan_filtre_agence_sapplique_au_niveau_fournisseur_et_a_la_vue_i
         "le filtre agence doit s'appliquer au niveau fournisseur (direct et "
         "restreint à un chantier d'une autre agence) et à la vue inverse"
     )
+
+
+async def test_bilan_fournisseur_global_exclut_anomalies_des_autres_agences(
+    db_session: AsyncSession,
+) -> None:
+    chantier_nord = await _creer_chantier(
+        db_session, nom="Chantier Compte Nord", agence="Nord"
+    )
+    chantier_sud = await _creer_chantier(
+        db_session, nom="Chantier Compte Sud", agence="Sud"
+    )
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur Compte Agence")
+
+    for chantier, suffixe in ((chantier_nord, "N"), (chantier_sud, "S")):
+        facture = await _creer_facture(
+            db_session, fournisseur=fournisseur, numero=f"COMPTE-{suffixe}"
+        )
+        bloc = await _creer_bloc(
+            db_session,
+            facture=facture,
+            chantier_id=chantier.id,
+            numero_bl=f"COMPTE-BL-{suffixe}",
+        )
+        ligne_facture = await _creer_ligne(db_session, document=facture, bloc=bloc)
+        await _creer_anomalie(
+            db_session,
+            regle="R03",
+            bloc_id=bloc.id,
+            ligne_id=ligne_facture.id,
+        )
+
+    lignes = await bilan_par_fournisseur_global(db_session, mois=None, agence="Nord")
+
+    ligne_bilan = _ligne_du_fournisseur(lignes, fournisseur.id)
+    assert ligne_bilan is not None
+    assert ligne_bilan.montants.nb_anomalies_ouvertes == 1
 
 
 async def test_bilan_filtre_mois_sapplique_au_niveau_fournisseur_et_bl(
