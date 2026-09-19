@@ -16,6 +16,8 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
 from app.modules.ingest.bilan import (
     LigneBilanBl,
     LigneBilanChantier,
@@ -23,6 +25,7 @@ from app.modules.ingest.bilan import (
     MontantsBilan,
 )
 from app.modules.ingest.export import (
+    _cellule,
     csv_bilan_bl,
     csv_bilan_chantiers,
     csv_bilan_fournisseurs,
@@ -50,6 +53,19 @@ def _lignes_csv(contenu: str) -> list[list[str]]:
     """Reconstitue les lignes du CSV produit (séparateur `;`) -- aide de
     lisibilité partagée par les tests ci-dessous."""
     return list(csv.reader(io.StringIO(contenu), delimiter=";"))
+
+
+@pytest.mark.parametrize("prefixe", ["=", "+", "-", "@"])
+def test_cellule_neutralise_les_formules_apres_espaces_et_controles(
+    prefixe: str,
+) -> None:
+    valeur = f" \t{prefixe}commande()"
+
+    assert _cellule(valeur) == f"' \t{prefixe}commande()"
+
+
+def test_cellule_conserve_une_valeur_ordinaire() -> None:
+    assert _cellule("Libellé ordinaire") == "Libellé ordinaire"
 
 
 # --------------------------------------------------------------------------

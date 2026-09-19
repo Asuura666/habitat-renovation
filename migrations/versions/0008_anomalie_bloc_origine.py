@@ -26,13 +26,16 @@ ne protège que le statut `ignoree`, et seulement pendant `duree_ignorance_j`
 (90 jours par défaut) : elle ne rattrape pas ce cas, et jamais le statut
 `traitee`.
 
-`upgrade()` répare donc les lignes déjà en base, **quel que soit leur
-statut** (`ouverte`, `traitee` ou `ignoree`) : c'est justement les lignes
-`traitee`/`ignoree` qu'il faut sauver, une anomalie déjà `ouverte` n'ayant de
-toute façon rien à perdre à voir son `bloc_id` complété. Un seul `UPDATE`
-ensembliste (pas de boucle Python ligne à ligne, volume potentiellement non
-trivial) : `bloc_id` pris sur la ligne visée par `ligne_id`, seulement quand
-`anomalie.bloc_id` est vide et que la ligne porte elle-même un bloc.
+`upgrade()` répare donc les lignes déjà en base pour les seules règles
+R07/R08/R09/R13/R17, **quel que soit leur statut** (`ouverte`, `traitee` ou
+`ignoree`) : c'est justement les lignes `traitee`/`ignoree` qu'il faut sauver,
+une anomalie déjà `ouverte` n'ayant de toute façon rien à perdre à voir son
+`bloc_id` complété. Un seul `UPDATE` ensembliste (pas de boucle Python ligne à
+ligne, volume potentiellement non trivial) : `bloc_id` pris sur la ligne visée
+par `ligne_id`, seulement quand `anomalie.bloc_id` est vide et que la ligne
+porte elle-même un bloc. Si la clé corrigée existe déjà, la ligne historique
+est conservée telle quelle : ni suppression ni écrasement d'une décision
+humaine, et aucune collision avec l'index unique.
 
 `downgrade()` remet `bloc_id` à `NULL` pour les anomalies des règles qui ne
 le posaient pas nativement avant le Ruling L5-R3 (R07, R08, R09, R13, R17 —
@@ -69,21 +72,42 @@ _REGLES_SANS_BLOC_ID_NATIF: tuple[str, ...] = ("R07", "R08", "R09", "R13", "R17"
 
 
 def upgrade() -> None:
-    op.execute(
-        "UPDATE anomalie "
+    requete = text(
+        "UPDATE anomalie AS source "
         "SET bloc_id = ligne.bloc_id "
         "FROM ligne "
-        "WHERE anomalie.ligne_id = ligne.id "
-        "AND anomalie.bloc_id IS NULL "
-        "AND ligne.bloc_id IS NOT NULL"
-    )
+        "WHERE source.ligne_id = ligne.id "
+        "AND source.regle IN :regles "
+        "AND source.bloc_id IS NULL "
+        "AND ligne.bloc_id IS NOT NULL "
+        "AND NOT EXISTS ("
+        "SELECT 1 FROM anomalie AS cible "
+        "WHERE cible.regle = source.regle "
+        "AND cible.document_id IS NOT DISTINCT FROM source.document_id "
+        "AND cible.bloc_id IS NOT DISTINCT FROM ligne.bloc_id "
+        "AND cible.ligne_id IS NOT DISTINCT FROM source.ligne_id "
+        "AND cible.chantier_id IS NOT DISTINCT FROM source.chantier_id "
+        "AND cible.alias_id IS NOT DISTINCT FROM source.alias_id"
+        ")"
+    ).bindparams(bindparam("regles", expanding=True))
+    op.get_bind().execute(requete, {"regles": list(_REGLES_SANS_BLOC_ID_NATIF)})
 
 
 def downgrade() -> None:
     requete = text(
-        "UPDATE anomalie "
+        "UPDATE anomalie AS source "
         "SET bloc_id = NULL "
-        "WHERE regle IN :regles "
-        "AND ligne_id IS NOT NULL"
+        "WHERE source.regle IN :regles "
+        "AND source.ligne_id IS NOT NULL "
+        "AND source.bloc_id IS NOT NULL "
+        "AND NOT EXISTS ("
+        "SELECT 1 FROM anomalie AS cible "
+        "WHERE cible.regle = source.regle "
+        "AND cible.document_id IS NOT DISTINCT FROM source.document_id "
+        "AND cible.bloc_id IS NULL "
+        "AND cible.ligne_id IS NOT DISTINCT FROM source.ligne_id "
+        "AND cible.chantier_id IS NOT DISTINCT FROM source.chantier_id "
+        "AND cible.alias_id IS NOT DISTINCT FROM source.alias_id"
+        ")"
     ).bindparams(bindparam("regles", expanding=True))
     op.get_bind().execute(requete, {"regles": list(_REGLES_SANS_BLOC_ID_NATIF)})

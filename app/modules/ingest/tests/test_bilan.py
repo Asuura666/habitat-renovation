@@ -119,7 +119,12 @@ async def _creer_bloc(
     return bloc
 
 
-async def _creer_document_bl(db_session: AsyncSession) -> Document:
+async def _creer_document_bl(
+    db_session: AsyncSession,
+    *,
+    chantier_id: uuid.UUID | None = None,
+    fournisseur_id: uuid.UUID | None = None,
+) -> Document:
     """Un document BL minimal (données inventées), utilisé uniquement pour
     fournir un `bl_document_id` valide à un bloc de facture (niveau BL,
     L5-T2) -- son contenu réel n'importe pas à ces tests."""
@@ -128,6 +133,8 @@ async def _creer_document_bl(db_session: AsyncSession) -> Document:
         source="telegram",
         statut="recu",
         fichier_path=f"chemin-invente-{uuid.uuid4()}.jpg",
+        chantier_id=chantier_id,
+        fournisseur_id=fournisseur_id,
     )
     db_session.add(document)
     await db_session.commit()
@@ -203,6 +210,7 @@ async def _creer_anomalie(
     ligne_id: uuid.UUID | None = None,
     document_id: uuid.UUID | None = None,
     article_id: uuid.UUID | None = None,
+    chantier_id: uuid.UUID | None = None,
     gravite: str = "haute",
 ) -> Anomalie:
     anomalie = Anomalie(
@@ -213,6 +221,7 @@ async def _creer_anomalie(
         ligne_id=ligne_id,
         document_id=document_id,
         article_id=article_id,
+        chantier_id=chantier_id,
         detail={"cle": "valeur"},
         traitee_le=datetime.now(UTC) if statut != "ouverte" else None,
         commentaire="Traitée (test)." if statut != "ouverte" else None,
@@ -679,6 +688,62 @@ async def test_bilan_anomalie_r01_seule_compte_mais_ne_met_rien_en_ecart(
         "une anomalie R01 seule doit compter dans nb_anomalies_ouvertes, "
         "jamais dans en_ecart"
     )
+
+
+async def test_bilan_chantier_compte_r16_sans_bloc_sans_modifier_en_ecart(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = await _creer_chantier(db_session, nom="Chantier R16")
+    autre_chantier = await _creer_chantier(db_session, nom="Autre chantier R16")
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    bloc = await _creer_bloc(db_session, facture=facture, chantier_id=chantier.id)
+    await _creer_ligne(
+        db_session, document=facture, bloc=bloc, montant_ht=Decimal("45.00")
+    )
+    await _creer_anomalie(db_session, regle="R16", chantier_id=chantier.id)
+    await _creer_anomalie(db_session, regle="R16", chantier_id=autre_chantier.id)
+
+    lignes = await bilan_par_chantier(db_session, mois=None, agence=None)
+
+    ligne = _ligne_du_chantier(lignes, chantier.id)
+    assert ligne is not None
+    assert ligne.montants.nb_anomalies_ouvertes == 1
+    assert ligne.montants.en_ecart == Decimal("0")
+
+
+async def test_bilan_compte_anomalie_document_sans_bloc_aux_niveaux_attribuables(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = await _creer_chantier(db_session, nom="Chantier document")
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    bloc = await _creer_bloc(db_session, facture=facture, chantier_id=chantier.id)
+    await _creer_ligne(db_session, document=facture, bloc=bloc)
+    document_bl = await _creer_document_bl(
+        db_session, chantier_id=chantier.id, fournisseur_id=fournisseur.id
+    )
+    await _creer_anomalie(
+        db_session, regle="R11", document_id=document_bl.id, bloc_id=None
+    )
+
+    lignes_chantier = await bilan_par_chantier(db_session, mois=None, agence=None)
+    lignes_fournisseur = await bilan_par_fournisseur(
+        db_session, chantier_id=chantier.id, mois=None, agence=None
+    )
+    lignes_bl = await bilan_par_bl(
+        db_session, chantier_id=chantier.id, fournisseur_id=fournisseur.id, mois=None
+    )
+
+    ligne_chantier = _ligne_du_chantier(lignes_chantier, chantier.id)
+    ligne_fournisseur = _ligne_du_fournisseur(lignes_fournisseur, fournisseur.id)
+    ligne_bl = _ligne_du_bl(lignes_bl, bloc.id)
+    assert ligne_chantier is not None
+    assert ligne_fournisseur is not None
+    assert ligne_bl is not None
+    assert ligne_chantier.montants.nb_anomalies_ouvertes == 1
+    assert ligne_fournisseur.montants.nb_anomalies_ouvertes == 1
+    assert ligne_bl.montants.nb_anomalies_ouvertes == 0
 
 
 # --------------------------------------------------------------------------

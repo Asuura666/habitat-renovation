@@ -46,16 +46,16 @@ def _config(url: str) -> Config:
     return config
 
 
-async def _inserer_anomalie_pre_migration(url: str) -> tuple[uuid.UUID, uuid.UUID]:
-    """Reproduit l'état laissé en base par un rapprochement antérieur au
-    Ruling L5-R3 : une anomalie de prix (R07) `traitee` par un humain, dont
-    `bloc_id` est encore vide alors que sa ligne porte, elle, un bloc.
-    Renvoie `(anomalie_id, bloc_id_attendu)`."""
+async def _inserer_scenario_pre_migration(
+    url: str, *, regle: str, avec_collision: bool = False
+) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID | None]:
+    """Insère une anomalie historique sans bloc et, facultativement, la ligne
+    déjà corrigée qui entrerait en collision avec elle pendant l'upgrade."""
     engine = create_async_engine(url, poolclass=NullPool)
     try:
         sessionmaker = creer_sessionmaker(engine)
         async with sessionmaker() as session:
-            fournisseur = Fournisseur(nom="Fournisseur Migration 0008")
+            fournisseur = Fournisseur(nom=f"Fournisseur Migration 0008 {uuid.uuid4()}")
             session.add(fournisseur)
             await session.flush()
 
@@ -63,7 +63,7 @@ async def _inserer_anomalie_pre_migration(url: str) -> tuple[uuid.UUID, uuid.UUI
                 type="facture",
                 source="upload",
                 statut="recu",
-                fichier_path="chemin-invente-migration-0008.pdf",
+                fichier_path=f"chemin-invente-migration-0008-{uuid.uuid4()}.pdf",
                 fournisseur_id=fournisseur.id,
             )
             session.add(facture)
@@ -84,20 +84,42 @@ async def _inserer_anomalie_pre_migration(url: str) -> tuple[uuid.UUID, uuid.UUI
             await session.flush()
 
             anomalie = Anomalie(
-                regle="R07",
+                regle=regle,
                 gravite="moyenne",
                 statut="traitee",
                 ligne_id=ligne.id,
                 bloc_id=None,
-                detail={"cle": "valeur"},
+                detail={"cle": "valeur historique"},
                 traitee_le=datetime.now(UTC),
                 commentaire="Traitée avant le Ruling L5-R3 (test migration 0008).",
             )
             session.add(anomalie)
+            await session.flush()
+
+            collision_id: uuid.UUID | None = None
+            if avec_collision:
+                collision = Anomalie(
+                    regle=regle,
+                    gravite="moyenne",
+                    statut="ouverte",
+                    ligne_id=ligne.id,
+                    bloc_id=bloc.id,
+                    detail={"cle": "valeur déjà corrigée"},
+                )
+                session.add(collision)
+                await session.flush()
+                collision_id = collision.id
+
             await session.commit()
-            return anomalie.id, bloc.id
+            return anomalie.id, bloc.id, collision_id
     finally:
         await engine.dispose()
+
+
+async def _inserer_anomalie_pre_migration(url: str) -> tuple[uuid.UUID, uuid.UUID]:
+    """Reproduit une anomalie R07 historique traitée sans `bloc_id`."""
+    anomalie_id, bloc_id, _ = await _inserer_scenario_pre_migration(url, regle="R07")
+    return anomalie_id, bloc_id
 
 
 async def _lire_anomalie(url: str, anomalie_id: uuid.UUID) -> Anomalie:
@@ -167,5 +189,51 @@ def test_migration_0008_downgrade_puis_upgrade_laisse_bloc_id_dans_letat_attendu
         rerepare = asyncio.run(_lire_anomalie(url, anomalie_id))
         ok = rerepare.bloc_id == bloc_id_attendu
         assert ok, "un nouvel upgrade doit réparer bloc_id à l'identique"
+    finally:
+        command.upgrade(_config(url), "head")
+
+
+def test_migration_0008_upgrade_ne_touche_pas_une_autre_regle(
+    test_database_url: str,
+) -> None:
+    """L'upgrade est limité aux cinq règles réparées par la migration."""
+    url = url_base_migrations(test_database_url)
+    preparer_base(url)
+    command.downgrade(_config(url), "0007")
+    try:
+        anomalie_id, _bloc_id, _ = asyncio.run(
+            _inserer_scenario_pre_migration(url, regle="R03")
+        )
+
+        command.upgrade(_config(url), "0008")
+
+        anomalie = asyncio.run(_lire_anomalie(url, anomalie_id))
+        assert anomalie.bloc_id is None
+        assert anomalie.statut == "traitee"
+    finally:
+        command.upgrade(_config(url), "head")
+
+
+def test_migration_0008_collision_est_non_destructive(
+    test_database_url: str,
+) -> None:
+    """Une ligne déjà corrigée ne doit ni faire échouer ni détruire l'historique."""
+    url = url_base_migrations(test_database_url)
+    preparer_base(url)
+    command.downgrade(_config(url), "0007")
+    try:
+        historique_id, bloc_id, collision_id = asyncio.run(
+            _inserer_scenario_pre_migration(url, regle="R07", avec_collision=True)
+        )
+        assert collision_id is not None
+
+        command.upgrade(_config(url), "0008")
+
+        historique = asyncio.run(_lire_anomalie(url, historique_id))
+        deja_corrigee = asyncio.run(_lire_anomalie(url, collision_id))
+        assert historique.bloc_id is None
+        assert historique.statut == "traitee"
+        assert deja_corrigee.bloc_id == bloc_id
+        assert deja_corrigee.statut == "ouverte"
     finally:
         command.upgrade(_config(url), "head")

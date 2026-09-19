@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import csv
 import io
+import unicodedata
 from collections.abc import Sequence
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -87,8 +88,18 @@ _ENTETES_BL: tuple[str, ...] = (
 def _cellule(valeur: str | None) -> str:
     """Une valeur absente rend une cellule vide (décision du contrôleur),
     jamais la chaîne "None" que produirait un `csv.writer` sur un `None`
-    littéral."""
-    return valeur if valeur is not None else ""
+    littéral. Une apostrophe neutralise les préfixes de formule reconnus par
+    les tableurs, même précédés d'espaces ou de caractères de contrôle ; le
+    `csv.writer` conserve ensuite seul la responsabilité de l'échappement
+    RFC4180."""
+    if valeur is None:
+        return ""
+    contenu = valeur.lstrip()
+    while contenu and unicodedata.category(contenu[0]).startswith("C"):
+        contenu = contenu[1:].lstrip()
+    if contenu.startswith(("=", "+", "-", "@")):
+        return f"'{valeur}"
+    return valeur
 
 
 def _formater_montant(montant: Decimal) -> str:

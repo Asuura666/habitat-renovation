@@ -112,8 +112,10 @@ from typing import Any
 
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.fuseau import FUSEAU_PARIS
+from app.modules.ingest.anomalies import CHANTIER_ID_RESOLU
 from app.modules.ingest.models import (
     Anomalie,
     BlocFacture,
@@ -342,30 +344,67 @@ def _sous_requete_blocs(conditions: list[Any]) -> Any:
 
 
 def _sous_requete_anomalies() -> Any:
-    """Sous-requête commune aux cinq niveaux du bilan : une ligne par bloc
-    portant au moins une anomalie **ouverte**, avec deux comptes côte à
-    côte (`FILTER`, clause SQL standard sur une fonction d'agrégat) : le
-    total (Ruling L5-R4) et le sous-ensemble `REGLES_QUANTITE_OU_PRIX`
-    (matière de `en_ecart`). `Anomalie.bloc_id` est toujours renseigné
-    depuis le Ruling L5-R3 pour toute anomalie de facture rattachée à une
-    ligne -- R10/R11 (contrôles de document entier, jamais rattachés à un
-    bloc) restent donc hors de ce compte : une anomalie sur la totalité de
-    la facture n'appartient à aucun chantier ni fournisseur précis."""
+    """Une ligne par anomalie ouverte avec ses origines attribuables.
+
+    Le chantier réutilise strictement `CHANTIER_ID_RESOLU`, comme l'écran
+    Anomalies. Le fournisseur vient en priorité du document de l'anomalie,
+    puis de la facture portée par son bloc ; le BL vient de son `bloc_id`.
+    Une anomalie R16 est donc attribuable au chantier mais ni au fournisseur
+    ni au BL ; une R11/R15 de document peut l'être au chantier et au
+    fournisseur sans l'être à un BL.
+    """
+    facture_bloc = aliased(Document)
     return (
         select(
+            Anomalie.id.label("anomalie_id"),
             Anomalie.bloc_id.label("bloc_id"),
-            func.count().label("nb_total"),
-            func.count()
-            .filter(Anomalie.regle.in_(tuple(REGLES_QUANTITE_OU_PRIX)))
-            .label("nb_qte_prix"),
+            CHANTIER_ID_RESOLU.label("chantier_id"),
+            func.coalesce(Document.fournisseur_id, facture_bloc.fournisseur_id).label(
+                "fournisseur_id"
+            ),
+            Anomalie.regle.label("regle"),
         )
-        .where(Anomalie.statut == "ouverte", Anomalie.bloc_id.is_not(None))
-        .group_by(Anomalie.bloc_id)
+        .select_from(Anomalie)
+        .outerjoin(Document, Document.id == Anomalie.document_id)
+        .outerjoin(BlocFacture, BlocFacture.id == Anomalie.bloc_id)
+        .outerjoin(facture_bloc, facture_bloc.id == BlocFacture.facture_id)
+        .where(Anomalie.statut == "ouverte")
         .subquery()
     )
 
 
-def _expressions_montants(blocs: Any, anomalies: Any) -> _ExpressionsMontants:
+def _comptes_anomalies(
+    anomalies: Any, *groupes: Any, filtre_perimetre: Any | None = None
+) -> Any:
+    """Compte les anomalies une fois selon les origines d'un niveau."""
+    requete = (
+        select(*groupes, func.count(anomalies.c.anomalie_id).label("nb_total"))
+        .select_from(anomalies)
+        .group_by(*groupes)
+    )
+    if filtre_perimetre is not None:
+        requete = requete.where(filtre_perimetre)
+    return requete.subquery()
+
+
+def _anomalies_qte_prix_par_bloc(anomalies: Any) -> Any:
+    """Sous-ensemble par bloc utilisé exclusivement par `en_ecart`."""
+    return (
+        select(
+            anomalies.c.bloc_id,
+            func.count()
+            .filter(anomalies.c.regle.in_(tuple(REGLES_QUANTITE_OU_PRIX)))
+            .label("nb_qte_prix"),
+        )
+        .where(anomalies.c.bloc_id.is_not(None))
+        .group_by(anomalies.c.bloc_id)
+        .subquery()
+    )
+
+
+def _expressions_montants(
+    blocs: Any, anomalies_qte_prix: Any, nb_anomalies_ouvertes: Any
+) -> _ExpressionsMontants:
     """Les quatre montants et le compte d'anomalies (L5-D3/Ruling L5-R4),
     à partir des deux sous-requêtes ci-dessus -- le point que la revue de
     L5-T1 réclamait de ne jamais recopier. `blocs` et `anomalies` doivent
@@ -384,7 +423,10 @@ def _expressions_montants(blocs: Any, anomalies: Any) -> _ExpressionsMontants:
         ),
         en_ecart=func.sum(
             case(
-                (func.coalesce(anomalies.c.nb_qte_prix, 0) > 0, blocs.c.montant_ht),
+                (
+                    func.coalesce(anomalies_qte_prix.c.nb_qte_prix, 0) > 0,
+                    blocs.c.montant_ht,
+                ),
                 else_=0,
             )
         ),
@@ -397,9 +439,7 @@ def _expressions_montants(blocs: Any, anomalies: Any) -> _ExpressionsMontants:
                 else_=0,
             )
         ),
-        nb_anomalies_ouvertes=func.coalesce(
-            func.sum(func.coalesce(anomalies.c.nb_total, 0)), 0
-        ),
+        nb_anomalies_ouvertes=func.coalesce(nb_anomalies_ouvertes, 0),
     )
 
 
@@ -443,6 +483,7 @@ async def _bilan_par_chantier_interne(
     mois: date | None,
     agence: str | None,
     filtre_perimetre: Callable[[Any], Any] | None,
+    filtre_anomalies: Callable[[Any], Any] | None,
 ) -> list[LigneBilanChantier]:
     """Construction partagée par `bilan_par_chantier` et sa vue inverse
     `bilan_chantiers_du_fournisseur` (L5-T2) : même regroupement par
@@ -460,7 +501,17 @@ async def _bilan_par_chantier_interne(
     chantier résolu) se départage en dernier à montant égal."""
     blocs = _sous_requete_blocs(_conditions_base(mois))
     anomalies = _sous_requete_anomalies()
-    montants = _expressions_montants(blocs, anomalies)
+    anomalies_qte_prix = _anomalies_qte_prix_par_bloc(anomalies)
+    comptes_anomalies = _comptes_anomalies(
+        anomalies,
+        anomalies.c.chantier_id,
+        filtre_perimetre=(
+            filtre_anomalies(anomalies) if filtre_anomalies is not None else None
+        ),
+    )
+    montants = _expressions_montants(
+        blocs, anomalies_qte_prix, comptes_anomalies.c.nb_total
+    )
 
     requete = (
         select(
@@ -474,9 +525,18 @@ async def _bilan_par_chantier_interne(
             montants.nb_anomalies_ouvertes.label("nb_anomalies_ouvertes"),
         )
         .select_from(blocs)
-        .outerjoin(anomalies, anomalies.c.bloc_id == blocs.c.bloc_id)
+        .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
+        .outerjoin(
+            comptes_anomalies,
+            comptes_anomalies.c.chantier_id.is_not_distinct_from(blocs.c.chantier_id),
+        )
         .outerjoin(Chantier, Chantier.id == blocs.c.chantier_id)
-        .group_by(Chantier.id, Chantier.nom_canonique, Chantier.agence)
+        .group_by(
+            Chantier.id,
+            Chantier.nom_canonique,
+            Chantier.agence,
+            comptes_anomalies.c.nb_total,
+        )
     )
     if filtre_perimetre is not None:
         requete = requete.where(filtre_perimetre(blocs))
@@ -510,7 +570,11 @@ async def bilan_par_chantier(
     formulation que le lot 4). Voir `_bilan_par_chantier_interne` pour la
     construction (partagée avec la vue inverse, L5-T2)."""
     return await _bilan_par_chantier_interne(
-        session, mois=mois, agence=agence, filtre_perimetre=None
+        session,
+        mois=mois,
+        agence=agence,
+        filtre_perimetre=None,
+        filtre_anomalies=None,
     )
 
 
@@ -534,6 +598,9 @@ async def bilan_chantiers_du_fournisseur(
         filtre_perimetre=lambda blocs: _condition_exact_ou_nul(
             blocs.c.fournisseur_id, fournisseur_id
         ),
+        filtre_anomalies=lambda anomalies: _condition_exact_ou_nul(
+            anomalies.c.fournisseur_id, fournisseur_id
+        ),
     )
 
 
@@ -543,6 +610,7 @@ async def _bilan_par_fournisseur_interne(
     mois: date | None,
     agence: str | None,
     filtre_perimetre: Callable[[Any], Any] | None,
+    filtre_anomalies: Callable[[Any], Any] | None,
 ) -> list[LigneBilanFournisseur]:
     """Construction partagée par `bilan_par_fournisseur` et sa vue inverse
     `bilan_par_fournisseur_global` (L5-T2) : même principe que
@@ -550,7 +618,17 @@ async def _bilan_par_fournisseur_interne(
     chantier."""
     blocs = _sous_requete_blocs(_conditions_base(mois))
     anomalies = _sous_requete_anomalies()
-    montants = _expressions_montants(blocs, anomalies)
+    anomalies_qte_prix = _anomalies_qte_prix_par_bloc(anomalies)
+    comptes_anomalies = _comptes_anomalies(
+        anomalies,
+        anomalies.c.fournisseur_id,
+        filtre_perimetre=(
+            filtre_anomalies(anomalies) if filtre_anomalies is not None else None
+        ),
+    )
+    montants = _expressions_montants(
+        blocs, anomalies_qte_prix, comptes_anomalies.c.nb_total
+    )
 
     requete = (
         select(
@@ -563,9 +641,15 @@ async def _bilan_par_fournisseur_interne(
             montants.nb_anomalies_ouvertes.label("nb_anomalies_ouvertes"),
         )
         .select_from(blocs)
-        .outerjoin(anomalies, anomalies.c.bloc_id == blocs.c.bloc_id)
+        .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
+        .outerjoin(
+            comptes_anomalies,
+            comptes_anomalies.c.fournisseur_id.is_not_distinct_from(
+                blocs.c.fournisseur_id
+            ),
+        )
         .outerjoin(Fournisseur, Fournisseur.id == blocs.c.fournisseur_id)
-        .group_by(Fournisseur.id, Fournisseur.nom)
+        .group_by(Fournisseur.id, Fournisseur.nom, comptes_anomalies.c.nb_total)
     )
     if filtre_perimetre is not None:
         requete = requete.where(filtre_perimetre(blocs))
@@ -609,6 +693,9 @@ async def bilan_par_fournisseur(
         filtre_perimetre=lambda blocs: _condition_exact_ou_nul(
             blocs.c.chantier_id, chantier_id
         ),
+        filtre_anomalies=lambda anomalies: _condition_exact_ou_nul(
+            anomalies.c.chantier_id, chantier_id
+        ),
     )
 
 
@@ -624,7 +711,11 @@ async def bilan_par_fournisseur_global(
     de périmètre par chantier. Point d'entrée de la navigation « du
     fournisseur vers le chantier »."""
     return await _bilan_par_fournisseur_interne(
-        session, mois=mois, agence=agence, filtre_perimetre=None
+        session,
+        mois=mois,
+        agence=agence,
+        filtre_perimetre=None,
+        filtre_anomalies=None,
     )
 
 
@@ -653,7 +744,11 @@ async def bilan_par_bl(
     d'un groupe à une seule ligne renvoie simplement cette ligne."""
     blocs = _sous_requete_blocs(_conditions_base(mois))
     anomalies = _sous_requete_anomalies()
-    montants = _expressions_montants(blocs, anomalies)
+    anomalies_qte_prix = _anomalies_qte_prix_par_bloc(anomalies)
+    comptes_anomalies = _comptes_anomalies(anomalies, anomalies.c.bloc_id)
+    montants = _expressions_montants(
+        blocs, anomalies_qte_prix, comptes_anomalies.c.nb_total
+    )
 
     requete = (
         select(
@@ -670,7 +765,8 @@ async def bilan_par_bl(
             montants.nb_anomalies_ouvertes.label("nb_anomalies_ouvertes"),
         )
         .select_from(blocs)
-        .outerjoin(anomalies, anomalies.c.bloc_id == blocs.c.bloc_id)
+        .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
+        .outerjoin(comptes_anomalies, comptes_anomalies.c.bloc_id == blocs.c.bloc_id)
         .group_by(
             blocs.c.bloc_id,
             blocs.c.numero_bl,
@@ -678,6 +774,7 @@ async def bilan_par_bl(
             blocs.c.statut_rapprochement,
             blocs.c.bl_document_id,
             blocs.c.facture_id,
+            comptes_anomalies.c.nb_total,
         )
         .where(
             _condition_exact_ou_nul(blocs.c.chantier_id, chantier_id),

@@ -248,6 +248,22 @@ def _montant_virgule(valeur_json: str) -> str:
     return f"{arrondi:.2f}".replace(".", ",")
 
 
+async def test_routes_csv_declarent_text_csv_dans_openapi(
+    sessions_test: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    schema = _app_test(sessions_test, tmp_path).openapi()
+    chemins = (
+        "/api/bilan/chantiers.csv",
+        "/api/bilan/chantiers/{chantier_id}/fournisseurs.csv",
+        "/api/bilan/chantiers/{chantier_id}/fournisseurs/{fournisseur_id}/bl.csv",
+        "/api/bilan/fournisseurs.csv",
+    )
+
+    for chemin in chemins:
+        contenu = schema["paths"][chemin]["get"]["responses"]["200"]["content"]
+        assert set(contenu) == {"text/csv"}
+
+
 # --------------------------------------------------------------------------
 # Droits (401/403/200) sur les quatre routes CSV
 # --------------------------------------------------------------------------

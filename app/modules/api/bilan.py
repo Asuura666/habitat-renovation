@@ -61,7 +61,7 @@ from __future__ import annotations
 import codecs
 import uuid
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -86,6 +86,13 @@ from app.modules.ingest.export import (
 )
 
 router = APIRouter()
+
+_REPONSES_CSV: dict[int | str, dict[str, Any]] = {
+    200: {
+        "description": "Export CSV UTF-8 du bilan.",
+        "content": {"text/csv": {"schema": {"type": "string"}}},
+    }
+}
 
 
 def _nom_fichier_csv(niveau: str, mois: date | None) -> str:
@@ -181,7 +188,7 @@ async def bilan_fournisseurs_endpoint(
 # --------------------------------------------------------------------------
 
 
-@router.get("/bilan/chantiers.csv")
+@router.get("/bilan/chantiers.csv", response_class=Response, responses=_REPONSES_CSV)
 async def bilan_chantiers_csv_endpoint(
     utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -194,7 +201,11 @@ async def bilan_chantiers_csv_endpoint(
     )
 
 
-@router.get("/bilan/chantiers/{chantier_id}/fournisseurs.csv")
+@router.get(
+    "/bilan/chantiers/{chantier_id}/fournisseurs.csv",
+    response_class=Response,
+    responses=_REPONSES_CSV,
+)
 async def bilan_fournisseurs_du_chantier_csv_endpoint(
     chantier_id: uuid.UUID,
     utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
@@ -211,7 +222,11 @@ async def bilan_fournisseurs_du_chantier_csv_endpoint(
     )
 
 
-@router.get("/bilan/chantiers/{chantier_id}/fournisseurs/{fournisseur_id}/bl.csv")
+@router.get(
+    "/bilan/chantiers/{chantier_id}/fournisseurs/{fournisseur_id}/bl.csv",
+    response_class=Response,
+    responses=_REPONSES_CSV,
+)
 async def bilan_bl_csv_endpoint(
     chantier_id: uuid.UUID,
     fournisseur_id: uuid.UUID,
@@ -227,7 +242,7 @@ async def bilan_bl_csv_endpoint(
     return _reponse_csv(csv_bilan_bl(lignes), nom_fichier=_nom_fichier_csv("bl", mois))
 
 
-@router.get("/bilan/fournisseurs.csv")
+@router.get("/bilan/fournisseurs.csv", response_class=Response, responses=_REPONSES_CSV)
 async def bilan_fournisseurs_csv_endpoint(
     utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
     session: Annotated[AsyncSession, Depends(get_session)],
