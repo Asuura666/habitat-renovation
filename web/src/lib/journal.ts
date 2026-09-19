@@ -44,6 +44,7 @@ const LIBELLES_ACTION: Record<string, string> = {
   article_valide: "Article validé",
   utilisateur_cree: "Compte utilisateur créé",
   utilisateur_desactive: "Compte utilisateur désactivé",
+  parametre_modifie: "Paramètre modifié",
 };
 
 export function libelleAction(action: string): string {
@@ -68,6 +69,7 @@ export const CIBLES_CONNUES = [
   "chantier_alias",
   "article",
   "utilisateur",
+  "parametre",
 ] as const;
 
 export const AUTOMATIQUE = "Automatique";

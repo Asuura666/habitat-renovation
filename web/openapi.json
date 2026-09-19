@@ -2007,6 +2007,77 @@
     }
    }
   },
+  "/api/parametres": {
+   "get": {
+    "summary": "Lister Parametres Endpoint",
+    "operationId": "lister_parametres_endpoint_api_parametres_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/ParametreReponse"
+         },
+         "type": "array",
+         "title": "Response Lister Parametres Endpoint Api Parametres Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/parametres/{cle}": {
+   "put": {
+    "summary": "Modifier Parametre Endpoint",
+    "operationId": "modifier_parametre_endpoint_api_parametres__cle__put",
+    "parameters": [
+     {
+      "name": "cle",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Cle"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ModificationParametreRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ParametreReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/health": {
    "get": {
     "summary": "Health",
@@ -4422,6 +4493,22 @@
     "title": "LignesRequete",
     "description": "Corps de `PUT /api/documents/{id}/lignes` : liste complète des\nlignes du document après correction (mise à jour par `id`, ajout sans\n`id`, suppression des lignes absentes de la liste)."
    },
+   "ModificationParametreRequete": {
+    "properties": {
+     "valeur": {
+      "type": "string",
+      "maxLength": 50,
+      "minLength": 1,
+      "title": "Valeur"
+     }
+    },
+    "type": "object",
+    "required": [
+     "valeur"
+    ],
+    "title": "ModificationParametreRequete",
+    "description": "Nouvelle valeur textuelle, validée dans le service métier."
+   },
    "MoiReponse": {
     "properties": {
      "id": {
@@ -4541,6 +4628,50 @@
     ],
     "title": "MotifReponse",
     "description": "Un motif de mise « à vérifier » (L3-T7), tel que renvoyé par `GET\n/api/factures`/`GET /api/factures/{id}` (réutilisé par L3-T8a/L3-T8b) —\nmêmes champs qu'`ingest.lecture.MotifLu`."
+   },
+   "ParametreReponse": {
+    "properties": {
+     "cle": {
+      "type": "string",
+      "title": "Cle"
+     },
+     "valeur": {
+      "type": "string",
+      "title": "Valeur"
+     },
+     "libelle": {
+      "type": "string",
+      "title": "Libelle"
+     },
+     "unite": {
+      "type": "string",
+      "title": "Unite"
+     },
+     "minimum": {
+      "type": "string",
+      "title": "Minimum"
+     },
+     "maximum": {
+      "type": "string",
+      "title": "Maximum"
+     },
+     "entier": {
+      "type": "boolean",
+      "title": "Entier"
+     }
+    },
+    "type": "object",
+    "required": [
+     "cle",
+     "valeur",
+     "libelle",
+     "unite",
+     "minimum",
+     "maximum",
+     "entier"
+    ],
+    "title": "ParametreReponse",
+    "description": "Un seuil administrable avec ses métadonnées de présentation."
    },
    "TraitementAnomalieRequete": {
     "properties": {

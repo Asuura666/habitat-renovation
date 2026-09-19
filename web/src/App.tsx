@@ -19,6 +19,7 @@ import { DocumentDetail } from "./pages/DocumentDetail";
 import { FactureDetail } from "./pages/FactureDetail";
 import { FacturesListe } from "./pages/FacturesListe";
 import { Journal } from "./pages/Journal";
+import { Reglages } from "./pages/Reglages";
 import { GardeAdmin } from "./routes/GardeAdmin";
 import { RedirectionAccueil } from "./routes/RedirectionAccueil";
 import { RouteProtegee } from "./routes/RouteProtegee";
@@ -107,6 +108,14 @@ export function App(): ReactElement {
             element={
               <GardeAdmin>
                 <Journal />
+              </GardeAdmin>
+            }
+          />
+          <Route
+            path="reglages"
+            element={
+              <GardeAdmin>
+                <Reglages />
               </GardeAdmin>
             }
           />

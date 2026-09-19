@@ -105,6 +105,7 @@ from app.modules.ingest.models import (
     RapprochementLigne,
     Utilisateur,
 )
+from app.modules.ingest.parametres import PARAMETRES_DEFAUT
 from app.modules.ingest.referentiels import lire_parametre_decimal
 from app.modules.normalize.appariement import LigneAApparier, apparier_lignes
 from app.modules.normalize.unites import convertir_en_unite_fact, unite_implicite
@@ -154,18 +155,6 @@ class ResultatRapprochement:
 # rapprochement, lus ensuite via `referentiels.lire_parametre_decimal`.
 # --------------------------------------------------------------------------
 
-_PARAMETRES_DEFAUT: tuple[tuple[str, Decimal], ...] = (
-    ("tolerance_total_ht", Decimal("0.05")),
-    ("seuil_prix_pct", Decimal("5")),
-    ("seuil_prix_fort_pct", Decimal("15")),
-    ("occurrences_prix_min", Decimal("3")),
-    ("delai_ligne_bl_non_facturee_j", Decimal("45")),
-    ("delai_alias_non_resolu_h", Decimal("48")),
-    ("delai_confirmation_bl_h", Decimal("24")),
-    ("delai_chantier_silencieux_j", Decimal("7")),
-    ("duree_ignorance_j", Decimal("90")),
-)
-
 
 async def _charger_parametres(session: AsyncSession) -> Parametres:
     """Seuils modifiables par l'admin (CDC §5, L4-D10) : créés avec leur
@@ -174,7 +163,7 @@ async def _charger_parametres(session: AsyncSession) -> Parametres:
     `rattacher_article`), puis lus via `lire_parametre_decimal` — jamais de
     commit ici, l'appelant (`rapprocher_facture`) décide du périmètre
     transactionnel."""
-    for cle, defaut in _PARAMETRES_DEFAUT:
+    for cle, defaut in PARAMETRES_DEFAUT:
         await session.execute(
             insert(Parametre)
             .values(cle=cle, valeur=str(defaut))
@@ -183,7 +172,7 @@ async def _charger_parametres(session: AsyncSession) -> Parametres:
 
     valeurs = {
         cle: await lire_parametre_decimal(session, cle, defaut)
-        for cle, defaut in _PARAMETRES_DEFAUT
+        for cle, defaut in PARAMETRES_DEFAUT
     }
     return Parametres(
         tolerance_total_ht=valeurs["tolerance_total_ht"],

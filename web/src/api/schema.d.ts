@@ -624,6 +624,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/parametres": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lister Parametres Endpoint */
+        get: operations["lister_parametres_endpoint_api_parametres_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/parametres/{cle}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Modifier Parametre Endpoint */
+        put: operations["modifier_parametre_endpoint_api_parametres__cle__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1426,6 +1460,14 @@ export interface components {
             /** Lignes */
             lignes: components["schemas"]["LigneSaisieRequete"][];
         };
+        /**
+         * ModificationParametreRequete
+         * @description Nouvelle valeur textuelle, validée dans le service métier.
+         */
+        ModificationParametreRequete: {
+            /** Valeur */
+            valeur: string;
+        };
         /** MoiReponse */
         MoiReponse: {
             /**
@@ -1477,6 +1519,26 @@ export interface components {
             detail: {
                 [key: string]: string;
             };
+        };
+        /**
+         * ParametreReponse
+         * @description Un seuil administrable avec ses métadonnées de présentation.
+         */
+        ParametreReponse: {
+            /** Cle */
+            cle: string;
+            /** Valeur */
+            valeur: string;
+            /** Libelle */
+            libelle: string;
+            /** Unite */
+            unite: string;
+            /** Minimum */
+            minimum: string;
+            /** Maximum */
+            maximum: string;
+            /** Entier */
+            entier: boolean;
         };
         /**
          * TraitementAnomalieRequete
@@ -2697,6 +2759,61 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JournalReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lister_parametres_endpoint_api_parametres_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParametreReponse"][];
+                };
+            };
+        };
+    };
+    modifier_parametre_endpoint_api_parametres__cle__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cle: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModificationParametreRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParametreReponse"];
                 };
             };
             /** @description Validation Error */

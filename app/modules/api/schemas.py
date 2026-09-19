@@ -575,6 +575,26 @@ class ChantierSilencieuxReponse(BaseModel):
     dernier_depot_le: datetime | None
 
 
+class ParametreReponse(BaseModel):
+    """Un seuil administrable avec ses métadonnées de présentation."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    cle: str
+    valeur: str
+    libelle: str
+    unite: str
+    minimum: str
+    maximum: str
+    entier: bool
+
+
+class ModificationParametreRequete(BaseModel):
+    """Nouvelle valeur textuelle, validée dans le service métier."""
+
+    valeur: str = Field(min_length=1, max_length=50)
+
+
 class JournalReponse(BaseModel):
     """Une entrée de journal, telle qu'exposée par `GET /api/journal`
     (L5-T9) — mêmes attributs qu'`ingest.journal.JournalLue`. `avant`/

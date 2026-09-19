@@ -126,6 +126,11 @@ export function Gabarit(): ReactElement {
                     Journal
                   </NavLink>
                 </li>
+                <li>
+                  <NavLink to="/reglages" className={classesOnglet}>
+                    Réglages
+                  </NavLink>
+                </li>
               </>
             )}
             <li>
