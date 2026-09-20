@@ -269,6 +269,19 @@ class Document(Base):
     date_doc: Mapped[date | None] = mapped_column(Date, nullable=True)
     fichier_path: Mapped[str] = mapped_column(Text, nullable=False)
     drive_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    drive_sync_le: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    drive_sync_echec_le: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    drive_sync_tentative_le: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    drive_sync_erreur: Mapped[str | None] = mapped_column(Text, nullable=True)
+    drive_sync_signale_le: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     source: Mapped[str] = mapped_column(Text, nullable=False)
     deposant_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("utilisateur.id"), nullable=True

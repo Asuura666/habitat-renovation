@@ -38,6 +38,10 @@ services:
       TELEGRAM_CHAT_BL_ID: "${TELEGRAM_CHAT_BL_ID:?TELEGRAM_CHAT_BL_ID manquant}"
       TELEGRAM_CHAT_SUPERVISION_ID: "${TELEGRAM_CHAT_SUPERVISION_ID:?TELEGRAM_CHAT_SUPERVISION_ID manquant}"
       MISTRAL_API_KEY: "${MISTRAL_API_KEY:?MISTRAL_API_KEY manquant}"
+      # Optionnels : l'API reste disponible sans Drive ; seule la commande
+      # `drive-sync` refuse alors de démarrer (L5-T11/Q1).
+      GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON: "${GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON:-}"
+      GOOGLE_DRIVE_FOLDER_ID: "${GOOGLE_DRIVE_FOLDER_ID:-}"
       COOKIE_SECURE: "${COOKIE_SECURE:?COOKIE_SECURE manquant}"
     depends_on:
       postgres:

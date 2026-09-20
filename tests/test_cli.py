@@ -71,6 +71,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -127,6 +128,37 @@ def test_bl_non_recus_fichier_inexistant_code_2_sans_configuration(
 
     assert resultat.returncode == 2
     assert resultat.stdout == ""
+
+
+def test_drive_sync_dispatch_avec_limite(monkeypatch: pytest.MonkeyPatch) -> None:
+    recu: list[int] = []
+
+    async def _drive_sync_factice(*, limite: int) -> int:
+        recu.append(limite)
+        return 0
+
+    monkeypatch.setattr(cli, "_drive_sync", _drive_sync_factice, raising=False)
+
+    assert cli.main(["drive-sync", "--limite", "7"]) == 0
+    assert recu == [7]
+
+
+def test_drive_sync_refuse_configuration_google_absente(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "get_settings",
+        lambda: SimpleNamespace(
+            google_drive_service_account_json=None,
+            google_drive_folder_id=None,
+        ),
+    )
+
+    code = asyncio.run(cli._drive_sync(limite=10))
+
+    assert code == 2
+    assert "configuration Google Drive absente" in capsys.readouterr().err
 
 
 def test_bl_non_recus_fichier_non_pdf_code_2(tmp_path: Path) -> None:

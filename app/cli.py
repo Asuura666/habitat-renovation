@@ -55,18 +55,24 @@
   d'exécution est lue une fois, `datetime.now(UTC)`) ; à lancer
   quotidiennement par cron (`docs/exploitation-lot-4.md`) — pas de worker
   (CDC §7).
+- `python -m app.cli drive-sync` (L5-T11) : synchronise par lot les originaux
+  vers le dossier Google Drive configuré. Refuse de démarrer sans les deux
+  variables Drive ; réessaie les échecs et signale après 24 h sur Telegram.
 
-N'importe que `app.core` (config, db, auth) et `app.modules.ingest`
-(`factures.py`, `mistral.py` — depuis le découpage de l'ancien
+N'importe comme couches applicatives que `app.core`, `app.modules.ingest` et
+`app.modules.jobs` ; l'import de `messaging.telegram` reste différé au seul
+signalement Drive. Les dépendances métier historiques sont `factures.py`,
+`mistral.py` — depuis le découpage de l'ancien
 `ingest/service.py`, vague finale du lot 2, point 1 ; `referentiels.py`
 depuis L3-T5 ; `rapport_ocr.py`, `router.py` depuis L3-T11 ;
-`rapprochement.py`, `suivi.py` depuis L4-T11), plus `FactureIllisible`
+`rapprochement.py`, `suivi.py` depuis L4-T11, plus `FactureIllisible`
 d'`extract` (nécessaire pour distinguer le code de sortie) et
 `OPTIONS_OCR_BL`/`SEUIL_CONFIANCE_DEFAUT`/`TOLERANCE_TOTAL_DEFAUT`
-d'`extract` (L3-T11, mêmes constantes que le reste du lot 3) : `ingest`
-reste le seul orchestrateur, la CLI ne fait que construire ses dépendances
-(client HTTP, moteur DB) et les brancher (décisions du contrôleur
-T7/L2-T1b/L3-T5/L3-T11/L4-T11).
+d'`extract` (L3-T11, mêmes constantes que le reste du lot 3). La CLI ne fait
+que construire ses dépendances (client HTTP, moteur DB) et les brancher vers
+`ingest` ou `jobs` (décisions du contrôleur
+T7/L2-T1b/L3-T5/L3-T11/L4-T11/L5-T11). L5-T11 ajoute le paquet `jobs`
+et un import différé de `messaging.telegram` pour le seul signalement.
 
 Import différé de `app.core.auth` (dans le corps de `_utilisateur_creer`/
 `_utilisateur_desactiver`, pas en tête de fichier) : ce module appelle
@@ -119,6 +125,8 @@ from app.modules.ingest.rapprochement import (
 from app.modules.ingest.referentiels import definir_fournisseur
 from app.modules.ingest.router import DELAI_OCR_BL
 from app.modules.ingest.suivi import controles_differes
+from app.modules.jobs.drive import ClientGoogleDrive, JetonCompteServiceGoogle
+from app.modules.jobs.drive_sync import synchroniser_documents
 
 _SIGNATURE_PDF = b"%PDF-"
 
@@ -524,6 +532,55 @@ async def _controles_differes() -> int:
     return 0
 
 
+async def _drive_sync(*, limite: int) -> int:
+    """Synchronise un lot borné ; refuse de démarrer sans secret Drive."""
+    settings = get_settings()
+    secret = settings.google_drive_service_account_json
+    dossier_racine = settings.google_drive_folder_id
+    if secret is None or not dossier_racine:
+        print("configuration Google Drive absente", file=sys.stderr)
+        return 2
+
+    # Import différé : les autres commandes restent indépendantes du canal.
+    from app.modules.messaging.telegram import TelegramClient
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as http:
+        try:
+            jetons = JetonCompteServiceGoogle(secret.get_secret_value(), http)
+        except (TypeError, ValueError):
+            print("configuration Google Drive invalide", file=sys.stderr)
+            return 2
+        drive = ClientGoogleDrive(
+            http, jetons.obtenir, dossier_racine_id=dossier_racine
+        )
+        telegram = TelegramClient(settings.telegram_bot_token.get_secret_value(), http)
+
+        async def _signaler(texte: str) -> None:
+            await telegram.envoyer(settings.telegram_chat_supervision_id, texte)
+
+        engine = creer_engine(settings.database_url)
+        try:
+            sessions = creer_sessionmaker(engine)
+            async with sessions() as session:
+                resultat = await synchroniser_documents(
+                    session,
+                    drive,
+                    limite=limite,
+                    signaler=_signaler,
+                )
+        finally:
+            await engine.dispose()
+
+    print(
+        "Drive : "
+        f"{resultat.traites} traité(s), "
+        f"{resultat.reussis} réussi(s), "
+        f"{resultat.echecs} échec(s), "
+        f"{resultat.signales} signalé(s)"
+    )
+    return 1 if resultat.echecs else 0
+
+
 def _construire_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="app.cli")
     sous_parsers = parser.add_subparsers(dest="commande", required=True)
@@ -631,6 +688,19 @@ def _construire_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    parser_drive_sync = sous_parsers.add_parser(
+        "drive-sync",
+        help="Synchronise vers Google Drive les documents encore en attente",
+    )
+    parser_drive_sync.add_argument(
+        "--limite",
+        type=int,
+        default=100,
+        choices=range(1, 1001),
+        metavar="1..1000",
+        help="nombre maximal de documents à traiter (défaut : 100)",
+    )
+
     return parser
 
 
@@ -675,6 +745,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_rapprocher_facture(facture_id=args.facture))
     if args.commande == "controles-differes":
         return asyncio.run(_controles_differes())
+    if args.commande == "drive-sync":
+        return asyncio.run(_drive_sync(limite=args.limite))
     raise AssertionError(f"commande inconnue : {args.commande}")  # pragma: no cover
 
 

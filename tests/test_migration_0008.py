@@ -7,34 +7,27 @@ docstring de la migration pour le constat complet.
 Tourne sur la base de migrations dédiée (même mécanisme que
 `tests/test_migrations.py` : `command.downgrade`/`command.upgrade`
 déplacent l'état des migrations, ce que `bl_test`, censée toujours rester à
-`head` pour le reste de la suite, ne doit jamais subir). Le schéma de
-`anomalie`/`ligne`/`bloc_facture`/`document`/`fournisseur` est identique
-entre la révision `0007` et `head` (migration 0008 : « aucune modification
-de schéma ») : les modèles ORM peuvent donc être utilisés tels quels pour
-préparer une base ramenée à `0007`, comme le ferait l'application elle-même.
+`head` pour le reste de la suite, ne doit jamais subir). Depuis L5-T11, le
+modèle ORM `Document` porte des colonnes absentes aux révisions 0007/0008 :
+les fixtures historiques utilisent donc du SQL explicite limité aux colonnes
+de l'époque, afin de réellement tester l'ancien schéma.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal
 
 import pytest
 from alembic import command
 from alembic.config import Config
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-from app.core.db import creer_sessionmaker
-from app.modules.ingest.models import (
-    Anomalie,
-    BlocFacture,
-    Document,
-    Fournisseur,
-    Ligne,
-)
 from tests.conftest import ALEMBIC_INI, preparer_base, url_base_migrations
 
 pytestmark = pytest.mark.db
@@ -51,67 +44,85 @@ async def _inserer_scenario_pre_migration(
 ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID | None]:
     """Insère une anomalie historique sans bloc et, facultativement, la ligne
     déjà corrigée qui entrerait en collision avec elle pendant l'upgrade."""
+    fournisseur_id = uuid.uuid4()
+    facture_id = uuid.uuid4()
+    bloc_id = uuid.uuid4()
+    ligne_id = uuid.uuid4()
+    anomalie_id = uuid.uuid4()
+    collision_id = uuid.uuid4() if avec_collision else None
     engine = create_async_engine(url, poolclass=NullPool)
     try:
-        sessionmaker = creer_sessionmaker(engine)
-        async with sessionmaker() as session:
-            fournisseur = Fournisseur(nom=f"Fournisseur Migration 0008 {uuid.uuid4()}")
-            session.add(fournisseur)
-            await session.flush()
-
-            facture = Document(
-                type="facture",
-                source="upload",
-                statut="recu",
-                fichier_path=f"chemin-invente-migration-0008-{uuid.uuid4()}.pdf",
-                fournisseur_id=fournisseur.id,
+        async with engine.begin() as connexion:
+            await connexion.execute(
+                text("INSERT INTO fournisseur (id, nom) VALUES (:id, :nom)"),
+                {
+                    "id": fournisseur_id,
+                    "nom": f"Fournisseur Migration 0008 {uuid.uuid4()}",
+                },
             )
-            session.add(facture)
-            await session.flush()
-
-            bloc = BlocFacture(facture_id=facture.id, ordre=0)
-            session.add(bloc)
-            await session.flush()
-
-            ligne = Ligne(
-                document_id=facture.id,
-                bloc_id=bloc.id,
-                type_ligne="article",
-                ordre=0,
-                montant_ht=Decimal("12.00"),
+            await connexion.execute(
+                text(
+                    "INSERT INTO document "
+                    "(id, type, source, statut, fichier_path, fournisseur_id) "
+                    "VALUES (:id, 'facture', 'upload', 'recu', :chemin, :fournisseur)"
+                ),
+                {
+                    "id": facture_id,
+                    "chemin": f"chemin-invente-migration-0008-{uuid.uuid4()}.pdf",
+                    "fournisseur": fournisseur_id,
+                },
             )
-            session.add(ligne)
-            await session.flush()
-
-            anomalie = Anomalie(
-                regle=regle,
-                gravite="moyenne",
-                statut="traitee",
-                ligne_id=ligne.id,
-                bloc_id=None,
-                detail={"cle": "valeur historique"},
-                traitee_le=datetime.now(UTC),
-                commentaire="Traitée avant le Ruling L5-R3 (test migration 0008).",
+            await connexion.execute(
+                text(
+                    "INSERT INTO bloc_facture (id, facture_id, ordre) "
+                    "VALUES (:id, :facture, 0)"
+                ),
+                {"id": bloc_id, "facture": facture_id},
             )
-            session.add(anomalie)
-            await session.flush()
-
-            collision_id: uuid.UUID | None = None
-            if avec_collision:
-                collision = Anomalie(
-                    regle=regle,
-                    gravite="moyenne",
-                    statut="ouverte",
-                    ligne_id=ligne.id,
-                    bloc_id=bloc.id,
-                    detail={"cle": "valeur déjà corrigée"},
+            await connexion.execute(
+                text(
+                    "INSERT INTO ligne "
+                    "(id, document_id, bloc_id, type_ligne, ordre, montant_ht) "
+                    "VALUES (:id, :document, :bloc, 'article', 0, 12.00)"
+                ),
+                {"id": ligne_id, "document": facture_id, "bloc": bloc_id},
+            )
+            await connexion.execute(
+                text(
+                    "INSERT INTO anomalie "
+                    "(id, regle, gravite, statut, ligne_id, bloc_id, detail, "
+                    "traitee_le, commentaire) VALUES "
+                    "(:id, :regle, 'moyenne', 'traitee', :ligne, NULL, "
+                    "CAST(:detail AS jsonb), :traitee_le, :commentaire)"
+                ),
+                {
+                    "id": anomalie_id,
+                    "regle": regle,
+                    "ligne": ligne_id,
+                    "detail": json.dumps({"cle": "valeur historique"}),
+                    "traitee_le": datetime.now(UTC),
+                    "commentaire": (
+                        "Traitée avant le Ruling L5-R3 (test migration 0008)."
+                    ),
+                },
+            )
+            if collision_id is not None:
+                await connexion.execute(
+                    text(
+                        "INSERT INTO anomalie "
+                        "(id, regle, gravite, statut, ligne_id, bloc_id, detail) "
+                        "VALUES (:id, :regle, 'moyenne', 'ouverte', :ligne, "
+                        ":bloc, CAST(:detail AS jsonb))"
+                    ),
+                    {
+                        "id": collision_id,
+                        "regle": regle,
+                        "ligne": ligne_id,
+                        "bloc": bloc_id,
+                        "detail": json.dumps({"cle": "valeur déjà corrigée"}),
+                    },
                 )
-                session.add(collision)
-                await session.flush()
-                collision_id = collision.id
-
-            await session.commit()
-            return anomalie.id, bloc.id, collision_id
+        return anomalie_id, bloc_id, collision_id
     finally:
         await engine.dispose()
 
@@ -122,15 +133,27 @@ async def _inserer_anomalie_pre_migration(url: str) -> tuple[uuid.UUID, uuid.UUI
     return anomalie_id, bloc_id
 
 
-async def _lire_anomalie(url: str, anomalie_id: uuid.UUID) -> Anomalie:
+@dataclass(frozen=True)
+class _AnomalieLue:
+    bloc_id: uuid.UUID | None
+    statut: str
+
+
+async def _lire_anomalie(url: str, anomalie_id: uuid.UUID) -> _AnomalieLue:
     engine = create_async_engine(url, poolclass=NullPool)
     try:
-        sessionmaker = creer_sessionmaker(engine)
-        async with sessionmaker() as session:
-            anomalie = await session.get(Anomalie, anomalie_id)
-            if anomalie is None:
+        async with engine.connect() as connexion:
+            ligne = (
+                await connexion.execute(
+                    text(
+                        "SELECT bloc_id, statut FROM anomalie WHERE id = :identifiant"
+                    ),
+                    {"identifiant": anomalie_id},
+                )
+            ).one_or_none()
+            if ligne is None:
                 pytest.fail(f"anomalie {anomalie_id} introuvable après migration")
-            return anomalie
+            return _AnomalieLue(bloc_id=ligne.bloc_id, statut=ligne.statut)
     finally:
         await engine.dispose()
 

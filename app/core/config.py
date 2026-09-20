@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     telegram_chat_bl_id: int
     telegram_chat_supervision_id: int
     mistral_api_key: SecretStr
+    google_drive_service_account_json: SecretStr | None = None
+    google_drive_folder_id: str | None = None
     cookie_secure: bool
 
 

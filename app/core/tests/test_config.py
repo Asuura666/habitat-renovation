@@ -18,6 +18,7 @@ from app.core.config import Settings
 TOKEN_INVENTE = "000000:token-invente-pour-les-tests"
 SECRET_INVENTE = "secret-webhook-invente-pour-les-tests"
 CLE_MISTRAL_INVENTEE = "cle-mistral-invente-pour-les-tests"
+COMPTE_SERVICE_DRIVE_INVENTE = '{"private_key":"cle-privee-inventee"}'
 
 
 def _regler_environnement_complet(
@@ -160,6 +161,18 @@ def test_docs_dir_manquante_leve_et_nomme_la_variable(
     assert "docs_dir" in str(exc_info.value)
 
 
+def test_cookie_secure_manquant_leve_et_nomme_la_variable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+    monkeypatch.delenv("COOKIE_SECURE", raising=False)
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert "cookie_secure" in str(exc_info.value)
+
+
 def test_extra_est_ignoree(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Le `.env` porte aussi des variables compose/restic/tests non lues."""
     _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
@@ -168,3 +181,28 @@ def test_extra_est_ignoree(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
     settings = Settings(_env_file=None)  # type: ignore[call-arg]
 
     assert not hasattr(settings, "postgres_password")
+
+
+def test_drive_reste_optionnel_et_son_secret_est_masque(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+
+    sans_drive = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert sans_drive.google_drive_service_account_json is None
+    assert sans_drive.google_drive_folder_id is None
+
+    monkeypatch.setenv(
+        "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON", COMPTE_SERVICE_DRIVE_INVENTE
+    )
+    monkeypatch.setenv("GOOGLE_DRIVE_FOLDER_ID", "dossier-invente")
+    avec_drive = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert avec_drive.google_drive_service_account_json is not None
+    assert (
+        avec_drive.google_drive_service_account_json.get_secret_value()
+        == COMPTE_SERVICE_DRIVE_INVENTE
+    )
+    assert avec_drive.google_drive_folder_id == "dossier-invente"
+    assert COMPTE_SERVICE_DRIVE_INVENTE not in repr(avec_drive)
