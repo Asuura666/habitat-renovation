@@ -1253,6 +1253,34 @@ async def test_bilan_ne_compte_pas_anomalie_sans_origine_sur_lignes_non_resolues
     assert ligne_fournisseur.montants.nb_anomalies_ouvertes == 0
 
 
+async def test_bilan_compte_anomalie_ouverte_des_groupes_non_resolus(
+    db_session: AsyncSession,
+) -> None:
+    facture = await _creer_facture_sans_fournisseur(db_session, numero="F-GROUPES-NULS")
+    bloc = await _creer_bloc(
+        db_session, facture=facture, chantier_id=None, numero_bl="BL-GROUPES-NULS"
+    )
+    await _creer_ligne(db_session, document=facture, bloc=bloc)
+    await _creer_anomalie(
+        db_session,
+        regle="R01",
+        bloc_id=bloc.id,
+        document_id=facture.id,
+    )
+
+    lignes_chantier = await bilan_par_chantier(db_session, mois=None, agence=None)
+    lignes_fournisseur = await bilan_par_fournisseur(
+        db_session, chantier_id=None, mois=None, agence=None
+    )
+
+    ligne_chantier = _ligne_du_chantier(lignes_chantier, None)
+    ligne_fournisseur = _ligne_du_fournisseur(lignes_fournisseur, None)
+    assert ligne_chantier is not None
+    assert ligne_fournisseur is not None
+    assert ligne_chantier.montants.nb_anomalies_ouvertes == 1
+    assert ligne_fournisseur.montants.nb_anomalies_ouvertes == 1
+
+
 # --------------------------------------------------------------------------
 # Vue inverse : mêmes montants que la vue directe
 # --------------------------------------------------------------------------

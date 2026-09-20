@@ -2,7 +2,7 @@ import type { ReactElement } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Navigate } from "react-router";
 
-import { CLE_MOI, recupererMoi } from "../api/moi";
+import { CLE_MOI, DUREE_CACHE_MOI, recupererMoi } from "../api/moi";
 
 /**
  * Route `/` (décision du contrôleur L3-T9, remplace L2-T7 : l'accueil de
@@ -11,7 +11,11 @@ import { CLE_MOI, recupererMoi } from "../api/moi";
  * l'intérieur de `RouteProtegee`, donc `["moi"]` est déjà en cache.
  */
 export function RedirectionAccueil(): ReactElement | null {
-  const { data: moi } = useQuery({ queryKey: CLE_MOI, queryFn: recupererMoi });
+  const { data: moi } = useQuery({
+    queryKey: CLE_MOI,
+    queryFn: recupererMoi,
+    staleTime: DUREE_CACHE_MOI,
+  });
 
   if (!moi) {
     return null;

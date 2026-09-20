@@ -1,7 +1,7 @@
 import type { ReactElement, ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { CLE_MOI, recupererMoi } from "../api/moi";
+import { CLE_MOI, DUREE_CACHE_MOI, recupererMoi } from "../api/moi";
 
 /**
  * Protège ses enfants derrière `GET /api/moi` : tant que la requête est en
@@ -16,6 +16,7 @@ export function RouteProtegee({ children }: { children: ReactNode }): ReactEleme
   const { data, isPending, isError } = useQuery({
     queryKey: CLE_MOI,
     queryFn: recupererMoi,
+    staleTime: DUREE_CACHE_MOI,
   });
 
   if (isPending) {

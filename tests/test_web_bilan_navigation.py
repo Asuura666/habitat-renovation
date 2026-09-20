@@ -33,6 +33,15 @@ def test_bilan_detail_lie_sources_et_anomalies_du_bloc() -> None:
     assert "Vue par fournisseur" in (WEB / "pages" / "Bilan.tsx").read_text()
 
 
+def test_tableau_bl_affiche_le_nombre_anomalies_ouvertes() -> None:
+    page = (WEB / "pages" / "BilanFournisseur.tsx").read_text()
+
+    assert ">Anomalies ouvertes</th>" in page
+    assert (
+        "ligne.montants.nb_anomalies_ouvertes" in page.split("function ListeBl", 1)[1]
+    )
+
+
 def test_filtre_anomalies_accepte_un_bloc_exact() -> None:
     service = (RACINE / "app" / "modules" / "ingest" / "anomalies.py").read_text()
     route = (RACINE / "app" / "modules" / "api" / "anomalies.py").read_text()

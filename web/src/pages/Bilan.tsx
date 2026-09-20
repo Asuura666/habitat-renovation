@@ -10,6 +10,7 @@ import {
   urlExportBilanChantiers,
 } from "../api/bilan";
 import { formaterMontant, TIRET } from "../lib/formats";
+import { CLE_AGENCES, obtenirAgences } from "../api/referentiels";
 
 const CLASSES_CHAMP =
   "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-600";
@@ -132,6 +133,7 @@ export function Bilan(): ReactElement {
     agence: parametres.get("agence") || undefined,
   };
   const bilan = useQuery({ queryKey: cleBilanChantiers(filtres), queryFn: () => listerBilanChantiers(filtres) });
+  const agences = useQuery({ queryKey: CLE_AGENCES, queryFn: obtenirAgences });
 
   function changerFiltre(nom: "mois" | "agence", valeur: string): void {
     const suivants = new URLSearchParams(parametres);
@@ -161,7 +163,10 @@ export function Bilan(): ReactElement {
         </div>
         <div>
           <label htmlFor="filtre-agence" className={CLASSES_LABEL}>Agence</label>
-          <input id="filtre-agence" type="search" value={filtres.agence ?? ""} onChange={(evenement) => changerFiltre("agence", evenement.target.value)} placeholder="Toutes les agences" className={CLASSES_CHAMP} />
+          <select id="filtre-agence" value={filtres.agence ?? ""} onChange={(evenement) => changerFiltre("agence", evenement.target.value)} className={CLASSES_CHAMP}>
+            <option value="">Toutes les agences</option>
+            {agences.data?.map((agence) => <option key={agence} value={agence}>{agence}</option>)}
+          </select>
         </div>
       </form>
       <p className="text-sm text-slate-600">Les quatre montants ne s’additionnent pas : un montant rapproché peut aussi être en écart.</p>

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
 import { appelerApi } from "../api/client";
-import { CLE_MOI, recupererMoi } from "../api/moi";
+import { CLE_MOI, DUREE_CACHE_MOI, recupererMoi } from "../api/moi";
 
 const LIBELLES_ROLE: Record<string, string> = {
   admin: "Administrateur",
@@ -31,7 +31,11 @@ export function Gabarit(): ReactElement {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const { data: moi } = useQuery({ queryKey: CLE_MOI, queryFn: recupererMoi });
+  const { data: moi } = useQuery({
+    queryKey: CLE_MOI,
+    queryFn: recupererMoi,
+    staleTime: DUREE_CACHE_MOI,
+  });
   const navRef = useRef<HTMLElement>(null);
 
   const deconnexion = useMutation({

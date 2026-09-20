@@ -45,7 +45,7 @@ async def _document(
     return document
 
 
-async def test_segments_distants_restent_uniques_apres_normalisation(
+async def test_destinations_visibles_restent_contractuelles_sans_collision_au_rejeu(
     db_session: AsyncSession,
     tmp_path: Path,
 ) -> None:
@@ -67,15 +67,30 @@ async def test_segments_distants_restent_uniques_apres_normalisation(
     )
     client = ClientDriveMemoire()
 
-    resultat = await synchroniser_documents(db_session, client, limite=10)
+    premier_passage = await synchroniser_documents(db_session, client, limite=10)
 
-    assert resultat.reussis == 2
+    for document in (premier, second):
+        document.drive_url = None
+        document.drive_sync_le = None
+        document.drive_sync_tentative_le = None
+    await db_session.commit()
+    rejeu = await synchroniser_documents(db_session, client, limite=10)
+
+    assert premier_passage.reussis == 2
+    assert rejeu.reussis == 2
     assert len(client.fichiers) == 2
-    chemins = [f"{dossier}/{nom}" for dossier, nom in client.fichiers]
-    assert any(str(premier.fournisseur_id) in chemin for chemin in chemins)
-    assert any(str(second.fournisseur_id) in chemin for chemin in chemins)
-    assert any(str(premier.id) in chemin for chemin in chemins)
-    assert any(str(second.id) in chemin for chemin in chemins)
+    chemins_visibles = [
+        f"{dossier}/{nom}" for dossier, nom, _contenu in client.fichiers.values()
+    ]
+    assert chemins_visibles == [
+        "Fournisseurs/Fournisseur-A-B/2026-08/facture_F-42_Chantier-A-B.pdf",
+        "Fournisseurs/Fournisseur-A-B/2026-08/facture_F-42_Chantier-A-B.pdf",
+    ]
+    assert all(str(premier.fournisseur_id) not in chemin for chemin in chemins_visibles)
+    assert all(str(second.fournisseur_id) not in chemin for chemin in chemins_visibles)
+    assert all(str(premier.id) not in chemin for chemin in chemins_visibles)
+    assert all(str(second.id) not in chemin for chemin in chemins_visibles)
+    assert premier.drive_url != second.drive_url
 
 
 async def test_synchroniser_documents_prend_un_verrou_advisory_transactionnel(
@@ -114,10 +129,11 @@ async def test_synchroniser_document_construit_chemin_et_nom_normalises(
     resultat = await synchroniser_documents(db_session, client, limite=10)
 
     assert resultat.reussis == 1
-    assert list(client.fichiers) == [
+    assert list(client.fichiers.values()) == [
         (
-            f"Fournisseurs/Fournisseur-Ete-Sud-{document.fournisseur_id}/2026-08",
-            f"facture_F-42-test_Chantier-Demo_{document.id}.pdf",
+            "Fournisseurs/Fournisseur-Ete-Sud/2026-08",
+            "facture_F-42-test_Chantier-Demo.pdf",
+            b"contenu invente",
         )
     ]
     await db_session.refresh(document)
@@ -144,7 +160,15 @@ class _ClientInstable:
     def __init__(self) -> None:
         self.appels = 0
 
-    async def televerser(self, chemin: Path, dossier: str, nom: str) -> str:
+    async def televerser(
+        self,
+        chemin: Path,
+        dossier: str,
+        nom: str,
+        *,
+        identifiant: str,
+        identifiants_dossier: tuple[str, ...],
+    ) -> str:
         del chemin, dossier, nom
         self.appels += 1
         if self.appels == 1:
@@ -175,7 +199,15 @@ async def test_echec_est_reessaye_et_efface_apres_succes(
 
 
 class _ClientToujoursEnEchec:
-    async def televerser(self, chemin: Path, dossier: str, nom: str) -> str:
+    async def televerser(
+        self,
+        chemin: Path,
+        dossier: str,
+        nom: str,
+        *,
+        identifiant: str,
+        identifiants_dossier: tuple[str, ...],
+    ) -> str:
         del chemin, dossier, nom
         raise RuntimeError("échec inventé")
 
@@ -184,7 +216,15 @@ class _ClientEchecSurChemin:
     def __init__(self, chemin_en_echec: str) -> None:
         self._chemin_en_echec = Path(chemin_en_echec)
 
-    async def televerser(self, chemin: Path, dossier: str, nom: str) -> str:
+    async def televerser(
+        self,
+        chemin: Path,
+        dossier: str,
+        nom: str,
+        *,
+        identifiant: str,
+        identifiants_dossier: tuple[str, ...],
+    ) -> str:
         del dossier, nom
         if chemin == self._chemin_en_echec:
             raise RuntimeError("échec inventé")

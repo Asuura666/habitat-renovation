@@ -465,8 +465,9 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   doubles de test sans réseau, mais aucun compte de service ni dossier cible
   autorisé n'a été fourni (Q1). La CLI refuse correctement de démarrer sans
   configuration (code 2 et message clair). Ne couvre pas une recette réelle
-  des permissions, de l'arborescence, des quotas, des sessions résumables ni
-  de la reprise après une panne Google ; à faire dès réception des accès selon
+  des permissions, de l'arborescence, des `appProperties` d'identité, des
+  quotas, des sessions résumables ni de la reprise après une panne Google ; à
+  faire dès réception des accès selon
   `docs/exploitation-lot-5.md`, sans jamais versionner le JSON du compte.
 - **Notification Drive au plus une fois, donc potentiellement perdue.** Après
   24 h d'échec, la réservation de l'alerte est commitée avant l'appel Telegram

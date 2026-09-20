@@ -2,7 +2,7 @@ import type { ReactElement, ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Navigate } from "react-router";
 
-import { CLE_MOI, recupererMoi } from "../api/moi";
+import { CLE_MOI, DUREE_CACHE_MOI, recupererMoi } from "../api/moi";
 
 /**
  * Réserve ses enfants au rôle `admin` (décision du contrôleur L2-T7) :
@@ -14,7 +14,11 @@ import { CLE_MOI, recupererMoi } from "../api/moi";
  * `["moi"]` est déjà en cache — pas d'appel réseau supplémentaire.
  */
 export function GardeAdmin({ children }: { children: ReactNode }): ReactElement | null {
-  const { data: moi } = useQuery({ queryKey: CLE_MOI, queryFn: recupererMoi });
+  const { data: moi } = useQuery({
+    queryKey: CLE_MOI,
+    queryFn: recupererMoi,
+    staleTime: DUREE_CACHE_MOI,
+  });
 
   if (!moi) {
     return null;

@@ -19,14 +19,16 @@ foi), `docs/plan-lot-5.md`, `docs/lot-5-recette.md`,
 - **L5-T12 est achevée par le présent commit documentaire** : recette,
   passation, dette et état du projet dans `CLAUDE.md` sont mis à jour. Aucun
   code applicatif n'est modifié et rien ne doit être poussé par cette tâche.
-- **La revue finale complète de `main..HEAD` n'a pas encore eu lieu.** Par
-  conséquent la branche n'est pas fusionnée. `main` reste à `c9f51a5`; ne pas
-  annoncer le lot 5 comme intégré tant que revue, corrections éventuelles et
-  contrôle de l'état Git ne sont pas terminés.
+- **La revue finale complète de `main..HEAD` a eu lieu.** Elle a
+  relevé cinq constats moyens, tous corrigés dans le présent commit : jointures
+  null-safe du Bilan, colonne anomalies du tableau BL, identité Drive non
+  visible, cache front limité à `moi` et filtre agence fermé. Leur relecture
+  indépendante a rendu `passed=true`, sans constat bloquant. La branche n'est
+  pas encore fusionnée; `main` reste à `c9f51a5`.
 - Aucun remote n'a été utilisé, aucun push et aucun déploiement n'ont été faits.
   Les lignes cron des lots 4 et 5 ne sont pas posées.
-- Derniers contrôles réels connus avant cette documentation : `1359 passed in
-  369.65s`; Ruff vert et 212 fichiers conformes; mypy vert sur 181 fichiers;
+- Derniers contrôles réels connus après les corrections finales : `1362 passed
+  in 370.36s`; Ruff vert et 215 fichiers conformes; mypy vert sur 182 fichiers;
   typecheck/build front verts (98 modules); `docker compose ... config -q`
   vert. L5-T12 ne rejoue aucun test.
 - La CLI Drive sans configuration retourne bien le code 2 avec un message
@@ -52,7 +54,7 @@ foi), `docs/plan-lot-5.md`, `docs/lot-5-recette.md`,
 | L5-T9 | Journal filtré/paginé, route et écran admin |
 | L5-T10 | Lecture/modification des neuf seuils, validation service, journalisation, écran Réglages |
 | L5-T11 | Migration 0009, client et synchronisation Drive, CLI, reprise/idempotence, notification, note d'exploitation |
-| L5-T12 | Documentation de recette/passation/dette et état du projet; non commitée au moment de la rédaction |
+| L5-T12 | Documentation de recette/passation/dette et état du projet, commit `f879114` |
 
 Le bilan réel d'août n'est repris qu'en comptes sans donnée client : 28 blocs
 (3 reçus, 4 « pas de bon », 21 non reçus), 25 anomalies (R01 ×21, R02 ×4,
@@ -100,11 +102,12 @@ réserves.
   du monolithe.
 - Migration 0009 : URL et état de synchronisation/échec sur `document`.
 - Chemin distant documenté :
-  `Fournisseurs/<fournisseur>-<id>/<AAAA-MM>/`; nom incluant type, numéro,
-  chantier et identifiant stable. Voir `docs/exploitation-lot-5.md` plutôt que
-  de recopier les commandes.
+  `Fournisseurs/<fournisseur>/<AAAA-MM>/`; nom
+  `<type>_<numero>_<chantier>.<ext>`. Les identifiants stables restent non
+  visibles dans les `appProperties` Drive. Voir `docs/exploitation-lot-5.md`
+  plutôt que de recopier les commandes.
 - Jusqu'à 5 Mio : multipart; au-delà : upload résumable, dans la limite
-  applicative de 20 Mio. Le client vérifie le nom distant avant envoi, et la
+  applicative de 20 Mio. Le client vérifie l'identité distante avant envoi, et la
   sélection utilise verrouillage/`SKIP LOCKED` pour une reprise idempotente.
 - Après 24 h d'échec, l'alerte de supervision est réservée avant l'appel et
   envoyée **au plus une fois**. Si Telegram échoue après réservation, l'alerte
@@ -179,7 +182,7 @@ Ilane avant de considérer la restitution acceptée.
   invalider à la fois les listes de documents/chantiers et la vue des chantiers
   silencieux. Tester le retour par navigation SPA sans `page.goto`, qui
   masquerait un cache périmé.
-- Pour un effet externe avant commit local, combiner nom distant stable,
+- Pour un effet externe avant commit local, combiner identité technique distante,
   recherche avant upload, verrou en base et réessai. Tester les frontières de
   taille exactes et les pannes entre étapes.
 - Continuer à n'utiliser qu'un processus pytest par base et à ne jamais modifier
@@ -189,9 +192,9 @@ Ilane avant de considérer la restitution acceptée.
 
 ## 7. Pièges et limites à garder visibles
 
-- Une revue de tâche verte n'est pas une revue finale de branche. L5-T12 doit
-  être suivie d'une lecture complète de `main..HEAD`; ne pas fusionner sur la
-  seule foi des revues locales.
+- Une revue de tâche verte n'est pas une revue finale de branche. La lecture
+  complète de `main..HEAD` a réellement trouvé cinq constats moyens; ils ont
+  été corrigés et leur relecture indépendante a rendu `passed=true`.
 - Les captures sont fictives et hors dépôt. Ne jamais les présenter comme une
   validation des données d'août ou du client.
 - Le nombre total d'anomalies ne se déduit pas en additionnant les comptes par
@@ -214,13 +217,11 @@ Ilane avant de considérer la restitution acceptée.
 Le périmètre du lot 6 n'est pas défini dans les documents lus pour cette
 passation; **ne pas l'inventer**. Avant toute planification :
 
-1. terminer L5-T12 sans code et vérifier le diff documentaire;
-2. faire une revue finale indépendante de toute la branche `main..HEAD`;
-3. corriger et re-relire tout constat critique ou important;
-4. rejouer les contrôles requis après les éventuelles corrections;
-5. seulement alors, si le mandat de fusion s'applique toujours, fusionner dans
+1. committer le présent correctif final;
+2. vérifier une dernière fois les contrôles et l'état Git;
+3. puisque le mandat de fusion s'applique toujours, fusionner dans
    `main` et vérifier l'état exact — sans push ni déploiement implicite;
-6. obtenir ou relire la source autoritative qui définit le prochain lot, puis
+4. obtenir ou relire la source autoritative qui définit le prochain lot, puis
    écrire son plan à partir du CDC, des questions ouvertes et de
    `docs/dette.md`.
 

@@ -83,8 +83,8 @@ export function AliasCarte({
     },
     // Que la validation réussisse ou échoue après une création de chantier,
     // le référentiel a pu changer (chantier créé) : jamais servir une liste
-    // de chantiers périmée depuis le cache (`staleTime` global 5 min,
-    // `main.tsx`) — fix round 1, invalide dans tous les cas via `onSettled`
+    // de chantiers périmée depuis le cache — fix round 1, invalide dans tous
+    // les cas via `onSettled`
     // plutôt que seulement `onSuccess`.
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS });
@@ -97,7 +97,7 @@ export function AliasCarte({
         // repose le calcul du silence — sans cette invalidation, un
         // chantier qui vient de recevoir un rattachement restait dans
         // l'encadré ambre des chantiers silencieux jusqu'à un rechargement
-        // manuel ou l'expiration du `staleTime` global (5 min, `main.tsx`).
+        // manuel ou une nouvelle lecture de la vue.
         queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS_SILENCIEUX }),
       ]);
       setModeCreation(false);

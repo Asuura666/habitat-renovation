@@ -10,9 +10,6 @@ import "./index.css";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // « Qui suis-je » change rarement : évite un aller-retour réseau à
-      // chaque montage de composant qui lit ["moi"] (Gabarit, RouteProtegee).
-      staleTime: 5 * 60 * 1000,
       // Politique centralisée (au lieu d'options divergentes par hook) :
       // jamais de nouvelle tentative sur une erreur d'autorisation (401/403,
       // ne se corrige pas en réessayant — et un 401 a déjà déclenché la

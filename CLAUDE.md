@@ -74,9 +74,10 @@ Lots 1 (Socle), 2 (Collecte), 3 (Extraction) et 4 (Rapprochement) faits et
 (Restitution) est techniquement terminé sur la branche
 `lot-5-restitution` : L5-T1 à L5-T11 sont commitées et relues, L5-T12 porte
 la recette et la passation. Les derniers contrôles connus après L5-T11 sont
-verts : 1 359 tests, Ruff, formatage, mypy, typecheck et build front. La revue
-finale de toute la branche et sa fusion locale dans `main` restent à faire ;
-aucun push ni déploiement n'a eu lieu. **Avant tout travail, lire
+verts après les corrections finales : 1 362 tests, Ruff, formatage, mypy,
+typecheck et build front. La revue finale et la relecture des corrections ont
+rendu un verdict vert; seule la fusion locale dans `main` reste à faire. Aucun
+push ni déploiement n'a eu lieu. **Avant tout travail, lire
 `docs/passation-lot-5.md`** (état, décisions, questions ouvertes, méthode et
 point de départ suivant), `docs/lot-5-recette.md` et `docs/dette.md`, puis les
 passations précédentes si nécessaire. Recettes : `docs/lot-1-recette.md` à

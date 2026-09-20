@@ -411,6 +411,7 @@ def _sous_requete_anomalies(mois: date | None) -> Any:
         select(
             Anomalie.id.label("anomalie_id"),
             Anomalie.bloc_id.label("bloc_id"),
+            Anomalie.document_id.label("document_id"),
             CHANTIER_ID_RESOLU.label("chantier_id"),
             func.coalesce(Document.fournisseur_id, facture_bloc.fournisseur_id).label(
                 "fournisseur_id"
@@ -523,12 +524,19 @@ def _condition_agence(blocs: Any, agence: str) -> Any:
 def _filtre_anomalies_portee(
     anomalies: Any,
     *,
+    groupe: Any,
     agence: str | None,
     filtre_anomalies: Callable[[Any], Any] | None,
 ) -> Any | None:
     """Reprend sur les comptes d'anomalies les filtres hors mois/statut,
     déjà portés directement par `_sous_requete_anomalies`."""
-    conditions: list[Any] = []
+    conditions: list[Any] = [
+        or_(
+            groupe.is_not(None),
+            anomalies.c.bloc_id.is_not(None),
+            anomalies.c.document_id.is_not(None),
+        )
+    ]
     if filtre_anomalies is not None:
         conditions.append(filtre_anomalies(anomalies))
     if agence is not None:
@@ -576,6 +584,7 @@ async def _bilan_par_chantier_interne(
         anomalies.c.chantier_id,
         filtre_perimetre=_filtre_anomalies_portee(
             anomalies,
+            groupe=anomalies.c.chantier_id,
             agence=agence,
             filtre_anomalies=filtre_anomalies,
         ),
@@ -599,7 +608,7 @@ async def _bilan_par_chantier_interne(
         .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
         .outerjoin(
             comptes_anomalies,
-            comptes_anomalies.c.chantier_id == blocs.c.chantier_id,
+            comptes_anomalies.c.chantier_id.is_not_distinct_from(blocs.c.chantier_id),
         )
         .outerjoin(Chantier, Chantier.id == blocs.c.chantier_id)
         .group_by(
@@ -695,6 +704,7 @@ async def _bilan_par_fournisseur_interne(
         anomalies.c.fournisseur_id,
         filtre_perimetre=_filtre_anomalies_portee(
             anomalies,
+            groupe=anomalies.c.fournisseur_id,
             agence=agence,
             filtre_anomalies=filtre_anomalies,
         ),
@@ -717,7 +727,9 @@ async def _bilan_par_fournisseur_interne(
         .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
         .outerjoin(
             comptes_anomalies,
-            comptes_anomalies.c.fournisseur_id == blocs.c.fournisseur_id,
+            comptes_anomalies.c.fournisseur_id.is_not_distinct_from(
+                blocs.c.fournisseur_id
+            ),
         )
         .outerjoin(Fournisseur, Fournisseur.id == blocs.c.fournisseur_id)
         .group_by(Fournisseur.id, Fournisseur.nom, comptes_anomalies.c.nb_total)

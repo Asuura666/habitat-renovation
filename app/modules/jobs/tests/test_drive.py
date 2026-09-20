@@ -34,15 +34,21 @@ async def test_client_drive_memoire_est_idempotent(tmp_path: Path) -> None:
         chemin,
         "Fournisseurs/Exemple/2026-08",
         "facture-42.pdf",
+        identifiant="document:42",
+        identifiants_dossier=("fournisseurs", "fournisseur:1", "fournisseur:1:2026-08"),
     )
     seconde = await client.televerser(
         chemin,
         "Fournisseurs/Exemple/2026-08",
         "facture-42.pdf",
+        identifiant="document:42",
+        identifiants_dossier=("fournisseurs", "fournisseur:1", "fournisseur:1:2026-08"),
     )
 
     assert premiere == seconde
-    assert len(client.fichiers) == 1
+    assert list(client.fichiers.values()) == [
+        ("Fournisseurs/Exemple/2026-08", "facture-42.pdf", b"contenu invente")
+    ]
 
 
 async def test_client_google_cree_les_dossiers_et_televerse_sans_reseau(
@@ -60,16 +66,20 @@ async def test_client_google_cree_les_dossiers_et_televerse_sans_reseau(
             assert requete.url.params["includeItemsFromAllDrives"] == "true"
             q = requete.url.params["q"]
             if "mimeType = 'application/vnd.google-apps.folder'" in q:
+                identite = q.split("value='", 1)[1].split("'", 1)[0]
                 trouve = next(
                     (
                         identifiant
-                        for (parent, nom), identifiant in crees.items()
-                        if f"'{parent}' in parents" in q and f"name = '{nom}'" in q
+                        for (parent, identite_creee), identifiant in crees.items()
+                        if f"'{parent}' in parents" in q and identite_creee == identite
                     ),
                     None,
                 )
                 fichiers = [] if trouve is None else [{"id": trouve}]
                 return httpx.Response(200, json={"files": fichiers})
+            assert f"'{list(crees.values())[-1]}' in parents" in q
+            assert "key='habitat_reno_id'" in q
+            assert "value='document:42'" in q
             fichiers = (
                 []
                 if fichier_id is None
@@ -83,11 +93,11 @@ async def test_client_google_cree_les_dossiers_et_televerse_sans_reseau(
             return httpx.Response(200, json={"files": fichiers})
         if requete.url.path == "/drive/v3/files":
             assert requete.url.params["supportsAllDrives"] == "true"
-            corps = requete.content.decode()
-            parent = corps.split('"parents":["', 1)[1].split('"', 1)[0]
-            nom = corps.split('"name":"', 1)[1].split('"', 1)[0]
+            corps = json.loads(requete.content)
+            parent = corps["parents"][0]
+            identite = corps["appProperties"]["habitat_reno_id"]
             identifiant = f"dossier-{len(crees) + 1}"
-            crees[(parent, nom)] = identifiant
+            crees[(parent, identite)] = identifiant
             return httpx.Response(200, json={"id": identifiant})
         fichier_id = "fichier-1"
         assert requete.url.params["supportsAllDrives"] == "true"
@@ -99,7 +109,7 @@ async def test_client_google_cree_les_dossiers_et_televerse_sans_reseau(
             == (
                 f"--{boundary}\r\n"
                 "Content-Type: application/json; charset=UTF-8\r\n\r\n"
-                f'{{"name":"facture-42.pdf","parents":["{list(crees.values())[-1]}"]}}'
+                f'{{"name":"facture-42.pdf","parents":["{list(crees.values())[-1]}"],"appProperties":{{"habitat_reno_id":"document:42"}}}}'
                 "\r\n"
                 f"--{boundary}\r\n"
                 "Content-Type: application/pdf\r\n\r\n"
@@ -121,10 +131,26 @@ async def test_client_google_cree_les_dossiers_et_televerse_sans_reseau(
     async with httpx.AsyncClient(transport=httpx.MockTransport(repondre)) as http:
         client = ClientGoogleDrive(http, jeton, dossier_racine_id="racine")
         premiere = await client.televerser(
-            chemin, "Fournisseurs/Exemple/2026-08", "facture-42.pdf"
+            chemin,
+            "Fournisseurs/Exemple/2026-08",
+            "facture-42.pdf",
+            identifiant="document:42",
+            identifiants_dossier=(
+                "fournisseurs",
+                "fournisseur:1",
+                "fournisseur:1:2026-08",
+            ),
         )
         seconde = await client.televerser(
-            chemin, "Fournisseurs/Exemple/2026-08", "facture-42.pdf"
+            chemin,
+            "Fournisseurs/Exemple/2026-08",
+            "facture-42.pdf",
+            identifiant="document:42",
+            identifiants_dossier=(
+                "fournisseurs",
+                "fournisseur:1",
+                "fournisseur:1:2026-08",
+            ),
         )
 
     assert premiere == "https://drive.example.test/fichier"
@@ -235,7 +261,15 @@ async def test_client_google_utilise_upload_resumable_au_dela_de_5_mio(
     async with httpx.AsyncClient(transport=httpx.MockTransport(repondre)) as http:
         client = ClientGoogleDrive(http, jeton, dossier_racine_id="racine")
         url = await client.televerser(
-            chemin, "Fournisseurs/Exemple/2026-08", "gros-document.pdf"
+            chemin,
+            "Fournisseurs/Exemple/2026-08",
+            "gros-document.pdf",
+            identifiant="document:gros",
+            identifiants_dossier=(
+                "fournisseurs",
+                "fournisseur:1",
+                "fournisseur:1:2026-08",
+            ),
         )
 
     assert url == "https://drive.example.test/gros"

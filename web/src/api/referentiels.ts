@@ -11,6 +11,7 @@ export const CLE_CHANTIERS = ["chantiers"] as const;
 export const CLE_FOURNISSEURS = ["fournisseurs"] as const;
 export const CLE_DEPOTS_PAR_AGENT = ["referentiels", "depots-par-agent"] as const;
 export const CLE_CHANTIERS_SILENCIEUX = ["referentiels", "chantiers-silencieux"] as const;
+export const CLE_AGENCES = ["referentiels", "agences"] as const;
 
 export function listerChantiers(): Promise<Chantier[]> {
   return appelerApi<Chantier[]>("/api/chantiers");
@@ -134,4 +135,8 @@ export function obtenirDepotsParAgent(): Promise<DepotAgent[]> {
  * reçu en paramètre de requête (voir `ingest/referentiels_vue.py`). */
 export function obtenirChantiersSansDepot(): Promise<ChantierSilencieux[]> {
   return appelerApi<ChantierSilencieux[]>("/api/referentiels/chantiers-silencieux");
+}
+
+export function obtenirAgences(): Promise<string[]> {
+  return appelerApi<string[]>("/api/referentiels/agences");
 }

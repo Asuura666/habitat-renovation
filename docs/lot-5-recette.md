@@ -3,9 +3,10 @@
 Branche `lot-5-restitution`, créée depuis `main` à `c9f51a5`. Les tâches
 techniques L5-T1 à L5-T11 sont commitées jusqu'à `d770654`; L5-T12 est
 constituée par la présente livraison documentaire. Le lot
-est **techniquement terminé sur la branche**, mais la revue finale de
-l'ensemble `main..lot-5-restitution` et la fusion dans `main` n'ont pas encore
-eu lieu. Aucun push ni déploiement n'a été fait.
+est **techniquement terminé sur la branche**. La revue finale de l'ensemble
+`main..lot-5-restitution` a relevé cinq constats moyens, corrigés dans le
+présent commit puis re-relus avec un verdict `passed=true`. La fusion dans
+`main` reste à effectuer. Aucun push ni déploiement n'a été fait.
 
 Aucune donnée client n'est reproduite ici : ni montant, ni nom, ni numéro de
 client ou de document. Les seuls résultats d'août repris sont des comptes déjà
@@ -20,8 +21,9 @@ données inventées.
   par commande planifiable. Détail tâche par tâche en §1.
 - **État Git** : avant le commit documentaire de L5-T12,
   `lot-5-restitution` pointe sur `d770654`, soit 26 commits au-dessus de
-  `main` (`c9f51a5`). Rien n'est fusionné, poussé ni déployé. La revue finale
-  complète reste à faire après L5-T12.
+  `main` (`c9f51a5`). L5-T12 a ensuite été commitée sous `f879114`. Rien n'est
+  fusionné, poussé ni déployé. Les corrections de revue ont reçu un verdict
+  indépendant vert.
 - **Bilan réel d'août** : seuls les comptes déjà établis au lot 4 sont repris
   en §4. Le classement n'est toujours pas confirmé par Ilane. Aucun montant
   réel n'est écrit dans cette recette, et les quatre définitions monétaires de
@@ -53,8 +55,8 @@ données inventées.
 | L5-T8 | `96fbaa1`, corrections `300c42a`, `a4fd383`, `4286ffc` | Écran Chantiers & fournisseurs, création de chantier, agences des fournisseurs, alias en attente, activité et chantiers silencieux. Trois tours ont supprimé une note technique de l'interface en exposant réellement les agences, puis corrigé les invalidations de cache après création, validation d'alias, correction ou ré-extraction d'un document. Parcours navigateur fictifs validés. |
 | L5-T9 | `4f539c7` | Lecture paginée et filtrée du journal, route et écran admin; auteur automatique rendu explicitement, valeurs avant/après affichées sans logique métier. Revue de tâche fermée sans commit correctif distinct. |
 | L5-T10 | `3103e6f` | Lecture et modification des neuf seuils connus, bornes validées dans `ingest`, journalisation avant/après, écran Réglages. Revue fermée; captures fictives à 375 px et 1280 px. |
-| L5-T11 | `d770654` | Migration 0009, protocole et client Google Drive, synchronisation idempotente, petits et gros fichiers, état d'échec/réessai, alerte de supervision au plus une fois, CLI et exploitation. Plusieurs passes de revue ont corrigé les constats critiques/importants; l'ultime verdict est `passed=true`. Google réel non testé faute d'accès. |
-| L5-T12 | présent commit documentaire | Présente recette, `docs/passation-lot-5.md`, section Lot 5 de `docs/dette.md` et mise à jour de l'état du projet dans `CLAUDE.md`. Aucun code applicatif n'est modifié et aucun push ou merge n'est effectué dans cette tâche. La revue finale de branche doit suivre. |
+| L5-T11 | `d770654`, correction de revue finale dans le présent commit | Migration 0009, protocole et client Google Drive, synchronisation idempotente, petits et gros fichiers, état d'échec/réessai, alerte de supervision au plus une fois, CLI et exploitation. La correction remet le chemin et le nom visibles au format exact du CDC, avec identité technique dans les `appProperties`; collisions normalisées et rejeu sont couverts par le faux client. Google réel non testé faute d'accès. |
+| L5-T12 | `f879114` | Présente recette, `docs/passation-lot-5.md`, section Lot 5 de `docs/dette.md` et mise à jour de l'état du projet dans `CLAUDE.md`. Aucun code applicatif n'est modifié et aucun push ou merge n'est effectué dans cette tâche. |
 
 ### 1.1 Revues et corrections transverses
 
@@ -64,10 +66,12 @@ double comptage SQL, la cohérence JSON/CSV, les droits admin, les frontières d
 jour en Europe/Paris, l'invalidation du cache front et les frontières de panne
 Drive. Les commits correctifs visibles sont listés dans le tableau ci-dessus.
 
-La dernière revue de L5-T11 s'est terminée avec `passed=true`, après correction
-des constats critiques/importants. En revanche, **la revue finale de toute la
-branche n'est pas encore faite** : aucune conclusion de fusion ne peut être
-tirée avant cette étape.
+La dernière revue isolée de L5-T11 s'est terminée avec `passed=true`, après
+correction des constats critiques/importants. La première revue finale de toute
+la branche a ensuite relevé cinq constats moyens : comptes d'anomalies des
+groupes non résolus, colonne BL ordinateur, nommage Drive, politique de cache
+front et filtre agence. Ils sont corrigés dans le présent commit et leur
+relecture indépendante a rendu `passed=true`, sans constat bloquant.
 
 ## 2. Décisions L5-D1 à L5-D12
 
@@ -207,5 +211,6 @@ client ni la justesse des données d'août.
   des lots 2 à 4 restent applicables (`docs/dette.md`).
 - **Excel réel** : format CSV couvert automatiquement; l'ouverture manuelle dans
   l'environnement Excel du client n'est pas documentée comme effectuée.
-- **Revue finale et fusion** : encore à faire. Le lot ne doit pas être présenté
-  comme fusionné dans `main` ni prêt au déploiement avant cette revue.
+- **Fusion** : la revue complète et la relecture des cinq corrections sont
+  vertes. Le lot ne doit toutefois pas être présenté comme fusionné dans
+  `main` ni prêt au déploiement avant l'intégration locale et sa vérification.

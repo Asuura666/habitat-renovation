@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -29,12 +28,6 @@ class ResultatSynchronisation:
     signales: int
 
 
-def _segment_unique(valeur: str, identifiant: uuid.UUID) -> str:
-    suffixe = str(identifiant)
-    lisible = normaliser_segment(valeur)[: 100 - len(suffixe) - 1].rstrip("-._")
-    return f"{lisible}-{suffixe}"
-
-
 def _dossier(fournisseur: Fournisseur, document: Document) -> str:
     date_document = document.date_doc
     if date_document is None:
@@ -42,7 +35,7 @@ def _dossier(fournisseur: Fournisseur, document: Document) -> str:
     return "/".join(
         (
             "Fournisseurs",
-            _segment_unique(fournisseur.nom, fournisseur.id),
+            normaliser_segment(fournisseur.nom),
             f"{date_document:%Y-%m}",
         )
     )
@@ -58,7 +51,6 @@ def _nom_fichier(document: Document, chantier: str | None) -> str:
                 normaliser_segment(document.type),
                 normaliser_segment(numero),
                 normaliser_segment(chantier_affiche),
-                str(document.id),
             )
         )
         + f".{normaliser_segment(extension)}"
@@ -78,8 +70,8 @@ async def synchroniser_documents(
     Un document sans fournisseur résolu reste en attente : le chemin exigé
     commence par son fournisseur et ne doit pas figer un dossier « inconnu ».
     Le commit du lot conserve les verrous ``SKIP LOCKED`` pendant les envois ;
-    un arrêt après téléversement reste rejouable car le client vérifie le nom
-    distant avant tout nouvel envoi.
+    un arrêt après téléversement reste rejouable car le client vérifie
+    l'identité technique distante avant tout nouvel envoi.
 
     Les signalements suivent une sémantique « au plus une fois » : leur date
     est validée en base avant l'appel externe. Une panne Telegram peut donc
@@ -146,10 +138,17 @@ async def synchroniser_documents(
     for document, fournisseur, chantier in lignes:
         document.drive_sync_tentative_le = instant
         try:
+            dossier = _dossier(fournisseur, document)
             url = await client.televerser(
                 Path(document.fichier_path),
-                _dossier(fournisseur, document),
+                dossier,
                 _nom_fichier(document, chantier),
+                identifiant=f"document:{document.id}",
+                identifiants_dossier=(
+                    "fournisseurs",
+                    f"fournisseur:{fournisseur.id}",
+                    f"fournisseur:{fournisseur.id}:mois:{dossier.rsplit('/', 1)[1]}",
+                ),
             )
         except Exception as exc:
             echecs += 1

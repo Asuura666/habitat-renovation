@@ -11,6 +11,13 @@ def test_ecran_bilan_couvre_le_contrat_responsive() -> None:
     assert "useSearchParams" in page
     assert 'type="month"' in page
     assert 'id="filtre-agence"' in page
+    assert "<select" in page
+    assert '<option value="">Toutes les agences</option>' in page
+    assert "obtenirAgences" in page
+    assert 'type="search"' not in page
+    referentiels = (RACINE_WEB / "api" / "referentiels.ts").read_text()
+    assert '"/api/referentiels/agences"' in referentiels
+    assert "CLE_AGENCES" in referentiels
     assert "Les quatre montants ne s" in page
     assert "md:hidden" in page
     assert "hidden" in page and "md:block" in page
