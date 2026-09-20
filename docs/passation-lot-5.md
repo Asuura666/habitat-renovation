@@ -20,11 +20,12 @@ foi), `docs/plan-lot-5.md`, `docs/lot-5-recette.md`,
   passation, dette et état du projet dans `CLAUDE.md` sont mis à jour. Aucun
   code applicatif n'est modifié et rien ne doit être poussé par cette tâche.
 - **La revue finale complète de `main..HEAD` a eu lieu.** Elle a
-  relevé cinq constats moyens, tous corrigés dans le présent commit : jointures
+  relevé cinq constats moyens, tous corrigés dans `e599fda` : jointures
   null-safe du Bilan, colonne anomalies du tableau BL, identité Drive non
   visible, cache front limité à `moi` et filtre agence fermé. Leur relecture
-  indépendante a rendu `passed=true`, sans constat bloquant. La branche n'est
-  pas encore fusionnée; `main` reste à `c9f51a5`.
+  indépendante a rendu `passed=true`, sans constat bloquant. La branche a été
+  fusionnée localement par avance rapide; `main` pointe sur `e599fda` avant la
+  présente mise à jour documentaire.
 - Aucun remote n'a été utilisé, aucun push et aucun déploiement n'ont été faits.
   Les lignes cron des lots 4 et 5 ne sont pas posées.
 - Derniers contrôles réels connus après les corrections finales : `1362 passed
@@ -217,11 +218,8 @@ Ilane avant de considérer la restitution acceptée.
 Le périmètre du lot 6 n'est pas défini dans les documents lus pour cette
 passation; **ne pas l'inventer**. Avant toute planification :
 
-1. committer le présent correctif final;
-2. vérifier une dernière fois les contrôles et l'état Git;
-3. puisque le mandat de fusion s'applique toujours, fusionner dans
-   `main` et vérifier l'état exact — sans push ni déploiement implicite;
-4. obtenir ou relire la source autoritative qui définit le prochain lot, puis
+1. ne pas pousser ni déployer implicitement le lot 5;
+2. obtenir ou relire la source autoritative qui définit le prochain lot, puis
    écrire son plan à partir du CDC, des questions ouvertes et de
    `docs/dette.md`.
 

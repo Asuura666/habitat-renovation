@@ -69,15 +69,14 @@ docs/
 
 ## Où en est le projet
 
-Lots 1 (Socle), 2 (Collecte), 3 (Extraction) et 4 (Rapprochement) faits et
-**fusionnés dans `main`** (lot 4 fusionné le 18/09/2026). Le lot 5
-(Restitution) est techniquement terminé sur la branche
-`lot-5-restitution` : L5-T1 à L5-T11 sont commitées et relues, L5-T12 porte
-la recette et la passation. Les derniers contrôles connus après L5-T11 sont
+Lots 1 (Socle), 2 (Collecte), 3 (Extraction), 4 (Rapprochement) et 5
+(Restitution) faits et **fusionnés dans `main`** (lot 4 le 18/09/2026, lot 5
+le 20/09/2026 par avance rapide jusqu'à `e599fda`). L5-T1 à L5-T12 sont
+commitées et relues. Les derniers contrôles connus après L5-T11 sont
 verts après les corrections finales : 1 362 tests, Ruff, formatage, mypy,
 typecheck et build front. La revue finale et la relecture des corrections ont
-rendu un verdict vert; seule la fusion locale dans `main` reste à faire. Aucun
-push ni déploiement n'a eu lieu. **Avant tout travail, lire
+rendu un verdict vert. Aucun push ni déploiement n'a eu lieu. **Avant tout
+travail, lire
 `docs/passation-lot-5.md`** (état, décisions, questions ouvertes, méthode et
 point de départ suivant), `docs/lot-5-recette.md` et `docs/dette.md`, puis les
 passations précédentes si nécessaire. Recettes : `docs/lot-1-recette.md` à
@@ -99,7 +98,7 @@ Points à retenir :
   aucun déclencheur défini (Q1) ; historique de prix jamais exercé sur des
   données réelles (un seul mois disponible).
 - **Lot 5 : Bilan, export CSV, navigation, référentiels, journal, réglages et
-  synchronisation Drive faits sur la branche.** Les quatre définitions
+  synchronisation Drive fusionnés dans `main`.** Les quatre définitions
   monétaires et le classement d'août restent à confirmer par Ilane. Drive est
   testé avec des doubles locaux mais pas avec un compte Google réel faute
   d'identifiants. Aucun cron n'est posé tant que l'application n'est pas
