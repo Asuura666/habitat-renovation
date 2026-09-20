@@ -456,7 +456,48 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   ouvert aux factures depuis cette même revue finale : il purge leurs
   anomalies.
 
-## L5-T7 fix1 — ingest (vue des dépôts : factures hors périmètre)
+## Lot 5 — Restitution
+
+### Accès et exploitation externes
+
+- **Synchronisation Google Drive non validée sur un Drive réel.** Le client
+  Google, les deux modes d'envoi et l'orchestration sont couverts par des
+  doubles de test sans réseau, mais aucun compte de service ni dossier cible
+  autorisé n'a été fourni (Q1). La CLI refuse correctement de démarrer sans
+  configuration (code 2 et message clair). Ne couvre pas une recette réelle
+  des permissions, de l'arborescence, des quotas, des sessions résumables ni
+  de la reprise après une panne Google ; à faire dès réception des accès selon
+  `docs/exploitation-lot-5.md`, sans jamais versionner le JSON du compte.
+- **Notification Drive au plus une fois, donc potentiellement perdue.** Après
+  24 h d'échec, la réservation de l'alerte est commitée avant l'appel Telegram
+  afin d'éviter les doublons. Si l'appel Telegram échoue après cette
+  réservation, l'alerte n'est pas retentée. Ce compromis at-most-once est
+  explicite dans `docs/exploitation-lot-5.md`; à remplacer par une boîte
+  d'envoi persistante seulement si des pertes sont observées ou si la garantie
+  devient contractuelle.
+- **Crons des lots 4 et 5 non posés tant que rien n'est déployé.** Les lignes
+  pour `controles-differes` (lot 4) et `drive-sync` (lot 5) sont documentées,
+  mais ne doivent être installées qu'après déploiement des commandes et
+  application des migrations sur le conteneur cible. À faire au déploiement,
+  avec `flock`, rotation des logs et supervision des codes de sortie.
+
+### Bilan — définitions et validation provisoires
+
+- **Les quatre montants du Bilan reposent sur L5-D3, non validée par Ilane.**
+  Facturé HT, rapproché, en écart et non justifié sont implémentés selon la
+  définition du plan et ne forment pas une partition. Le classement d'août
+  affiché par le Bilan est lui aussi hérité du lot 4 et non confirmé. Ne couvre
+  pas une acceptation métier ; toute correction touche les expressions
+  d'agrégat et leurs tests, sans perte de données.
+- **Pas d'index, de cache ni de table d'agrégat dédiés au Bilan.** Les vues sont
+  calculées à la demande, choix adapté au volume prévu pour un seul client.
+  Ne pas ajouter un index Drive ou Bilan par anticipation : mesurer d'abord en
+  production. Pour Drive, un index partiel sur les documents à synchroniser
+  n'est à envisager que si le volume rend la sélection mesurablement lente ;
+  pour le Bilan, index ou vue matérialisée seulement si une requête réelle
+  dépasse l'objectif d'usage.
+
+### L5-T7 fix1 — ingest (vue des dépôts : factures hors périmètre)
 
 - **Les factures ne comptent pas comme des « dépôts ».** `depots_par_agent`
   et `chantiers_sans_depot` ne lisent que `document.chantier_id`, jamais
@@ -473,7 +514,7 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   persistante ; à revoir si un signal combiné (BL + facture) devenait
   nécessaire.
 
-## L5-T8 fix1 — web (chantier inactif non désactivable)
+### L5-T8 fix1 — web (chantier inactif non désactivable)
 
 - **Le statut d'un chantier s'affiche mais ne se change pas.** L'écran
   « Chantiers & fournisseurs » affiche `chantier.actif` (badge Actif/
@@ -482,7 +523,7 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   `actif=true`) ; à traiter quand la gestion du cycle de vie d'un chantier
   (fermeture, réouverture) sera abordée.
 
-## L5-T8 fix2 — web (deux points d'ergonomie, non corrigés)
+### L5-T8 fix2 — web (deux points d'ergonomie, non corrigés)
 
 - **Cibles tactiles sous 44 px.** Motif hérité de tous les écrans du
   projet (boutons, liens et cases de formulaire souvent plus petits que la
