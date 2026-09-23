@@ -1,13 +1,15 @@
 import type { ReactElement } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import {
   cleBilanFournisseurs,
+  type FiltresBilan,
   type LigneBilanFournisseur,
   listerBilanFournisseursGlobal,
   urlExportBilanFournisseurs,
 } from "../api/bilan";
+import { CLE_AGENCES, obtenirAgences } from "../api/referentiels";
 import { formaterMontant } from "../lib/formats";
 import { EnTetePage, EtatVide } from "../ui";
 
@@ -18,19 +20,62 @@ import { EnTetePage, EtatVide } from "../ui";
 const CLASSES_BOUTON_LIEN =
   "inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-bordure bg-surface px-4 py-2 text-sm font-medium text-encre outline-none transition-colors hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
 
+/** Cible d'au moins 44 px même sur le lien du nom dans le tableau
+ * (ordinateur) — la carte téléphone porte elle-même le lien en bloc
+ * (correction de revue, tour 1 : `inline-flex min-h-[44px]` en repli,
+ * documenté par la piste de revue quand tout l'élément n'est pas
+ * cliquable). */
 const CLASSES_LIEN_NOM =
-  "font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent";
+  "inline-flex min-h-[44px] items-center font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent";
 
-/** Une ligne du fournisseur non résolu (aucun fournisseur identifié sur ces
- * blocs) : pas de fiche à ouvrir, même convention que `Bilan.tsx`/l'ancien
- * `BilanFournisseur.tsx` (« Fournisseur non résolu », jamais de lien). */
-function NomFournisseur({ ligne }: { ligne: LigneBilanFournisseur }): ReactElement {
-  const nom = ligne.nom ?? "Fournisseur non résolu";
+const CLASSES_CHAMP =
+  "min-h-[44px] w-full rounded-lg border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent";
+const CLASSES_LABEL = "mb-1 block text-xs font-medium text-encre-2";
+
+const FORMATEUR_MOIS = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
+
+/** Résumé de la période affichée (spec §2, `surtitre` d'`EnTetePage`) —
+ * mise en forme uniquement (aucun calcul métier) : correction de revue,
+ * tour 1, un non-technicien ne pouvait pas savoir sur quelle période
+ * portaient les montants affichés. */
+function texteSurtitre(filtres: FiltresBilan): string {
+  const periode = filtres.mois
+    ? `Période : ${FORMATEUR_MOIS.format(new Date(`${filtres.mois}T00:00:00`))}`
+    : "Tous les mois";
+  return filtres.agence ? `${periode} · Agence ${filtres.agence}` : periode;
+}
+
+function lienAvecFiltres(chemin: string, filtres: FiltresBilan): string {
+  const parametres = new URLSearchParams();
+  if (filtres.mois) {
+    parametres.set("mois", filtres.mois);
+  }
+  if (filtres.agence) {
+    parametres.set("agence", filtres.agence);
+  }
+  const requete = parametres.toString();
+  return requete === "" ? chemin : `${chemin}?${requete}`;
+}
+
+/** Nom du fournisseur, tel qu'affiché dans le tableau (ordinateur) : un
+ * lien vers la fiche quand le fournisseur est identifié, sinon un texte
+ * simple, en français courant (correction de revue, tour 1 : l'ancien
+ * texte était du jargon technique de résolution d'entité, jamais
+ * expliqué). Pas de fiche à ouvrir pour un fournisseur non identifié :
+ * aucune route ne l'accepte. */
+function NomFournisseur({
+  ligne,
+  filtres,
+}: {
+  ligne: LigneBilanFournisseur;
+  filtres: FiltresBilan;
+}): ReactElement {
+  const nom = ligne.nom ?? "Fournisseur non identifié";
   if (ligne.fournisseur_id === null) {
     return <>{nom}</>;
   }
   return (
-    <Link to={`/fournisseurs/${ligne.fournisseur_id}`} className={CLASSES_LIEN_NOM}>
+    <Link to={lienAvecFiltres(`/fournisseurs/${ligne.fournisseur_id}`, filtres)} className={CLASSES_LIEN_NOM}>
       {nom}
     </Link>
   );
@@ -38,12 +83,21 @@ function NomFournisseur({ ligne }: { ligne: LigneBilanFournisseur }): ReactEleme
 
 /** Carte téléphone (< `md`) pour une ligne du tableau — mêmes quatre
  * valeurs que le tableau, empilées (spec §7 : 375 px = cible à part
- * entière). */
-function CarteFournisseur({ ligne }: { ligne: LigneBilanFournisseur }): ReactElement {
-  return (
-    <li className="rounded-carte border border-bordure bg-surface p-4">
+ * entière). Toute la carte est cliquable quand le fournisseur est identifié
+ * (correction de revue, tour 1 : un lien texte de ~24 px de haut n'atteint
+ * pas la cible tactile de 44 px) — un seul lien par carte, jamais de lien
+ * imbriqué dans un autre. */
+function CarteFournisseur({
+  ligne,
+  filtres,
+}: {
+  ligne: LigneBilanFournisseur;
+  filtres: FiltresBilan;
+}): ReactElement {
+  const contenu = (
+    <>
       <h2 className="mb-3 font-titre text-lg font-medium text-encre">
-        <NomFournisseur ligne={ligne} />
+        {ligne.nom ?? "Fournisseur non identifié"}
       </h2>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
         <div>
@@ -69,20 +123,41 @@ function CarteFournisseur({ ligne }: { ligne: LigneBilanFournisseur }): ReactEle
           <dd className="mt-0.5 font-medium text-encre">{ligne.montants.nb_anomalies_ouvertes}</dd>
         </div>
       </dl>
+    </>
+  );
+
+  if (ligne.fournisseur_id === null) {
+    return <li className="rounded-carte border border-bordure bg-surface p-4">{contenu}</li>;
+  }
+
+  return (
+    <li>
+      <Link
+        to={lienAvecFiltres(`/fournisseurs/${ligne.fournisseur_id}`, filtres)}
+        className="block rounded-carte border border-bordure bg-surface p-4 outline-none transition-colors hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        {contenu}
+      </Link>
     </li>
   );
 }
 
-function TableauFournisseurs({ lignes }: { lignes: LigneBilanFournisseur[] }): ReactElement {
+function TableauFournisseurs({
+  lignes,
+  filtres,
+}: {
+  lignes: LigneBilanFournisseur[];
+  filtres: FiltresBilan;
+}): ReactElement {
   if (lignes.length === 0) {
-    return <EtatVide message="Aucun fournisseur pour l'instant." />;
+    return <EtatVide message="Aucun fournisseur pour ces filtres." />;
   }
   return (
     <>
       {/* Cartes empilées — téléphone (< md, spec §7). */}
       <ul className="space-y-3 md:hidden">
         {lignes.map((ligne) => (
-          <CarteFournisseur key={ligne.fournisseur_id ?? "non-resolu"} ligne={ligne} />
+          <CarteFournisseur key={ligne.fournisseur_id ?? "non-resolu"} ligne={ligne} filtres={filtres} />
         ))}
       </ul>
 
@@ -113,7 +188,7 @@ function TableauFournisseurs({ lignes }: { lignes: LigneBilanFournisseur[] }): R
             {lignes.map((ligne) => (
               <tr key={ligne.fournisseur_id ?? "non-resolu"}>
                 <th scope="row" className="px-5 py-3 text-left font-medium text-encre">
-                  <NomFournisseur ligne={ligne} />
+                  <NomFournisseur ligne={ligne} filtres={filtres} />
                 </th>
                 <td className="px-5 py-3 text-right font-mono text-encre">
                   {formaterMontant(ligne.montants.facture_ht)}
@@ -136,29 +211,100 @@ function TableauFournisseurs({ lignes }: { lignes: LigneBilanFournisseur[] }): R
   );
 }
 
+/** Formulaire de filtres (mois, agence) — même principe que l'ancien
+ * `Bilan.tsx` et le brief de la Task 7 (« filtres mois [optionnel, « Tous
+ * les mois » par défaut] et agence ») : correction de revue, tour 1, ces
+ * filtres avaient disparu de l'écran refait alors que le socle transmet
+ * `?mois`/`?agence` en redirigeant depuis l'ancienne URL. */
+function FormulaireFiltres({
+  filtres,
+  onChangerFiltre,
+}: {
+  filtres: FiltresBilan;
+  onChangerFiltre: (nom: "mois" | "agence", valeur: string) => void;
+}): ReactElement {
+  const agences = useQuery({ queryKey: CLE_AGENCES, queryFn: obtenirAgences });
+  return (
+    <form
+      onSubmit={(evenement) => evenement.preventDefault()}
+      className="grid grid-cols-1 gap-3 rounded-carte border border-bordure bg-surface p-4 sm:grid-cols-2"
+    >
+      <div>
+        <label htmlFor="filtre-mois" className={CLASSES_LABEL}>
+          Mois de facturation
+        </label>
+        <input
+          id="filtre-mois"
+          type="month"
+          value={filtres.mois?.slice(0, 7) ?? ""}
+          onChange={(evenement) => onChangerFiltre("mois", evenement.target.value)}
+          className={CLASSES_CHAMP}
+        />
+      </div>
+      <div>
+        <label htmlFor="filtre-agence" className={CLASSES_LABEL}>
+          Agence
+        </label>
+        <select
+          id="filtre-agence"
+          value={filtres.agence ?? ""}
+          onChange={(evenement) => onChangerFiltre("agence", evenement.target.value)}
+          className={CLASSES_CHAMP}
+        >
+          <option value="">Toutes les agences</option>
+          {agences.data?.map((agence) => (
+            <option key={agence} value={agence}>
+              {agence}
+            </option>
+          ))}
+        </select>
+      </div>
+    </form>
+  );
+}
+
 /** Écran « Fournisseurs » (spec §3/§4, Task 9) : bilan agrégé par
- * fournisseur sur tous les chantiers et toutes les périodes (`mois` non
- * transmis — l'API renvoie alors tout l'historique, `api/bilan.py`), sans
- * filtre (aucun mentionné par la maquette ni le plan pour cet écran,
- * contrairement à « Chantiers »). Chaque ligne ouvre la fiche du
- * fournisseur (`/fournisseurs/:id`) ; le fournisseur non résolu reste un
- * texte simple, sans fiche à ouvrir. */
+ * fournisseur, filtrable par mois et par agence (`?mois`/`?agence`, mêmes
+ * filtres que « Chantiers » — correction de revue, tour 1). Chaque ligne
+ * ouvre la fiche du fournisseur (`/fournisseurs/:id`, filtres reportés dans
+ * le lien) ; le fournisseur non identifié reste un texte simple, sans fiche
+ * à ouvrir. */
 export function FournisseursListe(): ReactElement {
+  const [parametres, setParametres] = useSearchParams();
+  const filtres: FiltresBilan = {
+    mois: parametres.get("mois") || undefined,
+    agence: parametres.get("agence") || undefined,
+  };
+
   const bilan = useQuery({
-    queryKey: cleBilanFournisseurs(null, {}),
-    queryFn: () => listerBilanFournisseursGlobal({}),
+    queryKey: cleBilanFournisseurs(null, filtres),
+    queryFn: () => listerBilanFournisseursGlobal(filtres),
   });
+
+  function changerFiltre(nom: "mois" | "agence", valeur: string): void {
+    const suivants = new URLSearchParams(parametres);
+    const valeurApi = nom === "mois" && valeur !== "" ? `${valeur}-01` : valeur;
+    if (valeurApi.trim() === "") {
+      suivants.delete(nom);
+    } else {
+      suivants.set(nom, valeurApi);
+    }
+    setParametres(suivants, { replace: true });
+  }
 
   return (
     <div className="space-y-6">
       <EnTetePage
+        surtitre={texteSurtitre(filtres)}
         titre="Fournisseurs"
         actions={
-          <a href={urlExportBilanFournisseurs(null, {})} className={CLASSES_BOUTON_LIEN}>
+          <a href={urlExportBilanFournisseurs(null, filtres)} className={CLASSES_BOUTON_LIEN}>
             Exporter en CSV
           </a>
         }
       />
+
+      <FormulaireFiltres filtres={filtres} onChangerFiltre={changerFiltre} />
 
       {bilan.isPending && (
         <p role="status" className="text-sm text-encre-2">
@@ -170,7 +316,7 @@ export function FournisseursListe(): ReactElement {
           Impossible de charger les fournisseurs.
         </p>
       )}
-      {bilan.data && <TableauFournisseurs lignes={bilan.data} />}
+      {bilan.data && <TableauFournisseurs lignes={bilan.data} filtres={filtres} />}
     </div>
   );
 }

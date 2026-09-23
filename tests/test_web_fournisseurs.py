@@ -55,6 +55,38 @@ def test_liste_fournisseurs_couvre_le_contrat_responsive() -> None:
     for jargon in ("bloc", "alias", "rapprochement", "OCR", "anomalie", "Anomalies"):
         assert f">{jargon}<" not in page, jargon
 
+    # « Fournisseur non résolu » est du jargon technique (résolution
+    # d'entité) sans action possible ; « Fournisseur non identifié » est le
+    # texte attendu (correction de revue, tour 1).
+    assert "Fournisseur non résolu" not in page
+    assert "Fournisseur non identifié" in page
+
+
+def test_liste_fournisseurs_filtre_par_mois_et_agence() -> None:
+    """Correction de revue (tour 1) : le brief et le plan (`GET
+    /api/bilan/fournisseurs?mois`) attendent un filtre mois/agence, comme
+    « Chantiers » — le socle transmet déjà `?mois=...&agence=...` en
+    redirigeant `/bilan/fournisseurs` vers `/fournisseurs`."""
+    page = _page("FournisseursListe.tsx")
+
+    assert "useSearchParams" in page
+    assert 'parametres.get("mois")' in page
+    assert 'parametres.get("agence")' in page
+    assert 'type="month"' in page
+    assert "Toutes les agences" in page
+
+    # Filtres transmis à la requête et à l'export, jamais ignorés.
+    assert "listerBilanFournisseursGlobal(filtres)" in page
+    assert "urlExportBilanFournisseurs(null, filtres)" in page
+
+    # La période affichée (spec : un non-technicien doit savoir sur quelle
+    # période portent les montants) — « Tous les mois » par défaut.
+    assert "Tous les mois" in page
+    assert "surtitre" in page
+
+    # Les filtres sont reportés dans le lien vers la fiche.
+    assert "lienAvecFiltres" in page
+
 
 def test_fiche_fournisseur_couvre_le_contrat_de_la_tache() -> None:
     page = _page("FicheFournisseur.tsx")
@@ -92,8 +124,37 @@ def test_fiche_fournisseur_couvre_le_contrat_de_la_tache() -> None:
     for jargon in ("bloc", "alias", "rapprochement", "OCR", "anomalie", "Anomalies"):
         assert f">{jargon}<" not in page, jargon
 
+    # « Chantier non résolu » est du jargon sans aucune action possible ;
+    # « Chantier à rattacher », avec un lien vers `/a-regler?filtre=
+    # rattacher`, est le texte attendu (correction de revue, tour 1).
+    assert "Chantier non résolu" not in page
+    assert "Chantier à rattacher" in page
+    assert "/a-regler?filtre=rattacher" in page
+
+
+def test_fiche_fournisseur_filtre_par_mois_et_agence() -> None:
+    """Mêmes filtres que la liste (correction de revue, tour 1) : la fiche
+    ne montre pas son propre sélecteur (c'est la liste qui filtre), mais lit
+    `mois`/`agence` dans l'URL et les reporte à toutes ses requêtes, à son
+    export et au fil d'Ariane."""
+    page = _page("FicheFournisseur.tsx")
+
+    assert "useSearchParams" in page
+    assert 'parametres.get("mois")' in page
+    assert 'parametres.get("agence")' in page
+    assert "listerBilanFournisseursGlobal(filtres)" in page
+    assert "listerBilanChantiersFournisseur(fournisseurId ?? " in page
+    assert "urlExportBilanChantiersFournisseur(fournisseurId ?? " in page
+    assert "lienAvecFiltres(" in page
+    assert "Tous les mois" in page
+    assert "surtitre" in page
+
 
 def test_fournisseurs_sont_montes_sur_leurs_routes() -> None:
+    """Cette tâche ne possède que `/fournisseurs` et `/fournisseurs/:id` :
+    les routes `/chantiers/...` appartiennent à la Task 7 et ne sont pas
+    vérifiées ici (correction de revue, tour 1 — ce contrat figeait un état
+    d'une autre tâche, en parallèle, qui les remplace)."""
     app = (RACINE_WEB / "App.tsx").read_text()
 
     for chemin, composant in (
@@ -105,25 +166,16 @@ def test_fournisseurs_sont_montes_sur_leurs_routes() -> None:
         assert f"<{composant}" in declaration, chemin
         assert "GardeAdmin" in declaration, chemin
 
-    # Task 7 (Chantiers) garde ses propres routes sur les mêmes anciens
-    # composants (`BilanFournisseursChantier`, `BilanBl`) : cette tâche ne
-    # les touche pas.
-    declaration_chantier = app.split('path="chantiers/:chantierId"', 1)[1].split(
-        "path=", 1
-    )[0]
-    assert "<BilanFournisseursChantier" in declaration_chantier
-    declaration_bl = app.split('path="chantiers/:chantierId/:fournisseurId"', 1)[
-        1
-    ].split("path=", 1)[0]
-    assert "<BilanBl" in declaration_bl
 
-
-def test_bilan_fournisseur_reste_disponible_pour_les_routes_chantiers() -> None:
-    """`BilanFournisseur.tsx` n'est pas supprimé par cette tâche : il porte
-    encore `BilanFournisseursChantier`/`BilanBl`, montés par les routes
-    `/chantiers/...` de la Task 7 (non touchées ici)."""
-    fichier = RACINE_WEB / "pages" / "BilanFournisseur.tsx"
-    assert fichier.exists()
-    contenu = fichier.read_text()
-    assert "export function BilanFournisseursChantier" in contenu
-    assert "export function BilanBl" in contenu
+def test_fournisseurs_n_importent_pas_bilan_fournisseur() -> None:
+    """`pages/BilanFournisseur.tsx` porte encore les écrans des routes
+    `/chantiers/...` (Task 7, non touchées ici) : les deux écrans de cette
+    tâche ne doivent rien en importer (correction de revue, tour 1). Le
+    module `api/bilan.ts` expose légitimement des identifiants comme
+    `listerBilanFournisseursGlobal` (qui contiennent la sous-chaîne
+    « BilanFournisseur ») : seul un import depuis `./BilanFournisseur` est
+    interdit."""
+    for nom in ("FournisseursListe.tsx", "FicheFournisseur.tsx"):
+        page = _page(nom)
+        assert 'BilanFournisseur"' not in page, nom
+        assert "./BilanFournisseur" not in page, nom

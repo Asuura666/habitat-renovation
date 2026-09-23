@@ -1,9 +1,10 @@
 import type { ReactElement } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 
 import {
   cleBilanFournisseurs,
+  type FiltresBilan,
   type LigneBilanChantier,
   listerBilanChantiersFournisseur,
   listerBilanFournisseursGlobal,
@@ -17,10 +18,15 @@ import { Chiffre, EnTetePage, EtatVide, FilAriane, phraseProbleme, titreRegle, u
 const CLASSES_BOUTON_LIEN =
   "inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-bordure bg-surface px-4 py-2 text-sm font-medium text-encre outline-none transition-colors hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
 
+/** Cible d'au moins 44 px même sur le lien du nom dans le tableau
+ * (ordinateur) — la carte téléphone porte elle-même le lien en bloc
+ * (correction de revue, tour 1, même principe que `FournisseursListe`). */
 const CLASSES_LIEN_NOM =
-  "font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent";
+  "inline-flex min-h-[44px] items-center font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent";
 
 const CLASSES_CARTE = "rounded-carte border border-bordure bg-surface p-5";
+
+const FORMATEUR_MOIS = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
 
 /** Fond/texte de la pastille d'urgence (mêmes teintes que `ui/PastilleEtat
  * .tsx` pour « à rattacher »/« bl manquant » et « prix »/« quantités » —
@@ -34,48 +40,84 @@ const CLASSES_URGENCE: Record<ReturnType<typeof urgence>, string> = {
   Info: "bg-fond text-encre-2",
 };
 
-function NomChantier({ ligne }: { ligne: LigneBilanChantier }): ReactElement {
-  const nom = ligne.nom_canonique ?? "Chantier non résolu";
-  if (ligne.chantier_id === null) {
-    return <>{nom}</>;
-  }
-  return (
-    <Link to={`/chantiers/${ligne.chantier_id}`} className={CLASSES_LIEN_NOM}>
-      {nom}
-    </Link>
-  );
+/** Résumé de la période affichée (spec §2, `surtitre` d'`EnTetePage`) —
+ * mise en forme uniquement (aucun calcul métier), même helper que
+ * `FournisseursListe` (correction de revue, tour 1). */
+function texteSurtitre(filtres: FiltresBilan): string {
+  const periode = filtres.mois
+    ? `Période : ${FORMATEUR_MOIS.format(new Date(`${filtres.mois}T00:00:00`))}`
+    : "Tous les mois";
+  return filtres.agence ? `${periode} · Agence ${filtres.agence}` : periode;
 }
 
+function lienAvecFiltres(chemin: string, filtres: FiltresBilan): string {
+  const parametres = new URLSearchParams();
+  if (filtres.mois) {
+    parametres.set("mois", filtres.mois);
+  }
+  if (filtres.agence) {
+    parametres.set("agence", filtres.agence);
+  }
+  const requete = parametres.toString();
+  return requete === "" ? chemin : `${chemin}?${requete}`;
+}
+
+/** Destination d'une ligne « chantier concerné » : la fiche du chantier
+ * quand il est identifié, sinon l'écran « À régler » filtré sur les
+ * chantiers à rattacher (correction de revue, tour 1 : l'ancien texte,
+ * du jargon de résolution d'entité, ne proposait aucune action — le plan
+ * et la maquette `Main` proposent un lien vers `/a-regler?filtre=
+ * rattacher`). */
+function destinationChantier(ligne: LigneBilanChantier): string {
+  return ligne.chantier_id === null ? "/a-regler?filtre=rattacher" : `/chantiers/${ligne.chantier_id}`;
+}
+
+function nomChantierTexte(ligne: LigneBilanChantier): string {
+  if (ligne.chantier_id === null) {
+    return "Chantier à rattacher";
+  }
+  return ligne.nom_canonique ?? "Chantier à rattacher";
+}
+
+/** Carte téléphone (< `md`) « chantier concerné » — toute la carte est
+ * cliquable (correction de revue, tour 1 : un lien texte dans un `h3` sans
+ * padding n'atteint pas la cible tactile de 44 px) ; fond `bg-surface`
+ * (au lieu de `bg-fond`) pour que le montant d'écart (`text-ecart-texte`)
+ * garde un contraste d'au moins 4,5:1 (correction de revue, tour 1 :
+ * `text-ecart-texte` sur `bg-fond` ne fait que 4,26:1). */
 function CarteChantierConcerne({ ligne }: { ligne: LigneBilanChantier }): ReactElement {
   return (
-    <li className="rounded-carte border border-bordure bg-fond p-4">
-      <h3 className="mb-3 font-medium text-encre">
-        <NomChantier ligne={ligne} />
-      </h3>
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-        <div>
-          <dt className="text-xs text-encre-2">Facturé</dt>
-          <dd className="mt-0.5 font-mono font-medium text-encre">
-            {formaterMontant(ligne.montants.facture_ht)}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs text-encre-2">Écart</dt>
-          <dd className="mt-0.5 font-mono font-medium text-ecart-texte">
-            {formaterMontant(ligne.montants.en_ecart)}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs text-encre-2">Sans bon</dt>
-          <dd className="mt-0.5 font-mono font-medium text-alerte">
-            {formaterMontant(ligne.montants.non_justifie)}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs text-encre-2">Problèmes</dt>
-          <dd className="mt-0.5 font-medium text-encre">{ligne.montants.nb_anomalies_ouvertes}</dd>
-        </div>
-      </dl>
+    <li>
+      <Link
+        to={destinationChantier(ligne)}
+        className="block rounded-carte border border-bordure bg-surface p-4 outline-none transition-colors hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        <h3 className="mb-3 font-medium text-encre">{nomChantierTexte(ligne)}</h3>
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+          <div>
+            <dt className="text-xs text-encre-2">Facturé</dt>
+            <dd className="mt-0.5 font-mono font-medium text-encre">
+              {formaterMontant(ligne.montants.facture_ht)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-encre-2">Écart</dt>
+            <dd className="mt-0.5 font-mono font-medium text-ecart-texte">
+              {formaterMontant(ligne.montants.en_ecart)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-encre-2">Sans bon</dt>
+            <dd className="mt-0.5 font-mono font-medium text-alerte">
+              {formaterMontant(ligne.montants.non_justifie)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-encre-2">Problèmes</dt>
+            <dd className="mt-0.5 font-medium text-encre">{ligne.montants.nb_anomalies_ouvertes}</dd>
+          </div>
+        </dl>
+      </Link>
     </li>
   );
 }
@@ -120,7 +162,9 @@ function SectionChantiersConcernes({ lignes }: { lignes: LigneBilanChantier[] })
             {lignes.map((ligne) => (
               <tr key={ligne.chantier_id ?? "non-resolu"}>
                 <th scope="row" className="px-5 py-3 text-left font-medium text-encre">
-                  <NomChantier ligne={ligne} />
+                  <Link to={destinationChantier(ligne)} className={CLASSES_LIEN_NOM}>
+                    {nomChantierTexte(ligne)}
+                  </Link>
                 </th>
                 <td className="px-5 py-3 text-right font-mono text-encre">
                   {formaterMontant(ligne.montants.facture_ht)}
@@ -186,27 +230,36 @@ function SectionProblemesOuverts({ anomalies }: { anomalies: Anomalie[] }): Reac
  * prix ou quantité, Sans bon de livraison — mêmes montants que les colonnes
  * de `FournisseursListe`, jamais un quatrième recalculé côté front),
  * chantiers concernés (lien `/chantiers/:id`), problèmes ouverts (lien
- * `/a-regler/:id`), agences connues et export CSV.
+ * `/a-regler/:id`), agences connues et export CSV. `mois`/`agence` sont lus
+ * dans l'URL (posés par la liste, correction de revue tour 1) et reportés
+ * partout où cette fiche interroge le serveur ou renvoie vers la liste —
+ * cette page ne montre pas elle-même de sélecteur, la liste garde seule le
+ * formulaire de filtres.
  *
  * Les trois chiffres viennent de la même requête que la liste
- * (`GET /api/bilan/fournisseurs`, toutes périodes) — pas de route dédiée à
- * un seul fournisseur côté serveur (voir `app/modules/api/bilan.py`) : la
- * ligne correspondante y est retrouvée par son identifiant, une simple
- * recherche, jamais une somme ni un recalcul. Le nom et les agences
- * viennent de `GET /api/fournisseurs` (référentiel), seule source qui
- * connaît un fournisseur même sans aucune facture.
+ * (`GET /api/bilan/fournisseurs`, filtrée) — pas de route dédiée à un seul
+ * fournisseur côté serveur (voir `app/modules/api/bilan.py`) : la ligne
+ * correspondante y est retrouvée par son identifiant, une simple recherche,
+ * jamais une somme ni un recalcul. Le nom et les agences viennent de
+ * `GET /api/fournisseurs` (référentiel), seule source qui connaît un
+ * fournisseur même sans aucune facture.
  */
 export function FicheFournisseur(): ReactElement {
   const { fournisseurId } = useParams();
+  const [parametres] = useSearchParams();
+  const filtres: FiltresBilan = {
+    mois: parametres.get("mois") || undefined,
+    agence: parametres.get("agence") || undefined,
+  };
 
   const fournisseurs = useQuery({ queryKey: CLE_FOURNISSEURS, queryFn: listerFournisseurs });
   const bilanGlobal = useQuery({
-    queryKey: cleBilanFournisseurs(null, {}),
-    queryFn: () => listerBilanFournisseursGlobal({}),
+    queryKey: cleBilanFournisseurs(null, filtres),
+    queryFn: () => listerBilanFournisseursGlobal(filtres),
   });
   const chantiers = useQuery({
-    queryKey: ["bilan", "chantiers-fournisseur", fournisseurId, {}] as const,
-    queryFn: () => listerBilanChantiersFournisseur(fournisseurId ?? "", {}),
+    queryKey: ["bilan", "chantiers-fournisseur", fournisseurId, filtres] as const,
+    queryFn: () => listerBilanChantiersFournisseur(fournisseurId ?? "", filtres),
     enabled: fournisseurId !== undefined,
   });
   const anomalies = useQuery({
@@ -224,13 +277,19 @@ export function FicheFournisseur(): ReactElement {
 
   return (
     <div className="space-y-6">
-      <FilAriane elements={[{ libelle: "Fournisseurs", vers: "/fournisseurs" }, { libelle: nom }]} />
+      <FilAriane
+        elements={[
+          { libelle: "Fournisseurs", vers: lienAvecFiltres("/fournisseurs", filtres) },
+          { libelle: nom },
+        ]}
+      />
 
       <EnTetePage
+        surtitre={texteSurtitre(filtres)}
         titre={nom}
         actions={
           <a
-            href={urlExportBilanChantiersFournisseur(fournisseurId ?? "", {})}
+            href={urlExportBilanChantiersFournisseur(fournisseurId ?? "", filtres)}
             className={CLASSES_BOUTON_LIEN}
           >
             Exporter en CSV
@@ -269,7 +328,7 @@ export function FicheFournisseur(): ReactElement {
               />
             </section>
           ) : (
-            <EtatVide message="Aucune facture enregistrée pour ce fournisseur." />
+            <EtatVide message="Aucune facture enregistrée pour ce fournisseur sur ces filtres." />
           )}
 
           <section aria-label="Chantiers concernés" className={CLASSES_CARTE}>
