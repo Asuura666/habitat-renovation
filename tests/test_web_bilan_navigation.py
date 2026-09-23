@@ -26,14 +26,15 @@ def test_routes_bilan_couvrent_navigation_directe_et_inverse() -> None:
     assert "RedirectionAncienneUrl" in declaration
     assert "/chantiers/${p.chantierId" in declaration
 
-    # Les liens de la fiche fournisseur (encore montée sur `fournisseurs/
-    # :fournisseurId`, Task 9 de la refonte du front) pointent
-    # directement vers la nouvelle URL (pas via la redirection).
-    page = (WEB / "pages" / "BilanFournisseur.tsx").read_text()
-    assert "/bilan/${chantierId}/${id}" not in page
-    assert "/bilan/${ligne.chantier_id}/${fournisseurId}" not in page
-    assert "/chantiers/${chantierId}/${id}" in page
-    assert "/chantiers/${ligne.chantier_id}/${fournisseurId}" in page
+    # Revue finale de la refonte du front (constat LIENS-6) : l'ancien
+    # fichier des écrans de bilan par fournisseur, plus monté par aucune
+    # route, est supprimé ; la fiche fournisseur lie ses chantiers par
+    # l'aide partagée `lienChantier` (nouvelle URL, mois reporté), jamais
+    # par une ancienne URL `/bilan/...` redirigée.
+    assert not (WEB / "pages" / "BilanFournisseur.tsx").exists()
+    fiche = (WEB / "pages" / "FicheFournisseur.tsx").read_text()
+    assert "`/bilan/" not in fiche
+    assert "lienChantier(ligne.chantier_id, mois)" in fiche
 
 
 def test_client_bilan_couvre_fournisseurs_bl_et_vue_inverse() -> None:
@@ -46,11 +47,22 @@ def test_client_bilan_couvre_fournisseurs_bl_et_vue_inverse() -> None:
 
 
 def test_bilan_detail_lie_sources_et_anomalies_du_bloc() -> None:
-    page = (WEB / "pages" / "BilanFournisseur.tsx").read_text()
+    """Ce que liait l'ancien détail par livraison (supprimé à la revue
+    finale, constat LIENS-6) reste atteignable : la livraison mène à la page
+    de son bon (fiche chantier, facture), la facture s'ouvre sur la
+    livraison (ancre `#bloc-`), et les problèmes d'une livraison ou d'un bon
+    restent filtrables dans « À régler » (`?blocId=`, `?document=`)."""
+    fiche = (WEB / "pages" / "FicheChantier.tsx").read_text()
+    assert "ligne.bl_document_id !== null ? `/bl/${ligne.bl_document_id}`" in fiche
 
-    assert "bl_document_id" in page
-    assert "#bloc-" in page
-    assert "blocId=" in page
+    facture = (WEB / "pages" / "FactureDetail.tsx").read_text()
+    assert "lienBon(bloc.bl_document_id)" in facture
+    liens = (WEB / "lib" / "liens.ts").read_text()
+    assert "#bloc-${livraisonId}" in liens
+
+    aregler = (WEB / "pages" / "ARegler.tsx").read_text()
+    assert 'parametres.get("blocId")' in aregler
+    assert 'parametres.get("document")' in aregler
     # L'ancien lien « Vue par fournisseur » de `Bilan.tsx` (supprimé, Task 7
     # de la refonte du front) n'est plus nécessaire : « Fournisseurs » est
     # désormais une entrée de navigation principale à part entière (spec §3,
@@ -59,12 +71,16 @@ def test_bilan_detail_lie_sources_et_anomalies_du_bloc() -> None:
 
 
 def test_tableau_bl_affiche_le_nombre_anomalies_ouvertes() -> None:
-    page = (WEB / "pages" / "BilanFournisseur.tsx").read_text()
-
-    assert ">Anomalies ouvertes</th>" in page
-    assert (
-        "ligne.montants.nb_anomalies_ouvertes" in page.split("function ListeBl", 1)[1]
-    )
+    """Le nombre de problèmes ouverts par livraison (ancienne colonne
+    « Anomalies ouvertes » du détail par livraison, supprimé) est repris par
+    la carte « Livraisons » de la fiche chantier, en tableau comme en
+    cartes."""
+    fiche = (WEB / "pages" / "FicheChantier.tsx").read_text()
+    tableau = fiche.split("function LigneLivraisonTableau", 1)[1]
+    assert "livraison.ligne.montants.nb_anomalies_ouvertes" in tableau
+    assert ">Problèmes</th>" in fiche
+    carte = fiche.split("function LigneLivraisonCarte", 1)[1]
+    assert "livraison.ligne.montants.nb_anomalies_ouvertes" in carte
 
 
 def test_filtre_anomalies_accepte_un_bloc_exact() -> None:

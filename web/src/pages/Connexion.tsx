@@ -3,7 +3,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 
 import { appelerApi, ErreurApi } from "../api/client";
-import { CLE_MOI } from "../api/moi";
 
 function messageErreur(erreur: unknown): string {
   if (erreur instanceof ErreurApi) {
@@ -18,7 +17,7 @@ function messageErreur(erreur: unknown): string {
 }
 
 const CLASSES_CHAMP =
-  "w-full rounded-lg border border-bordure bg-surface px-3 py-2.5 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent";
+  "min-h-[44px] w-full rounded-lg border border-bordure bg-surface px-3 py-2.5 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent";
 const CLASSES_LABEL = "mb-1 block text-sm font-medium text-encre";
 
 /** Carte centrée sur fond ivoire, titre Fraunces — même charte que le reste
@@ -39,8 +38,14 @@ export function Connexion(): ReactElement {
         body: corps,
       });
     },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: CLE_MOI });
+    onSuccess: () => {
+      // Revue finale de la refonte du front (constat DROITS-2) : tout le
+      // cache est vidé, plus seulement `["moi"]` invalidé — sur un
+      // navigateur partagé, un agent qui se connecte dans l'onglet laissé
+      // par l'admin ne doit jamais voir, même un instant, les chiffres
+      // encore en mémoire. `RouteProtegee` repart alors de zéro et relit
+      // `/api/moi` avant d'afficher quoi que ce soit.
+      queryClient.clear();
       navigate("/", { replace: true });
     },
   });

@@ -73,16 +73,16 @@ export function App(): ReactElement {
               (liste, filtres, création, bandeau chantiers silencieux) et
               `FicheChantier` (fiche, toutes les livraisons du chantier,
               édition, problèmes ouverts) reprennent tout le contenu utile
-              des anciens écrans `Bilan`/`Chantiers`/`BilanFournisseur`
-              (référentiel + validation d'alias : la validation d'alias est
-              reprise par l'écran « À régler », Task 6 ; les agences d'un
-              fournisseur par la fiche fournisseur, Task 9). `chantiers
+              des anciens écrans « Bilan », « Chantiers & fournisseurs » et
+              du détail par fournisseur (supprimés ; la validation d'alias
+              est reprise par l'écran « À régler », Task 6 ; les agences
+              d'un fournisseur par la fiche fournisseur, Task 9). `chantiers
               /referentiel` (ex-écran « Chantiers & fournisseurs ») et
               `chantiers/:chantierId/:fournisseurId` (ex-détail des BL d'un
-              couple chantier/fournisseur, `BilanBl`) sont désormais de
-              simples redirections vers `/chantiers` et `/chantiers/:c` — le
-              lien « Gérer les chantiers » de la barre latérale
-              (Gabarit.tsx) reste valide. Route statique déclarée avant
+              couple chantier/fournisseur) sont de simples redirections
+              vers `/chantiers` et `/chantiers/:c`, gardées pour les anciens
+              favoris (plus aucun lien de l'application n'y mène depuis la
+              revue finale). Route statique déclarée avant
               `chantiers/:chantierId` pour ne jamais être lue comme un
               identifiant de chantier. */}
           <Route
@@ -112,12 +112,10 @@ export function App(): ReactElement {
             }
           />
 
-          {/* Fournisseurs (remplace « Bilan par fournisseur ») — Task 9.
-              `BilanFournisseursGlobal`/`BilanChantiersFournisseur`
-              (`pages/BilanFournisseur.tsx`) ne sont plus montés ici ;
-              `BilanFournisseursChantier`/`BilanBl`, dans le même fichier,
-              restent utilisés par les routes `chantiers/...` ci-dessus
-              (Task 7, non touchées) — le fichier n'est donc pas supprimé. */}
+          {/* Fournisseurs (remplace « Bilan par fournisseur ») — Task 9 :
+              `FournisseursListe`/`FicheFournisseur`. L'ancien fichier des
+              écrans de bilan par fournisseur, plus monté par aucune route,
+              a été supprimé à la revue finale (constat LIENS-6). */}
           <Route
             path="fournisseurs"
             element={
@@ -169,9 +167,10 @@ export function App(): ReactElement {
               seul composant partagé pour toutes les redirections, qui
               reporte toujours les paramètres de recherche et l'ancre de
               l'URL d'origine (voir web/src/routes/). `anomalies` (Task 6) :
-              `?blocId=...` (lien depuis `BilanFournisseur.tsx`, écran
-              « Chantiers », pas encore migré) reste compris par `ARegler`,
-              voir `pages/ARegler.tsx`. */}
+              `?blocId=...` des anciens liens reste compris par `ARegler`,
+              avec les périmètres `?document=`, `?chantier=` et
+              `?fournisseur=` posés par la page du bon et les fiches (voir
+              `pages/ARegler.tsx`). */}
           <Route path="a-traiter" element={<RedirectionAncienneUrl vers={() => "/a-regler"} />} />
           <Route path="anomalies" element={<RedirectionAncienneUrl vers={() => "/a-regler"} />} />
           <Route path="bilan" element={<RedirectionAncienneUrl vers={() => "/chantiers"} />} />

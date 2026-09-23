@@ -183,3 +183,36 @@ def test_routes_admin_sont_gardees() -> None:
         # monter GardeAdmin
         declaration = app.split(chemin, 1)[1].split("path=", 1)[0]
         assert "GardeAdmin" in declaration, chemin
+
+
+def test_routes_de_detail_admin_sont_gardees() -> None:
+    """Revue finale (constat COUVERTURE-23, Review Focus 4) : les routes de
+    détail réservées à l'admin sont gardées elles aussi, et la garde de
+    « / » est vérifiée sur la vraie déclaration de route (l'accueil index),
+    jamais sur un texte de commentaire."""
+    app = (SRC / "App.tsx").read_text()
+    for chemin in (
+        'path="a-regler/:id"',
+        'path="chantiers/:chantierId"',
+        'path="fournisseurs/:fournisseurId"',
+    ):
+        declaration = app.split(chemin, 1)[1].split("path=", 1)[0]
+        assert "GardeAdmin" in declaration, chemin
+    accueil = app.split("<Route\n            index", 1)[1].split("/>\n", 1)[0]
+    assert "<GardeAdmin>" in accueil
+
+
+def test_cache_vide_quand_le_compte_change() -> None:
+    """Revue finale (constat DROITS-2) : à la connexion, à la déconnexion et
+    sur une session expirée (401), tout le cache TanStack Query est vidé --
+    sur un navigateur partagé, un agent ne voit jamais, même un instant, les
+    chiffres de l'admin restés en mémoire."""
+    connexion = (SRC / "pages" / "Connexion.tsx").read_text()
+    assert "queryClient.clear();" in connexion
+    gabarit = (SRC / "components" / "Gabarit.tsx").read_text()
+    deconnexion = gabarit.split("const deconnexion = useMutation", 1)[1].split(
+        "\n  });", 1
+    )[0]
+    assert "queryClient.clear();" in deconnexion
+    ecoute = (SRC / "components" / "EcouteAuthentification.tsx").read_text()
+    assert "queryClient.clear();" in ecoute

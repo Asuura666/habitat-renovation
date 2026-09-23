@@ -142,6 +142,15 @@ def test_ancien_bilan_fournisseur_nest_plus_monte() -> None:
     assert 'from "./pages/BilanFournisseur"' not in app
     assert "<FicheChantier" in app
     assert "<FicheFournisseur" in app
+    # Revue finale (constat LIENS-6) : le fichier mort et l'ancien module de
+    # libellés (`lib/regles.ts`, ré-export pour des écrans supprimés) sont
+    # supprimés, plus aucun fichier ne les importe.
+    assert not (WEB / "pages" / "BilanFournisseur.tsx").exists()
+    assert not (WEB / "lib" / "regles.ts").exists()
+    for fichier in WEB.rglob("*.ts*"):
+        contenu = fichier.read_text(encoding="utf-8")
+        assert 'lib/regles"' not in contenu, fichier
+        assert 'BilanFournisseur"' not in contenu, fichier
 
 
 def test_referentiels_agences_et_silencieux_toujours_exposes() -> None:

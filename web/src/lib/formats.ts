@@ -163,7 +163,7 @@ export function libelleMois(mois: string): string {
  * `R05`/`R06` sans quantité) : `Intl.NumberFormat.format("—")` ne lève pas
  * d'exception mais rend la chaîne « NaN », un plantage silencieux moins
  * visible que celui déjà corrigé sur les dates (fix round 1, revue L4-T10,
- * Ruling R18) mais tout aussi faux à l'affichage. L'appelant (`lib/regles
+ * Ruling R18) mais tout aussi faux à l'affichage. L'appelant (`ui/libelles
  * .ts`) doit donc filtrer ce cas **avant** d'appeler cette fonction, comme
  * il le fait déjà pour `formaterDate`/`formaterMontant` — jamais ici, pour
  * rester cohérent avec le contrat `string | null` des fonctions voisines. */

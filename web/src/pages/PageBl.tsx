@@ -433,8 +433,8 @@ function SectionCorrection({
  * le même `id` via `useParams` — décision du contrôleur (Task 8) : un seul
  * identifiant, deux entités possibles (`document`/`facture`), jamais de
  * paramètre supplémentaire dans l'URL pour trancher (`?type=`) — cohérent
- * avec les liens déjà posés par `ATraiter.tsx`/`Anomalies.tsx`/
- * `BilanFournisseur.tsx`, qui pointent vers `/documents/:id` pour un BL
+ * avec les liens des autres écrans (documents, fiche chantier, « À
+ * régler »), qui pointent vers `/bl/:id` ou `/documents/:id` pour un BL
  * sans jamais préciser son type. */
 export function PageBl(): ReactElement {
   const { id } = useParams<{ id: string }>();

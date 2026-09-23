@@ -1,14 +1,14 @@
 /**
  * Lecture du journal (`ingest/journal.py`, L5-T9) : libellés français des
  * actions et des éléments journalisés, et mise en forme lisible de
- * `avant`/`apres` — même principe que `lib/regles.ts` (mise en forme
+ * `avant`/`apres` — même principe que `ui/libelles.ts` (mise en forme
  * uniquement, aucun calcul, aucune interprétation métier). Langage courant
  * de la refonte du front (spec §1/§5, fix round 1 de la revue de la Task
  * 10) : aucun code de règle ni mot d'architecture interne (« bloc »,
  * « alias », « rapprochement », « OCR », « UUID ») dans un libellé affiché
  * — la clé/valeur technique brute reste le repli défensif pour tout ce que
- * ce fichier ne connaît pas encore (même principe que `libelleRegle` dans
- * `lib/regles.ts`).
+ * ce fichier ne connaît pas encore (même principe que `titreRegle` dans
+ * `ui/libelles.ts`).
  *
  * Liste des actions recensée dans le code (`grep -rn 'action=' app/modules
  * /ingest/`, hors tests), pas inventée : `extraction_bl.py`,
