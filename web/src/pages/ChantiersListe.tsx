@@ -101,13 +101,25 @@ function nomAffiche(ligne: LigneChantierAffichee): string {
   return ligne.nom ?? "Chantier non résolu";
 }
 
-function NomChantier({ ligne }: { ligne: LigneChantierAffichee }): ReactElement {
+/** Lien vers la fiche d'un chantier, en reportant le mois choisi sur cet
+ * écran (fix round 1, constat 3) : sans ce report, un clic depuis « Chantiers »
+ * filtré sur un mois ouvrait la fiche sans aucune indication de période, sur
+ * des chiffres d'un tout autre mois (le mois courant implicite de la fiche)
+ * — deux périodes différentes sur le même écran, sans libellé. */
+function lienChantier(chantierId: string, mois: string | undefined): string {
+  if (mois === undefined) {
+    return `/chantiers/${chantierId}`;
+  }
+  return `/chantiers/${chantierId}?${new URLSearchParams({ mois }).toString()}`;
+}
+
+function NomChantier({ ligne, mois }: { ligne: LigneChantierAffichee; mois: string | undefined }): ReactElement {
   if (ligne.chantierId === null) {
     return <>{nomAffiche(ligne)}</>;
   }
   return (
     <Link
-      to={`/chantiers/${ligne.chantierId}`}
+      to={lienChantier(ligne.chantierId, mois)}
       className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
     >
       {nomAffiche(ligne)}
@@ -115,13 +127,13 @@ function NomChantier({ ligne }: { ligne: LigneChantierAffichee }): ReactElement 
   );
 }
 
-function CarteChantier({ ligne }: { ligne: LigneChantierAffichee }): ReactElement {
+function CarteChantier({ ligne, mois }: { ligne: LigneChantierAffichee; mois: string | undefined }): ReactElement {
   return (
     <li className="rounded-carte border border-bordure bg-surface p-4">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <h3 className="font-medium text-encre">
-            <NomChantier ligne={ligne} />
+            <NomChantier ligne={ligne} mois={mois} />
           </h3>
           <p className="text-sm text-encre-2">
             {ligne.client ?? "Client non renseigné"} · {ligne.agence ?? "Agence non renseignée"}
@@ -166,7 +178,13 @@ function CarteChantier({ ligne }: { ligne: LigneChantierAffichee }): ReactElemen
   );
 }
 
-function TableauChantiers({ lignes }: { lignes: LigneChantierAffichee[] }): ReactElement {
+function TableauChantiers({
+  lignes,
+  mois,
+}: {
+  lignes: LigneChantierAffichee[];
+  mois: string | undefined;
+}): ReactElement {
   const avecEtat = lignes.some((ligne) => ligne.etat !== null);
   return (
     <div className="hidden overflow-x-auto rounded-carte border border-bordure bg-surface md:block">
@@ -193,7 +211,7 @@ function TableauChantiers({ lignes }: { lignes: LigneChantierAffichee[] }): Reac
           {lignes.map((ligne, index) => (
             <tr key={ligne.chantierId ?? `non-resolu-${index}`}>
               <th scope="row" className="px-4 py-3 text-left font-medium text-encre">
-                <NomChantier ligne={ligne} />
+                <NomChantier ligne={ligne} mois={mois} />
                 <p className="text-xs font-normal text-encre-2">{ligne.client ?? "Client non renseigné"}</p>
               </th>
               <td className="px-4 py-3 text-encre-2">{ligne.agence ?? TIRET}</td>
@@ -226,7 +244,13 @@ function TableauChantiers({ lignes }: { lignes: LigneChantierAffichee[] }): Reac
   );
 }
 
-function ListeChantiers({ lignes }: { lignes: LigneChantierAffichee[] }): ReactElement {
+function ListeChantiers({
+  lignes,
+  mois,
+}: {
+  lignes: LigneChantierAffichee[];
+  mois: string | undefined;
+}): ReactElement {
   if (lignes.length === 0) {
     return <EtatVide message="Aucun chantier pour ces filtres." />;
   }
@@ -234,10 +258,10 @@ function ListeChantiers({ lignes }: { lignes: LigneChantierAffichee[] }): ReactE
     <>
       <ul className="space-y-3 md:hidden">
         {lignes.map((ligne, index) => (
-          <CarteChantier key={ligne.chantierId ?? `non-resolu-${index}`} ligne={ligne} />
+          <CarteChantier key={ligne.chantierId ?? `non-resolu-${index}`} ligne={ligne} mois={mois} />
         ))}
       </ul>
-      <TableauChantiers lignes={lignes} />
+      <TableauChantiers lignes={lignes} mois={mois} />
     </>
   );
 }
@@ -245,7 +269,10 @@ function ListeChantiers({ lignes }: { lignes: LigneChantierAffichee[] }): ReactE
 /** Bandeau « Chantiers sans bon déposé depuis 7 jours » (reprise de
  * `Chantiers.tsx::SectionChantiersSilencieux`, L5-T8) : seuil lu et calculé
  * côté serveur (`GET /api/referentiels/chantiers-silencieux`), jamais
- * recalculé ici. */
+ * recalculé ici. Chaque nom mène à la fiche du chantier (fix round 1,
+ * constat 1) : avant, ce bandeau affichait des noms sans aucun lien —
+ * impossible d'ouvrir la fiche d'un chantier silencieux pour, par exemple,
+ * constater qu'il vient d'être créé. */
 function BandeauSilencieux({ chantiers }: { chantiers: ChantierSilencieux[] }): ReactElement {
   if (chantiers.length === 0) {
     return (
@@ -262,7 +289,13 @@ function BandeauSilencieux({ chantiers }: { chantiers: ChantierSilencieux[] }): 
         {chantiers.map((chantier) => (
           <li key={chantier.chantier_id} className="flex flex-wrap items-baseline justify-between gap-2 border-b border-bordure py-2 last:border-0">
             <span className="font-medium text-encre">
-              {chantier.nom_canonique} <span className="font-normal text-encre-2">· {chantier.agence ?? "Agence non renseignée"}</span>
+              <Link
+                to={lienChantier(chantier.chantier_id, undefined)}
+                className="text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                {chantier.nom_canonique}
+              </Link>{" "}
+              <span className="font-normal text-encre-2">· {chantier.agence ?? "Agence non renseignée"}</span>
             </span>
             <span className="text-encre-2">
               {chantier.dernier_depot_le === null
@@ -272,6 +305,93 @@ function BandeauSilencieux({ chantiers }: { chantiers: ChantierSilencieux[] }): 
           </li>
         ))}
       </ul>
+    </Carte>
+  );
+}
+
+/** Référentiel complet des chantiers (fix round 1, constat 1) :
+ * `GET /api/bilan/chantiers` (table financière ci-dessus) ne remonte que
+ * les chantiers ayant déjà au moins un bloc de facture
+ * (`ingest/bilan.py::_sous_requete_blocs`) — un chantier tout juste créé,
+ * dont les BL sont déposés mais pas encore facturés, ou inactif, n'y
+ * apparaît donc jamais : sa fiche restait inatteignable, faute du moindre
+ * lien vers elle. Cette carte liste tous les chantiers du référentiel
+ * (`listerChantiers`, déjà chargé pour le formulaire de création),
+ * filtrée par agence comme le reste de l'écran — jamais par mois, un
+ * chantier existe indépendamment de toute facturation — avec le statut
+ * Actif/Inactif (disparu de la liste depuis l'ancien `Chantiers.tsx`). */
+function CarteTousLesChantiers({
+  chantiers,
+  agence,
+  mois,
+}: {
+  chantiers: Chantier[];
+  agence: string | undefined;
+  mois: string | undefined;
+}): ReactElement {
+  const filtres =
+    agence === undefined ? chantiers : chantiers.filter((chantier) => chantier.agence === agence);
+  const tries = [...filtres].sort((a, b) => a.nom_canonique.localeCompare(b.nom_canonique, "fr"));
+
+  return (
+    <Carte titre={`Tous les chantiers (${tries.length})`}>
+      {tries.length === 0 ? (
+        <EtatVide message="Aucun chantier pour ces filtres." />
+      ) : (
+        <>
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:hidden">
+            {tries.map((chantier) => (
+              <li key={chantier.id} className="rounded-lg border border-bordure p-3">
+                <Link
+                  to={lienChantier(chantier.id, mois)}
+                  className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  {chantier.nom_canonique}
+                </Link>
+                <p className="mt-1 text-xs text-encre-2">
+                  {chantier.client ?? "Client non renseigné"} · {chantier.agence ?? "Agence non renseignée"}
+                </p>
+                <p className={`mt-1 text-xs font-medium ${chantier.actif ? "text-conforme" : "text-encre-2"}`}>
+                  {chantier.actif ? "Actif" : "Inactif"}
+                </p>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[640px] divide-y divide-bordure text-sm">
+              <caption className="sr-only">Tous les chantiers du référentiel</caption>
+              <thead className="text-left text-xs font-medium uppercase tracking-wide text-encre-2">
+                <tr>
+                  <th scope="col" className="px-4 py-3">Chantier · client</th>
+                  <th scope="col" className="px-4 py-3">Agence</th>
+                  <th scope="col" className="px-4 py-3">Statut</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-bordure">
+                {tries.map((chantier) => (
+                  <tr key={chantier.id}>
+                    <th scope="row" className="px-4 py-3 text-left font-medium text-encre">
+                      <Link
+                        to={lienChantier(chantier.id, mois)}
+                        className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+                      >
+                        {chantier.nom_canonique}
+                      </Link>
+                      <p className="text-xs font-normal text-encre-2">{chantier.client ?? "Client non renseigné"}</p>
+                    </th>
+                    <td className="px-4 py-3 text-encre-2">{chantier.agence ?? TIRET}</td>
+                    <td className="px-4 py-3">
+                      <span className={`font-medium ${chantier.actif ? "text-conforme" : "text-encre-2"}`}>
+                        {chantier.actif ? "Actif" : "Inactif"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </Carte>
   );
 }
@@ -539,7 +659,11 @@ export function ChantiersListe(): ReactElement {
 
       {chargementListe && <p role="status" className="text-sm text-encre-2">Chargement…</p>}
       {erreurListe && <p role="alert" className="text-sm text-alerte">Impossible de charger les chantiers.</p>}
-      {lignes && <ListeChantiers lignes={lignes} />}
+      {lignes && <ListeChantiers lignes={lignes} mois={filtres.mois} />}
+
+      {chantiers.data && (
+        <CarteTousLesChantiers chantiers={chantiers.data} agence={filtres.agence} mois={filtres.mois} />
+      )}
 
       {depots.data && <CarteDepotsRecents depots={depots.data} />}
     </div>

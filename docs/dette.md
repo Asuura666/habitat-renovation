@@ -591,14 +591,16 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   aller plus loin, il faudrait exposer un `conforme` par chantier dans
   `ChantierTableau`/`MontantsBilan` côté serveur (`ingest/tableau_de_bord
   .py`/`ingest/bilan.py`).
-- **Pastille d'état de la fiche chantier limitée au mois courant.** Faute
-  d'un sélecteur de mois sur `FicheChantier.tsx` (non demandé par la
-  consigne, contrairement à `ChantiersListe.tsx`), la pastille d'état de
-  l'en-tête interroge silencieusement `/api/tableau-de-bord` pour le mois
-  courant (Europe/Paris) uniquement ; elle est simplement absente si le
-  chantier n'a aucun bloc facturé ce mois-ci (chantier vu uniquement sur
-  un mois passé, par exemple). Aucune régression : l'ancien écran
-  (`BilanFournisseursChantier`) n'avait pas de pastille du tout.
+- **Pastille d'état de la fiche chantier limitée au mois courant —
+  corrigé (fix round 1, constat 3).** La fiche interrogeait silencieusement
+  `/api/tableau-de-bord` pour le mois courant implicite, jamais indiqué à
+  côté de `Chiffre` pouvant porter sur toute la durée du chantier (deux
+  périodes différentes affichées sans libellé sur le même écran). La fiche
+  lit désormais `?mois` (même représentation `AAAA-MM-01` que
+  `ChantiersListe.tsx`, transmise par ses liens et par l'ancienne
+  redirection `/bilan/:c?mois=…`) : la pastille ne s'affiche plus que si un
+  mois est choisi, et chaque `Chiffre` précise sa période (« — tous les
+  mois » ou « en septembre 2026 »).
 - **Livraisons d'un fournisseur non résolu absentes de la fiche.** La
   carte « Livraisons » assemble les BL de tous les fournisseurs du
   chantier via `GET /api/bilan/chantiers/{id}/fournisseurs` puis, pour
@@ -611,14 +613,18 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   rattacher) et depuis « Documents ». Un endpoint qui accepterait
   `fournisseur_id=null` (ou une route unique « toutes les livraisons du
   chantier ») lèverait cette limite.
-- **« Exporter pour Excel » de la fiche chantier réutilise l'export CSV
-  fournisseurs du chantier** (`GET /api/bilan/chantiers/{id}
-  /fournisseurs.csv`, même route que l'ancien écran
-  `BilanFournisseursChantier`) — c'est le seul export existant scopé sur ce
-  chantier ; il n'y a pas de CSV « toutes les livraisons, tous
-  fournisseurs confondus » correspondant exactement à la carte
-  « Livraisons » affichée (qui, elle, vient de l'assemblage décrit
-  ci-dessus, sans route CSV équivalente).
+- **« Exporter pour Excel » de la fiche chantier — complété (fix round 1,
+  constat 4), dette résiduelle inchangée.** La fiche n'offrait que l'export
+  fournisseurs du chantier (`GET /api/bilan/chantiers/{id}
+  /fournisseurs.csv`) sous ce libellé, alors que la carte affichée est
+  « Livraisons » (niveau BL) — mismatch de niveau. La carte « Livraisons »
+  propose désormais, en plus de cet export fournisseurs (gardé), un export
+  CSV par fournisseur résolu au niveau BL (`urlExportBilanBl`, une entrée
+  « Exporter les livraisons <fournisseur> (CSV) » par fournisseur). Il n'y a
+  toujours pas de CSV serveur unique « toutes les livraisons, tous
+  fournisseurs confondus » correspondant exactement à l'assemblage front
+  affiché — un export par fournisseur reste donc nécessaire côté client
+  pour couvrir tout le chantier ; un endpoint dédié lèverait cette limite.
 - **Dépôts par agent (CDC §4, 30 jours) repris dans `ChantiersListe.tsx`,
   pas dans un écran dédié.** L'ancien écran « Chantiers & fournisseurs »
   regroupait référentiels, alias, activité (dépôts par agent + chantiers

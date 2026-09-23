@@ -1,6 +1,6 @@
 import { type FormEvent, type ReactElement, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import {
   cleBilanBl,
@@ -12,6 +12,7 @@ import {
   listerBilanBl,
   listerBilanChantiers,
   listerBilanFournisseurs,
+  urlExportBilanBl,
   urlExportBilanFournisseurs,
 } from "../api/bilan";
 import { cleAnomalies, type FiltresAnomalies, listerAnomalies } from "../api/anomalies";
@@ -45,20 +46,27 @@ const CLASSES_CHAMP =
 const CLASSES_LABEL = "mb-1 block text-xs font-medium text-encre-2";
 const FILTRES_TOUS_MOIS: FiltresBilan = {};
 
-/** Mois courant (Europe/Paris, `AAAA-MM-01`) : sert uniquement à retrouver
- * un état calculé (`PastilleEtat`) pour l'en-tête de la fiche — la fiche
- * elle-même n'a pas de sélecteur de mois (contrairement à `ChantiersListe`),
- * décision du contrôleur faute d'un état ou d'un montant « conforme »
- * disponible par chantier hors d'un mois précis (voir `docs/dette.md`). */
-function moisCourantParis(): string {
-  const parties = new Intl.DateTimeFormat("fr-CA", {
-    timeZone: "Europe/Paris",
-    year: "numeric",
-    month: "2-digit",
-  }).formatToParts(new Date());
-  const annee = parties.find((partie) => partie.type === "year")?.value ?? "1970";
-  const mois = parties.find((partie) => partie.type === "month")?.value ?? "01";
-  return `${annee}-${mois}-01`;
+const FORMATEUR_LIBELLE_MOIS = new Intl.DateTimeFormat("fr-FR", {
+  timeZone: "Europe/Paris",
+  month: "long",
+  year: "numeric",
+});
+
+/** « septembre 2026 » à partir d'un mois choisi au format `AAAA-MM-01`
+ * (même représentation que `filtres.mois` sur `ChantiersListe`) — sert à
+ * préciser la période des `Chiffre` de la fiche (fix round 1, constat 3) :
+ * sans elle, « Facturé » n'indique jamais si le montant porte sur un mois
+ * ou sur toute l'historique du chantier. */
+function libelleMois(mois: string): string {
+  return FORMATEUR_LIBELLE_MOIS.format(new Date(mois));
+}
+
+/** « Facturé — tous les mois » ou « Facturé en septembre 2026 » (fix round
+ * 1, constat 3) : précise sur quelle période porte chaque `Chiffre`, sans
+ * jamais recalculer le montant lui-même (toujours celui renvoyé par
+ * l'API, filtré par le même `mois` que la requête qui l'a produit). */
+function libelleAvecPeriode(base: string, mois: string | undefined): string {
+  return mois !== undefined ? `${base} en ${libelleMois(mois)}` : `${base} — tous les mois`;
 }
 
 function libelleStatutBon(statut: string | null): string {
@@ -322,21 +330,34 @@ function FormulaireEdition({
 
 export function FicheChantier(): ReactElement {
   const { chantierId } = useParams();
+  const [parametres] = useSearchParams();
   const [editionOuverte, setEditionOuverte] = useState(false);
   const id = chantierId ?? "";
 
+  // Mois choisi (fix round 1, constat 3) : lu depuis `?mois=` (même
+  // représentation `AAAA-MM-01` que `ChantiersListe`, transmise aussi bien
+  // par ses liens que par l'ancienne redirection `/bilan/:c?mois=…`).
+  // Absent de l'URL -> pas de mois : les montants portent alors sur tout
+  // l'historique du chantier (`FILTRES_TOUS_MOIS`), comme avant le choix
+  // d'une période, et aucun état calculé (`PastilleEtat`) n'est affiché —
+  // `/api/tableau-de-bord` n'a de sens que pour un mois précis.
+  const moisParam = parametres.get("mois") ?? undefined;
+  const moisChoisi = moisParam !== undefined;
+  const filtresActifs: FiltresBilan = moisChoisi ? { mois: moisParam } : FILTRES_TOUS_MOIS;
+
   const chantiers = useQuery({ queryKey: CLE_CHANTIERS, queryFn: listerChantiers });
   const bilanChantiers = useQuery({
-    queryKey: cleBilanChantiers(FILTRES_TOUS_MOIS),
-    queryFn: () => listerBilanChantiers(),
+    queryKey: cleBilanChantiers(filtresActifs),
+    queryFn: () => listerBilanChantiers(filtresActifs),
   });
   const tableauDeBord = useQuery({
-    queryKey: cleTableauDeBord(moisCourantParis()),
-    queryFn: () => obtenirTableauDeBord(moisCourantParis()),
+    queryKey: cleTableauDeBord(moisParam ?? ""),
+    queryFn: () => obtenirTableauDeBord(moisParam ?? ""),
+    enabled: moisChoisi,
   });
   const fournisseurs = useQuery({
-    queryKey: cleBilanFournisseurs(id, FILTRES_TOUS_MOIS),
-    queryFn: () => listerBilanFournisseurs(id),
+    queryKey: cleBilanFournisseurs(id, filtresActifs),
+    queryFn: () => listerBilanFournisseurs(id, filtresActifs),
     enabled: chantierId !== undefined,
   });
   const filtresAnomalies: FiltresAnomalies = { chantierId: id };
@@ -351,17 +372,21 @@ export function FicheChantier(): ReactElement {
 
   const blParFournisseur = useQueries({
     queries: fournisseursResolus.map((fournisseur) => ({
-      queryKey: cleBilanBl(id, fournisseur.fournisseur_id as string, FILTRES_TOUS_MOIS),
-      queryFn: () => listerBilanBl(id, fournisseur.fournisseur_id as string),
+      queryKey: cleBilanBl(id, fournisseur.fournisseur_id as string, filtresActifs),
+      queryFn: () => listerBilanBl(id, fournisseur.fournisseur_id as string, filtresActifs),
       enabled: chantierId !== undefined,
     })),
   });
 
   const chantier = chantiers.data?.find((c) => c.id === id);
   const ligneBilan = bilanChantiers.data?.find((l) => l.chantier_id === id);
-  const etatMoisCourant = tableauDeBord.data?.chantiers.find((c) => c.chantier_id === id)?.etat as
-    | Etat
-    | undefined;
+  // Pastille d'état (fix round 1, constat 3) : uniquement quand un mois est
+  // choisi — avant, elle portait toujours sur le mois courant implicite,
+  // affiché sans le dire à côté de chiffres qui pouvaient porter sur toute
+  // la durée du chantier (deux périodes différentes sur le même écran).
+  const etatChoisi = moisChoisi
+    ? (tableauDeBord.data?.chantiers.find((c) => c.chantier_id === id)?.etat as Etat | undefined)
+    : undefined;
 
   const livraisonsChargees = fournisseurs.isSuccess && blParFournisseur.every((requete) => requete.isSuccess);
   const livraisons: LivraisonAffichee[] = livraisonsChargees
@@ -377,7 +402,17 @@ export function FicheChantier(): ReactElement {
         )
         .sort(comparerDateDesc)
     : [];
-  const dernierDepot = livraisons[0]?.dateBl ?? null;
+  // « Dernière livraison reçue » (fix round 1, constat 2) : seules les
+  // lignes où une photo de BL a réellement été rattachée
+  // (`bl_document_id !== null`) comptent comme une livraison reçue — les
+  // lignes « Jamais reçu »/« Livré sans bon » n'en sont pas une. `date_bl`
+  // reste la date imprimée sur le bon, pas une date de dépôt (celle-ci
+  // n'est pas exposée par ligne côté serveur, voir docs/dette.md) : le
+  // libellé affiché ci-dessous le dit explicitement, jamais « déposé ».
+  const livraisonsRecues = livraisonsChargees
+    ? livraisons.filter((livraison) => livraison.ligne.bl_document_id !== null)
+    : [];
+  const derniereLivraisonRecue = livraisonsRecues[0]?.dateBl ?? null;
 
   if (chantiers.isPending) {
     return <p role="status" className="text-sm text-encre-2">Chargement…</p>;
@@ -404,12 +439,19 @@ export function FicheChantier(): ReactElement {
           <div className="flex flex-wrap gap-4 text-sm text-encre">
             <span>Client : <strong className="font-medium">{chantier.client ?? "Non renseigné"}</strong></span>
             <span>Agence : {chantier.agence ?? "Non renseignée"}</span>
-            <span>Dernier BL déposé : {dernierDepot === null ? "Aucun dépôt enregistré" : formaterDate(dernierDepot)}</span>
+            <span>
+              Dernière livraison reçue :{" "}
+              {!livraisonsChargees
+                ? "Chargement…"
+                : derniereLivraisonRecue === null
+                  ? "Aucune livraison reçue"
+                  : formaterDate(derniereLivraisonRecue)}
+            </span>
             {!chantier.actif && <span className="font-medium text-alerte">Chantier inactif</span>}
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {etatMoisCourant !== undefined && <PastilleEtat etat={etatMoisCourant} />}
+          {etatChoisi !== undefined && <PastilleEtat etat={etatChoisi} />}
           <Bouton variante="secondaire" onClick={() => setEditionOuverte((ouvert) => !ouvert)}>
             Modifier
           </Bouton>
@@ -419,14 +461,17 @@ export function FicheChantier(): ReactElement {
       {editionOuverte && <FormulaireEdition chantier={chantier} onFermer={() => setEditionOuverte(false)} />}
 
       <section aria-label="Chiffres du chantier" className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        <Chiffre libelle="Facturé" valeur={formaterMontant(ligneBilan?.montants.facture_ht ?? null)} />
         <Chiffre
-          libelle="Écart prix ou quantité"
+          libelle={libelleAvecPeriode("Facturé", moisParam)}
+          valeur={formaterMontant(ligneBilan?.montants.facture_ht ?? null)}
+        />
+        <Chiffre
+          libelle={libelleAvecPeriode("Écart prix ou quantité", moisParam)}
           valeur={formaterMontant(ligneBilan?.montants.en_ecart ?? null)}
           ton="ecart"
         />
         <Chiffre
-          libelle="Sans bon de livraison"
+          libelle={libelleAvecPeriode("Sans bon de livraison", moisParam)}
           valeur={formaterMontant(ligneBilan?.montants.non_justifie ?? null)}
           ton="alerte"
         />
@@ -437,16 +482,25 @@ export function FicheChantier(): ReactElement {
           titre="Livraisons"
           className="lg:col-span-2"
           action={
-            <div className="flex flex-wrap items-center gap-4 text-sm">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
               <Link to={`/documents?chantier=${id}`} className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent">
                 Voir les documents du chantier
               </Link>
               <a
-                href={urlExportBilanFournisseurs(id)}
+                href={urlExportBilanFournisseurs(id, filtresActifs)}
                 className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
               >
-                Exporter pour Excel
+                Exporter pour Excel (vue fournisseurs)
               </a>
+              {fournisseursResolus.map((fournisseur) => (
+                <a
+                  key={fournisseur.fournisseur_id}
+                  href={urlExportBilanBl(id, fournisseur.fournisseur_id as string, filtresActifs)}
+                  className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  Exporter les livraisons {fournisseur.nom} (CSV)
+                </a>
+              ))}
             </div>
           }
         >
