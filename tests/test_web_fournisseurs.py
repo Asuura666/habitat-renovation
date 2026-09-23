@@ -189,9 +189,11 @@ def test_fiche_fournisseur_precise_la_portee_des_problemes_ouverts() -> None:
     page = _page("FicheFournisseur.tsx")
 
     # La requête « problèmes ouverts » n'est jamais filtrée par mois/agence :
-    # seul `fournisseurId` est transmis à `listerAnomalies`/`cleAnomalies`.
-    assert "listerAnomalies({ fournisseurId })" in page
-    assert "cleAnomalies({ fournisseurId })" in page
+    # seul `fournisseurId` est transmis à `listerAnomalies`/`cleAnomalies`
+    # (avec la limite maximale de l'API depuis la revue finale, constat
+    # COUVERTURE-22 : jamais un plafond silencieux à 100).
+    assert "listerAnomalies({ fournisseurId, limite: 500 })" in page
+    assert "cleAnomalies({ fournisseurId, limite: 500 })" in page
 
     # Portée explicite affichée dès qu'un filtre (mois ou agence) est actif
     # ailleurs sur la page, pour qu'un non-technicien ne lise jamais deux

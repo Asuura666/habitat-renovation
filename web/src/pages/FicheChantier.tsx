@@ -117,12 +117,26 @@ function lienLivraison(ligne: LigneBilanBl): string {
   return ligne.bl_document_id !== null ? `/bl/${ligne.bl_document_id}` : `/documents/${ligne.facture_id}`;
 }
 
+/** Problèmes d'une livraison précise (revue finale, constat COUVERTURE-1 :
+ * l'ancien lien « Voir les anomalies » de chaque BL n'existait plus sur
+ * aucun écran monté) : « À régler » filtré sur cette livraison
+ * (`?blocId=`), exactement les problèmes comptés dans la colonne
+ * « Problèmes » (anomalies ouvertes portées par la livraison). */
+function lienProblemesLivraison(livraison: LivraisonAffichee): string {
+  return `/a-regler?${new URLSearchParams({ blocId: livraison.blocId }).toString()}`;
+}
+
+function libelleProblemesLivraison(nombre: number): string {
+  return nombre > 1 ? `Voir les ${nombre} problèmes de cette livraison` : "Voir le problème de cette livraison";
+}
+
 function LigneLivraisonCarte({ livraison }: { livraison: LivraisonAffichee }): ReactElement {
+  const nbProblemes = livraison.ligne.montants.nb_anomalies_ouvertes;
   return (
-    <li>
+    <li className="rounded-lg border border-bordure bg-surface">
       <Link
         to={lienLivraison(livraison.ligne)}
-        className="block rounded-lg border border-bordure bg-surface p-4 outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
+        className="block rounded-lg p-4 outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
       >
         <div className="mb-2 flex items-start justify-between gap-3">
           <div>
@@ -141,6 +155,14 @@ function LigneLivraisonCarte({ livraison }: { livraison: LivraisonAffichee }): R
           </span>
         </div>
       </Link>
+      {nbProblemes > 0 && (
+        <Link
+          to={lienProblemesLivraison(livraison)}
+          className="flex min-h-[44px] items-center border-t border-bordure px-4 text-sm font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          {libelleProblemesLivraison(nbProblemes)}
+        </Link>
+      )}
     </li>
   );
 }
@@ -193,7 +215,20 @@ function LigneLivraisonTableau({ livraison, naviguer }: { livraison: LivraisonAf
       <td className="py-2.5 pr-2 text-right font-mono tabular-nums text-encre">
         {formaterMontant(livraison.ligne.montants.facture_ht)}
       </td>
-      <td className="py-2.5 pr-2 text-right text-encre">{livraison.ligne.montants.nb_anomalies_ouvertes}</td>
+      <td className="py-2.5 pr-2 text-right text-encre">
+        {livraison.ligne.montants.nb_anomalies_ouvertes > 0 ? (
+          <Link
+            to={lienProblemesLivraison(livraison)}
+            aria-label={libelleProblemesLivraison(livraison.ligne.montants.nb_anomalies_ouvertes)}
+            title={libelleProblemesLivraison(livraison.ligne.montants.nb_anomalies_ouvertes)}
+            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-end rounded font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            {livraison.ligne.montants.nb_anomalies_ouvertes}
+          </Link>
+        ) : (
+          livraison.ligne.montants.nb_anomalies_ouvertes
+        )}
+      </td>
     </tr>
   );
 }
@@ -389,7 +424,9 @@ export function FicheChantier(): ReactElement {
     queryFn: () => listerBilanFournisseurs(id, filtresActifs),
     enabled: chantierId !== undefined,
   });
-  const filtresAnomalies: FiltresAnomalies = { chantierId: id };
+  // `limite` au maximum de l'API (revue finale, constat COUVERTURE-22) :
+  // le titre « Problèmes ouverts · N » ne plafonne plus en silence à 100.
+  const filtresAnomalies: FiltresAnomalies = { chantierId: id, limite: 500 };
   const anomalies = useQuery({
     queryKey: cleAnomalies(filtresAnomalies),
     queryFn: () => listerAnomalies(filtresAnomalies),
@@ -534,7 +571,9 @@ export function FicheChantier(): ReactElement {
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="space-y-1.5">
           <h1 className="font-titre text-3xl font-medium text-encre">{chantier.nom_canonique}</h1>
-          <div className="flex flex-wrap gap-4 text-sm text-encre">
+          {/* `items-center` (mineur de la Task 7) : le lien « Voir tous les
+              mois », haut de 44 px, restait décalé sous les autres textes. */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-encre">
             <span>Client : <strong className="font-medium">{chantier.client ?? "Non renseigné"}</strong></span>
             <span>Agence : {chantier.agence ?? "Non renseignée"}</span>
             <span>

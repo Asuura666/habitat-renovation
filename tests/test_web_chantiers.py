@@ -524,3 +524,21 @@ def test_chantier_et_fournisseur_non_resolus_ont_un_libelle_courant() -> None:
     assert "Chantier non résolu" not in fiche
     assert "Fournisseur non résolu" not in fiche
     assert "Fournisseur à rattacher" in fiche
+
+
+def test_fiche_chantier_mene_aux_problemes_de_chaque_livraison() -> None:
+    """Revue finale (constat COUVERTURE-1) : l'ancien lien « Voir les
+    anomalies » de chaque BL (`/anomalies?blocId=`) n'existait plus sur
+    aucun écran monté. Le nombre de problèmes d'une livraison ouvre « À
+    régler » filtré sur elle (`?blocId=`, lu par l'écran cible), en tableau
+    comme en carte, avec une cible de 44 px."""
+    fiche = _lire("pages", "FicheChantier.tsx")
+    assert "new URLSearchParams({ blocId: livraison.blocId })" in fiche
+    tableau = fiche.split("function LigneLivraisonTableau", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert "to={lienProblemesLivraison(livraison)}" in tableau
+    assert "min-h-[44px]" in tableau
+    carte = fiche.split("function LigneLivraisonCarte", 1)[1].split("\nfunction ", 1)[0]
+    assert "to={lienProblemesLivraison(livraison)}" in carte
+    assert 'parametres.get("blocId")' in _lire("pages", "ARegler.tsx")

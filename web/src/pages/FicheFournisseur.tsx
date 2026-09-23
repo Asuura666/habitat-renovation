@@ -265,9 +265,11 @@ export function FicheFournisseur(): ReactElement {
     queryFn: () => listerBilanChantiersFournisseur(fournisseurId ?? "", filtres),
     enabled: fournisseurId !== undefined,
   });
+  // `limite` au maximum de l'API (revue finale, constat COUVERTURE-22) :
+  // jamais un plafond silencieux à 100 problèmes.
   const anomalies = useQuery({
-    queryKey: cleAnomalies({ fournisseurId }),
-    queryFn: () => listerAnomalies({ fournisseurId }),
+    queryKey: cleAnomalies({ fournisseurId, limite: 500 }),
+    queryFn: () => listerAnomalies({ fournisseurId, limite: 500 }),
     enabled: fournisseurId !== undefined,
   });
 
