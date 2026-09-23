@@ -699,14 +699,17 @@ def nom_telechargement(
     numéro interne, toujours numérique donc déjà assaini) et chantier (sinon
     `sans-chantier`) assainis (`_assainir_segment`). Jamais de règle métier
     ici au-delà de la mise en forme du nom : le chantier et le numéro sont
-    déjà résolus par l'appelant."""
+    déjà résolus par l'appelant. Un numéro ou un chantier que
+    l'assainissement réduit à rien (« /// ») prend le même repli qu'une
+    valeur absente -- jamais un segment vide (mineur de la Task 3, revue
+    finale de la refonte du front)."""
     segment_type = _assainir_segment(type).upper()
-    segment_numero = (
-        _assainir_segment(numero) if numero is not None else str(numero_interne)
+    segment_numero = (_assainir_segment(numero) if numero is not None else "") or str(
+        numero_interne
     )
     segment_chantier = (
-        _assainir_segment(chantier) if chantier is not None else "sans-chantier"
-    )
+        _assainir_segment(chantier) if chantier is not None else ""
+    ) or "sans-chantier"
     return f"{segment_type}_{segment_numero}_{segment_chantier}.{extension}"
 
 

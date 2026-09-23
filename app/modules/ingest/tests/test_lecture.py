@@ -1284,6 +1284,10 @@ async def test_fichier_document_fichier_absent_du_disque_leve_document_introuvab
             ("facture", "F/2026 09", 3, "Rés. Été", "pdf"),
             "FACTURE_F-2026-09_Res-Ete.pdf",
         ),
+        # Mineur de la Task 3 (revue finale) : un numéro ou un chantier
+        # réduit à rien par l'assainissement retombe sur le repli, jamais un
+        # segment vide (« BL__…jpg »).
+        (("bl", "///", 7, "«  »", "jpg"), "BL_7_sans-chantier.jpg"),
     ],
 )
 def test_nom_telechargement_assaini(
