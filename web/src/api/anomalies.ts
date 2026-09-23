@@ -25,6 +25,12 @@ export interface FiltresAnomalies {
   fournisseurId?: string;
   depuis?: string;
   jusquA?: string;
+  /** `limite` existe déjà côté API (1..500, défaut 100) : l'écran « À
+   * régler » (Task 6, refonte du front) charge `statut=toutes` en un seul
+   * appel et dépasse facilement le défaut — paramètre ajouté ici pour
+   * demander explicitement le maximum, jamais un second calcul, jamais une
+   * troncature silencieuse. */
+  limite?: number;
 }
 
 /** Clé de requête TanStack Query incluant les filtres (même principe que
@@ -59,6 +65,9 @@ function construireRequete(filtres: FiltresAnomalies): string {
   }
   if (filtres.jusquA) {
     params.set("jusqu_a", filtres.jusquA);
+  }
+  if (filtres.limite !== undefined) {
+    params.set("limite", String(filtres.limite));
   }
   const requete = params.toString();
   return requete === "" ? "/api/anomalies" : `/api/anomalies?${requete}`;

@@ -57,6 +57,11 @@ def test_navigation_cinq_entrees_sans_jargon() -> None:
         assert f">{jargon}<" not in gabarit
     assert "md:hidden" in gabarit and "fixed bottom-0" in gabarit
 
+    # Task 6 (exception à la règle Gabarit) : « Vue d'ensemble » déborde à
+    # 375 px dans la barre de navigation basse — remplacé là par « Accueil »,
+    # sans perdre le libellé complet de la barre latérale (ci-dessus).
+    assert "Accueil" in gabarit
+
 
 def test_anciennes_routes_redirigent() -> None:
     """Redirections encore actives (spec §3) après le fix round 1 : R1
@@ -65,7 +70,7 @@ def test_anciennes_routes_redirigent() -> None:
     voir `test_ecrans_sans_remplacement_restent_montes`) et R2 (`/bilan/:c/
     :f` redirige désormais vers `/chantiers/:c/:f`, pas `/documents/:id`)."""
     app = (SRC / "App.tsx").read_text()
-    for ancien in ('"a-traiter"', '"bilan"', '"bl"'):
+    for ancien in ('"a-traiter"', '"bilan"', '"bl"', '"anomalies"'):
         assert f"path={ancien}" in app
     assert "RedirectionAncienneUrl" in app
 
@@ -77,15 +82,16 @@ def test_anciennes_routes_redirigent() -> None:
 
 
 def test_ecrans_sans_remplacement_restent_montes() -> None:
-    """Fix round 1, R1 : Factures et Anomalies n'ont pas encore de
-    remplacement construit — ils restent de vrais écrans, gardés admin, sur
-    leur ancienne URL, plutôt qu'une redirection qui les rendrait
-    inaccessibles."""
+    """Fix round 1, R1 : Factures n'a pas encore de remplacement construit —
+    il reste un vrai écran, gardé admin, sur son ancienne URL, plutôt qu'une
+    redirection qui le rendrait inaccessible. Anomalies (même règle,
+    initialement) est migré par la Task 6 : `/anomalies` redirige désormais
+    vers `/a-regler`, voir `test_app_anciennes_routes_anomalies_et_a_traiter_
+    redirigent` (`tests/test_web_a_regler.py`)."""
     app = (SRC / "App.tsx").read_text()
     for chemin, composant in (
         ('path="factures"', "FacturesListe"),
         ('path="factures/:id"', "FactureDetail"),
-        ('path="anomalies"', "Anomalies"),
     ):
         assert chemin in app
         declaration = app.split(chemin, 1)[1].split("path=", 1)[0]

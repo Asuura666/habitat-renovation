@@ -64,10 +64,15 @@ def test_tableau_bl_affiche_le_nombre_anomalies_ouvertes() -> None:
 
 
 def test_filtre_anomalies_accepte_un_bloc_exact() -> None:
+    """`pages/Anomalies.tsx` (supprimé par la Task 6, refonte du front) lisait
+    `?blocId=` : cette fonctionnalité est reprise telle quelle par
+    `pages/ARegler.tsx`, qui remplace l'écran (le lien `/anomalies?blocId=
+    ...` de `BilanFournisseur.tsx` ci-dessous continue de fonctionner via la
+    redirection `/anomalies` -> `/a-regler`, `search` préservé)."""
     service = (RACINE / "app" / "modules" / "ingest" / "anomalies.py").read_text()
     route = (RACINE / "app" / "modules" / "api" / "anomalies.py").read_text()
     client = (WEB / "api" / "anomalies.ts").read_text()
-    page = (WEB / "pages" / "Anomalies.tsx").read_text()
+    page = (WEB / "pages" / "ARegler.tsx").read_text()
 
     assert "bloc_id: uuid.UUID | None" in service
     assert "Anomalie.bloc_id == bloc_id" in service
