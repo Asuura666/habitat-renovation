@@ -6,18 +6,15 @@ import { Gabarit } from "./components/Gabarit";
 import { Anomalies } from "./pages/Anomalies";
 import { ATraiter } from "./pages/ATraiter";
 import { Bilan } from "./pages/Bilan";
-import {
-  BilanBl,
-  BilanChantiersFournisseur,
-  BilanFournisseursChantier,
-  BilanFournisseursGlobal,
-} from "./pages/BilanFournisseur";
+import { BilanBl, BilanFournisseursChantier } from "./pages/BilanFournisseur";
 import { BlDeposes } from "./pages/BlDeposes";
 import { Chantiers } from "./pages/Chantiers";
 import { Connexion } from "./pages/Connexion";
 import { DocumentDetail } from "./pages/DocumentDetail";
 import { FactureDetail } from "./pages/FactureDetail";
 import { FacturesListe } from "./pages/FacturesListe";
+import { FicheFournisseur } from "./pages/FicheFournisseur";
+import { FournisseursListe } from "./pages/FournisseursListe";
 import { Journal } from "./pages/Journal";
 import { Reglages } from "./pages/Reglages";
 import { GardeAdmin } from "./routes/GardeAdmin";
@@ -108,13 +105,17 @@ export function App(): ReactElement {
             }
           />
 
-          {/* Fournisseurs (remplace « Bilan par fournisseur ») — écrans
-              existants conservés, la Task 8 les remplace. */}
+          {/* Fournisseurs (remplace « Bilan par fournisseur ») — Task 9.
+              `BilanFournisseursGlobal`/`BilanChantiersFournisseur`
+              (`pages/BilanFournisseur.tsx`) ne sont plus montés ici ;
+              `BilanFournisseursChantier`/`BilanBl`, dans le même fichier,
+              restent utilisés par les routes `chantiers/...` ci-dessus
+              (Task 7, non touchées) — le fichier n'est donc pas supprimé. */}
           <Route
             path="fournisseurs"
             element={
               <GardeAdmin>
-                <BilanFournisseursGlobal />
+                <FournisseursListe />
               </GardeAdmin>
             }
           />
@@ -122,7 +123,7 @@ export function App(): ReactElement {
             path="fournisseurs/:fournisseurId"
             element={
               <GardeAdmin>
-                <BilanChantiersFournisseur />
+                <FicheFournisseur />
               </GardeAdmin>
             }
           />
