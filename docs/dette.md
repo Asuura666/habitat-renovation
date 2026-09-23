@@ -639,3 +639,35 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   la clé principale ; à revoir si un besoin explicite de tri par date de
   livraison est exprimé (ex. un tri choisi par l'utilisateur, hors
   périmètre de ce tour).
+
+### Task 10, fix round 1 (23/09/2026) — web (filtre auteur du Journal)
+
+- **Le filtre auteur du Journal demande un identifiant, sans liste de
+  comptes où le trouver.** Le libellé et le texte d'aide ne parlent plus
+  d'« UUID » (reformulé en « Auteur » / « identifiant de la personne »,
+  fix round 1 de la revue de la Task 10), mais le champ reste un texte
+  libre à coller — aucune route `GET /api/utilisateurs` (ni équivalent)
+  n'existe pour peupler un sélecteur de comptes. Corriger proprement
+  demande cette route et un composant de sélection, hors périmètre de
+  cette tâche (habillage uniquement, contenu inchangé).
+
+### Task 10, tour 2 (23/09/2026) — web (libellés des réglages dans le Journal)
+
+- **`lib/journal.ts::LIBELLES_PARAMETRE` duplique les neuf libellés de
+  `ingest/parametres.py::DEFINITIONS_PARAMETRES`** pour afficher le nom du
+  réglage plutôt que sa clé technique dans la colonne Cible d'un « Réglage
+  modifié » (constat de la revue, tour 2 de la Task 10) — la page Journal
+  n'appelle pas l'API des réglages, seule source du libellé à jour. Un
+  dixième réglage ajouté côté serveur sans mise à jour de cette liste
+  s'affichera par sa clé technique brute (repli défensif déjà en place pour
+  le reste de ce fichier, jamais une erreur). À corriger proprement en
+  exposant le libellé depuis l'entrée du journal elle-même côté serveur
+  (`ingest/parametres.py`) plutôt que dupliqué côté front, hors périmètre de
+  cette tâche.
+- **Le filtre auteur du Journal renvoyait à « la dette technique »
+  (`docs/dette.md`, un document interne inaccessible au dirigeant) dans son
+  texte d'aide** — jargon de développeur laissé par le fix round 1, corrigé
+  au tour 2 : le texte pointe maintenant vers la colonne Cible d'une entrée
+  « Compte utilisateur créé », où l'identifiant est réellement visible. La
+  limite elle-même (pas de sélecteur de comptes, cf. entrée ci-dessus) est
+  inchangée et reste documentée ici, ce qui suffit.

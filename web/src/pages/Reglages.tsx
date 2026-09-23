@@ -8,6 +8,7 @@ import {
   modifierParametre,
   type Parametre,
 } from "../api/parametres";
+import { Bouton, Carte, EnTetePage, EtatVide } from "../ui";
 
 function messageErreur(erreur: unknown): string {
   if (erreur instanceof ErreurApi) {
@@ -16,6 +17,11 @@ function messageErreur(erreur: unknown): string {
   return "Le réglage n'a pas pu être enregistré.";
 }
 
+/** Une ligne = un seuil administrable, avec ses bornes et son unité
+ * (`ingest/parametres.py`) — comportement inchangé depuis le lot 5, seul
+ * l'habillage change ici (Task 10 de la refonte du front). Le libellé vient
+ * déjà en français courant du serveur (« Seuil de tolérance de prix », pas
+ * de clé technique affichée). */
 function LigneParametre({ parametre }: { parametre: Parametre }): ReactElement {
   const queryClient = useQueryClient();
   const [valeur, setValeur] = useState(parametre.valeur);
@@ -38,13 +44,13 @@ function LigneParametre({ parametre }: { parametre: Parametre }): ReactElement {
   return (
     <form
       onSubmit={soumettre}
-      className="grid gap-3 border-b border-slate-200 px-4 py-4 last:border-b-0 md:grid-cols-[minmax(16rem,1fr)_11rem_8rem] md:items-end"
+      className="grid gap-3 py-5 first:pt-0 last:pb-0 md:grid-cols-[minmax(16rem,1fr)_11rem_8rem] md:items-end"
     >
       <div>
-        <label htmlFor={`parametre-${parametre.cle}`} className="font-medium text-slate-900">
+        <label htmlFor={`parametre-${parametre.cle}`} className="font-medium text-encre">
           {parametre.libelle}
         </label>
-        <p className="mt-1 text-sm text-slate-600">
+        <p className="mt-1 text-sm text-encre-2">
           De {parametre.minimum} à {parametre.maximum} {parametre.unite}
         </p>
       </div>
@@ -63,53 +69,64 @@ function LigneParametre({ parametre }: { parametre: Parametre }): ReactElement {
               setValeur(evenement.target.value);
             }}
             required
-            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="min-h-[44px] w-full rounded-lg border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent"
           />
-          <span className="shrink-0 text-sm text-slate-600">{parametre.unite}</span>
+          <span className="shrink-0 text-sm text-encre-2">{parametre.unite}</span>
         </div>
         {modification.isError && (
-          <p role="alert" className="mt-1 text-sm text-red-700">
+          <p role="alert" className="mt-1 text-sm text-alerte">
             {messageErreur(modification.error)}
           </p>
         )}
         {modification.isSuccess && !modification.isPending && (
-          <p className="mt-1 text-sm text-green-700">Enregistré</p>
+          <p className="mt-1 text-sm text-conforme">Enregistré</p>
         )}
       </div>
-      <button
-        type="submit"
-        disabled={modification.isPending || valeur === parametre.valeur}
-        className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-      >
+      <Bouton type="submit" disabled={modification.isPending || valeur === parametre.valeur} className="w-full md:w-auto">
         {modification.isPending ? "Enregistrement…" : "Enregistrer"}
-      </button>
+      </Bouton>
     </form>
   );
 }
 
+/** Écran « Réglages » (spec §4, Task 10 de la refonte du front) : seuils
+ * administrables exposés par `ingest/parametres.py` — contenu inchangé
+ * depuis le lot 5 (mêmes champs, mêmes bornes, même appel), seul
+ * l'habillage change. Réservé à l'admin par `GardeAdmin` (`App.tsx`) :
+ * aucune vérification de rôle ici. */
 export function Reglages(): ReactElement {
   const parametres = useQuery({ queryKey: CLE_PARAMETRES, queryFn: listerParametres });
 
-  if (parametres.isLoading) {
-    return <p>Chargement des réglages…</p>;
-  }
-  if (parametres.isError) {
-    return <p role="alert" className="text-red-700">Impossible de charger les réglages.</p>;
-  }
-
   return (
-    <section className="mx-auto max-w-5xl space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold text-slate-900">Réglages</h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Ces seuils s'appliquent aux prochains contrôles et rapprochements. Chaque modification est conservée dans le journal.
+    <div className="max-w-4xl space-y-6">
+      <EnTetePage titre="Réglages" />
+      <p className="text-sm text-encre-2">
+        Ces seuils s'appliquent aux prochains contrôles des factures. Chaque modification est
+        conservée dans le journal.
+      </p>
+
+      {parametres.isPending && (
+        <p role="status" className="text-sm text-encre-2">
+          Chargement des réglages…
         </p>
-      </header>
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-        {parametres.data?.map((parametre) => (
-          <LigneParametre key={parametre.cle} parametre={parametre} />
-        ))}
-      </div>
-    </section>
+      )}
+      {parametres.isError && (
+        <p role="alert" className="text-sm text-alerte">
+          Impossible de charger les réglages.
+        </p>
+      )}
+      {parametres.data && parametres.data.length === 0 && (
+        <EtatVide message="Aucun réglage disponible." />
+      )}
+      {parametres.data !== undefined && parametres.data.length > 0 && (
+        <Carte>
+          <div className="divide-y divide-bordure">
+            {parametres.data.map((parametre) => (
+              <LigneParametre key={parametre.cle} parametre={parametre} />
+            ))}
+          </div>
+        </Carte>
+      )}
+    </div>
   );
 }
