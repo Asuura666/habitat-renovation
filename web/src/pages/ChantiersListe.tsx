@@ -97,8 +97,16 @@ function depuisTableauDeBord(
     }));
 }
 
+/** « Chantier à rattacher » (corrections de revue, tour 4, constat 2) :
+ * repli d'un bloc dont le fournisseur a résolu un chantier que la
+ * normalisation n'a pas su relier à un chantier du référentiel — même
+ * libellé que `VueEnsemble.tsx`/`FicheFournisseur.tsx`/`PageBl.tsx` (Tâches
+ * 5, 9 et 8, déjà fusionnées dans `refonte-front`). Le texte précédent
+ * nommait un mécanisme technique (la résolution d'un nom en entité) sans
+ * dire quoi faire ; « à rattacher » pointe vers l'action possible, reprise
+ * ci-dessous par `destinationLigne`. */
 function nomAffiche(ligne: LigneChantierAffichee): string {
-  return ligne.nom ?? "Chantier non résolu";
+  return ligne.nom ?? "Chantier à rattacher";
 }
 
 /** Lien vers la fiche d'un chantier, en reportant le mois choisi sur cet
@@ -113,13 +121,23 @@ function lienChantier(chantierId: string, mois: string | undefined): string {
   return `/chantiers/${chantierId}?${new URLSearchParams({ mois }).toString()}`;
 }
 
-function NomChantier({ ligne, mois }: { ligne: LigneChantierAffichee; mois: string | undefined }): ReactElement {
+/** Destination d'une ligne de chantier (corrections de revue, tour 4,
+ * constat 2) : la fiche du chantier s'il est résolu, sinon l'écran « À
+ * régler » filtré sur les chantiers à rattacher — même convention que
+ * `VueEnsemble.tsx`/`FicheFournisseur.tsx`. Avant ce correctif, un chantier
+ * non résolu s'affichait en texte simple, sans aucun lien, dans le tableau
+ * principal comme dans les cartes téléphone. */
+function destinationLigne(ligne: LigneChantierAffichee, mois: string | undefined): string {
   if (ligne.chantierId === null) {
-    return <>{nomAffiche(ligne)}</>;
+    return "/a-regler?filtre=rattacher";
   }
+  return lienChantier(ligne.chantierId, mois);
+}
+
+function NomChantier({ ligne, mois }: { ligne: LigneChantierAffichee; mois: string | undefined }): ReactElement {
   return (
     <Link
-      to={lienChantier(ligne.chantierId, mois)}
+      to={destinationLigne(ligne, mois)}
       className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
     >
       {nomAffiche(ligne)}
@@ -127,53 +145,66 @@ function NomChantier({ ligne, mois }: { ligne: LigneChantierAffichee; mois: stri
   );
 }
 
+/** Carte téléphone d'un chantier (< md) : toute la carte est cliquable
+ * (corrections de revue, tour 4, constat 1) — avant ce correctif, seul le
+ * nom (`NomChantier`, un lien texte sans marge intérieure) menait à la
+ * fiche, avec une zone à toucher d'environ 20 à 24 px de haut, sous les
+ * 44 px exigés. Même solution que `CarteChantierConcerne`
+ * (`FicheFournisseur.tsx`, Task 9) : un `<Link className="block … p-4">`
+ * autour de toute la carte plutôt qu'un `min-h-[44px]` sur le seul nom, qui
+ * n'aurait pas agrandi la zone cliquable elle-même. Le nom reste un texte
+ * simple ici (pas de `NomChantier` imbriqué : un `<a>` ne peut pas contenir
+ * un autre `<a>`), la carte entière porte le lien. */
 function CarteChantier({ ligne, mois }: { ligne: LigneChantierAffichee; mois: string | undefined }): ReactElement {
   return (
-    <li className="rounded-carte border border-bordure bg-surface p-4">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-medium text-encre">
-            <NomChantier ligne={ligne} mois={mois} />
-          </h3>
-          <p className="text-sm text-encre-2">
-            {ligne.client ?? "Client non renseigné"} · {ligne.agence ?? "Agence non renseignée"}
-          </p>
-        </div>
-        {ligne.etat !== null && <PastilleEtat etat={ligne.etat} />}
-      </div>
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-        <div>
-          <dt className="text-xs text-encre-2">Facturé</dt>
-          <dd className="font-mono tabular-nums text-encre">{formaterMontant(ligne.factureHt)}</dd>
-        </div>
-        {ligne.etat !== null ? (
+    <li>
+      <Link
+        to={destinationLigne(ligne, mois)}
+        className="block rounded-carte border border-bordure bg-surface p-4 outline-none transition-colors hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        <div className="mb-3 flex items-start justify-between gap-3">
           <div>
-            <dt className="text-xs text-encre-2">À vérifier</dt>
-            <dd className="font-mono tabular-nums text-ecart-texte">
-              {formaterMontant(ligne.aVerifier)}
-            </dd>
+            <h3 className="font-medium text-encre">{nomAffiche(ligne)}</h3>
+            <p className="text-sm text-encre-2">
+              {ligne.client ?? "Client non renseigné"} · {ligne.agence ?? "Agence non renseignée"}
+            </p>
           </div>
-        ) : (
-          <>
-            <div>
-              <dt className="text-xs text-encre-2">En écart</dt>
-              <dd className="font-mono tabular-nums text-ecart-texte">
-                {formaterMontant(ligne.enEcart)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs text-encre-2">Sans bon</dt>
-              <dd className="font-mono tabular-nums text-alerte">
-                {formaterMontant(ligne.nonJustifie)}
-              </dd>
-            </div>
-          </>
-        )}
-        <div>
-          <dt className="text-xs text-encre-2">Problèmes</dt>
-          <dd className="text-encre">{ligne.problemes}</dd>
+          {ligne.etat !== null && <PastilleEtat etat={ligne.etat} />}
         </div>
-      </dl>
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <div>
+            <dt className="text-xs text-encre-2">Facturé</dt>
+            <dd className="font-mono tabular-nums text-encre">{formaterMontant(ligne.factureHt)}</dd>
+          </div>
+          {ligne.etat !== null ? (
+            <div>
+              <dt className="text-xs text-encre-2">À vérifier</dt>
+              <dd className="font-mono tabular-nums text-ecart-texte">
+                {formaterMontant(ligne.aVerifier)}
+              </dd>
+            </div>
+          ) : (
+            <>
+              <div>
+                <dt className="text-xs text-encre-2">En écart</dt>
+                <dd className="font-mono tabular-nums text-ecart-texte">
+                  {formaterMontant(ligne.enEcart)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-encre-2">Sans bon</dt>
+                <dd className="font-mono tabular-nums text-alerte">
+                  {formaterMontant(ligne.nonJustifie)}
+                </dd>
+              </div>
+            </>
+          )}
+          <div>
+            <dt className="text-xs text-encre-2">Problèmes</dt>
+            <dd className="text-encre">{ligne.problemes}</dd>
+          </div>
+        </dl>
+      </Link>
     </li>
   );
 }
@@ -272,7 +303,11 @@ function ListeChantiers({
  * recalculé ici. Chaque nom mène à la fiche du chantier (fix round 1,
  * constat 1) : avant, ce bandeau affichait des noms sans aucun lien —
  * impossible d'ouvrir la fiche d'un chantier silencieux pour, par exemple,
- * constater qu'il vient d'être créé. */
+ * constater qu'il vient d'être créé. Lien isolé au milieu d'une ligne dense
+ * (nom · agence · dernier dépôt) : plutôt que rendre toute la `<li>`
+ * cliquable (ce qui masquerait le reste de la ligne), le lien lui-même
+ * garantit une cible d'au moins 44 px (`inline-flex min-h-[44px]
+ * items-center`, corrections de revue, tour 4, constat 1). */
 function BandeauSilencieux({ chantiers }: { chantiers: ChantierSilencieux[] }): ReactElement {
   if (chantiers.length === 0) {
     return (
@@ -291,7 +326,7 @@ function BandeauSilencieux({ chantiers }: { chantiers: ChantierSilencieux[] }): 
             <span className="font-medium text-encre">
               <Link
                 to={lienChantier(chantier.chantier_id, undefined)}
-                className="text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+                className="inline-flex min-h-[44px] items-center text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {chantier.nom_canonique}
               </Link>{" "}
@@ -344,21 +379,27 @@ function CarteTousLesChantiers({
         <EtatVide message="Aucun chantier pour ces filtres." />
       ) : (
         <>
+          {/* Cartes téléphone (< md) : toute la carte est cliquable
+              (corrections de revue, tour 4, constat 1), comme
+              `CarteChantierConcerne` (`FicheFournisseur.tsx`, Task 9) —
+              avant, seul le nom (un lien texte sans marge intérieure)
+              ouvrait la fiche, avec une zone à toucher sous les 44 px
+              exigés. */}
           <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:hidden">
             {tries.map((chantier) => (
-              <li key={chantier.id} className="rounded-lg border border-bordure p-3">
+              <li key={chantier.id}>
                 <Link
                   to={lienChantier(chantier.id, undefined)}
-                  className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+                  className="block rounded-lg border border-bordure p-3 outline-none transition-colors hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
                 >
-                  {chantier.nom_canonique}
+                  <p className="font-medium text-encre">{chantier.nom_canonique}</p>
+                  <p className="mt-1 text-xs text-encre-2">
+                    {chantier.client ?? "Client non renseigné"} · {chantier.agence ?? "Agence non renseignée"}
+                  </p>
+                  <p className={`mt-1 text-xs font-medium ${chantier.actif ? "text-conforme" : "text-encre-2"}`}>
+                    {chantier.actif ? "Actif" : "Inactif"}
+                  </p>
                 </Link>
-                <p className="mt-1 text-xs text-encre-2">
-                  {chantier.client ?? "Client non renseigné"} · {chantier.agence ?? "Agence non renseignée"}
-                </p>
-                <p className={`mt-1 text-xs font-medium ${chantier.actif ? "text-conforme" : "text-encre-2"}`}>
-                  {chantier.actif ? "Actif" : "Inactif"}
-                </p>
               </li>
             ))}
           </ul>

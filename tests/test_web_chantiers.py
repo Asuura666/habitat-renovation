@@ -416,3 +416,85 @@ def test_fiche_chantier_dernier_bon_precise_ce_quil_mesure() -> None:
     assert "Date inconnue" in entete
 
     assert "const derniereLivraisonRecue = livraisonsRecues[0] ?? null;" in page
+
+
+# ---------------------------------------------------------------------------
+# Corrections de revue (tour 4)
+# ---------------------------------------------------------------------------
+
+
+def test_cartes_telephone_chantiers_sont_entierement_cliquables() -> None:
+    """Constat 1 (Important) : sur téléphone, les liens qui ouvrent la fiche
+    d'un chantier (nom dans `CarteChantier`, cartes de
+    `CarteTousLesChantiers`) étaient de simples liens texte sans marge
+    intérieure — une zone à toucher d'environ 20 à 24 px de haut, sous les
+    44 px exigés, alors que le nom est le seul moyen d'ouvrir la fiche sur
+    téléphone. La relecture de la Task 9 avait déjà fait corriger exactement
+    ce défaut dans FicheFournisseur.tsx (CarteChantierConcerne) : toute la
+    carte devient cliquable, un vrai <Link className="block … p-4"> autour
+    de la carte plutôt qu'un padding sur le seul texte."""
+    page = _lire("pages", "ChantiersListe.tsx")
+
+    carte_chantier = page.split("function CarteChantier(", 1)[1].split(
+        "function TableauChantiers", 1
+    )[0]
+    assert "to={destinationLigne(ligne, mois)}" in carte_chantier
+    assert "block rounded-carte" in carte_chantier
+    assert "p-4" in carte_chantier
+    # Le nom n'est plus un lien imbriqué (un <a> ne peut pas en contenir un
+    # autre) : toute la carte porte désormais le lien, le nom redevient un
+    # texte simple à l'intérieur.
+    assert "<NomChantier" not in carte_chantier
+    assert "{nomAffiche(ligne)}" in carte_chantier
+
+    carte_referentiel = page.split("function CarteTousLesChantiers", 1)[1]
+    cartes_telephone = carte_referentiel.split("md:hidden", 1)[1].split("md:block", 1)[
+        0
+    ]
+    assert "block rounded-lg" in cartes_telephone
+    assert "p-3" in cartes_telephone
+    # Une seule balise <Link> dans le gabarit de carte : elle enveloppe tout
+    # le contenu (nom, client/agence, statut), pas seulement le nom.
+    assert cartes_telephone.count("<Link") == 1
+
+
+def test_liens_isoles_chantiers_atteignent_44px() -> None:
+    """Constat 1 (Important) : le bandeau silencieux (`ChantiersListe.tsx`)
+    et « Voir tous les mois » (`FicheChantier.tsx`) restent des liens isolés
+    au milieu d'une ligne dense — pas des cartes entières — mais chacun doit
+    quand même garantir une cible d'au moins 44 px de haut
+    (`inline-flex min-h-[44px] items-center`)."""
+    liste = _lire("pages", "ChantiersListe.tsx")
+    bandeau = liste.split("function BandeauSilencieux", 1)[1].split(
+        "function CarteTousLesChantiers", 1
+    )[0]
+    assert "inline-flex min-h-[44px] items-center" in bandeau
+
+    fiche = _lire("pages", "FicheChantier.tsx")
+    entete_lien = fiche.split("moisChoisi && (", 1)[1].split("Voir tous les mois", 1)[0]
+    assert "inline-flex min-h-[44px] items-center" in entete_lien
+
+
+def test_chantier_et_fournisseur_non_resolus_ont_un_libelle_courant() -> None:
+    """Constat 2 (Important) : « Chantier non résolu » est un terme
+    technique (la résolution d'un nom en entité) qui s'affichait dans le
+    tableau principal comme dans les cartes téléphone, sans aucun lien.
+    VueEnsemble.tsx/FicheFournisseur.tsx/PageBl.tsx (Tâches 5, 8, 9, déjà
+    fusionnées dans `refonte-front`) écrivent « Chantier à rattacher », avec
+    un lien vers « À régler » — la relecture de la Task 9 avait fait
+    remplacer ce même terme. Le même repli existe pour les fournisseurs
+    (« Fournisseur non résolu »), remplacé par un libellé courant."""
+    liste = _lire("pages", "ChantiersListe.tsx")
+    assert "Chantier non résolu" not in liste
+    assert "Chantier à rattacher" in liste
+    assert "/a-regler?filtre=rattacher" in liste
+    # Le repli s'applique à la fois au nom affiché et à la destination du
+    # lien (`nomAffiche`/`destinationLigne`), pour la carte comme pour la
+    # ligne de tableau.
+    assert 'return ligne.nom ?? "Chantier à rattacher";' in liste
+    assert 'return "/a-regler?filtre=rattacher";' in liste
+
+    fiche = _lire("pages", "FicheChantier.tsx")
+    assert "Chantier non résolu" not in fiche
+    assert "Fournisseur non résolu" not in fiche
+    assert "Fournisseur à rattacher" in fiche

@@ -451,6 +451,15 @@ export function FicheChantier(): ReactElement {
     ? (tableauDeBord.data?.chantiers.find((c) => c.chantier_id === id)?.etat as Etat | undefined)
     : undefined;
 
+  // « Fournisseur à rattacher » (corrections de revue, tour 4, constat 2) :
+  // repli d'une ligne de livraison dont le fournisseur n'a pas été résolu.
+  // Le texte précédent nommait un mécanisme technique (la résolution d'un
+  // nom en entité) plutôt que ce que l'utilisateur peut constater — même
+  // choix de vocabulaire que « Chantier à rattacher » (`ChantiersListe
+  // .tsx`), qui désigne le même mécanisme côté chantier. Purement
+  // informatif ici (colonne « Fournisseur » de la carte « Livraisons »,
+  // jamais un lien) : la consigne de ce tour ne demande une destination
+  // cliquable que pour le nom du chantier.
   const livraisonsChargees = fournisseurs.isSuccess && blParFournisseur.every((requete) => requete.isSuccess);
   const livraisons: LivraisonAffichee[] = livraisonsChargees
     ? blParFournisseur
@@ -459,7 +468,7 @@ export function FicheChantier(): ReactElement {
             blocId: ligne.bloc_id,
             numeroBl: ligne.numero_bl,
             dateBl: ligne.date_bl,
-            fournisseur: fournisseursResolus[index]?.nom ?? "Fournisseur non résolu",
+            fournisseur: fournisseursResolus[index]?.nom ?? "Fournisseur à rattacher",
             ligne,
           })),
         )
@@ -496,7 +505,7 @@ export function FicheChantier(): ReactElement {
             blocId: ligne.bloc_id,
             numeroBl: ligne.numero_bl,
             dateBl: ligne.date_bl,
-            fournisseur: fournisseursTousResolus[index]?.nom ?? "Fournisseur non résolu",
+            fournisseur: fournisseursTousResolus[index]?.nom ?? "Fournisseur à rattacher",
             ligne,
           })),
         )
@@ -549,9 +558,14 @@ export function FicheChantier(): ReactElement {
             </span>
             {!chantier.actif && <span className="font-medium text-alerte">Chantier inactif</span>}
             {moisChoisi && (
+              // Lien isolé dans l'en-tête, sans autre repère de mise en page
+              // pour agrandir sa zone cliquable (corrections de revue, tour
+              // 4, constat 1) : `inline-flex min-h-[44px] items-center`
+              // garantit une cible d'au moins 44 px, comme au pied de la
+              // carte « Livraisons » (fix round 2, constat 3).
               <Link
                 to={`/chantiers/${id}`}
-                className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+                className="inline-flex min-h-[44px] items-center font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
               >
                 Voir tous les mois
               </Link>
