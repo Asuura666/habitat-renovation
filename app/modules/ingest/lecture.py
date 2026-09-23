@@ -48,6 +48,13 @@ from app.modules.ingest.models import (
 # mêmes que `str.strip()` retire côté Python dans `_normaliser_numero`.
 _CARACTERES_DE_BORD = " \t\u00a0"
 
+# Types de document traités comme un bon de livraison (CDC §4.5 : « Bons
+# d'enlèvement : traités comme des BL ») -- même couple que
+# `rapprochement._TYPES_BL`/`suivi._TYPES_BL` ; nommé ici (revue finale de
+# la refonte du front, constat SERVEUR-5) pour les lectures de ce module et
+# pour `ingest.comparaison_bl`, plutôt qu'un littéral de plus.
+TYPES_BL: tuple[str, ...] = ("bl", "enlevement")
+
 
 def _normaliser_numero(numero: str) -> str:
     """`strip()` puis majuscules (décision du contrôleur T7, reprise telle
@@ -97,7 +104,7 @@ async def documents_bl_par_numeros(
         return {}
 
     conditions = [
-        Document.type.in_(("bl", "enlevement")),
+        Document.type.in_(TYPES_BL),
         Document.statut != "archive",
         Document.numero.is_not(None),
         func.upper(func.btrim(Document.numero, _CARACTERES_DE_BORD)).in_(normalises),
@@ -555,7 +562,7 @@ async def lister_documents(
     )
 
     conditions = [
-        Document.type.in_(("bl", "enlevement")),
+        Document.type.in_(TYPES_BL),
         Document.statut != "archive",
     ]
     if role != "admin":

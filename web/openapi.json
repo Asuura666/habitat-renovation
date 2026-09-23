@@ -1154,6 +1154,23 @@
       }
      },
      {
+      "name": "bl_document_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uuid"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Bl Document Id"
+      }
+     },
+     {
       "name": "depuis",
       "in": "query",
       "required": false,
@@ -2613,6 +2630,17 @@
        }
       ],
       "title": "Bl Document Id"
+     },
+     "categorie": {
+      "type": "string",
+      "enum": [
+       "bl",
+       "prix",
+       "quantites",
+       "rattacher",
+       "autre"
+      ],
+      "title": "Categorie"
      }
     },
     "type": "object",
@@ -2636,7 +2664,8 @@
      "chantier",
      "fournisseur_id",
      "fournisseur",
-     "bl_document_id"
+     "bl_document_id",
+     "categorie"
     ],
     "title": "AnomalieReponse",
     "description": "Une anomalie, telle qu'exposée par `GET /api/anomalies` et par\n`POST /api/anomalies/{id}/traitement` — mêmes attributs qu'`ingest\n.anomalies.AnomalieLue`. `detail` est exposé tel quel (`dict[str,\nstr]`, décision du contrôleur) : la phrase de justification est\nconstruite côté front à partir de ce champ (L4-D17), jamais ici."
@@ -3279,6 +3308,14 @@
      },
      "etat": {
       "type": "string",
+      "enum": [
+       "a_rattacher",
+       "bl_manquant",
+       "prix",
+       "quantites",
+       "a_voir",
+       "conforme"
+      ],
       "title": "Etat"
      },
      "montants": {
@@ -3322,6 +3359,18 @@
       ],
       "title": "Facture Id"
      },
+     "bloc_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Bloc Id"
+     },
      "numero_facture": {
       "anyOf": [
        {
@@ -3361,6 +3410,7 @@
     "required": [
      "document_id",
      "facture_id",
+     "bloc_id",
      "numero_facture",
      "montant_facture_ht",
      "lignes",
@@ -4611,6 +4661,16 @@
       },
       "type": "array",
       "title": "Regles Ouvertes"
+     },
+     "controle": {
+      "type": "string",
+      "enum": [
+       "conforme",
+       "ecart",
+       "non_facture",
+       "pas_encore_facture"
+      ],
+      "title": "Controle"
      }
     },
     "type": "object",
@@ -4621,7 +4681,8 @@
      "qte_livree",
      "qte_facturee",
      "pu_facture",
-     "regles_ouvertes"
+     "regles_ouvertes",
+     "controle"
     ],
     "title": "LigneCompareeReponse",
     "description": "Une ligne de `GET /api/documents/{id}/comparaison` — mêmes attributs\nqu'`ingest.comparaison_bl.LigneComparee`. `qte_facturee`/`pu_facture`\nvalent `None` si la ligne n'a jamais été appariée à une ligne de facture\n(`rapprochement_ligne`)."
@@ -5117,6 +5178,16 @@
      "nb_anomalies_ouvertes": {
       "type": "integer",
       "title": "Nb Anomalies Ouvertes"
+     },
+     "conforme": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Conforme"
+     },
+     "a_verifier": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "A Verifier"
      }
     },
     "type": "object",
@@ -5125,7 +5196,9 @@
      "rapproche",
      "en_ecart",
      "non_justifie",
-     "nb_anomalies_ouvertes"
+     "nb_anomalies_ouvertes",
+     "conforme",
+     "a_verifier"
     ],
     "title": "MontantsBilanReponse",
     "description": "Les quatre montants d'un périmètre de bilan (L5-D3) plus le nombre\nd'anomalies ouvertes qui s'y rattachent — mêmes attributs\nqu'`ingest.bilan.MontantsBilan`. Les quatre montants ne forment pas une\npartition (L5-D3) : c'est au front de le dire en toutes lettres, jamais\ncalculé ni recalculé ici."
@@ -5260,6 +5333,10 @@
       "type": "integer",
       "title": "Nb Bl Recus"
      },
+     "nb_bl_manquants": {
+      "type": "integer",
+      "title": "Nb Bl Manquants"
+     },
      "chantiers": {
       "items": {
        "$ref": "#/components/schemas/ChantierTableauReponse"
@@ -5273,6 +5350,18 @@
       },
       "type": "array",
       "title": "Priorites"
+     },
+     "dernier_mois_facture": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Dernier Mois Facture"
      }
     },
     "type": "object",
@@ -5283,8 +5372,10 @@
      "nb_problemes_urgents",
      "nb_bl_factures",
      "nb_bl_recus",
+     "nb_bl_manquants",
      "chantiers",
-     "priorites"
+     "priorites",
+     "dernier_mois_facture"
     ],
     "title": "TableauDeBordReponse",
     "description": "`GET /api/tableau-de-bord` — mêmes attributs\nqu'`ingest.tableau_de_bord.TableauDeBord`."

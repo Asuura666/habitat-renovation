@@ -477,3 +477,211 @@ async def test_comparer_bl_nb_problemes_ignore_les_anomalies_traitees(
     comparaison = await comparer_bl(db_session, bl.id)
 
     assert comparaison.nb_problemes == 0
+
+
+# --------------------------------------------------------------------------
+# Revue finale de la refonte du front (constats SERVEUR-4, SERVEUR-5,
+# SERVEUR-6, LIENS-1) : tous les blocs qui citent le bon, factures
+# archivées écartées, enlèvements, verdict par ligne, et même périmètre pour
+# le nombre annoncé et la liste « Régler les problèmes ».
+# --------------------------------------------------------------------------
+
+
+async def test_comparer_bl_compte_le_doublon_pose_sur_la_seconde_facture(
+    db_session: AsyncSession,
+) -> None:
+    """SERVEUR-4 (a) : F1 puis F2 citent le même bon ; le rapprochement de
+    F2 pose R12 (bon facturé deux fois) sur le bloc de F2. La page du bon
+    affiche F1 (facturation d'origine) mais annonce bien ce problème urgent
+    -- avant, seul le bloc de F1 comptait et la page affichait « Conforme »."""
+    bl = await _creer_document_bl(db_session, numero="L3000")
+    await _creer_ligne(db_session, document=bl, ordre=0, qte_totale=Decimal("2"))
+    fournisseur = await _creer_fournisseur(db_session)
+    facture_1 = await _creer_facture(db_session, fournisseur=fournisseur, numero="F1")
+    bloc_1 = await _creer_bloc(
+        db_session, facture=facture_1, numero_bl="L3000", bl_document_id=bl.id
+    )
+    facture_2 = await _creer_facture(db_session, fournisseur=fournisseur, numero="F2")
+    bloc_2 = await _creer_bloc(
+        db_session, facture=facture_2, numero_bl="L3000", bl_document_id=bl.id
+    )
+    await _creer_anomalie(
+        db_session, bloc_id=bloc_2.id, document_id=facture_2.id, regle="R12"
+    )
+
+    comparaison = await comparer_bl(db_session, bl.id)
+
+    assert comparaison.facture_id == facture_1.id
+    assert comparaison.bloc_id == bloc_1.id
+    assert comparaison.numero_facture == "F1"
+    assert comparaison.nb_problemes == 1
+
+
+async def test_comparer_bl_naffiche_jamais_une_facture_archivee(
+    db_session: AsyncSession,
+) -> None:
+    """SERVEUR-4 (b) : une facture archivée garde son `bl_document_id`, mais
+    n'est plus jamais présentée comme la facture du bon, et ses problèmes
+    ne comptent plus (le bilan l'exclut déjà)."""
+    bl = await _creer_document_bl(db_session, numero="L3001")
+    bl_ligne = await _creer_ligne(
+        db_session, document=bl, ordre=0, qte_totale=Decimal("4")
+    )
+    fournisseur = await _creer_fournisseur(db_session)
+    archivee = await _creer_facture(db_session, fournisseur=fournisseur, numero="FA")
+    bloc_archive = await _creer_bloc(
+        db_session, facture=archivee, numero_bl="L3001", bl_document_id=bl.id
+    )
+    ligne_archivee = await _creer_ligne(
+        db_session,
+        document=archivee,
+        bloc=bloc_archive,
+        ordre=0,
+        qte_totale=Decimal("4"),
+        pu_ht=Decimal("9.00"),
+        montant_ht=Decimal("36.00"),
+    )
+    await _creer_rapprochement(
+        db_session, ligne_facture=ligne_archivee, ligne_bl=bl_ligne
+    )
+    await _creer_anomalie(
+        db_session, bloc_id=bloc_archive.id, document_id=archivee.id, regle="R12"
+    )
+    archivee.statut = "archive"
+    await db_session.commit()
+
+    comparaison = await comparer_bl(db_session, bl.id)
+
+    assert comparaison.facture_id is None
+    assert comparaison.bloc_id is None
+    assert comparaison.montant_facture_ht is None
+    assert comparaison.nb_problemes == 0
+    assert comparaison.lignes[0].qte_facturee is None
+    assert comparaison.lignes[0].controle == "pas_encore_facture"
+
+
+async def test_comparer_bl_accepte_un_bon_denlevement(db_session: AsyncSession) -> None:
+    """SERVEUR-5 : CDC §4.5, un bon d'enlèvement est traité comme un BL --
+    le rapprochement le relie à un bloc de facture, sa page a donc aussi sa
+    comparaison (avant : 404, carte masquée, 0 problème affiché)."""
+    enlevement = await _creer_document_bl(db_session, numero="E100", type_="enlevement")
+    ligne_e = await _creer_ligne(
+        db_session, document=enlevement, ordre=0, qte_totale=Decimal("3")
+    )
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur, numero="FE")
+    bloc = await _creer_bloc(
+        db_session, facture=facture, numero_bl="E100", bl_document_id=enlevement.id
+    )
+    ligne_f = await _creer_ligne(
+        db_session,
+        document=facture,
+        bloc=bloc,
+        ordre=0,
+        qte_totale=Decimal("5"),
+        pu_ht=Decimal("2.00"),
+        montant_ht=Decimal("10.00"),
+    )
+    await _creer_rapprochement(db_session, ligne_facture=ligne_f, ligne_bl=ligne_e)
+    await _creer_anomalie(db_session, ligne_id=ligne_f.id, bloc_id=bloc.id, regle="R03")
+
+    comparaison = await comparer_bl(db_session, enlevement.id)
+
+    assert comparaison.facture_id == facture.id
+    assert comparaison.nb_problemes == 1
+    assert comparaison.lignes[0].regles_ouvertes == ["R03"]
+    assert comparaison.lignes[0].controle == "ecart"
+
+
+async def test_comparer_bl_controle_par_ligne(db_session: AsyncSession) -> None:
+    """SERVEUR-6/ECRAN-3 : une ligne livrée mais jamais retrouvée sur la
+    facture n'est pas « conforme » -- verdict `non_facture`, calculé par le
+    serveur ; une ligne appariée sans anomalie est `conforme`."""
+    bl = await _creer_document_bl(db_session, numero="L3002")
+    ligne_ok = await _creer_ligne(
+        db_session, document=bl, ordre=0, qte_totale=Decimal("1")
+    )
+    await _creer_ligne(
+        db_session,
+        document=bl,
+        ordre=1,
+        article_brut="Participation inventée",
+        qte_totale=Decimal("1"),
+        type_ligne="eco",
+    )
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur, numero="FC")
+    bloc = await _creer_bloc(
+        db_session, facture=facture, numero_bl="L3002", bl_document_id=bl.id
+    )
+    ligne_f = await _creer_ligne(
+        db_session,
+        document=facture,
+        bloc=bloc,
+        ordre=0,
+        qte_totale=Decimal("1"),
+        pu_ht=Decimal("4.00"),
+        montant_ht=Decimal("4.00"),
+    )
+    await _creer_rapprochement(db_session, ligne_facture=ligne_f, ligne_bl=ligne_ok)
+
+    comparaison = await comparer_bl(db_session, bl.id)
+
+    assert [ligne.controle for ligne in comparaison.lignes] == [
+        "conforme",
+        "non_facture",
+    ]
+
+
+async def test_lister_anomalies_du_bl_meme_perimetre_que_nb_problemes(
+    db_session: AsyncSession,
+) -> None:
+    """LIENS-1 : « Régler les N problèmes » ouvre `GET /api/anomalies?
+    bl_document_id=` -- exactement les N problèmes annoncés sur le bon
+    (anomalie du bon lui-même, de ses blocs, de leurs lignes), jamais ceux
+    d'un autre bon ni ceux d'une facture archivée."""
+    from app.modules.ingest.anomalies import lister_anomalies
+
+    bl = await _creer_document_bl(db_session, numero="L3003")
+    bl_ligne = await _creer_ligne(
+        db_session, document=bl, ordre=0, qte_totale=Decimal("2")
+    )
+    autre_bl = await _creer_document_bl(db_session, numero="L3004")
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur, numero="FL")
+    bloc = await _creer_bloc(
+        db_session, facture=facture, numero_bl="L3003", bl_document_id=bl.id
+    )
+    ligne_f = await _creer_ligne(
+        db_session, document=facture, bloc=bloc, ordre=0, qte_totale=Decimal("3")
+    )
+    autre_bloc = await _creer_bloc(
+        db_session,
+        facture=facture,
+        ordre=1,
+        numero_bl="L3004",
+        bl_document_id=autre_bl.id,
+    )
+    attendues = {
+        (
+            await _creer_anomalie(
+                db_session, document_id=bl.id, regle="R11", gravite="moyenne"
+            )
+        ).id,
+        (await _creer_anomalie(db_session, ligne_id=bl_ligne.id, regle="R06")).id,
+        (
+            await _creer_anomalie(
+                db_session, ligne_id=ligne_f.id, bloc_id=bloc.id, regle="R03"
+            )
+        ).id,
+    }
+    await _creer_anomalie(db_session, bloc_id=autre_bloc.id, regle="R01")
+    await _creer_anomalie(
+        db_session, ligne_id=bl_ligne.id, regle="R15", statut="traitee"
+    )
+
+    comparaison = await comparer_bl(db_session, bl.id)
+    listees = await lister_anomalies(db_session, statut="ouverte", bl_document_id=bl.id)
+
+    assert {anomalie.id for anomalie in listees} == attendues
+    assert comparaison.nb_problemes == len(attendues)

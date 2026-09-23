@@ -39,8 +39,12 @@ Le mois d'un bloc (L5-D4) est celui de sa facture : `document.date_doc`,
 sinon `document.created_at` converti en Europe/Paris
 (`app.core.fuseau.FUSEAU_PARIS`) — jamais `date_bl`.
 
-`REGLES_QUANTITE_OU_PRIX` (R03 à R09) est définie une seule fois ici, nommée
-(décision du contrôleur), et sert à déterminer `en_ecart`.
+`REGLES_QUANTITE_OU_PRIX` (R03 à R09) est nommée ici (décision du
+contrôleur) et sert à déterminer `en_ecart` ; depuis la revue finale de la
+refonte du front, elle est dérivée de la table unique des catégories
+(`ingest.anomalies.CATEGORIES_REGLE`), jamais recopiée. Deux montants
+supplémentaires, `conforme` et `a_verifier`, sont calculés bloc par bloc
+dans la même requête (voir `MontantsBilan`).
 
 Ruling L5-R3 (tour de correction 1, `ingest/rapprochement.py`) : R07, R08,
 R09, R13 et R17 ne posaient que `ligne_id` sur l'anomalie qu'elles
@@ -124,7 +128,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.fuseau import FUSEAU_PARIS
-from app.modules.ingest.anomalies import CHANTIER_ID_RESOLU
+from app.modules.ingest.anomalies import CHANTIER_ID_RESOLU, regles_de_categorie
 from app.modules.ingest.models import (
     Anomalie,
     BlocFacture,
@@ -139,10 +143,18 @@ from app.modules.ingest.models import (
 # ouverte fait entrer un bloc dans « en écart » (décision du contrôleur,
 # L5-T1). R01/R02 (absence de BL/mention "pas de bon") et R10-R13/R17
 # (contrôles de document, doublons, avoirs) n'y figurent pas : ce ne sont
-# pas des écarts de quantité ou de prix sur une ligne.
-REGLES_QUANTITE_OU_PRIX: frozenset[str] = frozenset(
-    {"R03", "R04", "R05", "R06", "R07", "R08", "R09"}
-)
+# pas des écarts de quantité ou de prix sur une ligne. Dérivé de la table
+# unique `ingest.anomalies.CATEGORIES_REGLE` (revue finale de la refonte du
+# front, constat SERVEUR-3) -- mêmes sept règles R03 à R09 qu'avant, mais
+# plus jamais une seconde liste divergente de celle qui fonde l'état d'un
+# chantier et les filtres de l'écran « À régler ».
+REGLES_QUANTITE_OU_PRIX: frozenset[str] = regles_de_categorie("prix", "quantites")
+
+# Règles « bon de livraison manquant » (R01 jamais reçu, R02 livré sans
+# bon) : une anomalie ouverte de l'une d'elles fait entrer son bloc dans
+# `a_verifier` (revue finale de la refonte du front, constat SERVEUR-1) --
+# une fois traitée ou ignorée, le bloc n'est plus « à vérifier ».
+REGLES_BL_MANQUANT: frozenset[str] = regles_de_categorie("bl")
 
 # Types de ligne qui composent un montant facturé (CDC §5/§6) : une ligne
 # "commentaire" ne porte jamais de montant.
@@ -170,13 +182,33 @@ class MontantsBilan:
     quantité ou de prix, mais ce n'en est pas moins une anomalie ouverte à
     traiter. Une anomalie sans bloc n'entre jamais dans `en_ecart`; elle
     entre dans le compte des niveaux auxquels son document ou son chantier
-    explicite permet de l'attribuer."""
+    explicite permet de l'attribuer.
+
+    `conforme` et `a_verifier` (revue finale de la refonte du front,
+    constats SERVEUR-1 et SERVEUR-2) sont calculés **bloc par bloc** dans la
+    même requête, chaque bloc compté une seule fois -- jamais par
+    soustraction ou addition des quatre montants ci-dessus, qui ne forment
+    pas une partition (L5-D3) :
+    - `conforme` : blocs reçus (`statut_rapprochement = 'recu'`) sans
+      aucune anomalie ouverte de quantité ou de prix. L'ancienne formule
+      « rapproché - en écart » (spec §6.2) supposait que tout bloc en écart
+      était reçu, ce qui est faux : R07-R09 s'évaluent quel que soit l'état
+      du BL (Ruling R11 du lot 4) -- un bloc non reçu en écart de prix était
+      retiré d'un « conforme » où il n'avait jamais été compté ;
+    - `a_verifier` : blocs qui portent au moins une anomalie **ouverte**
+      de bon manquant (R01/R02, `REGLES_BL_MANQUANT`) ou de quantité/prix
+      (`REGLES_QUANTITE_OU_PRIX`). Un bloc non reçu dont le problème a déjà
+      été contesté ou ignoré n'est plus « à vérifier » (l'ancienne formule
+      `en_ecart + non_justifie` le comptait toujours, et comptait deux fois
+      un bloc non reçu en écart de prix)."""
 
     facture_ht: Decimal
     rapproche: Decimal
     en_ecart: Decimal
     non_justifie: Decimal
     nb_anomalies_ouvertes: int
+    conforme: Decimal
+    a_verifier: Decimal
 
 
 @dataclass(frozen=True)
@@ -289,6 +321,8 @@ class _ExpressionsMontants:
     en_ecart: Any
     non_justifie: Any
     nb_anomalies_ouvertes: Any
+    conforme: Any
+    a_verifier: Any
 
 
 def _conditions_base(mois: date | None) -> list[Any]:
@@ -454,13 +488,20 @@ def _comptes_anomalies(
 
 
 def _anomalies_qte_prix_par_bloc(anomalies: Any) -> Any:
-    """Sous-ensemble par bloc utilisé exclusivement par `en_ecart`."""
+    """Comptes par bloc des anomalies ouvertes de quantité/prix
+    (`nb_qte_prix`, seul critère d'`en_ecart`) et de bon manquant
+    (`nb_bl_manquant`, R01/R02 -- revue finale de la refonte du front,
+    constat SERVEUR-1), utilisés par `en_ecart`, `conforme` et
+    `a_verifier`."""
     return (
         select(
             anomalies.c.bloc_id,
             func.count()
             .filter(anomalies.c.regle.in_(tuple(REGLES_QUANTITE_OU_PRIX)))
             .label("nb_qte_prix"),
+            func.count()
+            .filter(anomalies.c.regle.in_(tuple(REGLES_BL_MANQUANT)))
+            .label("nb_bl_manquant"),
         )
         .where(anomalies.c.bloc_id.is_not(None))
         .group_by(anomalies.c.bloc_id)
@@ -481,7 +522,13 @@ def _expressions_montants(
     englobante peut les grouper par n'importe quelle clé (chantier,
     fournisseur, ou l'identité du bloc lui-même pour le niveau BL, où
     chaque groupe ne contient jamais plus d'une ligne `blocs`) sans changer
-    un seul `CASE WHEN`."""
+    un seul `CASE WHEN`.
+
+    `conforme`/`a_verifier` (revue finale de la refonte du front) : un
+    `CASE WHEN` par bloc, chaque bloc compté au plus une fois -- voir le
+    docstring de `MontantsBilan`."""
+    en_ecart_bloc = func.coalesce(anomalies_qte_prix.c.nb_qte_prix, 0) > 0
+    bl_manquant_bloc = func.coalesce(anomalies_qte_prix.c.nb_bl_manquant, 0) > 0
     return _ExpressionsMontants(
         facture_ht=func.sum(blocs.c.montant_ht),
         rapproche=func.sum(
@@ -506,6 +553,24 @@ def _expressions_montants(
             )
         ),
         nb_anomalies_ouvertes=func.coalesce(nb_anomalies_ouvertes, 0),
+        conforme=func.sum(
+            case(
+                (
+                    and_(
+                        blocs.c.statut_rapprochement == "recu",
+                        ~en_ecart_bloc,
+                    ),
+                    blocs.c.montant_ht,
+                ),
+                else_=0,
+            )
+        ),
+        a_verifier=func.sum(
+            case(
+                (or_(en_ecart_bloc, bl_manquant_bloc), blocs.c.montant_ht),
+                else_=0,
+            )
+        ),
     )
 
 
@@ -520,6 +585,8 @@ def _montants_bilan(ligne: Any) -> MontantsBilan:
         en_ecart=ligne.en_ecart,
         non_justifie=ligne.non_justifie,
         nb_anomalies_ouvertes=ligne.nb_anomalies_ouvertes,
+        conforme=ligne.conforme,
+        a_verifier=ligne.a_verifier,
     )
 
 
@@ -616,6 +683,8 @@ async def _bilan_par_chantier_interne(
             montants.en_ecart.label("en_ecart"),
             montants.non_justifie.label("non_justifie"),
             montants.nb_anomalies_ouvertes.label("nb_anomalies_ouvertes"),
+            montants.conforme.label("conforme"),
+            montants.a_verifier.label("a_verifier"),
         )
         .select_from(blocs)
         .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
@@ -737,6 +806,8 @@ async def _bilan_par_fournisseur_interne(
             montants.en_ecart.label("en_ecart"),
             montants.non_justifie.label("non_justifie"),
             montants.nb_anomalies_ouvertes.label("nb_anomalies_ouvertes"),
+            montants.conforme.label("conforme"),
+            montants.a_verifier.label("a_verifier"),
         )
         .select_from(blocs)
         .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
@@ -861,6 +932,8 @@ async def bilan_par_bl(
             montants.en_ecart.label("en_ecart"),
             montants.non_justifie.label("non_justifie"),
             montants.nb_anomalies_ouvertes.label("nb_anomalies_ouvertes"),
+            montants.conforme.label("conforme"),
+            montants.a_verifier.label("a_verifier"),
         )
         .select_from(blocs)
         .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)

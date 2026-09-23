@@ -871,6 +871,11 @@ export interface components {
             fournisseur: string | null;
             /** Bl Document Id */
             bl_document_id: string | null;
+            /**
+             * Categorie
+             * @enum {string}
+             */
+            categorie: "bl" | "prix" | "quantites" | "rattacher" | "autre";
         };
         /**
          * ArchivageRequete
@@ -1091,8 +1096,11 @@ export interface components {
             client: string | null;
             /** Agence */
             agence: string | null;
-            /** Etat */
-            etat: string;
+            /**
+             * Etat
+             * @enum {string}
+             */
+            etat: "a_rattacher" | "bl_manquant" | "prix" | "quantites" | "a_voir" | "conforme";
             montants: components["schemas"]["MontantsBilanReponse"];
             /** A Verifier */
             a_verifier: string;
@@ -1120,6 +1128,8 @@ export interface components {
             document_id: string;
             /** Facture Id */
             facture_id: string | null;
+            /** Bloc Id */
+            bloc_id: string | null;
             /** Numero Facture */
             numero_facture: string | null;
             /** Montant Facture Ht */
@@ -1550,6 +1560,11 @@ export interface components {
             pu_facture: string | null;
             /** Regles Ouvertes */
             regles_ouvertes: string[];
+            /**
+             * Controle
+             * @enum {string}
+             */
+            controle: "conforme" | "ecart" | "non_facture" | "pas_encore_facture";
         };
         /**
          * LigneDocumentReponse
@@ -1689,6 +1704,10 @@ export interface components {
             non_justifie: string;
             /** Nb Anomalies Ouvertes */
             nb_anomalies_ouvertes: number;
+            /** Conforme */
+            conforme: string;
+            /** A Verifier */
+            a_verifier: string;
         };
         /**
          * MotifReponse
@@ -1758,10 +1777,14 @@ export interface components {
             nb_bl_factures: number;
             /** Nb Bl Recus */
             nb_bl_recus: number;
+            /** Nb Bl Manquants */
+            nb_bl_manquants: number;
             /** Chantiers */
             chantiers: components["schemas"]["ChantierTableauReponse"][];
             /** Priorites */
             priorites: components["schemas"]["ProblemePrioritaireReponse"][];
+            /** Dernier Mois Facture */
+            dernier_mois_facture: string | null;
         };
         /**
          * TotauxMoisReponse
@@ -2647,6 +2670,7 @@ export interface operations {
                 bloc_id?: string | null;
                 chantier_id?: string | null;
                 fournisseur_id?: string | null;
+                bl_document_id?: string | null;
                 depuis?: string | null;
                 jusqu_a?: string | null;
                 limite?: number;

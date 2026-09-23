@@ -41,6 +41,8 @@ def _montants(
     en_ecart: Decimal = Decimal("0.00"),
     non_justifie: Decimal = Decimal("0.00"),
     nb_anomalies_ouvertes: int = 0,
+    conforme: Decimal = Decimal("0.00"),
+    a_verifier: Decimal = Decimal("0.00"),
 ) -> MontantsBilan:
     return MontantsBilan(
         facture_ht=facture_ht,
@@ -48,6 +50,8 @@ def _montants(
         en_ecart=en_ecart,
         non_justifie=non_justifie,
         nb_anomalies_ouvertes=nb_anomalies_ouvertes,
+        conforme=conforme,
+        a_verifier=a_verifier,
     )
 
 

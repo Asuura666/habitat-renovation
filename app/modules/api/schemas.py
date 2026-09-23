@@ -379,6 +379,10 @@ class AnomalieReponse(BaseModel):
     fournisseur_id: uuid.UUID | None
     fournisseur: str | None
     bl_document_id: uuid.UUID | None
+    # Revue finale de la refonte du front (constat SERVEUR-3) : catégorie
+    # calculée par `ingest.anomalies.categorie_regle` (table unique), lue
+    # telle quelle par les filtres de l'écran « À régler ».
+    categorie: Literal["bl", "prix", "quantites", "rattacher", "autre"]
 
 
 class TraitementAnomalieRequete(BaseModel):
@@ -529,6 +533,8 @@ class MontantsBilanReponse(BaseModel):
     en_ecart: Decimal
     non_justifie: Decimal
     nb_anomalies_ouvertes: int
+    conforme: Decimal
+    a_verifier: Decimal
 
 
 class LigneBilanChantierReponse(BaseModel):
@@ -615,7 +621,12 @@ class ChantierTableauReponse(BaseModel):
     nom_canonique: str | None
     client: str | None
     agence: str | None
-    etat: str
+    # Revue finale (constat SERVEUR-7) : les six valeurs exactes
+    # d'`ingest.tableau_de_bord.ETATS`, plus jamais une chaîne libre -- le type
+    # généré côté front est donc exact, sans conversion forcée.
+    etat: Literal[
+        "a_rattacher", "bl_manquant", "prix", "quantites", "a_voir", "conforme"
+    ]
     montants: MontantsBilanReponse
     a_verifier: Decimal
 
@@ -644,8 +655,10 @@ class TableauDeBordReponse(BaseModel):
     nb_problemes_urgents: int
     nb_bl_factures: int
     nb_bl_recus: int
+    nb_bl_manquants: int
     chantiers: list[ChantierTableauReponse]
     priorites: list[ProblemePrioritaireReponse]
+    dernier_mois_facture: date | None
 
 
 class DepotAgentReponse(BaseModel):
@@ -711,6 +724,9 @@ class LigneCompareeReponse(BaseModel):
     qte_facturee: Decimal | None
     pu_facture: Decimal | None
     regles_ouvertes: list[str]
+    # Revue finale (constats SERVEUR-6/ECRAN-3) : verdict de la ligne,
+    # calculé par `ingest.comparaison_bl`, affiché tel quel par la page BL.
+    controle: Literal["conforme", "ecart", "non_facture", "pas_encore_facture"]
 
 
 class ComparaisonBlReponse(BaseModel):
@@ -731,6 +747,7 @@ class ComparaisonBlReponse(BaseModel):
 
     document_id: uuid.UUID
     facture_id: uuid.UUID | None
+    bloc_id: uuid.UUID | None
     numero_facture: str | None
     montant_facture_ht: Decimal | None
     lignes: list[LigneCompareeReponse]

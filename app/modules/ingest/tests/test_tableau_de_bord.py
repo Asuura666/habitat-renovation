@@ -139,10 +139,22 @@ async def _creer_anomalie(
     detail: dict[str, Any] | None = None,
     statut: str = "ouverte",
 ) -> Anomalie:
+    """Anomalie de la forme que produit réellement le rapprochement (revue
+    finale de la refonte du front, constat SERVEUR-8) : une anomalie de bloc
+    porte toujours `document_id` = la facture de ce bloc (Ruling R17 du lot
+    4, `rapprochement.py` complète `document_id` à partir du bloc) -- avant
+    ce correctif, les scénarios de ce fichier ne posaient jamais
+    `document_id`, une forme qui n'existe pas en base réelle."""
+    document_id: uuid.UUID | None = None
+    if bloc_id is not None:
+        bloc = await db_session.get(BlocFacture, bloc_id)
+        assert bloc is not None
+        document_id = bloc.facture_id
     anomalie = Anomalie(
         regle=regle,
         gravite=gravite,
         statut=statut,
+        document_id=document_id,
         bloc_id=bloc_id,
         ligne_id=ligne_id,
         detail=detail if detail is not None else {"cle": "valeur"},
@@ -265,6 +277,10 @@ async def test_tableau_de_bord_etats(db_session: AsyncSession) -> None:
     await _creer_ligne(
         db_session, document=facture, bloc=bloc_b, montant_ht=Decimal("10.00")
     )
+    # Un bloc non reçu porte toujours son R01 (le rapprochement le pose) :
+    # c'est ce problème ouvert, plus le seul statut du bloc, qui fait l'état
+    # `bl_manquant` (revue finale, constat SERVEUR-1).
+    await _creer_anomalie(db_session, regle="R01", gravite="haute", bloc_id=bloc_b.id)
 
     bloc_c = await _creer_bloc(
         db_session,
@@ -555,7 +571,7 @@ async def test_tableau_de_bord_etat_anomalie_implique_nb_anomalies_ouvertes(
         montant_ht=Decimal("10.00"),
     )
     await _creer_anomalie(
-        db_session, regle="R09", gravite="haute", bloc_id=bloc_fuite_juillet.id
+        db_session, regle="R09", gravite="moyenne", bloc_id=bloc_fuite_juillet.id
     )
 
     tdb = await tableau_de_bord(db_session, mois=_SEPT)
@@ -721,8 +737,388 @@ async def test_tableau_de_bord_tri_chantiers(db_session: AsyncSession) -> None:
     await _creer_ligne(
         db_session, document=facture, bloc=bloc_non_resolu, montant_ht=Decimal("50.00")
     )
+    # Chaque bloc non reçu porte son R01 ouvert (forme réelle) : c'est lui
+    # qui le fait entrer dans `a_verifier` (revue finale, constat SERVEUR-1).
+    for bloc in (bloc_top, bloc_a, bloc_z, bloc_non_resolu):
+        await _creer_anomalie(db_session, regle="R01", gravite="haute", bloc_id=bloc.id)
 
     tdb = await tableau_de_bord(db_session, mois=_SEPT)
 
     noms = [chantier.nom_canonique for chantier in tdb.chantiers]
     assert noms == ["Top", "A", "Z", None]
+
+
+# --------------------------------------------------------------------------
+# Revue finale de la refonte du front (constats SERVEUR-1, SERVEUR-2,
+# SERVEUR-3, SERVEUR-7, SERVEUR-8, ECRAN-8, COUVERTURE-4, COUVERTURE-26) :
+# état et montants fondés sur les problèmes encore ouverts, chaque bloc
+# compté une fois, formes d'anomalies réelles.
+# --------------------------------------------------------------------------
+
+
+async def test_tableau_de_bord_bon_manquant_deja_regle_nest_plus_a_verifier(
+    db_session: AsyncSession,
+) -> None:
+    """SERVEUR-1/ECRAN-5 : un bloc non reçu dont le R01 est déjà contesté
+    (`traitee`), et un bloc « livré sans bon » dont le R02 est ignoré, ne
+    laissent plus leur chantier en « BL manquant » ni leur montant « à
+    vérifier ». Le montant « sans bon de livraison » (L5-D3) ne change pas
+    de définition, lui."""
+    fournisseur = await _creer_fournisseur(db_session)
+    bellevue = await _creer_chantier(db_session, nom="Résidence Test")
+    perrier = await _creer_chantier(db_session, nom="Maison Test")
+    facture = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-FIN-REGLE",
+        date_doc=date(2026, 9, 3),
+    )
+
+    bloc_non_recu = await _creer_bloc(
+        db_session,
+        facture=facture,
+        ordre=0,
+        numero_bl="NR-REGLE",
+        chantier_id=bellevue.id,
+        statut_rapprochement="non_recu",
+    )
+    await _creer_ligne(
+        db_session, document=facture, bloc=bloc_non_recu, montant_ht=Decimal("303.90")
+    )
+    await _creer_anomalie(
+        db_session,
+        regle="R01",
+        gravite="haute",
+        bloc_id=bloc_non_recu.id,
+        statut="traitee",
+    )
+
+    bloc_sans_bon = await _creer_bloc(
+        db_session,
+        facture=facture,
+        ordre=1,
+        numero_bl="PDB-IGNORE",
+        chantier_id=perrier.id,
+        statut_rapprochement="pas_de_bon",
+    )
+    await _creer_ligne(
+        db_session, document=facture, bloc=bloc_sans_bon, montant_ht=Decimal("191.50")
+    )
+    await _creer_anomalie(
+        db_session,
+        regle="R02",
+        gravite="haute",
+        bloc_id=bloc_sans_bon.id,
+        statut="ignoree",
+    )
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    par_nom = {chantier.nom_canonique: chantier for chantier in tdb.chantiers}
+    for nom in ("Résidence Test", "Maison Test"):
+        assert par_nom[nom].etat == "conforme", nom
+        assert par_nom[nom].a_verifier == Decimal("0"), nom
+        assert par_nom[nom].montants.a_verifier == Decimal("0"), nom
+        assert par_nom[nom].montants.nb_anomalies_ouvertes == 0, nom
+    assert tdb.totaux.non_justifie == Decimal("495.40")
+    assert tdb.nb_bl_manquants == 0
+    assert tdb.nb_problemes_ouverts == 0
+
+
+async def test_tableau_de_bord_bon_manquant_ouvert_reste_bl_manquant(
+    db_session: AsyncSession,
+) -> None:
+    """Pendant de la règle précédente : tant que le R01 est ouvert, le
+    chantier reste « BL manquant », son montant reste à vérifier et le bon
+    est compté parmi ceux à réclamer. Un bloc « livré sans bon » (R02
+    ouvert) est à vérifier mais n'a aucun bon à réclamer (COUVERTURE-4)."""
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = await _creer_chantier(db_session, nom="Chantier Ouvert")
+    facture = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-FIN-OUVERT",
+        date_doc=date(2026, 9, 4),
+    )
+    bloc_non_recu = await _creer_bloc(
+        db_session,
+        facture=facture,
+        ordre=0,
+        numero_bl="NR-OUVERT",
+        chantier_id=chantier.id,
+        statut_rapprochement="non_recu",
+    )
+    await _creer_ligne(
+        db_session, document=facture, bloc=bloc_non_recu, montant_ht=Decimal("40.00")
+    )
+    await _creer_anomalie(
+        db_session, regle="R01", gravite="haute", bloc_id=bloc_non_recu.id
+    )
+    bloc_sans_bon = await _creer_bloc(
+        db_session,
+        facture=facture,
+        ordre=1,
+        numero_bl="PDB-OUVERT",
+        chantier_id=chantier.id,
+        statut_rapprochement="pas_de_bon",
+    )
+    await _creer_ligne(
+        db_session, document=facture, bloc=bloc_sans_bon, montant_ht=Decimal("25.00")
+    )
+    await _creer_anomalie(
+        db_session, regle="R02", gravite="haute", bloc_id=bloc_sans_bon.id
+    )
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    ligne = next(c for c in tdb.chantiers if c.chantier_id == chantier.id)
+    assert ligne.etat == "bl_manquant"
+    assert ligne.a_verifier == Decimal("65.00")
+    assert (tdb.nb_bl_factures, tdb.nb_bl_recus, tdb.nb_bl_manquants) == (2, 0, 1)
+
+
+async def test_tableau_de_bord_prix_sur_bloc_non_recu_compte_une_seule_fois(
+    db_session: AsyncSession,
+) -> None:
+    """SERVEUR-2, scénario 1 : un seul bloc non reçu de 1 000 € portant une
+    R08 ouverte (R07-R09 s'évaluent quel que soit l'état du BL) et son R01.
+    L'ancienne formule `en_ecart + non_justifie` donnait 2 000 € à vérifier,
+    plus que le facturé."""
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = await _creer_chantier(db_session, nom="Chantier Double")
+    facture = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-FIN-DOUBLE",
+        date_doc=date(2026, 9, 5),
+    )
+    bloc = await _creer_bloc(
+        db_session,
+        facture=facture,
+        numero_bl="NR-PRIX",
+        chantier_id=chantier.id,
+        statut_rapprochement="non_recu",
+    )
+    ligne = await _creer_ligne(
+        db_session, document=facture, bloc=bloc, montant_ht=Decimal("1000.00")
+    )
+    await _creer_anomalie(db_session, regle="R01", gravite="haute", bloc_id=bloc.id)
+    await _creer_anomalie(
+        db_session, regle="R08", gravite="haute", bloc_id=bloc.id, ligne_id=ligne.id
+    )
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    assert tdb.totaux.facture_ht == Decimal("1000.00")
+    assert tdb.totaux.en_ecart == Decimal("1000.00")
+    assert tdb.totaux.non_justifie == Decimal("1000.00")
+    assert tdb.totaux.conforme == Decimal("0")
+    ligne_chantier = next(c for c in tdb.chantiers if c.chantier_id == chantier.id)
+    assert ligne_chantier.a_verifier == Decimal("1000.00")
+    assert ligne_chantier.etat == "bl_manquant"
+
+
+async def test_tableau_de_bord_conforme_ne_retire_pas_un_bloc_non_recu(
+    db_session: AsyncSession,
+) -> None:
+    """SERVEUR-2, scénario 2 : bloc A reçu de 1 000 € sans anomalie, bloc B
+    non reçu de 800 € avec une R09 ouverte. L'ancienne formule « rapproché -
+    en écart » donnait « Conforme 200 € » au lieu de 1 000 €."""
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = await _creer_chantier(db_session, nom="Chantier Conforme")
+    facture = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-FIN-CONF",
+        date_doc=date(2026, 9, 6),
+    )
+    bloc_a = await _creer_bloc(
+        db_session,
+        facture=facture,
+        ordre=0,
+        numero_bl="A-RECU",
+        chantier_id=chantier.id,
+        statut_rapprochement="recu",
+    )
+    await _creer_ligne(
+        db_session, document=facture, bloc=bloc_a, montant_ht=Decimal("1000.00")
+    )
+    bloc_b = await _creer_bloc(
+        db_session,
+        facture=facture,
+        ordre=1,
+        numero_bl="B-NON-RECU",
+        chantier_id=chantier.id,
+        statut_rapprochement="non_recu",
+    )
+    ligne_b = await _creer_ligne(
+        db_session, document=facture, bloc=bloc_b, montant_ht=Decimal("800.00")
+    )
+    await _creer_anomalie(db_session, regle="R01", gravite="haute", bloc_id=bloc_b.id)
+    await _creer_anomalie(
+        db_session,
+        regle="R09",
+        gravite="moyenne",
+        bloc_id=bloc_b.id,
+        ligne_id=ligne_b.id,
+    )
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    assert tdb.totaux.rapproche == Decimal("1000.00")
+    assert tdb.totaux.en_ecart == Decimal("800.00")
+    assert tdb.totaux.conforme == Decimal("1000.00")
+    ligne_chantier = next(c for c in tdb.chantiers if c.chantier_id == chantier.id)
+    assert ligne_chantier.montants.conforme == Decimal("1000.00")
+    assert ligne_chantier.a_verifier == Decimal("800.00")
+
+
+async def test_tableau_de_bord_exclut_une_facture_archivee(
+    db_session: AsyncSession,
+) -> None:
+    """SERVEUR-8 : une facture archivée (et ses anomalies, même restées
+    ouvertes) n'entre dans aucun total, aucun compte, aucun état."""
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = await _creer_chantier(db_session, nom="Chantier Archive")
+    facture = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-FIN-ARCH",
+        date_doc=date(2026, 9, 7),
+    )
+    bloc = await _creer_bloc(
+        db_session,
+        facture=facture,
+        numero_bl="ARCH1",
+        chantier_id=chantier.id,
+        statut_rapprochement="non_recu",
+    )
+    await _creer_ligne(
+        db_session, document=facture, bloc=bloc, montant_ht=Decimal("70.00")
+    )
+    await _creer_anomalie(db_session, regle="R01", gravite="haute", bloc_id=bloc.id)
+    facture.statut = "archive"
+    await db_session.commit()
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    assert tdb.chantiers == []
+    assert tdb.totaux.facture_ht == Decimal("0")
+    assert (tdb.nb_bl_factures, tdb.nb_bl_manquants) == (0, 0)
+    assert tdb.nb_problemes_ouverts == 0
+    assert tdb.dernier_mois_facture is None
+
+
+async def test_tableau_de_bord_etat_suit_la_categorie_unique(
+    db_session: AsyncSession,
+) -> None:
+    """SERVEUR-3 : l'état d'un chantier suit la table unique des catégories
+    (`ingest.anomalies.CATEGORIES_REGLE`), la même que les filtres de
+    l'écran « À régler » -- une R05 seule donne « quantités », une R17
+    seule (conditionnement, hors écart de quantité/prix) donne « à voir »."""
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier_r05 = await _creer_chantier(db_session, nom="Chantier R05")
+    chantier_r17 = await _creer_chantier(db_session, nom="Chantier R17")
+    facture = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-FIN-CAT",
+        date_doc=date(2026, 9, 8),
+    )
+    for ordre, (chantier, regle, gravite) in enumerate(
+        ((chantier_r05, "R05", "haute"), (chantier_r17, "R17", "moyenne"))
+    ):
+        bloc = await _creer_bloc(
+            db_session,
+            facture=facture,
+            ordre=ordre,
+            numero_bl=f"CAT{ordre}",
+            chantier_id=chantier.id,
+            statut_rapprochement="recu",
+        )
+        ligne = await _creer_ligne(
+            db_session, document=facture, bloc=bloc, montant_ht=Decimal("12.00")
+        )
+        await _creer_anomalie(
+            db_session, regle=regle, gravite=gravite, bloc_id=bloc.id, ligne_id=ligne.id
+        )
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    etats = {c.nom_canonique: c.etat for c in tdb.chantiers}
+    assert etats == {"Chantier R05": "quantites", "Chantier R17": "a_voir"}
+    a_verifier = {c.nom_canonique: c.a_verifier for c in tdb.chantiers}
+    assert a_verifier == {
+        "Chantier R05": Decimal("12.00"),
+        "Chantier R17": Decimal("0"),
+    }
+
+
+async def test_tableau_de_bord_normalise_le_mois_et_signe_des_montants(
+    db_session: AsyncSession,
+) -> None:
+    """SERVEUR-7 : `mois` est toujours ramené au 1er du mois. ECRAN-8 :
+    `montant_en_jeu` d'une R05 négative (avoir) reste signé, comme dans
+    `detail` -- seule la clé de tri prend sa valeur absolue."""
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-FIN-SIGNE",
+        date_doc=date(2026, 9, 9),
+    )
+    blocs = [
+        await _creer_bloc(db_session, facture=facture, ordre=i, numero_bl=f"S{i}")
+        for i in range(2)
+    ]
+    for bloc in blocs:
+        await _creer_ligne(
+            db_session, document=facture, bloc=bloc, montant_ht=Decimal("10.00")
+        )
+    await _creer_anomalie(
+        db_session,
+        regle="R05",
+        gravite="haute",
+        bloc_id=blocs[0].id,
+        detail={"montant": "-45.00"},
+    )
+    await _creer_anomalie(
+        db_session,
+        regle="R05",
+        gravite="haute",
+        bloc_id=blocs[1].id,
+        detail={"montant": "30.00"},
+    )
+
+    tdb = await tableau_de_bord(db_session, mois=date(2026, 9, 17))
+
+    assert tdb.mois == _SEPT
+    assert [p.montant_en_jeu for p in tdb.priorites] == [
+        Decimal("-45.00"),
+        Decimal("30.00"),
+    ]
+
+
+async def test_tableau_de_bord_dernier_mois_facture(db_session: AsyncSession) -> None:
+    """COUVERTURE-26 : le serveur indique le dernier mois qui a une facture
+    (ici août), même quand le mois demandé (septembre) n'en a aucune."""
+    fournisseur = await _creer_fournisseur(db_session)
+    assert (await tableau_de_bord(db_session, mois=_SEPT)).dernier_mois_facture is None
+
+    await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-FIN-JUIL",
+        date_doc=date(2026, 7, 30),
+    )
+    await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-FIN-AOUT",
+        date_doc=date(2026, 8, 20),
+    )
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    assert tdb.chantiers == []
+    assert tdb.dernier_mois_facture == date(2026, 8, 1)

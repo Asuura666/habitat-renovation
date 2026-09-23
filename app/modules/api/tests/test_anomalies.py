@@ -668,6 +668,56 @@ async def test_get_anomalies_forme_json(
     assert corps["fournisseur"] == fournisseur.nom
     assert corps["traitee_par"] is None
     assert corps["commentaire"] is None
+    # Revue finale de la refonte du front (SERVEUR-3) : catégorie calculée
+    # par le serveur (table unique), jamais par le front.
+    assert corps["categorie"] == "bl"
+
+
+async def test_get_anomalies_filtre_bl_document_id(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Revue finale (LIENS-1) : `?bl_document_id=` restreint aux problèmes
+    d'un bon précis (anomalies de ses blocs de facture ou du bon lui-même),
+    le paramètre posé par « Régler les N problèmes » de la page du bon."""
+    admin = await _creer_utilisateur(
+        db_session, email="admin.anomalies-bl@example.invalid", role="admin"
+    )
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_document(db_session, fournisseur=fournisseur)
+    bon = Document(
+        type="bl",
+        source="telegram",
+        statut="recu",
+        fichier_path=f"chemin-invente-{uuid.uuid4()}.jpg",
+        numero="L0001",
+    )
+    db_session.add(bon)
+    await db_session.commit()
+    await db_session.refresh(bon)
+    bloc_du_bon = await _creer_bloc(db_session, facture=facture)
+    bloc_du_bon.bl_document_id = bon.id
+    autre_bloc = await _creer_bloc(db_session, facture=facture)
+    await db_session.commit()
+    du_bloc = await _creer_anomalie(
+        db_session, regle="R12", document_id=facture.id, bloc_id=bloc_du_bon.id
+    )
+    du_bon = await _creer_anomalie(
+        db_session, regle="R11", gravite="moyenne", document_id=bon.id
+    )
+    await _creer_anomalie(
+        db_session, regle="R01", document_id=facture.id, bloc_id=autre_bloc.id
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test, "GET", f"/api/anomalies?bl_document_id={bon.id}", cookie=cookie
+    )
+
+    assert reponse.status_code == 200
+    assert {a["id"] for a in reponse.json()} == {str(du_bloc.id), str(du_bon.id)}
 
 
 # --------------------------------------------------------------------------

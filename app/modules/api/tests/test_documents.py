@@ -557,3 +557,91 @@ async def test_comparaison_admin_renvoie_le_detail(
     # Tour de correction 1 de Task 8 : nombre d'anomalies ouvertes, jamais
     # recalculé côté front à partir de `lignes`.
     assert corps["nb_problemes"] == 0
+    # Revue finale (LIENS-13) : le bloc affiché, ancre du lien « Voir la
+    # facture ».
+    assert corps["bloc_id"] is not None
+
+
+# --------------------------------------------------------------------------
+# Revue finale de la refonte du front (constat COUVERTURE-23) : cas de la
+# Task 3 restés sans test HTTP.
+# --------------------------------------------------------------------------
+
+
+async def test_comparaison_dune_facture_renvoie_404(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Une facture n'a pas de comparaison (seuls un BL ou un bon
+    d'enlèvement en ont une) : 404, jamais un 500 ni une comparaison vide."""
+    admin = await _creer_utilisateur(
+        db_session, email="admin.doccomparaisonfacture@example.invalid", role="admin"
+    )
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _get(
+        app_test, f"/api/documents/{facture.id}/comparaison", cookie=cookie
+    )
+
+    assert reponse.status_code == 404
+
+
+async def test_fichier_agent_telecharge_son_propre_bon(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """« Télécharger la photo » côté agent : son propre bon se télécharge
+    avec un nom explicite."""
+    chemin = tmp_path / "photo-agent-dl.jpg"
+    chemin.write_bytes(b"contenu-invente")
+    agent = await _creer_utilisateur(
+        db_session, email="agent.docdl@example.invalid", role="agent"
+    )
+    document = await _creer_document_bl(
+        db_session, numero="L660", deposant=agent, fichier_path=str(chemin)
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=agent.email)
+
+    reponse = await _get(
+        app_test,
+        f"/api/documents/{document.id}/fichier?telechargement=true",
+        cookie=cookie,
+    )
+
+    assert reponse.status_code == 200
+    assert reponse.headers["content-disposition"].startswith("attachment")
+    assert "BL_L660_sans-chantier.jpg" in reponse.headers["content-disposition"]
+
+
+async def test_fichier_agent_ne_telecharge_pas_le_bon_dun_autre(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    chemin = tmp_path / "photo-autre-dl.jpg"
+    chemin.write_bytes(b"contenu-invente")
+    auteur = await _creer_utilisateur(
+        db_session, email="agent.docdlauteur@example.invalid", role="agent"
+    )
+    curieux = await _creer_utilisateur(
+        db_session, email="agent.docdlcurieux@example.invalid", role="agent"
+    )
+    document = await _creer_document_bl(
+        db_session, numero="L661", deposant=auteur, fichier_path=str(chemin)
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=curieux.email)
+
+    reponse = await _get(
+        app_test,
+        f"/api/documents/{document.id}/fichier?telechargement=true",
+        cookie=cookie,
+    )
+
+    assert reponse.status_code == 404

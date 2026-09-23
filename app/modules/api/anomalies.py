@@ -9,6 +9,9 @@ avant tout accès au service.
 
 Filtres de `GET /api/anomalies` (décision du contrôleur) : `regle`,
 `gravite`, `statut` (défaut `ouverte`), `chantier_id`, `fournisseur_id`,
+`bl_document_id` (revue finale de la refonte du front : problèmes d'un bon
+précis, même périmètre que son `nb_problemes`, voir
+`ingest.anomalies.condition_anomalies_du_bl`),
 `depuis`/`jusqu_a` (sur `created_at`), `limite` (1..500, défaut 100) —
 combinables, validés ici par FastAPI (`Literal`, `Query(ge=..., le=...)`),
 jamais par le service (même principe que `limite` dans `api/documents.py`).
@@ -123,6 +126,7 @@ async def lister_anomalies_endpoint(
     bloc_id: Annotated[uuid.UUID | None, Query()] = None,
     chantier_id: Annotated[uuid.UUID | None, Query()] = None,
     fournisseur_id: Annotated[uuid.UUID | None, Query()] = None,
+    bl_document_id: Annotated[uuid.UUID | None, Query()] = None,
     depuis: Annotated[date | None, Query()] = None,
     jusqu_a: Annotated[date | None, Query()] = None,
     limite: Annotated[
@@ -137,6 +141,7 @@ async def lister_anomalies_endpoint(
         bloc_id=bloc_id,
         chantier_id=chantier_id,
         fournisseur_id=fournisseur_id,
+        bl_document_id=bl_document_id,
         depuis=_debut_jour_paris(depuis) if depuis is not None else None,
         jusqu_a=_fin_jour_paris(jusqu_a) if jusqu_a is not None else None,
         limite=limite,

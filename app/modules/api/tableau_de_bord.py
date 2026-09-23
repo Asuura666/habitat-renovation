@@ -13,9 +13,11 @@ aucune somme, aucun seuil, aucun tri.
 /api/bilan/chantiers` où il est optionnel) : le tableau de bord n'a pas de
 sens "tous mois confondus". Même type `date` que le filtre du bilan --
 FastAPI/Pydantic la valide (422 si absente ou mal formée) avant que le
-routeur ne la voie ; le service (`ingest.bilan._condition_mois`, réutilisé
-par `ingest.tableau_de_bord`) ramène lui-même toute date à son 1er du mois
-calendaire parisien, jamais corrigée ici (même piège évité qu'`api/bilan.py`).
+routeur ne la voie ; le service (`ingest.tableau_de_bord.tableau_de_bord`)
+ramène lui-même toute date à son 1er du mois dès son entrée -- `mois` de la
+réponse vaut donc toujours un 1er du mois (revue finale de la refonte du
+front, constat SERVEUR-7) -- jamais corrigée ici (même piège évité
+qu'`api/bilan.py`).
 
 Mois sans donnée -> 200 avec `chantiers`/`priorites` vides, jamais 404
 (même décision qu'`api/bilan.py` pour un chantier/fournisseur inconnu) :

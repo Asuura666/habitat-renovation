@@ -261,6 +261,39 @@ async def test_get_tableau_de_bord_admin_200(
     assert len(corps["chantiers"]) == 1
     assert corps["chantiers"][0]["etat"] == "a_rattacher"
     assert corps["priorites"] == []
+    # Revue finale de la refonte du front (SERVEUR-1/2/7, COUVERTURE-4/26) :
+    # bons à réclamer comptés par le serveur, montants conforme/à vérifier
+    # par chantier, mois toujours ramené au 1er, dernier mois facturé.
+    assert corps["nb_bl_manquants"] == 0
+    assert corps["mois"] == "2026-09-01"
+    assert corps["dernier_mois_facture"] == "2026-09-01"
+    montants = corps["chantiers"][0]["montants"]
+    assert montants["conforme"] == "100.00"
+    assert Decimal(montants["a_verifier"]) == Decimal("0")
+
+
+async def test_get_tableau_de_bord_mois_ramene_au_premier_du_mois(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Revue finale (SERVEUR-7) : le docstring du routeur promettait un
+    mois ramené au 1er -- c'est désormais vrai, le service le fait."""
+    await _creer_utilisateur(
+        db_session, email="admin.tdb4@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.tdb4@example.invalid")
+
+    reponse = await _requete(
+        app_test,
+        "/api/tableau-de-bord",
+        cookie=cookie,
+        params={"mois": "2026-09-17"},
+    )
+
+    assert reponse.status_code == 200
+    assert reponse.json()["mois"] == "2026-09-01"
 
 
 async def test_get_tableau_de_bord_mois_absent_422(

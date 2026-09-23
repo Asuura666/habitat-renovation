@@ -89,9 +89,9 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
-from sqlalchemy import Select, case, func, or_, select
+from sqlalchemy import ColumnElement, Select, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -102,6 +102,7 @@ from app.modules.ingest.models import (
     Document,
     Fournisseur,
     Journal,
+    Ligne,
     Utilisateur,
 )
 from app.modules.ingest.referentiels import lire_parametre_decimal
@@ -109,6 +110,56 @@ from app.modules.rules.modeles import Anomalie as AnomaliePure
 
 CLE_DUREE_IGNORANCE_J = "duree_ignorance_j"
 DUREE_IGNORANCE_DEFAUT = Decimal("90")
+
+Categorie = Literal["bl", "prix", "quantites", "rattacher", "autre"]
+
+# Catégorie d'un problème (revue finale de la refonte du front, constat
+# SERVEUR-3) : **la seule** table règle -> catégorie de l'application. Elle
+# fonde à la fois l'état d'un chantier (`ingest.tableau_de_bord`), le
+# montant « en écart » du bilan (`ingest.bilan.REGLES_QUANTITE_OU_PRIX`,
+# dérivé d'ici) et les filtres de l'écran « À régler » (champ `categorie`
+# de `AnomalieLue`, lu tel quel par le front) -- avant ce correctif, trois
+# tables différentes se contredisaient (une R05 rendait un chantier
+# « Quantités à vérifier » sans jamais apparaître sous le filtre
+# « Quantités »). Invariant vérifié par test : `prix | quantites` vaut
+# exactement l'ancien `REGLES_QUANTITE_OU_PRIX` (R03 à R09, décision L5-T1,
+# `en_ecart` inchangé). Toute règle absente de la table est « autre » :
+# R10-R13 (contrôles de document, doublon, avoir), R15 (quantités jamais
+# confirmées par l'équipe : un défaut de confirmation sur le bon, sans
+# montant, jamais un écart entre livré et facturé), R16 (chantier sans
+# dépôt récent : un rappel sur le chantier, pas une livraison sans bon) et
+# R17 (conditionnement inhabituel, déjà exclu d'`en_ecart` par la décision
+# L5-T1 : « ce ne sont pas des écarts de quantité ou de prix sur une
+# ligne »).
+CATEGORIES_REGLE: dict[str, Categorie] = {
+    "R01": "bl",
+    "R02": "bl",
+    "R03": "quantites",
+    "R04": "quantites",
+    "R05": "quantites",
+    "R06": "quantites",
+    "R07": "prix",
+    "R08": "prix",
+    "R09": "prix",
+    "R14": "rattacher",
+}
+
+
+def categorie_regle(regle: str) -> Categorie:
+    """Catégorie d'une règle (voir `CATEGORIES_REGLE`), « autre » pour
+    toute règle absente de la table, jamais une exception."""
+    return CATEGORIES_REGLE.get(regle, "autre")
+
+
+def regles_de_categorie(*categories: Categorie) -> frozenset[str]:
+    """Règles rangées dans l'une des `categories` -- dérivé de
+    `CATEGORIES_REGLE`, jamais une seconde liste écrite à la main."""
+    return frozenset(
+        regle
+        for regle, categorie in CATEGORIES_REGLE.items()
+        if categorie in categories
+    )
+
 
 # Transitions autorisées par le cycle de vie (L4-D15) : depuis `ouverte`
 # uniquement, vers l'un de ces deux statuts.
@@ -431,6 +482,7 @@ class AnomalieLue:
     fournisseur_id: uuid.UUID | None
     fournisseur: str | None
     bl_document_id: uuid.UUID | None
+    categorie: Categorie
 
 
 class AnomalieIntrouvable(Exception):
@@ -506,10 +558,49 @@ def _anomalie_lue(ligne: Any) -> AnomalieLue:
         fournisseur_id=fournisseur_id,
         fournisseur=nom_fournisseur,
         bl_document_id=bl_document_id,
+        categorie=categorie_regle(anomalie.regle),
     )
 
 
 LIMITE_ANOMALIES_DEFAUT = 100
+
+
+def condition_anomalies_du_bl(document_id: uuid.UUID) -> ColumnElement[bool]:
+    """Anomalies qui concernent un BL (ou un enlèvement), au sens large
+    (revue finale de la refonte du front, constats SERVEUR-4 et LIENS-1) :
+    portées par le bon lui-même (`document_id`, ex. R11/R15), par l'un des
+    blocs de facture qui le citent (`bloc_id`, ex. R01/R02/R12) ou par une
+    ligne de l'un ou de l'autre (`ligne_id` : une ligne du bon, ex. R06, ou
+    une ligne de facture de ces blocs, appariée ou non, ex. R03-R09/R05).
+
+    Tous les blocs qui citent ce bon comptent (pas seulement le premier) --
+    un bon facturé deux fois porte son R12 sur le bloc de la seconde facture
+    -- sauf ceux d'une facture archivée (même garde que le bilan et le
+    rapprochement : `type == "facture"`, `statut != "archive"`). Une seule
+    définition, partagée par `comparaison_bl.comparer_bl` (`nb_problemes`)
+    et par le filtre `bl_document_id` de `lister_anomalies` (écran « À
+    régler » ouvert depuis la page du bon) : le nombre annoncé sur le bon et
+    la liste ouverte par « Régler les problèmes » ne peuvent plus diverger.
+    Condition SQL pure (sous-requêtes non corrélées), à combiner avec un
+    filtre de statut par l'appelant."""
+    facture = aliased(Document)
+    blocs_du_bl = (
+        select(BlocFacture.id)
+        .join(facture, facture.id == BlocFacture.facture_id)
+        .where(
+            BlocFacture.bl_document_id == document_id,
+            facture.type == "facture",
+            facture.statut != "archive",
+        )
+    )
+    lignes_concernees = select(Ligne.id).where(
+        or_(Ligne.document_id == document_id, Ligne.bloc_id.in_(blocs_du_bl))
+    )
+    return or_(
+        Anomalie.document_id == document_id,
+        Anomalie.bloc_id.in_(blocs_du_bl),
+        Anomalie.ligne_id.in_(lignes_concernees),
+    )
 
 
 async def lister_anomalies(
@@ -521,6 +612,7 @@ async def lister_anomalies(
     bloc_id: uuid.UUID | None = None,
     chantier_id: uuid.UUID | None = None,
     fournisseur_id: uuid.UUID | None = None,
+    bl_document_id: uuid.UUID | None = None,
     depuis: datetime | None = None,
     jusqu_a: datetime | None = None,
     ids: Collection[uuid.UUID] | None = None,
@@ -542,7 +634,12 @@ async def lister_anomalies(
     requête (ex. `ingest.tableau_de_bord`, qui réutilise
     `ingest.bilan._sous_requete_anomalies` pour ne jamais recalculer
     divergemment le périmètre "anomalies du mois") -- combinable avec les
-    autres filtres, qui restent tous optionnels."""
+    autres filtres, qui restent tous optionnels.
+
+    `bl_document_id` (revue finale de la refonte du front, constat
+    LIENS-1) : restreint aux anomalies qui concernent ce bon, au sens de
+    `condition_anomalies_du_bl` -- exactement le périmètre du nombre de
+    problèmes annoncé par la page du bon."""
     conditions: list[Any] = []
     if regle is not None:
         conditions.append(Anomalie.regle == regle)
@@ -556,6 +653,8 @@ async def lister_anomalies(
         conditions.append(chantier_id == CHANTIER_ID_RESOLU)
     if fournisseur_id is not None:
         conditions.append(Document.fournisseur_id == fournisseur_id)
+    if bl_document_id is not None:
+        conditions.append(condition_anomalies_du_bl(bl_document_id))
     if depuis is not None:
         conditions.append(Anomalie.created_at >= depuis)
     if jusqu_a is not None:
