@@ -72,15 +72,31 @@ docs/
 Lots 1 (Socle), 2 (Collecte), 3 (Extraction), 4 (Rapprochement) et 5
 (Restitution) faits et **fusionnés dans `main`** (lot 4 le 18/09/2026, lot 5
 le 20/09/2026 par avance rapide jusqu'à `e599fda`). L5-T1 à L5-T12 sont
-commitées et relues. Les derniers contrôles connus après L5-T11 sont
-verts après les corrections finales : 1 362 tests, Ruff, formatage, mypy,
+commitées et relues.
+
+**Refonte du front fusionnée dans `main` le 23/09/2026** (branche
+`refonte-front`, 48 commits) : les 14 écrans techniques sont remplacés par
+cinq écrans (Vue d'ensemble, À régler, Chantiers, Fournisseurs, Documents +
+page BL) plus Réglages/Journal, navigation téléphone à barre basse, aucun
+jargon visible. Quatre ajouts serveur seulement (client du chantier,
+tableau de bord du mois, téléchargement nommé + comparaison d'un BL, compte
+unique des problèmes à régler). Construite en une journée, relue tâche par
+tâche puis par une revue finale à 6 angles (85 constats, 19 confirmés, tous
+corrigés et revérifiés). **Déployée le jour même sur les deux instances**
+(démo et production, migration `0010`). Détail complet, décisions à valider
+par Ilane et points ouverts (Drive, secrets à tourner, sauvegardes/crons à
+poser) : `docs/refonte-front-recette.md`.
+
+Les derniers contrôles connus sur le lot 5 (après L5-T11) étaient verts
+après les corrections finales : 1 362 tests, Ruff, formatage, mypy,
 typecheck et build front. La revue finale et la relecture des corrections ont
-rendu un verdict vert. Aucun push ni déploiement n'a eu lieu. **Avant tout
+rendu un verdict vert. **Avant tout
 travail, lire
 `docs/passation-lot-5.md`** (état, décisions, questions ouvertes, méthode et
-point de départ suivant), `docs/lot-5-recette.md` et `docs/dette.md`, puis les
-passations précédentes si nécessaire. Recettes : `docs/lot-1-recette.md` à
-`docs/lot-5-recette.md`.
+point de départ suivant), `docs/refonte-front-recette.md`, `docs/lot-5-recette.md`
+et `docs/dette.md`, puis les passations précédentes si nécessaire. Recettes :
+`docs/lot-1-recette.md` à `docs/lot-5-recette.md`, puis
+`docs/refonte-front-recette.md`.
 
 Points à retenir :
 - La facture fournie est un scan : les factures sont lues via l'OCR Mistral
@@ -99,10 +115,12 @@ Points à retenir :
   données réelles (un seul mois disponible).
 - **Lot 5 : Bilan, export CSV, navigation, référentiels, journal, réglages et
   synchronisation Drive fusionnés dans `main`.** Les quatre définitions
-  monétaires et le classement d'août restent à confirmer par Ilane. Drive est
-  testé avec des doubles locaux mais pas avec un compte Google réel faute
-  d'identifiants. Aucun cron n'est posé tant que l'application n'est pas
-  déployée.
+  monétaires et le classement d'août restent à confirmer par Ilane. Drive
+  reste bloqué : le compte de service ne peut pas écrire sur un Drive
+  personnel, il faut un Drive partagé Google Workspace ou basculer en OAuth
+  (détail `docs/refonte-front-recette.md` §6). L'application est déployée
+  depuis le 23/09/2026 (démo et production), mais aucun cron ni sauvegarde
+  restic n'est encore posé sur ces deux instances.
 - L2-R10 (contrôle d'origine bloquant les POST via `npm run dev`) est
   résolu depuis le lot 3 (L3-D21, proxy Vite qui réécrit `Origin`).
 - Ne jamais lancer `pre-commit install` depuis un worktree (hooks partagés).

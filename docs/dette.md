@@ -460,15 +460,23 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
 
 ### Accès et exploitation externes
 
-- **Synchronisation Google Drive non validée sur un Drive réel.** Le client
+- **Synchronisation Google Drive non validée sur un Drive réel — bloquée par
+  le type de compte, constat du déploiement du 23/09/2026.** Le client
   Google, les deux modes d'envoi et l'orchestration sont couverts par des
   doubles de test sans réseau, mais aucun compte de service ni dossier cible
   autorisé n'a été fourni (Q1). La CLI refuse correctement de démarrer sans
   configuration (code 2 et message clair). Ne couvre pas une recette réelle
   des permissions, de l'arborescence, des `appProperties` d'identité, des
-  quotas, des sessions résumables ni de la reprise après une panne Google ; à
-  faire dès réception des accès selon
-  `docs/exploitation-lot-5.md`, sans jamais versionner le JSON du compte.
+  quotas, des sessions résumables ni de la reprise après une panne Google.
+  Le 23/09/2026, la tentative de configuration réelle a montré qu'un compte
+  de service ne peut pas écrire sur un Drive **personnel** (aucun quota qui
+  lui soit propre côté Google) : il faut soit un dossier sur un Drive
+  **partagé** Google Workspace, soit remplacer l'authentification du compte
+  de service par une authentification **OAuth** utilisateur dans
+  `app/modules/jobs/drive.py`. Aucune des deux options n'est en place ; ne
+  pas poser le cron `drive-sync` avant d'avoir tranché avec Ilane. À faire
+  dès réception des accès selon `docs/exploitation-lot-5.md`, sans jamais
+  versionner le JSON du compte.
 - **Notification Drive au plus une fois, donc potentiellement perdue.** Après
   24 h d'échec, la réservation de l'alerte est commitée avant l'appel Telegram
   afin d'éviter les doublons. Si l'appel Telegram échoue après cette
@@ -476,11 +484,17 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   explicite dans `docs/exploitation-lot-5.md`; à remplacer par une boîte
   d'envoi persistante seulement si des pertes sont observées ou si la garantie
   devient contractuelle.
-- **Crons des lots 4 et 5 non posés tant que rien n'est déployé.** Les lignes
-  pour `controles-differes` (lot 4) et `drive-sync` (lot 5) sont documentées,
-  mais ne doivent être installées qu'après déploiement des commandes et
-  application des migrations sur le conteneur cible. À faire au déploiement,
-  avec `flock`, rotation des logs et supervision des codes de sortie.
+- **Crons des lots 4 et 5, et sauvegardes restic, non posés sur les deux
+  instances déployées le 23/09/2026.** Les lignes pour `controles-differes`
+  (lot 4) et `drive-sync` (lot 5, de toute façon bloqué, voir ci-dessus) sont
+  documentées, mais aucune n'est installée sur `habitat_demo` ni
+  `habitat_prod` (`docs/deploiement-et-tests.md` §1.1). Aucun dépôt restic
+  n'est initialisé pour ces deux instances non plus : seules des sauvegardes
+  manuelles ponctuelles (`pg_dump -Fc`) ont été prises avant la migration
+  `0010`, dans `~/sauvegardes-habitat/`, hors dépôt Git. À poser avec
+  `flock`, rotation des logs et supervision des codes de sortie
+  (`docs/deploiement-et-tests.md` §9 et §11) avant de considérer le
+  déploiement complet.
 
 ### Bilan — définitions et validation provisoires
 
