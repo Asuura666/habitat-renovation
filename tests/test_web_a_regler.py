@@ -278,13 +278,16 @@ def test_lien_bon_de_livraison_saffiche_meme_pour_une_anomalie_de_facture() -> N
     Le lien bon ne dépend plus du type de l'anomalie : seulement de
     `cibleBon` (`document_id` pour R11/R15, dont `document_id` porte déjà
     l'identifiant du BL ; `bl_document_id` sinon, y compris pour une
-    anomalie de facture) -- les deux liens peuvent s'afficher ensemble."""
+    anomalie de facture) -- les deux liens peuvent s'afficher ensemble.
+
+    Ce test ne fige plus l'expression exacte de `cibleBon` mot pour mot
+    (voir `test_lien_bon_de_livraison_reste_visible_quand_document_id_est_
+    absent`, qui a remplacé cette assertion trop stricte au tour 3 -- elle
+    figeait justement la version encore fautive de `cibleBon`, laissant
+    passer sans échec la régression corrigée à ce tour) : seul le bloc JSX
+    des liens est vérifié ici, ce qui reste vrai quelle que soit la
+    condition exacte retenue pour `cibleBon`."""
     page = _lire("pages", "ProblemeDetail.tsx")
-    declaration_cible_bon = (
-        'const cibleBon = anomalie.type !== "facture" ? anomalie.document_id'
-        " : anomalie.bl_document_id;"
-    )
-    assert declaration_cible_bon in page
 
     bloc_liens = page.split('<div className="flex flex-wrap gap-3 text-sm">', 1)[
         1
@@ -298,6 +301,44 @@ def test_lien_bon_de_livraison_saffiche_meme_pour_une_anomalie_de_facture() -> N
     assert "cibleBon !== null" in bloc_lien_bon
     assert "anomalie.type" not in bloc_lien_bon
     assert "/bl/${cibleBon}" in bloc_lien_bon
+
+
+def test_lien_bon_de_livraison_reste_visible_quand_document_id_est_absent() -> None:
+    """Finding 1 (tour 3, régression du fix du finding 1 au tour 2) : la
+    condition du tour 2 (`anomalie.type !== "facture" ? anomalie.document_id
+    : anomalie.bl_document_id`) ne testait que `anomalie.type`, jamais la
+    présence réelle de `document_id`. Or R06 (contrôle différé,
+    `app/modules/ingest/suivi.py:370`, `engine.py:166-169`) ne porte que
+    `bloc_id` (`R06.py:61`, confirmé par `test_suivi.py:190-194`, qui ne
+    vérifie que `bloc_id`/`ligne_id`) : `document_id` et `type` valent donc
+    tous les deux `null` (jointure externe sur `Document`,
+    `anomalies.py:465`), alors que `bl_document_id` est toujours renseigné
+    pour cette règle (`suivi.py:146` n'accepte que des blocs déjà reliés à
+    un BL). Avec `null !== "facture"` vrai, `cibleBon` prenait la valeur de
+    `document_id`, donc `null` : plus aucun lien bon pour une R06, alors que
+    c'est justement une ligne de ce bon qui est en cause.
+
+    Ce test ne fige plus l'expression de `cibleBon` mot pour mot (ce que
+    faisait le test précédent, et qui avait laissé passer cette même
+    régression sans qu'aucun test n'échoue) : il exige seulement que
+    `document_id` ne soit retenu que lorsqu'il est réellement connu
+    (`anomalie.document_id !== null` dans la condition qui choisit
+    `document_id`), avec repli inconditionnel sur `bl_document_id` en
+    dernière branche -- couvrant donc aussi bien R06 (`document_id === null`)
+    que R01-R09/R12/R13/R17 (`document_id` connu mais `type === "facture"`)."""
+    page = _lire("pages", "ProblemeDetail.tsx")
+    declaration_cible_bon = page.split("const cibleBon =", 1)[1].split(";", 1)[0]
+
+    # Repli inconditionnel sur `bl_document_id` (dernière branche du
+    # ternaire) : seule garantie qu'un `document_id` absent (R06) ne masque
+    # plus le lien bon, quelle que soit la valeur de `type`.
+    assert declaration_cible_bon.strip().endswith(": anomalie.bl_document_id")
+
+    # `document_id` n'est choisi que lorsqu'il est réellement connu --
+    # jamais sur la seule base de `anomalie.type` (la condition incomplète
+    # qui causait la régression de ce tour).
+    assert "anomalie.document_id !== null" in declaration_cible_bon
+    assert '"facture"' in declaration_cible_bon
 
 
 def test_panneau_detail_reste_visible_et_defile_en_interne_sur_grand_ecran() -> None:

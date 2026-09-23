@@ -302,7 +302,24 @@ function DetailAnomalie({
   // ou `bl_document_id` pour tout le reste -- y compris une anomalie de
   // facture, qui peut donc afficher les deux liens à la fois (ex. R01/R02,
   // maquette `ARegler` : « Voir la facture · Voir le bon de livraison »).
-  const cibleBon = anomalie.type !== "facture" ? anomalie.document_id : anomalie.bl_document_id;
+  //
+  // Fix round 3, finding 1 : régression du fix round 2 ci-dessus -- la
+  // condition ne testait que `anomalie.type`, jamais la présence réelle de
+  // `document_id`. R06 (contrôle différé, `app/modules/ingest/suivi.py:370`,
+  // `engine.py:166-169`) ne porte que `bloc_id` (`R06.py:61`, confirmé par
+  // `test_suivi.py:190-194`, qui ne vérifie que `bloc_id`/`ligne_id`) --
+  // `document_id` et `type` valent donc tous les deux `null` (jointure
+  // externe sur `Document`, `anomalies.py:465`), alors que `bl_document_id`
+  // est toujours renseigné (`suivi.py:146` n'accepte que des blocs déjà
+  // reliés à un BL). Avec `null !== "facture"` vrai, `cibleBon` prenait la
+  // valeur de `document_id`, donc `null` : plus aucun lien pour une R06,
+  // alors que c'est justement une ligne de ce bon qui est en cause. On ne
+  // retient `document_id` que lorsqu'il est réellement connu -- sinon on
+  // se rabat toujours sur `bl_document_id` (R01-R09/R12/R13/R17 comme
+  // avant, et désormais R06 ; R11/R15 gardent `document_id`, seules règles
+  // dont ce champ porte déjà l'identifiant du BL).
+  const cibleBon =
+    anomalie.document_id !== null && anomalie.type !== "facture" ? anomalie.document_id : anomalie.bl_document_id;
   return (
     <>
       <div className="flex flex-col gap-1">
@@ -335,9 +352,10 @@ function DetailAnomalie({
           lui-même (`type = "bl"`). Dépend de la Task 8 tant qu'elle n'est
           pas fusionnée (`/documents/:id` refuse une facture,
           `_document_pour_lecture`, `app/modules/ingest/corrections.py`).
-          Lien bon : voir `cibleBon` ci-dessus (fix round 2, finding 1) —
-          jamais conditionné par `anomalie.type`, les deux liens peuvent
-          s'afficher ensemble. */}
+          Lien bon : voir `cibleBon` ci-dessus (fix round 2 finding 1, affiné
+          au fix round 3 finding 1 pour R06) — jamais conditionné par
+          `anomalie.type` à cet endroit, les deux liens peuvent s'afficher
+          ensemble. */}
       <div className="flex flex-wrap gap-3 text-sm">
         {anomalie.type === "facture" && anomalie.document_id !== null && (
           <Link
