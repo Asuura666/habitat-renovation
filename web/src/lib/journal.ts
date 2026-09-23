@@ -26,9 +26,17 @@
  * propre mise en forme (montant, date, liste, phrase chiffrée) — plus
  * aucun `JSON.stringify` dans ce fichier, la clé/valeur technique brute
  * reste le seul repli pour une forme que ce fichier ne connaît pas encore.
+ *
+ * Tour 3 de la revue de la Task 10 (23/09/2026) : le résumé posé au tour 2
+ * pour les lignes corrigées (« n lignes ») perdait le contenu réellement
+ * corrigé — le Journal est le seul endroit de l'interface où l'état d'avant
+ * une correction reste visible, l'écran du document ne montrant que l'état
+ * actuel. `formaterLignes` affiche maintenant le détail de chaque ligne
+ * (mêmes libellés et formateurs que `pages/DocumentDetail.tsx`) à la suite
+ * du résumé, jamais l'identifiant technique de la ligne.
  */
 
-import { formaterDate, formaterDateHeure, formaterMontant, TIRET } from "./formats";
+import { formaterDate, formaterDateHeure, formaterMontant, formaterQuantite, TIRET } from "./formats";
 import { type Anomalie, phraseProbleme, titreRegle, urgence } from "../ui/libelles";
 
 const LIBELLES_ACTION: Record<string, string> = {
@@ -385,16 +393,69 @@ function formaterMotifs(codes: unknown[]): string {
   return codes.map((code) => libelleCodeMotif(typeof code === "string" ? code : String(code))).join(", ");
 }
 
-/** `lignes` (`corrections.py::corriger_lignes`, `_ligne_en_chaine`) : un
- * résumé plutôt que le détail ligne par ligne (code, prix, identifiant
- * technique de chaque ligne — sans intérêt pour retracer *qui* a corrigé
- * *quoi*, le détail complet de chaque ligne reste consultable sur l'écran
- * du document, `pages/DocumentDetail.tsx`). */
+/** Nombre de lignes, en tête du détail (`formaterLignes` ci-dessous) —
+ * jamais seul (tour 3 de la revue de la Task 10, 23/09/2026) : un résumé
+ * seul ne permet pas de voir *ce qui* a été corrigé, et quand la correction
+ * ne change ni le nombre ni l'ordre des lignes, l'avant et l'après
+ * affichaient la même chaîne (« 3 lignes » des deux côtés), laissant croire
+ * à tort que rien n'a changé. */
 function formaterNombreLignes(lignes: unknown[]): string {
   if (lignes.length === 0) {
     return "Aucune ligne.";
   }
   return `${lignes.length} ligne${lignes.length > 1 ? "s" : ""}`;
+}
+
+/** Une valeur textuelle d'une ligne (`_ligne_en_chaine`, `corrections.py`) —
+ * jamais `ligne.id` (identifiant technique de la ligne, sans intérêt pour
+ * retracer *qui* a corrigé *quoi*, jamais lu par cette fonction). */
+function champLigne(ligne: Record<string, unknown>, cle: string): string | null {
+  const valeur = ligne[cle];
+  return typeof valeur === "string" ? valeur : null;
+}
+
+/** Une ligne de document corrigée (`corrections.py::_ligne_en_chaine`), mise
+ * en forme avec les mêmes libellés et les mêmes formateurs
+ * (`formaterQuantite`/`formaterMontant`, `lib/formats.ts`) que le tableau
+ * des lignes de l'écran du document (`pages/DocumentDetail.tsx` :
+ * Conditionnements, Quantité, Unité, PU HT, Montant HT) — présentation
+ * uniquement, aucun calcul. Une ligne à la forme imprévue (jamais le cas
+ * aujourd'hui, `_ligne_en_chaine` ne produit que des chaînes ou `null`)
+ * retombe sur sa représentation brute (défense en profondeur, même principe
+ * que le reste de ce fichier). */
+function formaterLigneCorrigee(ligne: unknown): string {
+  if (!estObjet(ligne)) {
+    return String(ligne);
+  }
+  const designation = champLigne(ligne, "article_brut") ?? TIRET;
+  const code = champLigne(ligne, "code_brut") ?? TIRET;
+  const unite = champLigne(ligne, "unite_brut");
+  const conditionnements = formaterQuantite(champLigne(ligne, "qte_livree"));
+  const quantite = formaterQuantite(champLigne(ligne, "qte_totale"));
+  const pu = formaterMontant(champLigne(ligne, "pu_ht"));
+  const montant = formaterMontant(champLigne(ligne, "montant_ht"));
+  const uniteAffichee = unite !== null && unite !== "" ? ` ${unite}` : "";
+  return (
+    `${designation} (${code}) : conditionnements ${conditionnements}, ` +
+    `quantité ${quantite}${uniteAffichee}, PU HT ${pu}, montant HT ${montant}`
+  );
+}
+
+/** `lignes` (`corrections.py::corriger_lignes`, `_ligne_en_chaine`) : le
+ * nombre de lignes (`formaterNombreLignes`) suivi du détail complet de
+ * chaque ligne (`formaterLigneCorrigee`), jamais le résumé seul (constat de
+ * la revue, tour 3 de la Task 10 : le détail de chaque ligne corrigée
+ * n'était visible nulle part ailleurs dans l'interface après coup — l'écran
+ * du document, `pages/DocumentDetail.tsx`, ne montre que l'état actuel,
+ * jamais l'état d'avant une correction ; le Journal est le seul endroit de
+ * l'interface où cet avant/après reste consultable). Lignes jointes par
+ * « · » (même séparateur que `formaterObjetGenerique`), jamais
+ * `JSON.stringify`. */
+function formaterLignes(lignes: unknown[]): string {
+  if (lignes.length === 0) {
+    return formaterNombreLignes(lignes);
+  }
+  return `${formaterNombreLignes(lignes)} : ${lignes.map(formaterLigneCorrigee).join(" · ")}`;
 }
 
 /** `detail` d'un « Problème disparu »
@@ -437,7 +498,7 @@ function valeurDetail(cle: string, contexte: Record<string, unknown>): string {
     return formaterMotifs(brute);
   }
   if (cle === "lignes" && Array.isArray(brute)) {
-    return formaterNombreLignes(brute);
+    return formaterLignes(brute);
   }
   if (Array.isArray(brute)) {
     return formaterListeChaines(brute);

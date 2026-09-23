@@ -358,3 +358,46 @@ def test_ecran_journal_aide_auteur_sans_document_interne() -> None:
     page = (WEB / "pages" / "Journal.tsx").read_text(encoding="utf-8")
 
     assert "dette technique" not in page.lower()
+
+
+def test_lib_journal_lignes_corrigees_detail_pas_seulement_resume() -> None:
+    """Tour 3 de la revue de la Task 10 (23/09/2026) : pour une entrée
+    « Lignes corrigées », le résumé posé au tour 2 (`formaterNombreLignes`,
+    « n lignes ») ne montre pas ce qui a été corrigé — et quand la
+    correction ne change ni le nombre ni l'ordre des lignes, l'avant et
+    l'après affichaient la même chaîne (« 3 lignes » des deux côtés),
+    laissant croire à tort que rien n'a changé. L'écran du document
+    (`pages/DocumentDetail.tsx`) ne montre que l'état *actuel* d'un
+    document, jamais l'état d'avant une correction : le Journal reste le
+    seul endroit de l'interface où cet avant/après est visible.
+    `formaterNombreLignes` doit donc rester utilisé (l'en-tête « n lignes »)
+    sans être la seule mise en forme appliquée à la clé `lignes` : une
+    fonction distincte détaille chaque ligne, avec les mêmes libellés et
+    les mêmes formateurs (`formaterQuantite`/`formaterMontant`) que le
+    tableau des lignes de `pages/DocumentDetail.tsx` — jamais l'identifiant
+    technique de la ligne (`_ligne_en_chaine::id`, `corrections.py`), sans
+    intérêt pour retracer qui a corrigé quoi."""
+    journal_lib = (WEB / "lib" / "journal.ts").read_text(encoding="utf-8")
+
+    assert "function formaterNombreLignes" in journal_lib
+    assert "function formaterLigneCorrigee" in journal_lib
+    assert "function formaterLignes" in journal_lib
+
+    # La clé `lignes` passe maintenant par le détail complet, pas par le
+    # résumé seul.
+    motif_lignes = (
+        r'if \(cle === "lignes" && Array\.isArray\(brute\)\) \{'
+        r"\n\s*return (\w+)\(brute\);"
+    )
+    appel_lignes = re.search(motif_lignes, journal_lib)
+    assert appel_lignes is not None, 'bloc `cle === "lignes"` introuvable'
+    assert appel_lignes.group(1) == "formaterLignes"
+
+    # Mêmes formateurs que le reste du front (aucun montant/quantité brut).
+    assert "formaterQuantite" in journal_lib
+
+    # Jamais l'identifiant technique de la ligne dans sa mise en forme.
+    corps = re.search(r"function formaterLigneCorrigee\(.*?\n\}", journal_lib, re.S)
+    assert corps is not None, "corps de formaterLigneCorrigee introuvable"
+    assert '"id"' not in corps.group(0)
+    assert ".id" not in corps.group(0)
