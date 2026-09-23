@@ -1,0 +1,24 @@
+# Surcouche pour le VPS partagé : nginx occupe déjà les ports 80/443 et
+# termine le HTTPS (certbot). Traefik est donc désactivé (profil jamais
+# activé) et l'API est publiée uniquement sur 127.0.0.1, sur un port propre
+# à chaque instance (API_HOST_PORT), derrière le virtual host nginx
+# `deploy/nginx/habitat.conf`. Les en-têtes de sécurité portés par les
+# labels Traefik sont repris dans ce virtual host.
+#
+# Une instance = un nom de projet compose + un fichier d'environnement
+# (base, volume et dossier de documents distincts). Usage :
+#   docker compose -p habitat_prod --env-file .env.prod \
+#     -f deploy/docker-compose.yml -f deploy/docker-compose.vps.yml up -d
+#
+# L'image lance uvicorn avec `--proxy-headers --forwarded-allow-ips=*` :
+# le port n'étant publié que sur 127.0.0.1, seul nginx peut atteindre
+# l'API, et `X-Forwarded-For` donne l'adresse réelle à slowapi (limite de
+# `/login`).
+
+services:
+  traefik:
+    profiles: ["traefik-desactive"]
+
+  api:
+    ports:
+      - "127.0.0.1:${API_HOST_PORT:?API_HOST_PORT manquant}:8000"

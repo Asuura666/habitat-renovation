@@ -1,5 +1,7 @@
 # Secrets
 .env
+.env.*
+!.env.example
 
 # Fixtures (documents réels du client, jamais dans git)
 tests/fixtures/*
@@ -24,3 +26,6 @@ __pycache__/
 # Front (L2-T6) : dépendances et build, jamais commités
 web/node_modules/
 web/dist/
+
+# Outillage local Claude Code (arbres de travail des sous-agents)
+.claude/

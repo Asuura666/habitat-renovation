@@ -28,14 +28,40 @@ donc **pas** lancer la stack de production telle quelle sur ce VPS : Traefik
 Deux scénarios sont possibles :
 
 1. **VPS dédié ou neuf** : utiliser la procédure de production de ce guide ;
-2. **VPS actuel avec nginx partagé** : préparer séparément une surcouche Compose
-   qui désactive Traefik et publie l'API uniquement sur `127.0.0.1`, puis ajouter
-   un virtual host nginx. Cette adaptation d'infrastructure n'existe pas encore
-   dans le dépôt et doit être relue, sauvegardée et validée avant application.
+2. **VPS actuel avec nginx partagé** : surcouche `deploy/docker-compose.vps.yml`
+   (Traefik désactivé, API publiée sur `127.0.0.1:${API_HOST_PORT}`) et virtual
+   host `deploy/nginx/habitat.conf` (HTTPS certbot, en-têtes de sécurité repris
+   des labels Traefik, `client_max_body_size 25m`). Voir §1.1.
 
-`deploy/docker-compose.dev.yml` publie déjà l'API sur `127.0.0.1:8450`, mais il
-s'agit d'une surcouche de développement, pas d'une configuration de production
-prête à employer telle quelle.
+`deploy/docker-compose.dev.yml` publie l'API sur `127.0.0.1:8450` pour le
+développement ; ce n'est pas une configuration de production.
+
+### 1.1 Instances en place sur le VPS actuel (depuis le 23/09/2026)
+
+| Instance | Projet compose | Fichier d'env | Port local | URL | Données |
+| --- | --- | --- | --- | --- | --- |
+| Production | `habitat_prod` | `.env.prod` | 8450 | https://habitat.ellumena.fr | réelles |
+| Démonstration | `habitat_demo` | `.env.demo` | 8451 | https://demo.habitat.ellumena.fr | fictives |
+
+Chaque instance a sa base, son volume et son dossier de documents
+(`/home/debian/habitat-data/<instance>/docs`, propriété de l'uid 10001 de
+l'image). Les fichiers `.env.*` ne sont jamais versionnés. Commandes :
+
+```bash
+C="-f deploy/docker-compose.yml -f deploy/docker-compose.vps.yml"
+docker compose -p habitat_prod --env-file .env.prod $C build api
+docker compose -p habitat_prod --env-file .env.prod $C stop api
+docker compose -p habitat_prod --env-file .env.prod $C run --rm -T api alembic upgrade head
+docker compose -p habitat_prod --env-file .env.prod $C up -d --wait api
+```
+
+(idem avec `habitat_demo` / `.env.demo`). Sur ce VPS, remplacer dans les
+sections suivantes `-p habitat_reno --env-file .env -f deploy/docker-compose.yml`
+par ces options. `DOMAIN` et `ACME_EMAIL` restent exigés par l'interpolation du
+compose même si Traefik ne démarre pas.
+
+Les sauvegardes restic ne sont pas encore configurées pour ces instances
+(dépôt et crons à poser, voir §9 et §11).
 
 ## 2. Architecture déployée
 
