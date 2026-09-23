@@ -352,6 +352,16 @@
        "format": "uuid",
        "title": "Document Id"
       }
+     },
+     {
+      "name": "telechargement",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Telechargement"
+      }
      }
     ],
     "responses": {
@@ -360,6 +370,46 @@
       "content": {
        "application/json": {
         "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/documents/{document_id}/comparaison": {
+   "get": {
+    "summary": "Comparaison Bl Endpoint",
+    "operationId": "comparaison_bl_endpoint_api_documents__document_id__comparaison_get",
+    "parameters": [
+     {
+      "name": "document_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Document Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ComparaisonBlReponse"
+        }
        }
       }
      },
@@ -3140,6 +3190,67 @@
     "title": "ChantierSilencieuxReponse",
     "description": "Une ligne de `GET /api/referentiels/chantiers-silencieux` (L5-T7) —\nmêmes attributs qu'`ingest.referentiels_vue.ChantierSilencieux`."
    },
+   "ComparaisonBlReponse": {
+    "properties": {
+     "document_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Document Id"
+     },
+     "facture_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Facture Id"
+     },
+     "numero_facture": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero Facture"
+     },
+     "montant_facture_ht": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Montant Facture Ht"
+     },
+     "lignes": {
+      "items": {
+       "$ref": "#/components/schemas/LigneCompareeReponse"
+      },
+      "type": "array",
+      "title": "Lignes"
+     }
+    },
+    "type": "object",
+    "required": [
+     "document_id",
+     "facture_id",
+     "numero_facture",
+     "montant_facture_ht",
+     "lignes"
+    ],
+    "title": "ComparaisonBlReponse",
+    "description": "`GET /api/documents/{id}/comparaison` (Task 3, refonte front) —\nmêmes attributs qu'`ingest.comparaison_bl.ComparaisonBl`.\n`facture_id`/`numero_facture`/`montant_facture_ht` valent `None` quand\naucun bloc de facture ne cite ce BL (`bloc_facture.bl_document_id`,\nmême principe que `LigneBilanBlReponse.bl_document_id`)."
+   },
    "CorrectionEnteteRequete": {
     "properties": {
      "type": {
@@ -4285,6 +4396,91 @@
     ],
     "title": "LigneBilanFournisseurReponse",
     "description": "Une ligne de `GET /api/bilan/chantiers/{id}/fournisseurs` et de sa\nvue inverse `GET /api/bilan/fournisseurs` — mêmes attributs\nqu'`ingest.bilan.LigneBilanFournisseur`. `fournisseur_id`/`nom` valent\n`None` pour les blocs dont le fournisseur n'a pas pu être résolu, même\nprincipe que `LigneBilanChantierReponse.chantier_id`."
+   },
+   "LigneCompareeReponse": {
+    "properties": {
+     "ordre": {
+      "type": "integer",
+      "title": "Ordre"
+     },
+     "code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Code"
+     },
+     "article": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Article"
+     },
+     "qte_livree": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Qte Livree"
+     },
+     "qte_facturee": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Qte Facturee"
+     },
+     "pu_facture": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Pu Facture"
+     },
+     "regles_ouvertes": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Regles Ouvertes"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ordre",
+     "code",
+     "article",
+     "qte_livree",
+     "qte_facturee",
+     "pu_facture",
+     "regles_ouvertes"
+    ],
+    "title": "LigneCompareeReponse",
+    "description": "Une ligne de `GET /api/documents/{id}/comparaison` — mêmes attributs\nqu'`ingest.comparaison_bl.LigneComparee`. `qte_facturee`/`pu_facture`\nvalent `None` si la ligne n'a jamais été appariée à une ligne de facture\n(`rapprochement_ligne`)."
    },
    "LigneDocumentReponse": {
     "properties": {

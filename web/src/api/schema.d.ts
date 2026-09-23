@@ -170,6 +170,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{document_id}/comparaison": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Comparaison Bl Endpoint */
+        get: operations["comparaison_bl_endpoint_api_documents__document_id__comparaison_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{document_id}": {
         parameters: {
             query?: never;
@@ -1041,6 +1058,29 @@ export interface components {
             dernier_depot_le: string | null;
         };
         /**
+         * ComparaisonBlReponse
+         * @description `GET /api/documents/{id}/comparaison` (Task 3, refonte front) —
+         *     mêmes attributs qu'`ingest.comparaison_bl.ComparaisonBl`.
+         *     `facture_id`/`numero_facture`/`montant_facture_ht` valent `None` quand
+         *     aucun bloc de facture ne cite ce BL (`bloc_facture.bl_document_id`,
+         *     même principe que `LigneBilanBlReponse.bl_document_id`).
+         */
+        ComparaisonBlReponse: {
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /** Facture Id */
+            facture_id: string | null;
+            /** Numero Facture */
+            numero_facture: string | null;
+            /** Montant Facture Ht */
+            montant_facture_ht: string | null;
+            /** Lignes */
+            lignes: components["schemas"]["LigneCompareeReponse"][];
+        };
+        /**
          * CorrectionEnteteRequete
          * @description `PATCH /api/documents/{id}` : tous les champs sont optionnels
          *     (`None` par défaut) — seuls ceux présents dans `model_fields_set` sont
@@ -1425,6 +1465,29 @@ export interface components {
             /** Nom */
             nom: string | null;
             montants: components["schemas"]["MontantsBilanReponse"];
+        };
+        /**
+         * LigneCompareeReponse
+         * @description Une ligne de `GET /api/documents/{id}/comparaison` — mêmes attributs
+         *     qu'`ingest.comparaison_bl.LigneComparee`. `qte_facturee`/`pu_facture`
+         *     valent `None` si la ligne n'a jamais été appariée à une ligne de facture
+         *     (`rapprochement_ligne`).
+         */
+        LigneCompareeReponse: {
+            /** Ordre */
+            ordre: number;
+            /** Code */
+            code: string | null;
+            /** Article */
+            article: string | null;
+            /** Qte Livree */
+            qte_livree: string | null;
+            /** Qte Facturee */
+            qte_facturee: string | null;
+            /** Pu Facture */
+            pu_facture: string | null;
+            /** Regles Ouvertes */
+            regles_ouvertes: string[];
         };
         /**
          * LigneDocumentReponse
@@ -1932,7 +1995,9 @@ export interface operations {
     };
     telecharger_document_api_documents__document_id__fichier_get: {
         parameters: {
-            query?: never;
+            query?: {
+                telechargement?: boolean;
+            };
             header?: never;
             path: {
                 document_id: string;
@@ -1948,6 +2013,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    comparaison_bl_endpoint_api_documents__document_id__comparaison_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComparaisonBlReponse"];
                 };
             };
             /** @description Validation Error */
