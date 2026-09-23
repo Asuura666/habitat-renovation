@@ -67,6 +67,56 @@ def test_page_bl_reserve_la_comparaison_et_la_correction_a_ladmin() -> None:
     assert "enabled: id !== undefined && estAdmin && estBl" in page
 
 
+def test_page_bl_verdict_conforme_fonde_sur_le_serveur() -> None:
+    """Constat de revue (tour de correction 1) : la page décidait elle-même
+    du verdict « Conforme » (une ligne sans règle ouverte le devenait, la
+    pastille l'affichait dès que la comparaison était chargée) — un bon
+    jamais facturé (`facture_id` nul) s'affichait ainsi « Conforme » à tort,
+    et `nbProblemes` était une somme calculée côté front à partir de
+    données partielles (elle ne comptait ni R05 sur une ligne de facture
+    jamais appariée, ni les anomalies portées par le bloc ou par le bon
+    lui-même). `nb_problemes` (serveur, `ComparaisonBlReponse`) fonde
+    désormais et le nombre affiché et l'éligibilité au verdict « Conforme »,
+    jamais une somme de `regles_ouvertes` recalculée ici."""
+    page = (WEB / "pages" / "PageBl.tsx").read_text()
+
+    assert "comparaison.data?.nb_problemes ?? 0" in page
+    assert "lignes.reduce" not in page
+    assert "Pas encore facturé" in page
+    assert "factureConnue" in page
+
+
+def test_page_bl_invalide_la_comparaison_apres_une_correction() -> None:
+    """Constat de revue (tour de correction 1) : la carte « Livré et
+    facturé » restait périmée après une correction faite dans la section du
+    bas (même page) — `surEcriture`, dans `DocumentDetail.tsx` (logique non
+    touchée), ne sait rien de la clé de requête `cleComparaisonBl`, propre à
+    `PageBl`."""
+    page = (WEB / "pages" / "PageBl.tsx").read_text()
+
+    assert "document.dataUpdatedAt" in page
+    assert "queryClient.invalidateQueries({ queryKey: cleComparaisonBl(id) })" in page
+
+
+def test_page_bl_reintroduit_les_champs_perdus_par_la_fusion() -> None:
+    """Constat de revue (tour de correction 1) : le badge « Photo
+    compressée » (CDC : « une photo compressée par Telegram est acceptée
+    mais marquée comme telle »), le numéro interne (cité dans chaque
+    message Telegram) et un document archivé consulté par un admin (plus
+    aucun champ ni ligne visibles, faute d'être monté du tout) avaient
+    disparu de l'ancien en-tête de `DocumentDetail.tsx` sans être repris
+    ici."""
+    page = (WEB / "pages" / "PageBl.tsx").read_text()
+
+    assert "donnees.photo_compressee === true" in page
+    assert "Photo compressée" in page
+    assert "Document n° {donnees.numero_interne}" in page
+    assert (
+        '!donnees.modifiable && estAdmin && <SectionCorrection titre="Lecture du bon"'
+        in page
+    )
+
+
 def test_documents_liste_contrat() -> None:
     page = (WEB / "pages" / "DocumentsListe.tsx").read_text()
 
@@ -89,6 +139,83 @@ def test_documents_liste_reserve_le_depot_et_les_factures_a_ladmin() -> None:
     assert "if (!estAdmin) {" in page
     assert "return <VueAgent" in page
     assert "enabled: estAdmin" in page
+
+
+def test_documents_liste_reintroduit_les_champs_perdus_par_la_fusion() -> None:
+    """Constat de revue (tour de correction 1) : le badge « Photo
+    compressée », le numéro interne (des bons dont le numéro n'a pas été lu
+    deviennent sinon des « Livraison non détecté » indistinguables), la
+    confirmation des quantités et le déposant avaient disparu de la liste
+    unifiée par rapport à l'ancien `BlDeposes.tsx` ; la date de facture, le
+    Total HT, le badge « Confiance réduite » et un libellé de statut adapté
+    (jamais « Reçu ») avaient disparu par rapport à l'ancien
+    `FacturesListe.tsx`."""
+    page = (WEB / "pages" / "DocumentsListe.tsx").read_text()
+
+    assert "numeroInterne" in page
+    assert "Document n° {ligne.numeroInterne}" in page
+    assert "deposant: document.deposant" in page
+    assert "Déposant" in page
+    assert "confirmation: document.confirmation" in page
+    assert "BadgeConfirmation" in page
+    assert "totalHt: facture.total_ht" in page
+    assert "confianceReduite: facture.confiance_reduite" in page
+    assert "BadgeConfianceReduite" in page
+
+    # « Reçu » ne veut rien dire pour une facture (constat de revue) : la
+    # pastille de statut renvoie un tiret pour une facture qui n'est pas
+    # « à vérifier », jamais « Reçu ».
+    fonction_pastille = page.split("function PastilleStatut", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert 'ligne.origine === "facture"' in fonction_pastille
+    assert "TIRET" in fonction_pastille
+
+
+def test_documents_liste_filtre_chantier_par_identifiant() -> None:
+    """Constat de revue (tour de correction 1) : le filtre `?chantier=`
+    comparait `chantier_brut` (texte OCR non normalisé) par préfixe au nom
+    canonique — des documents manquaient (rattachés par un alias, ou dont
+    le texte ne commence pas par le nom canonique) ou apparaissaient en
+    trop (un nom qui en préfixe un autre). `chantier_id`, ajouté à
+    `DocumentReponse` (petit ajout serveur), permet désormais une
+    comparaison par égalité stricte d'identifiant."""
+    page = (WEB / "pages" / "DocumentsListe.tsx").read_text()
+
+    assert "chantierId: document.chantier_id" in page
+    assert "ligne.chantierId !== chantierCible.id" in page
+    assert "startsWith" not in page
+    assert 'id="documents-chantier"' in page
+
+
+def test_documents_liste_filtre_fournisseur_accessible() -> None:
+    """Spec §4 : filtre fournisseur, absent avant ce tour — sélecteur
+    accessible (`<select>` + `<label>` associé, cible ≥ 44 px)."""
+    page = (WEB / "pages" / "DocumentsListe.tsx").read_text()
+
+    assert 'id="documents-fournisseur"' in page
+    assert 'htmlFor="documents-fournisseur"' in page
+    assert "min-h-[44px]" in page
+    assert "listerFournisseurs" in page
+    assert "ligne.fournisseur !== fournisseurCible.nom" in page
+
+
+def test_documents_liste_filtre_mois_convertit_en_heure_de_paris() -> None:
+    """Constat de revue (tour de correction 1) : le filtre `?mois=`
+    comparait `cree_le` (UTC) par `startsWith`, faisant apparaître un dépôt
+    entre minuit et 2 h (heure de Paris) le 1er du mois dans le mois
+    précédent, et manquant les factures dont `date_doc` diffère du mois de
+    dépôt. `moisLigne` retient `date_doc` (une facture) avec repli sur
+    `cree_le` converti en heure de Paris (`moisParis`, `lib/formats.ts`),
+    même convention que le mois d'une facture pour le bilan (L5-D4)."""
+    page = (WEB / "pages" / "DocumentsListe.tsx").read_text()
+
+    assert "moisLigne(ligne) !== mois" in page
+    assert "moisParis(ligne.creeLe)" in page
+    assert "ligne.dateDoc.slice(0, 7)" in page
+
+    formats = (WEB / "lib" / "formats.ts").read_text()
+    assert "export function moisParis" in formats
 
 
 def test_routes_documents_montent_pagebl_et_documentsliste() -> None:
@@ -146,6 +273,44 @@ def test_facture_detail_habille_en_livraisons_et_garde_lancre_de_bloc() -> None:
     assert "Blocs BL" not in page
     assert "OCR" not in page
     assert "FilAriane" in page
+
+    # Tour de correction 1 : le reste du jargon interdit (spec §5), hors
+    # « bloc » — un identifiant de variable/type légitime ici
+    # (`bloc`/`BlocFacture`, requis par l'ancre ci-dessus), impossible à
+    # vérifier par une recherche de mot entier sur tout le fichier sans
+    # faux positifs (voir `test_document_detail_sans_jargon_visible`
+    # ci-dessous pour ce type de recherche, sur un fichier qui n'a pas ce
+    # problème).
+    for jargon in ("alias", "rapprochement", "anomalie"):
+        assert re.search(rf"\b{jargon}\b", page) is None, jargon
+
+
+def test_document_detail_sans_jargon_visible() -> None:
+    """Tour de correction 1 (constat de revue) : `DocumentDetail.tsx`
+    (section « Corriger la lecture du bon », montée par `PageBl`) contenait
+    encore « OCR » et « anomalies » dans des chaînes affichées (« Valeur
+    OCR : … », « … nouvelle lecture OCR. », « … des anomalies
+    subsistent. ») — le test de jargon de `test_page_bl_contrat` ne
+    contrôlait que `PageBl.tsx`, jamais ce fichier."""
+    page = (WEB / "pages" / "DocumentDetail.tsx").read_text()
+
+    # Pas de recherche de code de règle brut (`R01`…`R17`) ici, contrairement
+    # à `test_page_bl_contrat` : ce fichier ne rend jamais `regles_ouvertes`
+    # (seulement `motifs`/`libelleMotif`) mais porte, dans un commentaire
+    # préexistant sans rapport, une référence de décision interne au motif
+    # identique (« Ruling L5-R11 ») — un faux positif pour cette recherche,
+    # pas pour les cinq mots de jargon ci-dessous.
+    for jargon in ("bloc", "alias", "rapprochement", "OCR", "anomalie"):
+        assert re.search(rf"\b{jargon}\b", page) is None, jargon
+
+
+def test_documents_liste_sans_jargon_visible() -> None:
+    """Tour de correction 1 : même contrôle que `test_document_detail_sans
+    _jargon_visible`, pour la liste unifiée « Documents »."""
+    page = (WEB / "pages" / "DocumentsListe.tsx").read_text()
+
+    for jargon in ("bloc", "alias", "rapprochement", "OCR", "anomalie"):
+        assert re.search(rf"\b{jargon}\b", page) is None, jargon
 
 
 def test_document_detail_reste_la_correction_montee_par_pagebl() -> None:

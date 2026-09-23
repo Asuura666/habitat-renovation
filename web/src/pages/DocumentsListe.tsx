@@ -12,11 +12,26 @@ import {
   listerFactures,
 } from "../api/factures";
 import { CLE_MOI, DUREE_CACHE_MOI, recupererMoi } from "../api/moi";
-import { CLE_CHANTIERS, type Chantier, listerChantiers } from "../api/referentiels";
-import { formaterDateHeure, TIRET } from "../lib/formats";
+import {
+  CLE_CHANTIERS,
+  CLE_FOURNISSEURS,
+  type Chantier,
+  type Fournisseur,
+  listerChantiers,
+  listerFournisseurs,
+} from "../api/referentiels";
+import { formaterDate, formaterDateHeure, formaterMontant, moisParis, TIRET } from "../lib/formats";
 import { Bouton, EnTetePage, EtatVide, Filtres, type OptionFiltre } from "../ui";
 
 type CodeFiltre = "tous" | "factures" | "bl" | "a_corriger";
+
+/** Borne de `GET /api/documents` (`LIMITE_DOCUMENTS_DEFAUT`,
+ * `ingest/lecture.py`) — dupliquée ici (aucune route ne l'expose) pour
+ * signaler à l'admin, quand un filtre est actif, qu'un document plus ancien
+ * que les 100 derniers déposés peut manquer à la liste (constat de revue,
+ * tour de correction 1 : la borne existait déjà mais n'était jamais
+ * signalée). */
+const LIMITE_DOCUMENTS_LISTE = 100;
 
 const OPTIONS_FILTRE: OptionFiltre[] = [
   { valeur: "tous", libelle: "Tous" },
@@ -27,22 +42,35 @@ const OPTIONS_FILTRE: OptionFiltre[] = [
 
 /** Ligne unifiée (document BL/enlèvement ou facture) affichée par la liste
  * « Documents » (brief Task 8) — un seul écran, un seul tableau, plutôt que
- * les deux onglets historiques (`BlDeposes`/`FacturesListe`). `chantierBrut`
- * reste `null` pour une facture (l'API ne rattache un chantier qu'aux
- * livraisons qui la composent, pas à la facture elle-même) : le filtre
- * `?chantier=` (best-effort, voir plus bas) exclut donc naturellement les
- * factures. */
+ * les deux onglets historiques (`BlDeposes`/`FacturesListe`).
+ *
+ * Constats de revue corrigés ici (tour de correction 1) : `chantierId`
+ * (identifiant, ajouté à `DocumentReponse`), `numeroInterne`, `deposant` et
+ * `confirmation` avaient disparu de la liste unifiée par rapport à l'ancien
+ * `BlDeposes.tsx` ; `dateDoc`/`totalHt`/`confianceReduite` (une facture
+ * seulement) par rapport à l'ancien `FacturesListe.tsx`. `chantierId` et
+ * `dateDoc` valent `null` pour une facture (respectivement : l'API ne
+ * rattache un chantier qu'aux livraisons qui la composent, pas à la facture
+ * elle-même — le filtre `?chantier=` exclut donc les factures — et une
+ * facture porte sa propre date, jamais une date de dépôt à convertir). */
 interface LigneListe {
   cle: string;
   lien: string;
   origine: "document" | "facture";
   libelleType: string;
   numero: string;
+  numeroInterne: number | null;
   fournisseur: string | null;
   chantierBrut: string | null;
+  chantierId: string | null;
   contexte: string | null;
   statut: string;
   creeLe: string;
+  dateDoc: string | null;
+  totalHt: string | null;
+  confianceReduite: boolean;
+  deposant: string | null;
+  confirmation: "verifiee" | "ecart" | null;
 }
 
 function libelleTypeDocument(type: string): string {
@@ -56,11 +84,18 @@ function depuisDocument(document: DocumentResume): LigneListe {
     origine: "document",
     libelleType: libelleTypeDocument(document.type),
     numero: document.numero ?? "non détecté",
+    numeroInterne: document.numero_interne,
     fournisseur: document.fournisseur,
     chantierBrut: document.chantier_brut,
+    chantierId: document.chantier_id,
     contexte: document.chantier_brut,
     statut: document.statut,
     creeLe: document.cree_le,
+    dateDoc: null,
+    totalHt: null,
+    confianceReduite: false,
+    deposant: document.deposant,
+    confirmation: document.confirmation,
   };
 }
 
@@ -71,12 +106,37 @@ function depuisFacture(facture: FactureResume): LigneListe {
     origine: "facture",
     libelleType: "Facture",
     numero: facture.numero,
+    numeroInterne: null,
     fournisseur: facture.fournisseur,
     chantierBrut: null,
-    contexte: `${facture.nb_blocs_recus} / ${facture.nb_blocs} BL reçus`,
+    chantierId: null,
+    contexte:
+      `Facture du ${formaterDate(facture.date_doc)} · ` +
+      `${facture.nb_blocs_recus} / ${facture.nb_blocs} BL reçus`,
     statut: facture.statut,
     creeLe: facture.cree_le,
+    dateDoc: facture.date_doc,
+    totalHt: facture.total_ht,
+    confianceReduite: facture.confiance_reduite,
+    deposant: null,
+    confirmation: null,
   };
+}
+
+/** Mois d'une ligne, pour le filtre `?mois=` (tour de correction 1) — même
+ * convention que le mois retenu pour une facture (L5-D4, `ingest/bilan.py`) :
+ * la date de facture (`date_doc`, une simple date « AAAA-MM-JJ », sans
+ * fuseau) fait foi pour une facture ; à défaut (un bon n'a pas de
+ * `date_doc` dans cette liste — `DocumentReponse` ne l'expose pas), la
+ * date de dépôt (`cree_le`, un horodatage UTC) convertie en heure de Paris.
+ * Jamais une simple troncature de la chaîne ISO (constat de revue : un
+ * dépôt entre minuit et 2 h, heure de Paris, tombait sinon dans le mois
+ * suivant). */
+function moisLigne(ligne: LigneListe): string {
+  if (ligne.dateDoc !== null) {
+    return ligne.dateDoc.slice(0, 7);
+  }
+  return moisParis(ligne.creeLe);
 }
 
 function correspondFiltre(ligne: LigneListe, filtre: CodeFiltre): boolean {
@@ -92,16 +152,59 @@ function correspondFiltre(ligne: LigneListe, filtre: CodeFiltre): boolean {
   return ligne.statut === "a_verifier";
 }
 
-function libelleStatut(statut: string): string {
-  return statut === "a_verifier" ? "À vérifier" : "Reçu";
+/** Pastille de statut (constat de revue corrigé ici) : « Reçu » ne veut
+ * rien dire pour une facture (elle n'est jamais « reçue » au sens où un BL
+ * l'est) — seul un statut « À vérifier » reste affiché pour une facture,
+ * sinon un tiret (l'ancien `FacturesListe.tsx` n'affichait déjà rien de
+ * plus ici, laissant la place aux badges dédiés — confiance réduite,
+ * motifs). */
+function PastilleStatut({ ligne }: { ligne: LigneListe }): ReactElement {
+  if (ligne.statut === "a_verifier") {
+    return (
+      <span className="inline-flex shrink-0 rounded-full bg-[#fbe9c6] px-2 py-0.5 text-xs font-medium text-[#7a4a00]">
+        À vérifier
+      </span>
+    );
+  }
+  if (ligne.origine === "facture") {
+    return <span className="text-sm text-encre-2">{TIRET}</span>;
+  }
+  return (
+    <span className="inline-flex shrink-0 rounded-full bg-[#e4f1ea] px-2 py-0.5 text-xs font-medium text-encre">
+      Reçu
+    </span>
+  );
 }
 
-function PastilleStatut({ statut }: { statut: string }): ReactElement {
-  const classes =
-    statut === "a_verifier" ? "bg-[#fbe9c6] text-[#7a4a00]" : "bg-[#e4f1ea] text-encre";
+/** Badge « Confiance réduite » d'une facture (repris de l'ancien
+ * `FacturesListe.tsx`, perdu par la fusion dans la liste unifiée — constat
+ * de revue) : jamais de jargon technique dans le texte affiché (spec §5,
+ * sans jargon). */
+function BadgeConfianceReduite(): ReactElement {
   return (
-    <span className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${classes}`}>
-      {libelleStatut(statut)}
+    <span className="inline-flex shrink-0 items-center rounded-full bg-[#fbe9c6] px-2 py-0.5 text-xs font-medium text-[#7a4a00]">
+      Confiance réduite (lecture automatique)
+    </span>
+  );
+}
+
+function libelleConfirmationCourt(confirmation: "verifiee" | "ecart"): string {
+  return confirmation === "verifiee" ? "Quantités vérifiées" : "Écart signalé";
+}
+
+/** Confirmation des quantités d'un bon (repris de l'ancien
+ * `BlDeposes.tsx`, perdu par la fusion — constat de revue) : seulement le
+ * statut ici (« qui et quand » figure dans le détail du bon, `PageBl.tsx`
+ * — spec « et/ou »), pour ne pas surcharger la liste. */
+function BadgeConfirmation({ confirmation }: { confirmation: "verifiee" | "ecart" }): ReactElement {
+  const classes = confirmation === "verifiee" ? "text-conforme" : "text-ecart-texte";
+  return (
+    <span className={`inline-flex shrink-0 items-center gap-1.5 text-xs font-medium ${classes}`}>
+      <span
+        aria-hidden="true"
+        className={`h-2 w-2 shrink-0 rounded-full ${confirmation === "verifiee" ? "bg-conforme" : "bg-ecart"}`}
+      />
+      {libelleConfirmationCourt(confirmation)}
     </span>
   );
 }
@@ -192,12 +295,23 @@ function CarteLigne({ ligne }: { ligne: LigneListe }): ReactElement {
               {ligne.libelleType} {ligne.numero}
             </Link>
           </p>
+          {ligne.numeroInterne !== null && (
+            <p className="text-xs text-encre-2">Document n° {ligne.numeroInterne}</p>
+          )}
           <p className="text-xs text-encre-2">{ligne.fournisseur ?? TIRET}</p>
           {ligne.contexte !== null && <p className="text-xs text-encre-2">{ligne.contexte}</p>}
+          {ligne.deposant !== null && <p className="text-xs text-encre-2">Déposé par {ligne.deposant}</p>}
+          {ligne.origine === "facture" && ligne.totalHt !== null && (
+            <p className="text-xs text-encre-2">Total HT : {formaterMontant(ligne.totalHt)}</p>
+          )}
         </div>
-        <PastilleStatut statut={ligne.statut} />
+        <div className="flex flex-col items-end gap-1.5">
+          <PastilleStatut ligne={ligne} />
+          {ligne.confianceReduite && <BadgeConfianceReduite />}
+        </div>
       </div>
-      <p className="text-xs text-encre-2">{formaterDateHeure(ligne.creeLe)}</p>
+      {ligne.confirmation !== null && <BadgeConfirmation confirmation={ligne.confirmation} />}
+      <p className="mt-2 text-xs text-encre-2">{formaterDateHeure(ligne.creeLe)}</p>
     </li>
   );
 }
@@ -209,13 +323,24 @@ function LigneTableau({ ligne }: { ligne: LigneListe }): ReactElement {
         <Link to={ligne.lien} className="underline outline-none focus-visible:ring-2 focus-visible:ring-accent">
           {ligne.numero}
         </Link>
+        {ligne.numeroInterne !== null && (
+          <p className="mt-0.5 text-xs font-normal text-encre-2">Document n° {ligne.numeroInterne}</p>
+        )}
       </td>
       <td className="px-4 py-3 text-encre">{ligne.libelleType}</td>
       <td className="px-4 py-3 text-encre">{ligne.fournisseur ?? TIRET}</td>
       <td className="px-4 py-3 text-encre">{ligne.contexte ?? TIRET}</td>
+      <td className="px-4 py-3 text-encre">{ligne.deposant ?? TIRET}</td>
+      <td className="px-4 py-3 text-right font-mono text-encre">
+        {ligne.origine === "facture" ? formaterMontant(ligne.totalHt) : null}
+      </td>
       <td className="px-4 py-3 font-mono text-encre">{formaterDateHeure(ligne.creeLe)}</td>
       <td className="px-4 py-3">
-        <PastilleStatut statut={ligne.statut} />
+        <div className="flex flex-col items-start gap-1.5">
+          <PastilleStatut ligne={ligne} />
+          {ligne.confianceReduite && <BadgeConfianceReduite />}
+          {ligne.confirmation !== null && <BadgeConfirmation confirmation={ligne.confirmation} />}
+        </div>
       </td>
     </tr>
   );
@@ -236,7 +361,7 @@ function ListeUnifiee({ lignes }: { lignes: LigneListe[] }): ReactElement {
 
       {/* Tableau : ordinateur (>= md) */}
       <div className="hidden overflow-x-auto rounded-lg border border-bordure bg-surface md:block">
-        <table className="w-full min-w-[880px] divide-y divide-bordure text-sm">
+        <table className="w-full min-w-[1080px] divide-y divide-bordure text-sm">
           <caption className="sr-only">Liste des documents (bons de livraison et factures)</caption>
           <thead className="border-b border-bordure text-left text-xs font-medium uppercase tracking-wide text-encre-2">
             <tr>
@@ -244,6 +369,8 @@ function ListeUnifiee({ lignes }: { lignes: LigneListe[] }): ReactElement {
               <th scope="col" className="px-4 py-3">Type</th>
               <th scope="col" className="px-4 py-3">Fournisseur</th>
               <th scope="col" className="px-4 py-3">Chantier / réception</th>
+              <th scope="col" className="px-4 py-3">Déposant</th>
+              <th scope="col" className="px-4 py-3 text-right">Montant</th>
               <th scope="col" className="px-4 py-3">Déposé le</th>
               <th scope="col" className="px-4 py-3">Statut</th>
             </tr>
@@ -295,17 +422,16 @@ function VueAgent({ documents }: { documents: UseQueryResult<DocumentResume[]> }
  * remplace les anciens écrans « BL déposés » et « Factures ». Montée sur
  * `/documents`, sans garde de rôle explicite (comme avant Task 8) :
  * l'agent voit une vue simplifiée (`VueAgent`), l'admin la vue complète.
- * Filtres, mois et chantier dans l'URL (`?filtre=&mois=&chantier=`, brief
- * Task 8) : mois et chantier filtrent côté client sur `cree_le`/
- * `chantier_brut` (l'API ne les expose pas en paramètre de requête pour ces
- * deux listes), `chantier_brut` comparé en préfixe au nom canonique du
- * chantier (`startsWith`, insensible à la casse — gère « VILLA DES TILLEULS
- * (4521) », constat de la vérification visuelle Task 8 : `chantier_brut`
- * porte presque toujours un code entre parenthèses après le nom) — limite
- * connue malgré tout, notée dans `docs/dette.md` : un document dont
- * `chantier_brut` diffère plus profondément du nom canonique (variante,
- * faute de frappe, ordre des mots) n'apparaît pas quand le filtre
- * `?chantier=` est actif. */
+ *
+ * Filtres dans l'URL (`?filtre=&mois=&chantier=&fournisseur=`, brief
+ * Task 8, `fournisseur` ajouté au tour de correction 1 — spec §4) : tous
+ * filtrent côté client, l'API n'exposant aucun de ces paramètres pour ces
+ * deux listes (voir `docs/dette.md`). `mois` compare `moisLigne` (ci-dessus
+ * — jamais une simple troncature de `cree_le`, un horodatage UTC).
+ * `chantier`/`fournisseur` comparent respectivement `chantierId` (égalité
+ * d'identifiant, corrigé au tour de correction 1 — comparait auparavant
+ * `chantier_brut`, un texte non normalisé, par préfixe) et `fournisseur`
+ * (égalité du nom résolu, jamais un texte brut). */
 export function DocumentsListe(): ReactElement {
   const [parametres, setParametres] = useSearchParams();
   const { data: moi } = useQuery({ queryKey: CLE_MOI, queryFn: recupererMoi, staleTime: DUREE_CACHE_MOI });
@@ -314,10 +440,12 @@ export function DocumentsListe(): ReactElement {
   const documents = useQuery({ queryKey: CLE_DOCUMENTS, queryFn: listerDocuments, refetchInterval: 15000 });
   const factures = useQuery({ queryKey: CLE_FACTURES, queryFn: listerFactures, enabled: estAdmin });
   const chantiers = useQuery({ queryKey: CLE_CHANTIERS, queryFn: listerChantiers, enabled: estAdmin });
+  const fournisseurs = useQuery({ queryKey: CLE_FOURNISSEURS, queryFn: listerFournisseurs, enabled: estAdmin });
 
   const filtre = (parametres.get("filtre") as CodeFiltre | null) ?? "tous";
   const mois = parametres.get("mois") ?? "";
   const chantierId = parametres.get("chantier") ?? "";
+  const fournisseurId = parametres.get("fournisseur") ?? "";
 
   function changerFiltre(valeur: string): void {
     const suivants = new URLSearchParams(parametres);
@@ -329,23 +457,23 @@ export function DocumentsListe(): ReactElement {
     setParametres(suivants, { replace: true });
   }
 
-  function changerMois(valeur: string): void {
+  function changerParametre(cle: string, valeur: string): void {
     const suivants = new URLSearchParams(parametres);
     if (valeur === "") {
-      suivants.delete("mois");
+      suivants.delete(cle);
     } else {
-      suivants.set("mois", valeur);
+      suivants.set(cle, valeur);
     }
     setParametres(suivants, { replace: true });
   }
 
-  function retirerFiltreChantier(): void {
-    const suivants = new URLSearchParams(parametres);
-    suivants.delete("chantier");
-    setParametres(suivants, { replace: true });
-  }
-
+  // Tour de correction 1 : `chantierCible`/`fournisseurCible` résolus une
+  // seule fois ici, tous deux consommés par le filtre ci-dessous et par les
+  // deux `<select>` de la barre de filtres — un identifiant de l'URL qui ne
+  // correspond à aucun chantier/fournisseur connu (lien obsolète, chantier
+  // désactivé) ne filtre simplement plus rien plutôt que de planter.
   const chantierCible: Chantier | undefined = chantiers.data?.find((c) => c.id === chantierId);
+  const fournisseurCible: Fournisseur | undefined = fournisseurs.data?.find((f) => f.id === fournisseurId);
 
   const lignes = useMemo(() => {
     const brutes: LigneListe[] = [
@@ -356,42 +484,41 @@ export function DocumentsListe(): ReactElement {
       if (!correspondFiltre(ligne, filtre)) {
         return false;
       }
-      if (mois !== "" && !ligne.creeLe.startsWith(mois)) {
+      if (mois !== "" && moisLigne(ligne) !== mois) {
         return false;
       }
-      if (chantierCible !== undefined) {
-        if (ligne.chantierBrut === null) {
-          return false;
-        }
-        // `chantier_brut` porte souvent un code entre parenthèses après le
-        // nom (« VILLA DES TILLEULS (4521) », constat de la vérification
-        // visuelle Task 8, cohérent avec toutes les fixtures démo) : une
-        // égalité stricte avec le nom canonique ne matchait jamais aucun
-        // document. `startsWith` reste précis (un préfixe partagé par
-        // coïncidence entre deux chantiers différents est possible mais
-        // rare) sans dépendre d'un format de code particulier.
-        if (
-          !ligne.chantierBrut.trim().toLowerCase().startsWith(chantierCible.nom_canonique.trim().toLowerCase())
-        ) {
-          return false;
-        }
+      if (chantierCible !== undefined && ligne.chantierId !== chantierCible.id) {
+        return false;
+      }
+      // Comparé par nom (égalité stricte), pas par préfixe : contrairement
+      // à `chantier_brut`, `fournisseur` est déjà le nom résolu
+      // (`Fournisseur.nom`, jointe côté serveur), jamais un texte brut de
+      // lecture automatique — voir `docs/dette.md`.
+      if (fournisseurCible !== undefined && ligne.fournisseur !== fournisseurCible.nom) {
+        return false;
       }
       return true;
     });
     return filtrees.sort((a, b) => b.creeLe.localeCompare(a.creeLe));
-  }, [documents.data, factures.data, estAdmin, filtre, mois, chantierCible]);
+  }, [documents.data, factures.data, estAdmin, filtre, mois, chantierCible, fournisseurCible]);
 
   if (!estAdmin) {
     return <VueAgent documents={documents} />;
   }
 
+  // Signalé seulement quand un filtre est actif : sans filtre, la liste
+  // affiche de toute façon tout ce qui a été chargé, la borne ne cache
+  // alors rien (constat de revue, tour de correction 1).
+  const filtreActif = mois !== "" || chantierId !== "" || fournisseurId !== "";
+  const documentsPeutEtreTronques = (documents.data?.length ?? 0) >= LIMITE_DOCUMENTS_LISTE;
+
   return (
     <div className="space-y-6">
       <EnTetePage titre="Documents" actions={<DepotFacture />} />
 
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <Filtres options={OPTIONS_FILTRE} valeur={filtre} onChange={changerFiltre} />
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-end gap-3">
           <div>
             <label htmlFor="documents-mois" className="mb-1 block text-xs font-medium text-encre-2">
               Mois
@@ -400,23 +527,85 @@ export function DocumentsListe(): ReactElement {
               id="documents-mois"
               type="month"
               value={mois}
-              onChange={(evenement) => changerMois(evenement.target.value)}
-              className="rounded-md border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              onChange={(evenement) => changerParametre("mois", evenement.target.value)}
+              className="min-h-[44px] rounded-md border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
+          </div>
+          <div>
+            <label htmlFor="documents-chantier" className="mb-1 block text-xs font-medium text-encre-2">
+              Chantier
+            </label>
+            <select
+              id="documents-chantier"
+              value={chantierId}
+              onChange={(evenement) => changerParametre("chantier", evenement.target.value)}
+              className="min-h-[44px] rounded-md border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <option value="">Tous les chantiers</option>
+              {chantiers.data?.map((chantier) => (
+                <option key={chantier.id} value={chantier.id}>
+                  {chantier.nom_canonique}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="documents-fournisseur" className="mb-1 block text-xs font-medium text-encre-2">
+              Fournisseur
+            </label>
+            <select
+              id="documents-fournisseur"
+              value={fournisseurId}
+              onChange={(evenement) => changerParametre("fournisseur", evenement.target.value)}
+              className="min-h-[44px] rounded-md border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <option value="">Tous les fournisseurs</option>
+              {fournisseurs.data?.map((fournisseur) => (
+                <option key={fournisseur.id} value={fournisseur.id}>
+                  {fournisseur.nom}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </div>
 
-      {chantierCible !== undefined && (
+      {(chantierCible !== undefined || fournisseurCible !== undefined) && (
         <p className="text-sm text-encre-2">
-          Filtré sur le chantier <strong className="text-encre">{chantierCible.nom_canonique}</strong>{" "}
+          Filtré sur
+          {chantierCible !== undefined && (
+            <>
+              {" "}
+              le chantier <strong className="text-encre">{chantierCible.nom_canonique}</strong>
+            </>
+          )}
+          {chantierCible !== undefined && fournisseurCible !== undefined && " et"}
+          {fournisseurCible !== undefined && (
+            <>
+              {" "}
+              le fournisseur <strong className="text-encre">{fournisseurCible.nom}</strong>
+            </>
+          )}
+          {" · "}
           <button
             type="button"
-            onClick={retirerFiltreChantier}
-            className="ml-1 underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            onClick={() => {
+              const suivants = new URLSearchParams(parametres);
+              suivants.delete("chantier");
+              suivants.delete("fournisseur");
+              setParametres(suivants, { replace: true });
+            }}
+            className="underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Retirer le filtre
           </button>
+        </p>
+      )}
+
+      {filtreActif && documentsPeutEtreTronques && (
+        <p className="text-xs text-encre-2">
+          Seuls les {LIMITE_DOCUMENTS_LISTE} bons de livraison les plus récents sont chargés ici — un bon plus
+          ancien peut manquer à ce filtre.
         </p>
       )}
 

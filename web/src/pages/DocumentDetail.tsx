@@ -129,7 +129,7 @@ function ChampAffiche({
       <dd className="text-sm text-encre">{valeurAffichee}</dd>
       {champ.corrige && (
         <p className="mt-1 text-xs text-encre-2">
-          Valeur OCR : {champ.valeur_ocr ?? TIRET} — corrigée par {champ.corrige_par ?? TIRET} le{" "}
+          Valeur lue : {champ.valeur_ocr ?? TIRET} — corrigée par {champ.corrige_par ?? TIRET} le{" "}
           {formaterDateHeure(champ.corrige_le)}
         </p>
       )}
@@ -864,8 +864,9 @@ function TableauLignesEdition({
 // --------------------------------------------------------------------------
 
 /** Section « Corriger la lecture du bon » (Task 8, refonte front) :
- * motifs, champs et lignes lus par l'OCR, correction, validation, archivage
- * et relance d'un BL/enlèvement — logique intégralement conservée depuis
+ * motifs, champs et lignes lus par la lecture automatique, correction,
+ * validation, archivage et relance d'un BL/enlèvement — logique
+ * intégralement conservée depuis
  * `GET /api/documents/{id}` (L3-D19, L3-T10), seulement habillée et
  * amputée de son ancien en-tête de page (photo, titre, badge de statut,
  * confirmation) : la page `PageBl` qui la monte, dans un `<details>`
@@ -934,9 +935,9 @@ export function DocumentDetail(): ReactElement {
    * jour renvoyé par l'API — l'autre section, si elle est encore ouverte,
    * n'est jamais touchée : son brouillon non enregistré survit (fix round 2
    * : un seul drapeau partagé perdait silencieusement le brouillon de la
-   * section non enregistrée). La trace OCR (« Valeur OCR : … — corrigée
-   * par … ») s'affiche tout de suite dans la section refermée, sans qu'il
-   * faille annuler ou recharger. */
+   * section non enregistrée). La trace de la correction (« Valeur lue :
+   * … — corrigée par … ») s'affiche tout de suite dans la section
+   * refermée, sans qu'il faille annuler ou recharger. */
   function surEcritureEtFermetureEntete(detail: DocumentDetailApi): void {
     surEcriture(detail);
     setEnEditionEntete(false);
@@ -996,7 +997,7 @@ export function DocumentDetail(): ReactElement {
   function relancerAvecConfirmation(): void {
     if (
       window.confirm(
-        "Relancer l'extraction ? Les valeurs actuelles seront remplacées par une nouvelle lecture OCR.",
+        "Relancer l'extraction ? Les valeurs actuelles seront remplacées par une nouvelle lecture automatique.",
       )
     ) {
       mutationRelance.mutate();
@@ -1129,7 +1130,7 @@ export function DocumentDetail(): ReactElement {
         <div role="alert" className="mt-3 rounded-md border border-alerte/30 bg-[#f9dedc] p-3 text-sm text-[#8c1d18]">
           {mutationValidation.error instanceof ValidationRefuseeErreur ? (
             <>
-              <p className="mb-1 font-medium">Validation refusée : des anomalies subsistent.</p>
+              <p className="mb-1 font-medium">Validation refusée : des points restent à corriger.</p>
               <ul className="list-disc space-y-1 pl-5">
                 {mutationValidation.error.motifs.map((motif, index) => (
                   <li key={index}>{libelleMotif(motif)}</li>

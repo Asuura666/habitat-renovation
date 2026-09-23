@@ -576,28 +576,38 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
 
 ### Liste « Documents » (Task 8, refonte front) — web/src/pages/DocumentsListe.tsx
 
-- **Filtres `?mois=`/`?chantier=` côté client, pas côté serveur.** `GET
-  /api/documents` et `GET /api/factures` n'exposent aucun paramètre de
-  requête pour ces deux filtres (contrairement à `/api/bilan/chantiers`,
-  par exemple) : `DocumentsListe` filtre donc après coup, sur les pages déjà
-  chargées (jusqu'à `LIMITE_DOCUMENTS_DEFAUT`/100 documents, aucune pagination
-  ajoutée). Négligeable au volume actuel (un seul client, quelques dizaines
+- **Filtres `?mois=`/`?chantier=`/`?fournisseur=` côté client, pas côté
+  serveur.** `GET /api/documents` et `GET /api/factures` n'exposent aucun
+  paramètre de requête pour ces filtres (contrairement à
+  `/api/bilan/chantiers`, par exemple) : `DocumentsListe` filtre donc après
+  coup, sur les pages déjà chargées (jusqu'à `LIMITE_DOCUMENTS_DEFAUT`/100
+  documents pour `GET /api/documents`, aucune pagination ajoutée). Depuis
+  le tour de correction 1, un texte s'affiche quand un filtre est actif et
+  que la liste atteint cette borne (« Seuls les 100 bons de livraison les
+  plus récents sont chargés ici… ») — signalement, pas une résolution : un
+  document plus ancien que les 100 derniers déposés reste invisible à tout
+  filtre. Négligeable au volume actuel (un seul client, quelques dizaines
   de documents par mois) ; à revoir si le volume grandit (ajouter les
   paramètres côté serveur, sur le modèle de `bilan.py`).
-- **Filtre `?chantier=` par préfixe de `chantier_brut`, pas par
-  `chantier_id`.** Aucune des deux listes (`DocumentReponse`/
-  `FactureResumeReponse`) ne porte l'identifiant du chantier rattaché — seul
-  `chantier_brut` (texte lu par l'OCR, jamais corrigé) est disponible pour
-  un document, et une facture n'a même pas ce champ (elle regroupe
-  plusieurs chantiers via ses livraisons). `DocumentsListe` compare donc
-  `chantier_brut` (en minuscules) au nom canonique du chantier ciblé par
-  préfixe (`startsWith`, pas une égalité stricte : la quasi-totalité des
-  fixtures démo portent un code entre parenthèses après le nom, ex.
-  « VILLA DES TILLEULS (4521) », constat de la vérification visuelle) — un
-  document dont `chantier_brut` diverge davantage du nom canonique
-  (variante, faute de frappe, ordre des mots inversé) n'apparaît pas
-  lorsque ce filtre est actif, et le filtre ignore toujours les factures
-  (aucune ne sera jamais reliée à un chantier par ce biais). Un filtre fiable
-  demanderait une route serveur dédiée (ex. `chantier_id` sur `GET
-  /api/documents`, résolu comme `chantier_brut`/`AliasChantier` le sont déjà
-  pour la correction d'un document) — hors périmètre de cette tâche.
+- **Filtre `?chantier=` corrigé au tour de correction 1** (était par
+  préfixe de `chantier_brut`, texte OCR non normalisé, cf. `git log` de ce
+  fichier pour l'ancienne version de cette entrée) : `chantier_id` a été
+  ajouté à `DocumentReponse`/`ingest.lecture.DocumentResume` (petit ajout
+  serveur, un champ déjà présent sur `Document` et déjà sélectionné par la
+  requête, aucune jointure supplémentaire) — le filtre compare désormais
+  cet identifiant par égalité, comme `chantiers/:id` le fait déjà côté
+  fiche chantier. Limite résiduelle, assumée : `FactureResumeReponse` ne
+  porte toujours aucun chantier (une facture regroupe plusieurs chantiers
+  via ses livraisons) — le filtre chantier continue d'exclure toutes les
+  factures, quel que soit le chantier ciblé.
+- **Filtre `?fournisseur=` (spec §4, absent avant ce tour) comparé au nom
+  du fournisseur, pas à son identifiant.** Ni `DocumentReponse` ni
+  `FactureResumeReponse` ne porte `fournisseur_id` (seul le nom résolu,
+  `fournisseur: str | None`) — `DocumentsListe` compare donc ce nom par
+  égalité stricte au `nom` du fournisseur choisi dans le sélecteur (les
+  deux valeurs proviennent de la même colonne `fournisseur.nom`, jamais
+  d'un texte OCR non normalisé comme `chantier_brut` — aucun des travers du
+  filtre chantier d'avant ce tour ne s'applique ici). À revoir si deux
+  fournisseurs finissaient par porter un jour le même nom (le référentiel
+  ne l'interdit pas explicitement) — hors périmètre de ce tour, aucune
+  fixture démo ne présente ce cas.

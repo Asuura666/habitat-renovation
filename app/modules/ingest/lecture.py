@@ -481,7 +481,9 @@ async def facture_detail(session: AsyncSession, facture_id: uuid.UUID) -> Factur
 class DocumentResume:
     """Une ligne de `GET /api/documents` (L2-T5, `confirmation` ajouté au
     Ruling L2-R8 ; `fournisseur`/`chantier_brut` ajoutés en L3-T8a pour un
-    aperçu utile dans la liste, sans ouvrir le détail de chaque document)."""
+    aperçu utile dans la liste, sans ouvrir le détail de chaque document ;
+    `chantier_id` ajouté au tour de correction 1 de Task 8, voir
+    `DocumentReponse`)."""
 
     id: uuid.UUID
     numero_interne: int
@@ -498,6 +500,7 @@ class DocumentResume:
     confirmation: str | None
     fournisseur: str | None
     chantier_brut: str | None
+    chantier_id: uuid.UUID | None
 
 
 LIMITE_DOCUMENTS_MIN = 1
@@ -592,6 +595,7 @@ async def lister_documents(
             else None,
             fournisseur=nom_fournisseur,
             chantier_brut=document.chantier_brut,
+            chantier_id=document.chantier_id,
         )
         for (
             document,

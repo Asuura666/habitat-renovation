@@ -150,7 +150,9 @@ async def _creer_rapprochement(
 async def _creer_anomalie(
     db_session: AsyncSession,
     *,
-    ligne_id: uuid.UUID,
+    ligne_id: uuid.UUID | None = None,
+    bloc_id: uuid.UUID | None = None,
+    document_id: uuid.UUID | None = None,
     regle: str = "R08",
     statut: str = "ouverte",
     gravite: str = "haute",
@@ -160,6 +162,8 @@ async def _creer_anomalie(
         gravite=gravite,
         statut=statut,
         ligne_id=ligne_id,
+        bloc_id=bloc_id,
+        document_id=document_id,
         detail={"cle": "valeur"},
         traitee_le=datetime.now(UTC) if statut != "ouverte" else None,
         commentaire="Traitée (test)." if statut != "ouverte" else None,
@@ -266,6 +270,9 @@ async def test_comparer_bl_scenario_complet(db_session: AsyncSession) -> None:
     assert comparaison.facture_id == facture.id
     assert comparaison.numero_facture == "FAC-CMP"
     assert comparaison.montant_facture_ht == Decimal("110.00")
+    # Une seule anomalie ouverte dans tout ce scénario (R08 sur f_ligne_b) —
+    # la R07 traitée ne compte jamais.
+    assert comparaison.nb_problemes == 1
 
     assert [ligne.ordre for ligne in comparaison.lignes] == [0, 1, 2]
 
@@ -322,3 +329,117 @@ async def test_comparer_bl_anomalie_sur_ligne_bl_directement(
     comparaison = await comparer_bl(db_session, bl.id)
 
     assert comparaison.lignes[0].regles_ouvertes == ["R06"]
+    assert comparaison.nb_problemes == 1
+
+
+# --------------------------------------------------------------------------
+# nb_problemes (tour de correction 1, Task 8) — constat de revue : le
+# front affichait « Conforme » et sous-comptait les problèmes en ne
+# sommant que `regles_ouvertes`, qui ne rassemble que les anomalies
+# rattachées à une ligne du BL ou à sa ligne facture appariée. Ces tests
+# couvrent les trois catégories d'anomalies qu'une telle somme manque.
+# --------------------------------------------------------------------------
+
+
+async def test_comparer_bl_nb_problemes_compte_une_ligne_facture_non_appariee(
+    db_session: AsyncSession,
+) -> None:
+    """R05 (« facturée mais absente du bon ») porte sur une ligne de
+    facture jamais appariée à une ligne de BL : elle n'apparaît dans
+    aucune `LigneComparee.regles_ouvertes` (aucune ligne du BL ne la
+    représente), mais doit compter dans `nb_problemes`."""
+    bl = await _creer_document_bl(db_session, numero="L2003")
+    await _creer_ligne(db_session, document=bl, ordre=0, qte_livree=Decimal("2"))
+
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="FAC-R05"
+    )
+    bloc = await _creer_bloc(
+        db_session, facture=facture, numero_bl="L2003", bl_document_id=bl.id
+    )
+    ligne_non_appariee = await _creer_ligne(
+        db_session,
+        document=facture,
+        bloc=bloc,
+        ordre=0,
+        code_brut="ART-X",
+        qte_totale=Decimal("4"),
+        pu_ht=Decimal("15.00"),
+        montant_ht=Decimal("60.00"),
+    )
+    await _creer_anomalie(db_session, ligne_id=ligne_non_appariee.id, regle="R05")
+
+    comparaison = await comparer_bl(db_session, bl.id)
+
+    assert comparaison.lignes[0].regles_ouvertes == []
+    assert comparaison.nb_problemes == 1
+
+
+async def test_comparer_bl_nb_problemes_compte_une_anomalie_de_bloc(
+    db_session: AsyncSession,
+) -> None:
+    """R12 (doublon de facturation) ne porte que sur le bloc
+    (`bloc_id`, `ligne_id` absent) — jamais rattachée à une ligne, donc
+    jamais comptée par une somme de `regles_ouvertes`."""
+    bl = await _creer_document_bl(db_session, numero="L2004")
+    await _creer_ligne(db_session, document=bl, ordre=0, qte_livree=Decimal("1"))
+
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="FAC-R12"
+    )
+    bloc = await _creer_bloc(
+        db_session, facture=facture, numero_bl="L2004", bl_document_id=bl.id
+    )
+    await _creer_anomalie(db_session, bloc_id=bloc.id, regle="R12")
+
+    comparaison = await comparer_bl(db_session, bl.id)
+
+    assert comparaison.lignes[0].regles_ouvertes == []
+    assert comparaison.nb_problemes == 1
+
+
+async def test_comparer_bl_nb_problemes_compte_une_anomalie_du_document(
+    db_session: AsyncSession,
+) -> None:
+    """R11 (incohérence arithmétique du BL) porte sur le document
+    lui-même (`document_id`), pas sur une ligne ni sur un bloc — comptée
+    même quand aucune facture ne cite encore ce BL."""
+    bl = await _creer_document_bl(db_session, numero="L2005")
+    await _creer_ligne(db_session, document=bl, ordre=0, qte_livree=Decimal("1"))
+    await _creer_anomalie(db_session, document_id=bl.id, regle="R11")
+
+    comparaison = await comparer_bl(db_session, bl.id)
+
+    assert comparaison.facture_id is None
+    assert comparaison.lignes[0].regles_ouvertes == []
+    assert comparaison.nb_problemes == 1
+
+
+async def test_comparer_bl_nb_problemes_zero_sans_anomalie(
+    db_session: AsyncSession,
+) -> None:
+    bl = await _creer_document_bl(db_session, numero="L2006")
+    await _creer_ligne(db_session, document=bl, ordre=0, qte_livree=Decimal("1"))
+
+    comparaison = await comparer_bl(db_session, bl.id)
+
+    assert comparaison.nb_problemes == 0
+
+
+async def test_comparer_bl_nb_problemes_ignore_les_anomalies_traitees(
+    db_session: AsyncSession,
+) -> None:
+    bl = await _creer_document_bl(db_session, numero="L2007")
+    bl_ligne = await _creer_ligne(
+        db_session, document=bl, ordre=0, qte_livree=Decimal("1")
+    )
+    await _creer_anomalie(
+        db_session, ligne_id=bl_ligne.id, regle="R06", statut="traitee"
+    )
+    await _creer_anomalie(db_session, document_id=bl.id, regle="R11", statut="ignoree")
+
+    comparaison = await comparer_bl(db_session, bl.id)
+
+    assert comparaison.nb_problemes == 0

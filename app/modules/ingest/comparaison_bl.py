@@ -33,7 +33,20 @@ elle-même (ex. R06, qui porte sur la ligne de BL absente de la facture),
 soit celui de sa ligne facture appariée (ex. R03-R09/R13/R17) -- jamais un
 JOIN direct sur `ligne`/`anomalie` (une seule requête supplémentaire,
 bornée aux identifiants déjà connus du périmètre, même piège que
-`ingest.bilan.bilan_detail`/`_anomalies_par_ligne_et_bloc`)."""
+`ingest.bilan.bilan_detail`/`_anomalies_par_ligne_et_bloc`).
+
+`nb_problemes` (tour de correction 1, Task 8 -- constat de revue : « le
+front décide lui-même du verdict à partir de données partielles ») compte,
+lui, le nombre d'anomalies *distinctes* ouvertes concernant ce BL au sens
+large, pas seulement celles rattachées à une ligne du périmètre ci-dessus :
+s'y ajoutent celles portées par une ligne de facture du bloc jamais
+appariée (R05 -- « facturée mais absente du bon », `ligne_id` = la ligne de
+facture, jamais une ligne du BL), celles portées par le bloc lui-même
+(`bloc_id`, ligne_id absent -- ex. R12, doublon de facturation) et celles
+portées par le BL lui-même (`document_id`, ex. R11, incohérence
+arithmétique du BL). C'est ce compte, jamais une somme refaite côté front
+à partir de `regles_ouvertes`, qui doit fonder le nombre affiché par la
+page BL -- décision du contrôleur."""
 
 from __future__ import annotations
 
@@ -41,7 +54,7 @@ import uuid
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ingest.lecture import DocumentIntrouvable
@@ -82,6 +95,7 @@ class ComparaisonBl:
     numero_facture: str | None
     montant_facture_ht: Decimal | None
     lignes: list[LigneComparee]
+    nb_problemes: int
 
 
 async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> ComparaisonBl:
@@ -116,6 +130,16 @@ async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> Comparai
     facture_id: uuid.UUID | None = None
     numero_facture: str | None = None
     montant_facture_ht: Decimal | None = None
+    # Identifiant du bloc qui cite ce BL, gardé à part de `facture_id` pour
+    # la requête des anomalies ci-dessous (tour de correction 1) -- `None`
+    # tant qu'aucun bloc ne cite ce BL, comme les trois champs ci-dessus.
+    bloc_id_cible: uuid.UUID | None = None
+    # Toutes les lignes de facture du bloc (appariées ou non) -- `None`
+    # (l'appariement) exclut R03-R09/R13/R17 d'une ligne non appariée, mais
+    # `nb_problemes` doit quand même compter R05 (« facturée mais absente
+    # du bon »), qui porte justement sur une ligne de facture jamais
+    # appariée à une ligne de BL.
+    ids_lignes_facture: set[uuid.UUID] = set()
     # Ligne de facture appariée, par identifiant de ligne BL (`rapprochement
     # _ligne`) -- vide tant qu'aucun bloc ne cite ce BL.
     ligne_facture_par_ligne_bl: dict[uuid.UUID, Ligne] = {}
@@ -123,12 +147,14 @@ async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> Comparai
     if ligne_bloc is not None:
         bloc, numero_facture = ligne_bloc
         facture_id = bloc.facture_id
+        bloc_id_cible = bloc.id
 
         lignes_facture = (
             (await session.execute(select(Ligne).where(Ligne.bloc_id == bloc.id)))
             .scalars()
             .all()
         )
+        ids_lignes_facture = {ligne.id for ligne in lignes_facture}
         montant_facture_ht = sum(
             (
                 ligne.montant_ht
@@ -161,20 +187,30 @@ async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> Comparai
                         ligne_facture
                     )
 
-    ids_lignes_concernees = {ligne.id for ligne in lignes_bl} | {
-        ligne_facture.id for ligne_facture in ligne_facture_par_ligne_bl.values()
-    }
-    anomalies_par_ligne: dict[uuid.UUID, list[str]] = {}
+    # Périmètre de `regles_ouvertes` (par ligne) : les lignes du BL et
+    # *toutes* les lignes de facture du bloc, appariées ou non (`ids_lignes
+    # _facture`, ci-dessus) -- une ligne de facture jamais appariée n'est
+    # jamais la ligne d'une `LigneComparee`, mais son anomalie (R05) doit
+    # quand même compter dans `nb_problemes`, voir la condition `bloc_id`
+    # ci-dessous pour les anomalies qui ne portent sur aucune ligne du tout
+    # (R01/R02/R12).
+    ids_lignes_concernees = {ligne.id for ligne in lignes_bl} | ids_lignes_facture
+    conditions_anomalies = [Anomalie.document_id == document_id]
     if ids_lignes_concernees:
-        resultat_anomalies = await session.execute(
-            select(Anomalie.ligne_id, Anomalie.regle)
-            .where(
-                Anomalie.statut == "ouverte",
-                Anomalie.ligne_id.in_(ids_lignes_concernees),
-            )
-            .order_by(Anomalie.regle.asc())
-        )
-        for ligne_id, regle in resultat_anomalies.all():
+        conditions_anomalies.append(Anomalie.ligne_id.in_(ids_lignes_concernees))
+    if bloc_id_cible is not None:
+        conditions_anomalies.append(Anomalie.bloc_id == bloc_id_cible)
+
+    resultat_anomalies = await session.execute(
+        select(Anomalie.id, Anomalie.ligne_id, Anomalie.regle)
+        .where(Anomalie.statut == "ouverte", or_(*conditions_anomalies))
+        .order_by(Anomalie.regle.asc())
+    )
+    anomalies_par_ligne: dict[uuid.UUID, list[str]] = {}
+    ids_anomalies_ouvertes: set[uuid.UUID] = set()
+    for anomalie_id, ligne_id, regle in resultat_anomalies.all():
+        ids_anomalies_ouvertes.add(anomalie_id)
+        if ligne_id is not None:
             anomalies_par_ligne.setdefault(ligne_id, []).append(regle)
 
     lignes: list[LigneComparee] = []
@@ -203,4 +239,5 @@ async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> Comparai
         numero_facture=numero_facture,
         montant_facture_ht=montant_facture_ht,
         lignes=lignes,
+        nb_problemes=len(ids_anomalies_ouvertes),
     )

@@ -3238,6 +3238,10 @@
       },
       "type": "array",
       "title": "Lignes"
+     },
+     "nb_problemes": {
+      "type": "integer",
+      "title": "Nb Problemes"
      }
     },
     "type": "object",
@@ -3246,10 +3250,11 @@
      "facture_id",
      "numero_facture",
      "montant_facture_ht",
-     "lignes"
+     "lignes",
+     "nb_problemes"
     ],
     "title": "ComparaisonBlReponse",
-    "description": "`GET /api/documents/{id}/comparaison` (Task 3, refonte front) —\nmêmes attributs qu'`ingest.comparaison_bl.ComparaisonBl`.\n`facture_id`/`numero_facture`/`montant_facture_ht` valent `None` quand\naucun bloc de facture ne cite ce BL (`bloc_facture.bl_document_id`,\nmême principe que `LigneBilanBlReponse.bl_document_id`)."
+    "description": "`GET /api/documents/{id}/comparaison` (Task 3, refonte front) —\nmêmes attributs qu'`ingest.comparaison_bl.ComparaisonBl`.\n`facture_id`/`numero_facture`/`montant_facture_ht` valent `None` quand\naucun bloc de facture ne cite ce BL (`bloc_facture.bl_document_id`,\nmême principe que `LigneBilanBlReponse.bl_document_id`).\n\n`nb_problemes` (tour de correction 1, Task 8) : nombre d'anomalies\nouvertes concernant ce BL, au sens large — pas seulement la somme des\n`regles_ouvertes` des `lignes` (voir le docstring de\n`ingest.comparaison_bl.ComparaisonBl`). C'est ce champ, jamais un calcul\nfront, qui doit fonder le nombre de problèmes affiché et déterminer si\nle BL peut être présenté comme « Conforme »."
    },
    "CorrectionEnteteRequete": {
     "properties": {
@@ -3829,6 +3834,18 @@
        }
       ],
       "title": "Chantier Brut"
+     },
+     "chantier_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chantier Id"
      }
     },
     "type": "object",
@@ -3845,10 +3862,11 @@
      "photo_compressee",
      "confirmation",
      "fournisseur",
-     "chantier_brut"
+     "chantier_brut",
+     "chantier_id"
     ],
     "title": "DocumentReponse",
-    "description": "Une ligne de `GET /api/documents` (`confirmation` ajouté au Ruling\nL2-R8, correction de revue L2-T7 : le front ne doit plus dériver\nvérifié/écart à partir de `statut`, qui suit une tout autre logique —\nvoir `ingest/service.py::lister_documents` ; `fournisseur`/\n`chantier_brut` ajoutés en L3-T8a pour un aperçu utile dans la liste)."
+    "description": "Une ligne de `GET /api/documents` (`confirmation` ajouté au Ruling\nL2-R8, correction de revue L2-T7 : le front ne doit plus dériver\nvérifié/écart à partir de `statut`, qui suit une tout autre logique —\nvoir `ingest/service.py::lister_documents` ; `fournisseur`/\n`chantier_brut` ajoutés en L3-T8a pour un aperçu utile dans la liste ;\n`chantier_id` ajouté au tour de correction 1 de Task 8 — le filtre\n`?chantier=` de la liste « Documents » ne peut comparer un identifiant\nde chantier connu (`?chantier=<id>`, résolu par `GET /api/chantiers`)\nqu'à un identifiant, jamais à un préfixe de texte brut non normalisé\n(`chantier_brut`)."
    },
    "FactureDeposeeReponse": {
     "properties": {

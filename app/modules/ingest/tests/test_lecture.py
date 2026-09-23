@@ -203,6 +203,7 @@ async def _creer_document_bl(
     fichier_path: str | None = None,
     fournisseur: Fournisseur | None = None,
     chantier_brut: str | None = None,
+    chantier_id: uuid.UUID | None = None,
 ) -> Document:
     document = Document(
         type=type_,
@@ -216,6 +217,7 @@ async def _creer_document_bl(
         photo_compressee=photo_compressee,
         fournisseur_id=fournisseur.id if fournisseur is not None else None,
         chantier_brut=chantier_brut,
+        chantier_id=chantier_id,
     )
     if created_at is not None:
         document.created_at = created_at
@@ -880,6 +882,31 @@ async def test_lister_documents_sans_fournisseur_ni_chantier_brut(
 
     assert resultat[0].fournisseur is None
     assert resultat[0].chantier_brut is None
+    assert resultat[0].chantier_id is None
+
+
+async def test_lister_documents_chantier_id_expose(db_session: AsyncSession) -> None:
+    """Tour de correction 1 de Task 8 : `chantier_id` (pas seulement
+    `chantier_brut`, un texte non normalisé) doit être exposé pour que le
+    front puisse filtrer par égalité d'identifiant plutôt que par préfixe
+    de texte brut."""
+    admin = await _creer_utilisateur(db_session, role="admin")
+    chantier = Chantier(nom_canonique="Villa des Tilleuls (test)")
+    db_session.add(chantier)
+    await db_session.flush()
+    document = await _creer_document_bl(
+        db_session,
+        numero="L372",
+        chantier_brut="VILLA DES TILLEULS (4521)",
+        chantier_id=chantier.id,
+    )
+
+    resultat = await lister_documents(
+        db_session, utilisateur_id=admin.id, role="admin", depuis=None, limite=100
+    )
+
+    assert resultat[0].id == document.id
+    assert resultat[0].chantier_id == chantier.id
 
 
 # --------------------------------------------------------------------------
