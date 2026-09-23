@@ -57,6 +57,11 @@ def test_navigation_cinq_entrees_sans_jargon() -> None:
         assert f">{jargon}<" not in gabarit
     assert "md:hidden" in gabarit and "fixed bottom-0" in gabarit
 
+    # Task 6 (exception à la règle Gabarit) : « Vue d'ensemble » déborde à
+    # 375 px dans la barre de navigation basse — remplacé là par « Accueil »,
+    # sans perdre le libellé complet de la barre latérale (ci-dessus).
+    assert "Accueil" in gabarit
+
 
 def test_anciennes_routes_redirigent() -> None:
     """Redirections encore actives (spec §3) après le fix round 1 : R1
@@ -65,7 +70,7 @@ def test_anciennes_routes_redirigent() -> None:
     voir `test_ecrans_sans_remplacement_restent_montes`) et R2 (`/bilan/:c/
     :f` redirige désormais vers `/chantiers/:c/:f`, pas `/documents/:id`)."""
     app = (SRC / "App.tsx").read_text()
-    for ancien in ('"a-traiter"', '"bilan"', '"bl"'):
+    for ancien in ('"a-traiter"', '"bilan"', '"bl"', '"anomalies"'):
         assert f"path={ancien}" in app
     assert "RedirectionAncienneUrl" in app
 
@@ -76,21 +81,23 @@ def test_anciennes_routes_redirigent() -> None:
     assert "p.fournisseurId" in declaration
 
 
-def test_ecrans_sans_remplacement_restent_montes() -> None:
-    """Fix round 1, R1 : Anomalies n'a pas encore de remplacement construit —
-    il reste un vrai écran, gardé admin, sur son ancienne URL, plutôt qu'une
-    redirection qui le rendrait inaccessible. Factures (Task 8) : reprise
-    complète par `DocumentsListe`/`PageBl`/`FactureDetail`, voir
-    `test_anciennes_routes_factures_redirigent_vers_documents` dans
-    `tests/test_web_documents.py` — les deux anciennes routes redirigent
-    désormais pour de bon."""
+def test_ecrans_transitoires_tous_migres() -> None:
+    """Fix round 1, R1 : les anciens écrans Factures et Anomalies sont restés
+    montés sur leur ancienne URL tant qu'ils n'avaient pas de remplacement.
+    Ils en ont désormais un (Task 8 : `DocumentsListe`/`PageBl`/
+    `FactureDetail` ; Task 6 : `ARegler`), donc leurs anciennes URL
+    redirigent pour de bon, en conservant recherche et ancre."""
     app = (SRC / "App.tsx").read_text()
-    for chemin, composant in (('path="anomalies"', "Anomalies"),):
+    for chemin, cible in (
+        ('path="anomalies"', '"/a-regler"'),
+        ('path="factures"', '"/documents"'),
+    ):
         assert chemin in app
         declaration = app.split(chemin, 1)[1].split("path=", 1)[0]
-        assert f"<{composant}" in declaration, chemin
-        assert "GardeAdmin" in declaration, chemin
-        assert "RedirectionAncienneUrl" not in declaration, chemin
+        assert "RedirectionAncienneUrl" in declaration, chemin
+        assert cible in declaration, chemin
+    assert "<Anomalies" not in app
+    assert "<FacturesListe" not in app
 
 
 def test_chantiers_referentiel_reste_accessible() -> None:

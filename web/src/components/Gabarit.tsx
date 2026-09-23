@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink, Outlet, useNavigate } from "react-router";
 
+import { cleAnomalies, listerAnomalies } from "../api/anomalies";
 import { appelerApi } from "../api/client";
 import { CLE_MOI, DUREE_CACHE_MOI, recupererMoi } from "../api/moi";
 
@@ -59,16 +60,24 @@ function IconeDocuments({ className }: { className: string }): ReactElement {
 interface EntreeNav {
   vers: string;
   libelle: string;
+  /** Libellé de la barre de navigation basse (téléphone, < `md`), quand il
+   * diffère de celui de la barre latérale (ordinateur) — Task 6, seule
+   * tâche autorisée à modifier ce fichier : « Vue d'ensemble » déborde à
+   * 375 px dans la barre basse, remplacé là par « Accueil » ; la barre
+   * latérale garde « Vue d'ensemble » (`libelle` ci-dessus, jamais
+   * modifié). `undefined` réutilise `libelle` tel quel. */
+  libelleCourt?: string;
   Icone: IconeNav;
 }
 
 /** Cinq entrées de la navigation admin (spec §3) : « Vue d'ensemble » = `/`,
  * « À régler » (remplace « À traiter »/« Anomalies »), « Chantiers »
  * (remplace « Bilan »), « Fournisseurs », « Documents » (remplace
- * « Factures »/« BL déposés »). Pas de pastille de compte sur « À régler »
- * ici (décision du contrôleur : posée par la Task 6). */
+ * « Factures »/« BL déposés »). Pastille du nombre de problèmes urgents
+ * ouverts sur « À régler » posée au rendu (voir `PastilleUrgents`
+ * ci-dessous), pas dans cette table statique. */
 const NAV_ADMIN: EntreeNav[] = [
-  { vers: "/", libelle: "Vue d'ensemble", Icone: IconeVueEnsemble },
+  { vers: "/", libelle: "Vue d'ensemble", libelleCourt: "Accueil", Icone: IconeVueEnsemble },
   { vers: "/a-regler", libelle: "À régler", Icone: IconeARegler },
   { vers: "/chantiers", libelle: "Chantiers", Icone: IconeChantiers },
   { vers: "/fournisseurs", libelle: "Fournisseurs", Icone: IconeFournisseurs },
@@ -83,6 +92,27 @@ function classesLienBarreLaterale({ isActive }: { isActive: boolean }): string {
   const base =
     "flex min-h-[44px] items-center gap-3 rounded-lg px-3 py-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent";
   return isActive ? `${base} bg-accent font-medium text-white` : `${base} text-encre hover:bg-fond`;
+}
+
+/** Pastille du nombre de problèmes urgents ouverts sur l'entrée « À régler »
+ * (Task 6, exception à la règle Gabarit) : à partir d'un appel serveur déjà
+ * existant (`GET /api/anomalies?statut=ouverte&gravite=haute`, même route
+ * que l'écran « À régler »), jamais un nouveau calcul ni une nouvelle route.
+ * Toujours doublée d'un `aria-label` en toutes lettres (spec §2 : jamais la
+ * couleur seule). `undefined` (requête pas encore résolue) ou `0` n'affiche
+ * rien. */
+function PastilleUrgents({ compte }: { compte: number | undefined }): ReactElement | null {
+  if (compte === undefined || compte === 0) {
+    return null;
+  }
+  return (
+    <span
+      aria-label={`${compte} urgent${compte > 1 ? "s" : ""}`}
+      className="inline-flex min-w-[20px] shrink-0 items-center justify-center rounded-full bg-alerte px-1.5 py-0.5 text-xs font-semibold text-white"
+    >
+      {compte}
+    </span>
+  );
 }
 
 /** L'entrée active se distingue de plus d'une simple couleur (fix round 1,
@@ -124,6 +154,18 @@ export function Gabarit(): ReactElement {
   const estAdmin = moi?.role === "admin";
   const entrees = estAdmin ? NAV_ADMIN : NAV_AGENT;
 
+  // Pastille « À régler » (Task 6, exception à la règle Gabarit) : appel
+  // serveur déjà existant, jamais chargé pour un agent (qui n'a pas
+  // l'entrée « À régler »). `PastilleUrgents` gère elle-même le cas
+  // `undefined` (requête pas encore résolue) et `0` (rien affiché).
+  const urgents = useQuery({
+    queryKey: cleAnomalies({ statut: "ouverte", gravite: "haute" }),
+    queryFn: () => listerAnomalies({ statut: "ouverte", gravite: "haute" }),
+    enabled: estAdmin,
+    staleTime: 30_000,
+  });
+  const compteUrgents = estAdmin ? urgents.data?.length : undefined;
+
   return (
     <div className="min-h-screen bg-fond font-sans text-encre md:flex">
       {/* Barre latérale — ordinateur (>= md). `sticky top-0 h-screen` (fix
@@ -146,7 +188,8 @@ export function Gabarit(): ReactElement {
               <li key={vers}>
                 <NavLink to={vers} end={vers === "/"} className={classesLienBarreLaterale}>
                   <Icone className="h-4 w-4 shrink-0" />
-                  {libelle}
+                  <span className="flex-1">{libelle}</span>
+                  {vers === "/a-regler" && <PastilleUrgents compte={compteUrgents} />}
                 </NavLink>
                 {/* R1 (fix round 1) : la création de chantier et la
                     validation d'alias (`Chantiers.tsx`) restent
@@ -247,10 +290,23 @@ export function Gabarit(): ReactElement {
           aria-label="Navigation principale"
           className="fixed bottom-0 inset-x-0 z-10 flex border-t border-bordure bg-surface md:hidden"
         >
-          {entrees.map(({ vers, libelle, Icone }) => (
+          {entrees.map(({ vers, libelle, libelleCourt, Icone }) => (
             <NavLink key={vers} to={vers} end={vers === "/"} className={classesLienBarreBasse}>
-              <Icone className="h-5 w-5" />
-              <span className="text-[11px] leading-none">{libelle}</span>
+              <span className="relative">
+                <Icone className="h-5 w-5" />
+                {vers === "/a-regler" && compteUrgents !== undefined && compteUrgents > 0 && (
+                  <span
+                    aria-label={`${compteUrgents} urgent${compteUrgents > 1 ? "s" : ""}`}
+                    className="absolute -right-1.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-alerte px-1 text-[10px] font-semibold text-white"
+                  >
+                    {compteUrgents}
+                  </span>
+                )}
+              </span>
+              {/* « Accueil » plutôt que « Vue d'ensemble » ici (Task 6) :
+                  ce dernier déborde à 375 px dans la barre basse — la barre
+                  latérale (ci-dessus) garde le libellé complet. */}
+              <span className="whitespace-nowrap text-[11px] leading-none">{libelleCourt ?? libelle}</span>
             </NavLink>
           ))}
         </nav>

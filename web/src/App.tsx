@@ -3,8 +3,7 @@ import { Route, Routes } from "react-router";
 
 import { EcouteAuthentification } from "./components/EcouteAuthentification";
 import { Gabarit } from "./components/Gabarit";
-import { Anomalies } from "./pages/Anomalies";
-import { ATraiter } from "./pages/ATraiter";
+import { ARegler } from "./pages/ARegler";
 import { Bilan } from "./pages/Bilan";
 import { BilanBl, BilanFournisseursChantier } from "./pages/BilanFournisseur";
 import { Chantiers } from "./pages/Chantiers";
@@ -47,14 +46,26 @@ export function App(): ReactElement {
             }
           />
 
-          {/* À régler (remplace « À traiter »/« Anomalies ») — écran
-              existant `ATraiter` conservé tel quel (habillage seulement, la
-              Task 6 le remplace). */}
+          {/* À régler (remplace « À traiter »/« Anomalies », Task 6) :
+              file unique des anomalies ouvertes et du contenu de
+              `GET /api/a-traiter` (documents à vérifier, alias, articles).
+              `ARegler.tsx` lit `useParams().id` lui-même (`undefined` sur
+              la route sans `:id`) pour afficher, en plus de la liste, un
+              panneau de détail en `lg+` ou une page plein écran en
+              dessous — les deux routes montent donc le même composant. */}
           <Route
             path="a-regler"
             element={
               <GardeAdmin>
-                <ATraiter />
+                <ARegler />
+              </GardeAdmin>
+            }
+          />
+          <Route
+            path="a-regler/:id"
+            element={
+              <GardeAdmin>
+                <ARegler />
               </GardeAdmin>
             }
           />
@@ -156,31 +167,16 @@ export function App(): ReactElement {
             }
           />
 
-          {/* Écran sans remplacement construit — fix round 1 R1 (« aucune
-              fonctionnalité existante n'est supprimée » l'emporte sur une
-              redirection posée par erreur en Task 4) : reste MONTÉ sur son
-              ancienne URL, pas de redirection, jusqu'à ce que la Task 6 le
-              migre. Factures (Task 8) : `DocumentsListe` couvre désormais le
-              dépôt et la liste des factures, `PageBl`/`FactureDetail`
-              affichent leur détail sur `/documents/:id` — les deux anciennes
-              routes deviennent de vraies redirections (spec §3), pas des
-              écrans transitoires. */}
-          <Route
-            path="anomalies"
-            element={
-              <GardeAdmin>
-                <Anomalies />
-              </GardeAdmin>
-            }
-          />
-
           {/* --------------------------------------------------------------
               Anciennes URL → nouvelles (spec §3, fix round 1 R1/R2) : un
               seul composant partagé pour toutes les redirections, qui
               reporte toujours les paramètres de recherche et l'ancre de
-              l'URL d'origine (voir web/src/routes/).
-              -------------------------------------------------------------- */}
+              l'URL d'origine (voir web/src/routes/). `anomalies` (Task 6) :
+              `?blocId=...` (lien depuis `BilanFournisseur.tsx`, écran
+              « Chantiers », pas encore migré) reste compris par `ARegler`,
+              voir `pages/ARegler.tsx`. */}
           <Route path="a-traiter" element={<RedirectionAncienneUrl vers={() => "/a-regler"} />} />
+          <Route path="anomalies" element={<RedirectionAncienneUrl vers={() => "/a-regler"} />} />
           <Route path="bilan" element={<RedirectionAncienneUrl vers={() => "/chantiers"} />} />
           <Route
             path="bilan/fournisseurs"
