@@ -417,8 +417,9 @@ export function FicheChantier(): ReactElement {
   });
 
   // Fournisseurs/BL *sans* filtre de mois (fix round 2, constat 1), pour
-  // « Dernière livraison reçue » ci-dessous uniquement — jamais pour la
-  // carte « Livraisons » elle-même, qui reste filtrée par `filtresActifs`.
+  // « Dernier bon retrouvé sur une facture » ci-dessous uniquement — jamais
+  // pour la carte « Livraisons » elle-même, qui reste filtrée par
+  // `filtresActifs`.
   // Mêmes clés que `fournisseurs`/`blParFournisseur` quand aucun mois
   // n'est choisi (`filtresActifs === FILTRES_TOUS_MOIS`) : `@tanstack/
   // react-query` partage alors le cache par clé, donc pas de requête
@@ -464,18 +465,28 @@ export function FicheChantier(): ReactElement {
         )
         .sort(comparerDateDesc)
     : [];
-  // « Dernière livraison reçue » (fix round 1, constat 2 ; recalculée sans
-  // filtre de mois au fix round 2, constat 1) : seules les lignes où une
-  // photo de BL a réellement été rattachée (`bl_document_id !== null`)
-  // comptent comme une livraison reçue — les lignes « Jamais reçu »/« Livré
-  // sans bon » n'en sont pas une. `date_bl` reste la date imprimée sur le
-  // bon, pas une date de dépôt (celle-ci n'est pas exposée par ligne côté
-  // serveur, voir docs/dette.md) : le libellé affiché ci-dessous le dit
-  // explicitement, jamais « déposé ». Calculée sur `blTousParFournisseur`
-  // (sans `?mois`, voir ci-dessus) : avant ce correctif, elle portait sur
-  // `livraisons`, déjà filtrée par le mois choisi — un chantier livré en
-  // août et en septembre, filtré sur octobre, affichait « Aucune livraison
-  // reçue », une affirmation fausse.
+  // « Dernier bon retrouvé sur une facture » (fix round 1, constat 2 ;
+  // recalculée sans filtre de mois au fix round 2, constat 1 ; libellé
+  // corrigé et cas de la date manquante distingué aux corrections de revue
+  // tour 3, constat 2) : seules les lignes où une photo de BL a réellement
+  // été rattachée (`bl_document_id !== null`) comptent — les lignes
+  // « Jamais reçu »/« Livré sans bon » n'en sont pas une. Calculée sur
+  // `blTousParFournisseur` (sans `?mois`, voir ci-dessus) : avant le fix
+  // round 2, elle portait sur `livraisons`, déjà filtrée par le mois
+  // choisi — un chantier livré en août et en septembre, filtré sur
+  // octobre, affichait un « aucun bon reçu » erroné.
+  //
+  // Reste vrai après ce correctif, documenté dans docs/dette.md : cette
+  // date ne reflète qu'un bon retrouvé sur une facture déjà arrivée (une
+  // fois par mois), jamais un vrai dépôt Telegram (quotidien) — un
+  // chantier avec des bons déposés ce mois-ci mais pas encore facturés
+  // affiche toujours le message « aucun bon retrouvé », comme un chantier
+  // qui n'a jamais rien reçu. Le libellé ci-dessous le dit explicitement
+  // (jamais « reçue »/« déposée » seules, jamais le libellé « Dernier BL
+  // déposé » demandé par la brief à tort) pour ne pas contredire le
+  // bandeau « Chantiers sans bon déposé », qui lui se base sur le vrai
+  // dernier dépôt (`dernier_depot_le`, `ingest.referentiels_vue.chantiers_
+  // sans_depot`) — non exposé par chantier individuel hors de ce bandeau.
   const livraisonsToutesChargees =
     fournisseursTous.isSuccess && blTousParFournisseur.every((requete) => requete.isSuccess);
   const livraisonsRecues: LivraisonAffichee[] = livraisonsToutesChargees
@@ -492,7 +503,14 @@ export function FicheChantier(): ReactElement {
         .filter((livraison) => livraison.ligne.bl_document_id !== null)
         .sort(comparerDateDesc)
     : [];
-  const derniereLivraisonRecue = livraisonsRecues[0]?.dateBl ?? null;
+  // Distingue « aucun bon retrouvé » (`livraisonsRecues` vide) de « un bon
+  // retrouvé, mais sans date imprimée lisible » (`dateBl === null` sur son
+  // seul élément trié en tête — voir `comparerDateDesc`, qui place les
+  // dates nulles en dernier) : avant ce correctif
+  // (`livraisonsRecues[0]?.dateBl ?? null`), les deux cas affichaient le
+  // même message d'absence, alors que `livraisonsRecues` n'était pas vide
+  // dans le second cas.
+  const derniereLivraisonRecue = livraisonsRecues[0] ?? null;
 
   if (chantiers.isPending) {
     return <p role="status" className="text-sm text-encre-2">Chargement…</p>;
@@ -520,12 +538,14 @@ export function FicheChantier(): ReactElement {
             <span>Client : <strong className="font-medium">{chantier.client ?? "Non renseigné"}</strong></span>
             <span>Agence : {chantier.agence ?? "Non renseignée"}</span>
             <span>
-              Dernière livraison reçue :{" "}
+              Dernier bon retrouvé sur une facture :{" "}
               {!livraisonsToutesChargees
                 ? "Chargement…"
                 : derniereLivraisonRecue === null
-                  ? "Aucune livraison reçue"
-                  : formaterDate(derniereLivraisonRecue)}
+                  ? "Aucun bon retrouvé sur une facture"
+                  : derniereLivraisonRecue.dateBl === null
+                    ? "Date inconnue"
+                    : formaterDate(derniereLivraisonRecue.dateBl)}
             </span>
             {!chantier.actif && <span className="font-medium text-alerte">Chantier inactif</span>}
             {moisChoisi && (

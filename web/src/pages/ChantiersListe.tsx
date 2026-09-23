@@ -325,8 +325,8 @@ function BandeauSilencieux({ chantiers }: { chantiers: ChantierSilencieux[] }): 
  * cliquer un chantier sans facture ce mois-ci depuis cette carte ouvrait
  * sa fiche filtrée sur ce mois, qui affichait alors « Aucune livraison
  * enregistrée » même quand le chantier avait des livraisons sur d'autres
- * mois (voir aussi `FicheChantier.tsx`, « Dernière livraison reçue »
- * recalculée sans filtre de mois). */
+ * mois (voir aussi `FicheChantier.tsx`, « Dernier bon retrouvé sur une
+ * facture » recalculée sans filtre de mois). */
 function CarteTousLesChantiers({
   chantiers,
   agence,
@@ -401,13 +401,36 @@ function CarteTousLesChantiers({
   );
 }
 
+/** Même correspondance que `Chantiers.tsx::LIBELLES_ROLE` (repris tel quel,
+ * corrections de revue tour 3, constat 1) : `DepotAgent.role` porte la
+ * valeur brute d'`Utilisateur.role` (`admin`/`agent`), jamais un libellé
+ * affichable. Sans cette table, un administrateur qui a déposé un bon
+ * apparaîtrait comme un agent de terrain de plus — exactement la confusion
+ * que le Ruling L5-R7 (décision du contrôleur) et l'ajout du champ côté
+ * serveur (`ingest/referentiels_vue.py`, tour de correction 1 bis) visaient
+ * à éviter. Chaque écran garde sa propre table de deux entrées (décision du
+ * contrôleur, pas de fichier partagé pour une correspondance aussi
+ * courte). */
+const LIBELLES_ROLE: Record<string, string> = {
+  admin: "Administrateur",
+  agent: "Agent",
+};
+
+function libelleRole(role: string): string {
+  return LIBELLES_ROLE[role] ?? role;
+}
+
 /** Activité de terrain (reprise de `Chantiers.tsx::SectionDepotsParAgent`,
  * L5-T7/T8, exigée par le CDC §4 « Chantiers & fournisseurs : […] dépôts par
  * agent sur 30 jours ») : qui a déposé quoi sur les 30 derniers jours
  * calendaires. Carte secondaire, sous le tableau des chantiers — ce n'est
  * pas ce qu'un dirigeant regarde en premier (spec §1), mais la
  * fonctionnalité reste accessible (spec §3, « aucune fonctionnalité
- * existante n'est supprimée »). */
+ * existante n'est supprimée »). Rôle affiché à côté du nom (corrections de
+ * revue tour 3, constat 1) : disparu de cette carte alors que l'ancien
+ * `Chantiers.tsx` l'affichait (colonne « Rôle », Ruling L5-R7) — sans lui,
+ * un administrateur ayant déposé un bon se confondait avec un agent de
+ * terrain. */
 function CarteDepotsRecents({ depots }: { depots: DepotAgent[] }): ReactElement {
   if (depots.length === 0) {
     return (
@@ -422,7 +445,9 @@ function CarteDepotsRecents({ depots }: { depots: DepotAgent[] }): ReactElement 
         {depots.map((depot) => (
           <li key={depot.agent_id} className="rounded-lg border border-bordure p-3">
             <p className="truncate text-sm font-medium text-encre">{depot.nom ?? TIRET}</p>
-            <p className="text-xs text-encre-2">{depot.nombre_depots} dépôt{depot.nombre_depots > 1 ? "s" : ""}</p>
+            <p className="text-xs text-encre-2">
+              {libelleRole(depot.role)} · {depot.nombre_depots} dépôt{depot.nombre_depots > 1 ? "s" : ""}
+            </p>
           </li>
         ))}
       </ul>
@@ -432,6 +457,7 @@ function CarteDepotsRecents({ depots }: { depots: DepotAgent[] }): ReactElement 
           <thead className="text-left text-xs font-medium uppercase tracking-wide text-encre-2">
             <tr>
               <th scope="col" className="py-2 pr-4">Personne</th>
+              <th scope="col" className="py-2 pr-4">Rôle</th>
               <th scope="col" className="py-2 pr-4">Dépôts (30 j)</th>
             </tr>
           </thead>
@@ -442,6 +468,7 @@ function CarteDepotsRecents({ depots }: { depots: DepotAgent[] }): ReactElement 
                   <p className="font-medium text-encre">{depot.nom ?? TIRET}</p>
                   <p className="text-xs text-encre-2">{depot.email}</p>
                 </td>
+                <td className="py-2 pr-4 text-encre-2">{libelleRole(depot.role)}</td>
                 <td className="py-2 pr-4 text-encre">{depot.nombre_depots}</td>
               </tr>
             ))}

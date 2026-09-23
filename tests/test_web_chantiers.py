@@ -178,34 +178,38 @@ def test_fiche_chantier_dernier_bl_reflete_une_vraie_reception() -> None:
     enregistré » pendant le chargement. Seules les lignes où une photo de
     BL a été rattachée (`bl_document_id`) comptent désormais, le libellé ne
     prétend plus qu'il s'agit d'un dépôt, et rien ne s'affiche avant la fin
-    du chargement."""
+    du chargement. Libellé renommé « Dernier bon retrouvé sur une facture »
+    aux corrections de revue (tour 3, constat 2) : « reçue » seule restait
+    trompeur (voir test_fiche_chantier_dernier_bon_precise_ce_quil_mesure
+    ci-dessous)."""
     page = _lire("pages", "FicheChantier.tsx")
 
     assert "Dernier BL déposé" not in page
-    assert "Dernière livraison reçue" in page
+    assert "Dernier bon retrouvé sur une facture" in page
     assert "livraison.ligne.bl_document_id !== null" in page
     assert "livraisonsRecues" in page
 
-    entete = page.split("Dernière livraison reçue", 1)[1].split("chantier.actif &&", 1)[
-        0
-    ]
+    entete = page.split("Dernier bon retrouvé sur une facture", 1)[1].split(
+        "chantier.actif &&", 1
+    )[0]
     # Fix round 2 (constat 1) : ce calcul ne porte plus sur `livraisons`
     # (filtrée par `?mois`) mais sur `livraisonsToutesChargees`, alimenté
     # par des requêtes sans filtre de mois — voir
     # test_fiche_chantier_dernier_bl_ignore_le_mois_choisi ci-dessous.
     assert "!livraisonsToutesChargees" in entete
     assert "Chargement…" in entete
-    assert "Aucune livraison reçue" in entete
+    assert "Aucun bon retrouvé sur une facture" in entete
     assert "derniereLivraisonRecue" in entete
 
 
 def test_fiche_chantier_dernier_bl_ignore_le_mois_choisi() -> None:
-    """Constat 1 (Important, tour 2) : « Dernière livraison reçue » et
-    l'état vide de la carte « Livraisons » étaient calculés sur
-    `livraisons`, déjà filtrée par `?mois` — un chantier livré en août et
-    en septembre, la liste filtrée sur octobre, affichait « Dernière
-    livraison reçue : Aucune livraison reçue » et « Aucune livraison
-    enregistrée pour ce chantier. », une affirmation fausse. Ce calcul doit
+    """Constat 1 (Important, tour 2) : « Dernier bon retrouvé sur une
+    facture » (alors « Dernière livraison reçue ») et l'état vide de la
+    carte « Livraisons » étaient calculés sur `livraisons`, déjà filtrée
+    par `?mois` — un chantier livré en août et en septembre, la liste
+    filtrée sur octobre, affichait « Aucun bon retrouvé sur une facture »
+    et « Aucune livraison enregistrée pour ce chantier. », une affirmation
+    fausse. Ce calcul doit
     désormais venir de requêtes *sans* filtre de mois, distinctes de celles
     qui alimentent la carte « Livraisons » elle-même."""
     page = _lire("pages", "FicheChantier.tsx")
@@ -351,3 +355,64 @@ def test_fiche_chantier_exports_livraisons_en_pied_de_carte_sur_telephone() -> N
     # renommé en langage courant.
     assert "(vue fournisseurs)" not in carte_livraisons
     assert "Récapitulatif par fournisseur" in carte_livraisons
+
+
+# ---------------------------------------------------------------------------
+# Corrections de revue (tour 3)
+# ---------------------------------------------------------------------------
+
+
+def test_carte_depots_recents_affiche_le_role() -> None:
+    """Constat 1 (Important) : la carte « Dépôts récents (30 jours) »
+    n'affichait plus le rôle (Administrateur/Agent) disparu depuis l'ancien
+    `Chantiers.tsx::SectionDepotsParAgent` — une décision du contrôleur
+    (L5-T8, Ruling L5-R7) que le serveur a même renforcée en ajoutant
+    `DepotAgent.role` pour cette raison précise (« un écran qui l'ignorerait
+    ferait croire à un agent de plus », `ingest/referentiels_vue.py`). Le
+    rôle doit réapparaître, en carte téléphone comme en tableau."""
+    page = _lire("pages", "ChantiersListe.tsx")
+
+    assert "libelleRole" in page
+    assert "depot.role" in page
+
+    carte = page.split("function CarteDepotsRecents", 1)[1]
+    # Cartes téléphone (< md) : rôle affiché avec le nombre de dépôts.
+    cartes_telephone = carte.split("md:hidden", 1)[1].split("md:block", 1)[0]
+    assert "libelleRole(depot.role)" in cartes_telephone
+    # Tableau (md+) : une colonne « Rôle » dédiée.
+    tableau = carte.split("md:block", 1)[1]
+    assert "Rôle" in tableau
+    assert "libelleRole(depot.role)" in tableau
+
+
+def test_fiche_chantier_dernier_bon_precise_ce_quil_mesure() -> None:
+    """Constat 2 (Important) : « Dernière livraison reçue » restait une
+    affirmation fausse en usage normal — la date ne vient que des blocs
+    d'une facture déjà arrivée (une fois par mois), jamais des dépôts
+    Telegram quotidiens. Un chantier avec des bons déposés ce mois-ci mais
+    pas encore facturés affichait « Aucune livraison reçue », contredisant
+    le bandeau « Chantiers sans bon déposé » (qui lui se base sur le vrai
+    dernier dépôt). Le libellé doit dire exactement ce qui est calculé, et
+    « aucun bon retrouvé » doit être distingué de « bon retrouvé, date
+    inconnue » (`livraisonsRecues[0]?.dateBl ?? null` confondait les deux :
+    un bon sans `date_bl` renseignée affichait le même message qu'aucun bon
+    du tout)."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    assert "Dernier bon retrouvé sur une facture" in page
+    assert "Aucun bon retrouvé sur une facture" in page
+    assert "Aucune livraison reçue" not in page
+    assert "Dernière livraison reçue" not in page
+
+    entete = page.split("Dernier bon retrouvé sur une facture", 1)[1].split(
+        "chantier.actif &&", 1
+    )[0]
+    # Deux `null` distincts : `derniereLivraisonRecue === null` (aucun bon
+    # retrouvé) et `derniereLivraisonRecue.dateBl === null` (un bon
+    # retrouvé, sans date) — jamais confondus dans un seul test sur
+    # `dateBl ?? null`.
+    assert "derniereLivraisonRecue === null" in entete
+    assert "derniereLivraisonRecue.dateBl === null" in entete
+    assert "Date inconnue" in entete
+
+    assert "const derniereLivraisonRecue = livraisonsRecues[0] ?? null;" in page

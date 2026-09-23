@@ -635,18 +635,36 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   pour que cette exigence du CDC reste accessible quelque part — décision
   du contrôleur/de l'implémenteur à confirmer, un autre emplacement
   (Réglages ? un écran « Activité » séparé ?) étant tout aussi défendable.
-- **« Dernière livraison reçue » recalculée sans filtre de mois — corrigé
-  (fix round 2, constat 1), coût réseau résiduel.** Elle portait sur
-  `livraisons`, déjà filtrée par `?mois` : un chantier livré en août et en
-  septembre, la fiche filtrée sur octobre, affichait « Aucune livraison
-  reçue » — une affirmation fausse. `FicheChantier.tsx` interroge
-  désormais `GET .../fournisseurs` et `GET .../fournisseurs/{f}/bl` une
-  seconde fois, sans `?mois` (`fournisseursTous`/`blTousParFournisseur`) —
-  mêmes clés que les requêtes filtrées quand aucun mois n'est choisi
-  (`@tanstack/react-query` partage alors le cache, pas de requête réseau en
-  double), mais deux requêtes HTTP de plus par fournisseur résolu quand un
-  mois est choisi. Sans incidence perceptible avec le volume de données de
-  démo (un seul fournisseur résolu par chantier) ; à surveiller si un
-  chantier accumule beaucoup de fournisseurs. Un champ serveur dédié (ex.
-  `dernier_bl_recu_le` par chantier, indépendant de `?mois`) lèverait ce
-  doublon.
+- **« Dernier bon retrouvé sur une facture » (ex-« Dernière livraison
+  reçue ») recalculée sans filtre de mois — corrigé (fix round 2, constat
+  1), coût réseau résiduel.** Elle portait sur `livraisons`, déjà filtrée
+  par `?mois` : un chantier livré en août et en septembre, la fiche
+  filtrée sur octobre, affichait un « aucun bon retrouvé » erroné.
+  `FicheChantier.tsx` interroge désormais `GET .../fournisseurs` et
+  `GET .../fournisseurs/{f}/bl` une seconde fois, sans `?mois`
+  (`fournisseursTous`/`blTousParFournisseur`) — mêmes clés que les requêtes
+  filtrées quand aucun mois n'est choisi (`@tanstack/react-query` partage
+  alors le cache, pas de requête réseau en double), mais deux requêtes
+  HTTP de plus par fournisseur résolu quand un mois est choisi. Sans
+  incidence perceptible avec le volume de données de démo (un seul
+  fournisseur résolu par chantier) ; à surveiller si un chantier accumule
+  beaucoup de fournisseurs.
+- **« Dernier bon retrouvé sur une facture » ne mesure toujours pas un vrai
+  dépôt — corrections de revue tour 3, constat 2, limite non résolue.**
+  Même après le correctif ci-dessus, cette date ne provient que des blocs
+  d'une facture déjà arrivée (une fois par mois) dont la photo de BL a été
+  retrouvée (`bl_document_id !== null`) — jamais des dépôts Telegram
+  eux-mêmes (quotidiens). Un chantier qui a reçu des bons ce mois-ci mais
+  dont la facture du mois n'est pas encore arrivée affiche donc « Aucun bon
+  retrouvé sur une facture », alors que le bandeau « Chantiers sans bon
+  déposé » (basé sur le vrai `dernier_depot_le`) le montrerait actif. Le
+  libellé dit maintenant explicitement ce qu'il mesure (jamais « reçue »/
+  « déposée » seules) et distingue « aucun bon retrouvé » de « bon
+  retrouvé, date inconnue » (un bon sans `date_bl` affichait auparavant le
+  même message que l'absence totale de bon) — mais l'écart entre les deux
+  notions reste entier. Un vrai « dernier dépôt » par chantier individuel
+  demanderait d'exposer côté serveur le même calcul que
+  `ingest.referentiels_vue.chantiers_sans_depot` (qui l'a déjà, agrégé par
+  chantier via `Document.created_at`), par exemple un champ
+  `dernier_depot_le` sur `ChantierTableauReponse`/`LigneBilanChantierReponse`
+  — hors périmètre Task 7.
