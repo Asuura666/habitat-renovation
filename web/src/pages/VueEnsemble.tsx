@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 
@@ -25,7 +25,14 @@ import { formaterMontant, TIRET } from "../lib/formats";
 type Chantier = TableauDeBord["chantiers"][number];
 type Priorite = TableauDeBord["priorites"][number];
 
-const REGEX_MOIS = /^\d{4}-\d{2}$/;
+/** `AAAA-MM`, mois restreint à `01`-`12` (correction de revue, tour 1 :
+ * `^\d{4}-\d{2}$` acceptait `00` et `13` à `99` — `new Date("2026-13-01")`
+ * est invalide et faisait lever `Intl.DateTimeFormat.format` avec
+ * `RangeError: Invalid time value`, sans `ErrorBoundary` dans l'app, d'où un
+ * écran blanc sur `/?mois=2026-13`). Utilisée à la fois à la lecture de
+ * l'URL et dans `changerMois` : aucune des deux voies ne peut donc pousser
+ * un mois hors bornes vers `titreMois`/`obtenirTableauDeBord`. */
+const REGEX_MOIS = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 /** Mois courant au format `AAAA-MM`, fuseau Europe/Paris (brief T5 : « mois
  * courant Europe/Paris » par défaut) — même fuseau que `lib/formats.ts`. */
@@ -49,6 +56,14 @@ function titreMois(mois: string): string {
   // formats.ts`) : le fuseau du navigateur n'entre jamais en jeu, seul le
   // `timeZone: "Europe/Paris"` du formateur ci-dessous compte.
   const date = new Date(`${mois}-01`);
+  if (Number.isNaN(date.getTime())) {
+    // Filet de sécurité (correction de revue, tour 1) : avec `REGEX_MOIS`
+    // restreinte à `01`-`12`, `mois` est déjà valide à chaque appel — ce
+    // repli n'est donc jamais exercé aujourd'hui, mais il évite qu'un futur
+    // appelant de `titreMois` fasse à nouveau lever `Intl.DateTimeFormat
+    // .format` sur une `Invalid Date` plutôt que d'afficher le mois courant.
+    return titreMois(moisCourant());
+  }
   const formateur = new Intl.DateTimeFormat("fr-FR", {
     timeZone: "Europe/Paris",
     month: "long",
@@ -257,13 +272,37 @@ export function VueEnsemble(): ReactElement {
     queryFn: () => obtenirTableauDeBord(moisApi),
   });
 
+  // Brouillon local du sélecteur de mois (correction de revue, tour 1).
+  // `mois` ci-dessus est la valeur *effective* (repli sur le mois courant
+  // si absente/invalide) : la contrôler directement dans le champ empêchait
+  // de saisir un mois, notamment sur Firefox où `type="month"` retombe en
+  // champ texte (le navigateur envoie alors chaque frappe intermédiaire,
+  // ex. « 2026-0 »). Poussée telle quelle dans `changerMois`, une valeur
+  // intermédiaire invalide effaçait aussitôt le paramètre d'URL, `mois`
+  // revenait au mois courant et le champ contrôlé était réécrasé en plein
+  // milieu de la frappe. `brouillonMois` affiche toujours exactement ce que
+  // la personne tape ; seule une valeur qui passe `REGEX_MOIS` est poussée
+  // dans l'URL. Resynchronisé depuis `mois` quand celui-ci change pour une
+  // raison extérieure à la frappe (navigation, lien, retour arrière) —
+  // jamais pendant la saisie, puisque tant qu'aucune valeur valide n'est
+  // poussée dans l'URL, `mois` ne change pas et l'effet ne se redéclenche
+  // pas.
+  const [brouillonMois, setBrouillonMois] = useState(mois);
+  useEffect(() => {
+    setBrouillonMois(mois);
+  }, [mois]);
+
   function changerMois(valeur: string): void {
-    const suivants = new URLSearchParams(parametres);
-    if (REGEX_MOIS.test(valeur)) {
-      suivants.set("mois", valeur);
-    } else {
-      suivants.delete("mois");
+    setBrouillonMois(valeur);
+    if (!REGEX_MOIS.test(valeur)) {
+      // Valeur incomplète ou hors bornes (« 2026-0 », « 2026-19 »…) :
+      // affichée telle quelle dans le champ, jamais poussée dans l'URL —
+      // ni effacée au profit du mois courant, qui reprendrait la main sur
+      // le champ en pleine saisie.
+      return;
     }
+    const suivants = new URLSearchParams(parametres);
+    suivants.set("mois", valeur);
     setParametres(suivants, { replace: true });
   }
 
@@ -283,7 +322,7 @@ export function VueEnsemble(): ReactElement {
               <input
                 id="mois"
                 type="month"
-                value={mois}
+                value={brouillonMois}
                 onChange={(evenement) => changerMois(evenement.target.value)}
                 className="min-h-[44px] rounded-lg border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent"
               />

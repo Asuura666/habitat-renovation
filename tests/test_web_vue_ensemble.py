@@ -64,6 +64,53 @@ def test_vue_ensemble_aucun_jargon_visible() -> None:
     assert "problème" in page
 
 
+def test_regex_mois_rejette_00_et_13_a_99() -> None:
+    """Correction de revue, tour 1 : l'ancienne regex `^\\d{4}-\\d{2}$`
+    acceptait les mois `00` et `13` à `99` — `new Date("2026-13-01")` est
+    invalide et fait lever `Intl.DateTimeFormat.format` (`RangeError:
+    Invalid time value`), sans `ErrorBoundary` dans l'app, d'où un écran
+    blanc sur `/?mois=2026-13`. On extrait la regex telle qu'écrite dans
+    `VueEnsemble.tsx` (syntaxe compatible `re`, aucune fonctionnalité propre
+    à JS) et on la teste directement plutôt que de dupliquer une constante
+    dans le test — une regression sur la ligne source fait échouer ce test
+    autant que sur une regex qui aurait divergé silencieusement."""
+    page = (SRC / "pages" / "VueEnsemble.tsx").read_text()
+    correspondance = re.search(r"const REGEX_MOIS = /(\^.*\$)/;", page)
+    assert correspondance is not None
+    motif = re.compile(correspondance.group(1))
+
+    for valide in ("2026-01", "2026-09", "2026-12", "2000-06"):
+        assert motif.match(valide), valide
+    for invalide in (
+        "2026-00",
+        "2026-13",
+        "2026-19",
+        "2026-99",
+        "2026-1",
+        "2026-1a",
+        "26-09",
+        "2026/09",
+        "",
+    ):
+        assert motif.match(invalide) is None, invalide
+
+
+def test_vue_ensemble_mois_utilise_un_brouillon_local() -> None:
+    """Correction de revue, tour 1 : le champ `<input type="month">` ne
+    doit plus être contrôlé directement par le mois *effectif* (`mois`,
+    qui retombe sur le mois courant dès qu'une valeur est invalide/absente)
+    — sur Firefox (`type="month"` en repli texte), chaque frappe
+    intermédiaire invalide (« 2026-0 ») repassait alors par ce repli et
+    réécrasait le champ en pleine saisie, empêchant de taper un mois valide.
+    Un état local (`brouillonMois`) affiche exactement ce qui est tapé ;
+    seule une valeur qui passe `REGEX_MOIS` est poussée dans l'URL."""
+    page = (SRC / "pages" / "VueEnsemble.tsx").read_text()
+    assert "brouillonMois" in page
+    assert "value={brouillonMois}" in page
+    # Le champ n'est plus jamais recontrôlé par `mois` directement.
+    assert "value={mois}" not in page
+
+
 def test_route_accueil_monte_vue_ensemble() -> None:
     accueil = (SRC / "routes" / "RedirectionAccueil.tsx").read_text()
     assert "<VueEnsemble" in accueil
