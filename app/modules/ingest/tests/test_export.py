@@ -21,6 +21,7 @@ import pytest
 from app.modules.ingest.bilan import (
     LigneBilanBl,
     LigneBilanChantier,
+    LigneBilanDetail,
     LigneBilanFournisseur,
     MontantsBilan,
 )
@@ -28,6 +29,7 @@ from app.modules.ingest.export import (
     _cellule,
     csv_bilan_bl,
     csv_bilan_chantiers,
+    csv_bilan_detail,
     csv_bilan_fournisseurs,
 )
 
@@ -318,3 +320,178 @@ def test_csv_bilan_chantiers_plusieurs_lignes_et_compte_anomalies_entier() -> No
     assert len(lignes) == 3  # en-tête + 2 lignes
     assert lignes[1][6] == "3"
     assert lignes[2][6] == "0"
+
+
+# --------------------------------------------------------------------------
+# Export détaillé (décision d'Ilane du 23/09/2026, réponse à Q3 du lot 5)
+# --------------------------------------------------------------------------
+
+
+def _ligne_detail(
+    *,
+    fournisseur_nom: str | None = "Fournisseur Invente",
+    numero_facture: str | None = "F0001",
+    date_facture: date | None = date(2026, 8, 15),
+    nom_chantier: str | None = "Chantier Invente",
+    agence: str | None = "Agence Invente",
+    numero_bl: str | None = "L0001",
+    statut_rapprochement: str | None = "recu",
+    type_ligne: str = "article",
+    code_article: str | None = "ART1",
+    designation: str | None = "Désignation Inventée",
+    qte_facturee: Decimal | None = Decimal("10"),
+    unite: str | None = "U",
+    pu_ht: Decimal | None = Decimal("12.50"),
+    remise_pct: Decimal | None = Decimal("5.00"),
+    montant_ht: Decimal | None = Decimal("118.75"),
+    qte_bl_appariee: Decimal | None = Decimal("10"),
+    nb_anomalies_ouvertes: int = 0,
+    codes_regles: tuple[str, ...] = (),
+) -> LigneBilanDetail:
+    return LigneBilanDetail(
+        ligne_id=uuid.uuid4(),
+        bloc_id=uuid.uuid4(),
+        facture_id=uuid.uuid4(),
+        mois=date(2026, 8, 1),
+        fournisseur_id=uuid.uuid4(),
+        fournisseur_nom=fournisseur_nom,
+        numero_facture=numero_facture,
+        date_facture=date_facture,
+        chantier_id=uuid.uuid4(),
+        nom_chantier=nom_chantier,
+        agence=agence,
+        numero_bl=numero_bl,
+        statut_rapprochement=statut_rapprochement,
+        type_ligne=type_ligne,
+        code_article=code_article,
+        designation=designation,
+        qte_facturee=qte_facturee,
+        unite=unite,
+        pu_ht=pu_ht,
+        remise_pct=remise_pct,
+        montant_ht=montant_ht,
+        qte_bl_appariee=qte_bl_appariee,
+        nb_anomalies_ouvertes=nb_anomalies_ouvertes,
+        codes_regles=codes_regles,
+    )
+
+
+def test_csv_bilan_detail_entetes() -> None:
+    lignes = _lignes_csv(csv_bilan_detail([]))
+    assert lignes == [
+        [
+            "Mois",
+            "Fournisseur",
+            "N° Facture",
+            "Date facture",
+            "Chantier",
+            "Agence",
+            "N° BL",
+            "Statut BL",
+            "Type de ligne",
+            "Référence article",
+            "Désignation",
+            "Quantité facturée",
+            "Unité",
+            "Prix unitaire HT",
+            "Remise (%)",
+            "Montant HT",
+            "Quantité BL appariée",
+            "Anomalies ouvertes",
+            "Règles concernées",
+        ]
+    ]
+
+
+def test_csv_bilan_detail_ligne_complete_valeurs_et_ordre_des_colonnes() -> None:
+    ligne = _ligne_detail(nb_anomalies_ouvertes=2, codes_regles=("R01", "R13"))
+    lignes = _lignes_csv(csv_bilan_detail([ligne]))
+
+    assert lignes[1] == [
+        "2026-08",
+        "Fournisseur Invente",
+        "F0001",
+        "2026-08-15",
+        "Chantier Invente",
+        "Agence Invente",
+        "L0001",
+        "BL reçu",
+        "article",
+        "ART1",
+        "Désignation Inventée",
+        "10,00",
+        "U",
+        "12,50",
+        "5,00",
+        "118,75",
+        "10,00",
+        "2",
+        "R01, R13",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("statut_brut", "libelle_attendu"),
+    [
+        ("recu", "BL reçu"),
+        ("non_recu", "BL non reçu"),
+        ("pas_de_bon", "Pas de bon"),
+    ],
+)
+def test_csv_bilan_detail_statut_bloc_traduit_avec_les_libelles_du_front(
+    statut_brut: str, libelle_attendu: str
+) -> None:
+    ligne = _ligne_detail(statut_rapprochement=statut_brut)
+    lignes = _lignes_csv(csv_bilan_detail([ligne]))
+
+    assert lignes[1][7] == libelle_attendu
+
+
+def test_csv_bilan_detail_valeurs_absentes_cellules_vides_jamais_none() -> None:
+    ligne = _ligne_detail(
+        fournisseur_nom=None,
+        numero_facture=None,
+        date_facture=None,
+        nom_chantier=None,
+        agence=None,
+        numero_bl=None,
+        statut_rapprochement=None,
+        code_article=None,
+        designation=None,
+        qte_facturee=None,
+        unite=None,
+        pu_ht=None,
+        remise_pct=None,
+        montant_ht=None,
+        qte_bl_appariee=None,
+        codes_regles=(),
+    )
+    contenu = csv_bilan_detail([ligne])
+    lignes = _lignes_csv(contenu)
+
+    # Colonnes potentiellement absentes (index) : Fournisseur(1), N°
+    # Facture(2), Date facture(3), Chantier(4), Agence(5), N° BL(6), Statut
+    # BL(7), Référence article(9), Désignation(10), Quantité facturée(11),
+    # Unité(12), Prix unitaire HT(13), Remise(14), Montant HT(15), Quantité
+    # BL appariée(16), Règles concernées(18) -- toutes vides, jamais "None".
+    indices_optionnels = [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 18]
+    for indice in indices_optionnels:
+        assert lignes[1][indice] == ""
+    assert "None" not in contenu
+
+
+def test_csv_bilan_detail_mois_au_format_annee_mois() -> None:
+    ligne = _ligne_detail()
+    lignes = _lignes_csv(csv_bilan_detail([ligne]))
+
+    assert lignes[1][0] == "2026-08"
+
+
+def test_csv_bilan_detail_libelle_avec_point_virgule_echappe() -> None:
+    ligne = _ligne_detail(designation="Désignation; avec point-virgule")
+    contenu = csv_bilan_detail([ligne])
+    lignes = _lignes_csv(contenu)
+
+    assert '"Désignation; avec point-virgule"' in contenu
+    assert lignes[1][10] == "Désignation; avec point-virgule"
+    assert len(lignes[1]) == len(lignes[0])

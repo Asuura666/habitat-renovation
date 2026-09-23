@@ -99,7 +99,16 @@ Le niveau BL (décision du contrôleur) est le bloc de facture, pas le
 document BL : c'est le bloc qui porte le montant facturé et le statut de
 rapprochement. `bl_document_id`/`facture_id` sont renvoyés tels quels
 (`bl_document_id` reste `None` tant que la photo du BL n'a pas été
-retrouvée par le rapprochement, L4-D4)."""
+retrouvée par le rapprochement, L4-D4).
+
+Export détaillé (décision d'Ilane du 23/09/2026, réponse à Q3 du lot 5) :
+`bilan_detail` -- une ligne par ligne de facture (`ligne`), sur tout le
+périmètre `mois`/`agence`, en plus des cinq agrégats ci-dessus. Réutilise
+`_sous_requete_blocs`/`_conditions_base`/`_condition_agence` (même
+résolution du chantier, même chantier non résolu conservé). Voir le
+docstring de `bilan_detail` pour le piège évité (jamais un JOIN direct
+`ligne`/`anomalie`, qui multiplierait les lignes renvoyées) et la limite
+documentée sur R06 (`docs/dette.md`)."""
 
 from __future__ import annotations
 
@@ -123,6 +132,7 @@ from app.modules.ingest.models import (
     Document,
     Fournisseur,
     Ligne,
+    RapprochementLigne,
 )
 
 # Règles de quantité et de prix (CDC §5) : les seules dont une anomalie
@@ -883,3 +893,256 @@ async def bilan_par_bl(
         )
         for ligne in lignes
     ]
+
+
+# --------------------------------------------------------------------------
+# Export détaillé (décision d'Ilane du 23/09/2026, réponse à Q3 du lot 5) :
+# une ligne par ligne de facture, sur tout le périmètre `mois`/`agence`.
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class LigneBilanDetail:
+    """Une ligne de l'export détaillé du bilan : une ligne de facture
+    (`ligne`), pas un agrégat -- le pendant « une ligne par ligne de
+    facture » des cinq niveaux ci-dessus (décision d'Ilane du 23/09/2026,
+    réponse à Q3 du lot 5, `docs/lot-5-recette.md` §4). `chantier_id`/
+    `nom_chantier`/`agence` valent `None` pour les blocs dont le chantier
+    n'a pas pu être résolu, jamais éliminés (même principe que
+    `LigneBilanChantier.chantier_id`) ; `fournisseur_id`/`fournisseur_nom`
+    suivent la même règle pour le fournisseur.
+
+    `qte_facturee`/`unite` sont les valeurs brutes de la ligne
+    (`ligne.qte_totale`/`ligne.unite_brut`) -- ce que porte le document, pas
+    la quantité convertie en unité de facturation (`ligne.qte_fact`, L4-D7,
+    écrite par `rapprocher_facture` pour comparer deux lignes dont les
+    unités diffèrent) : ce fichier reproduit le document, pas une
+    conversion interne au moteur de règles (décision du contrôleur, à
+    signaler si elle se révèle fausse). `qte_bl_appariee` est la même
+    colonne brute lue sur la ligne de BL appariée par `rapprochement_ligne`
+    (`ingest.rapprochement`, L4-T7 -- une ligne de facture est appariée à au
+    plus une ligne de BL par construction), `None` si aucun appariement.
+
+    `nb_anomalies_ouvertes`/`codes_regles` portent les anomalies ouvertes
+    qui concernent cette ligne précise (`Anomalie.ligne_id`) ou tout son
+    bloc quand l'anomalie n'a pas de ligne propre (`Anomalie.bloc_id`, ex.
+    R01/R02) -- jamais recalculés par un JOIN direct sur `ligne`/`anomalie`
+    (voir `bilan_detail`). R06 (« ligne du BL non facturée ») ne peut jamais
+    y figurer : elle porte `ligne_id` sur la ligne de BL absente de la
+    facture, jamais sur une ligne de ce périmètre ni `None` (limite
+    documentée dans `docs/dette.md`)."""
+
+    ligne_id: uuid.UUID
+    bloc_id: uuid.UUID
+    facture_id: uuid.UUID
+    mois: date
+    fournisseur_id: uuid.UUID | None
+    fournisseur_nom: str | None
+    numero_facture: str | None
+    date_facture: date | None
+    chantier_id: uuid.UUID | None
+    nom_chantier: str | None
+    agence: str | None
+    numero_bl: str | None
+    statut_rapprochement: str | None
+    type_ligne: str
+    code_article: str | None
+    designation: str | None
+    qte_facturee: Decimal | None
+    unite: str | None
+    pu_ht: Decimal | None
+    remise_pct: Decimal | None
+    montant_ht: Decimal | None
+    qte_bl_appariee: Decimal | None
+    nb_anomalies_ouvertes: int
+    codes_regles: tuple[str, ...]
+
+
+def _mois_ligne(date_doc: date | None, created_at: datetime) -> date:
+    """Le mois d'une ligne de facture (L5-D4, même définition que
+    `_condition_mois` ci-dessus, calculée ici en Python plutôt qu'en SQL :
+    une seule colonne à convertir par ligne déjà chargée, pas un filtre) :
+    celui de sa facture (`date_doc`), sinon `created_at` (garanti non nul,
+    colonne `NOT NULL`) converti en Europe/Paris. Renvoie le 1er du mois
+    résolu, comme `_condition_mois`."""
+    if date_doc is not None:
+        return date(date_doc.year, date_doc.month, 1)
+    instant_paris = created_at.astimezone(FUSEAU_PARIS)
+    return date(instant_paris.year, instant_paris.month, 1)
+
+
+async def _anomalies_par_ligne_et_bloc(
+    session: AsyncSession,
+    *,
+    ids_lignes: set[uuid.UUID],
+    ids_blocs: set[uuid.UUID],
+) -> tuple[dict[uuid.UUID, tuple[str, ...]], dict[uuid.UUID, tuple[str, ...]]]:
+    """Codes de règle des anomalies ouvertes attribuables à chacune des
+    lignes/blocs déjà bornés par `bilan_detail` (`ids_lignes`/`ids_blocs`) --
+    jamais un JOIN sur `ligne`/`blocs` (voir le docstring de `bilan_detail` :
+    un JOIN direct multiplierait les lignes renvoyées par leurs anomalies).
+    Une anomalie ouverte portant `ligne_id` concerne cette ligne précise
+    (R03/R04/R05/R07/R08/R09/R13/R17, toujours rattachées par
+    `rapprocher_facture` à une ligne de facture du périmètre, Ruling L5-R3) ;
+    une anomalie ouverte sans `ligne_id` dont le `bloc_id` est dans le
+    périmètre concerne tout le bloc (R01/R02, qui ne portent jamais sur une
+    ligne précise). Une anomalie portant un `ligne_id` étranger au périmètre
+    (R06, dont `ligne_id` désigne la ligne de BL absente de la facture,
+    jamais une ligne de facture) n'entre dans aucun des deux dictionnaires,
+    même si son `bloc_id` y est (limite documentée dans `docs/dette.md`)."""
+    if not ids_lignes and not ids_blocs:
+        return {}, {}
+    requete = select(Anomalie.ligne_id, Anomalie.bloc_id, Anomalie.regle).where(
+        Anomalie.statut == "ouverte",
+        or_(
+            Anomalie.ligne_id.in_(ids_lignes),
+            and_(Anomalie.ligne_id.is_(None), Anomalie.bloc_id.in_(ids_blocs)),
+        ),
+    )
+    resultat = (await session.execute(requete)).all()
+    par_ligne: dict[uuid.UUID, list[str]] = {}
+    par_bloc: dict[uuid.UUID, list[str]] = {}
+    for ligne_id, bloc_id, regle in resultat:
+        if ligne_id is not None:
+            par_ligne.setdefault(ligne_id, []).append(regle)
+        elif bloc_id is not None:
+            par_bloc.setdefault(bloc_id, []).append(regle)
+    return (
+        {cle: tuple(valeurs) for cle, valeurs in par_ligne.items()},
+        {cle: tuple(valeurs) for cle, valeurs in par_bloc.items()},
+    )
+
+
+async def bilan_detail(
+    session: AsyncSession,
+    *,
+    mois: date | None,
+    agence: str | None,
+) -> list[LigneBilanDetail]:
+    """Export détaillé du bilan (décision d'Ilane du 23/09/2026, réponse à
+    Q3 du lot 5) : une ligne par ligne de facture (tous types --
+    `article`/`eco`/`commentaire`, rien n'est tu au client qui ouvre ce
+    fichier dans Excel), sur tout le périmètre filtré (mêmes filtres
+    `mois`/`agence` que les cinq niveaux ci-dessus, jamais un second calcul
+    du chantier ou du mois). Réutilise `_sous_requete_blocs`/
+    `_conditions_base`/`_condition_agence` (même résolution du chantier --
+    `COALESCE(bloc_facture.chantier_id, document.chantier_id)` -- et même
+    chantier non résolu conservé sous `chantier_id=None`, jamais éliminé
+    silencieusement, même principe que les cinq niveaux ci-dessus).
+
+    Chaque `Ligne` d'une facture appartient toujours à un bloc
+    (`deposer_facture`, lots 2/3) : une simple jointure interne
+    `Ligne.bloc_id == blocs.c.bloc_id` (clé de la sous-requête, un groupe
+    par bloc) rattache chaque ligne à son bloc sans dupliquer aucune ligne
+    ni en perdre -- `blocs` filtre déjà `Document.type == "facture"`, donc
+    une ligne de BL (toujours `bloc_id=None`) n'est jamais sélectionnée.
+
+    Piège évité (décision du contrôleur, signalé par la fiche de tâche) :
+    les anomalies ne sont **jamais** jointes directement sur `ligne`/
+    `blocs` -- un JOIN direct multiplierait les lignes par leurs anomalies
+    (une ligne portant deux anomalies ouvertes sortirait deux fois),
+    faussant jusqu'au nombre de lignes renvoyées. La portée de chaque
+    anomalie ouverte du périmètre est donc lue séparément
+    (`_anomalies_par_ligne_et_bloc`, une seule requête supplémentaire,
+    jamais une par ligne) puis recomposée en Python, une fois par ligne.
+
+    `qte_bl_appariee` vient de `rapprochement_ligne` (`ingest.rapprochement`,
+    L4-T7) : `None` si la ligne n'a été appariée à aucune ligne de BL.
+
+    Tri déterministe : chantier (nom, puis identifiant -- les chantiers non
+    résolus, `NULL`, se départagent en dernier, ordre `NULLS LAST` par
+    défaut de PostgreSQL en tri ascendant), fournisseur (même principe),
+    numéro de facture, numéro de BL, bloc, puis ordre de la ligne sur son
+    bloc et enfin son identifiant (dernier départage absolu)."""
+    blocs = _sous_requete_blocs(_conditions_base(mois))
+    bl_ligne = aliased(Ligne)
+
+    requete = (
+        select(
+            Ligne.id.label("ligne_id"),
+            blocs.c.bloc_id,
+            blocs.c.facture_id,
+            Document.date_doc,
+            Document.created_at,
+            Document.numero.label("numero_facture"),
+            blocs.c.chantier_id,
+            Chantier.nom_canonique,
+            Chantier.agence,
+            blocs.c.fournisseur_id,
+            Fournisseur.nom.label("fournisseur_nom"),
+            blocs.c.numero_bl,
+            blocs.c.statut_rapprochement,
+            Ligne.type_ligne,
+            Ligne.code_brut,
+            Ligne.article_brut,
+            Ligne.qte_totale,
+            Ligne.unite_brut,
+            Ligne.pu_ht,
+            Ligne.remise_pct,
+            Ligne.montant_ht,
+            bl_ligne.qte_totale.label("qte_bl_appariee"),
+        )
+        .select_from(Ligne)
+        .join(blocs, blocs.c.bloc_id == Ligne.bloc_id)
+        .join(Document, Document.id == blocs.c.facture_id)
+        .outerjoin(Chantier, Chantier.id == blocs.c.chantier_id)
+        .outerjoin(Fournisseur, Fournisseur.id == blocs.c.fournisseur_id)
+        .outerjoin(RapprochementLigne, RapprochementLigne.ligne_facture_id == Ligne.id)
+        .outerjoin(bl_ligne, bl_ligne.id == RapprochementLigne.ligne_bl_id)
+    )
+    if agence is not None:
+        requete = requete.where(_condition_agence(blocs, agence))
+
+    requete = requete.order_by(
+        Chantier.nom_canonique.asc(),
+        blocs.c.chantier_id.asc(),
+        Fournisseur.nom.asc(),
+        blocs.c.fournisseur_id.asc(),
+        Document.numero.asc(),
+        blocs.c.numero_bl.asc(),
+        blocs.c.bloc_id.asc(),
+        Ligne.ordre.asc(),
+        Ligne.id.asc(),
+    )
+
+    lignes = (await session.execute(requete)).all()
+
+    ids_lignes = {ligne.ligne_id for ligne in lignes}
+    ids_blocs = {ligne.bloc_id for ligne in lignes}
+    anomalies_par_ligne, anomalies_par_bloc = await _anomalies_par_ligne_et_bloc(
+        session, ids_lignes=ids_lignes, ids_blocs=ids_blocs
+    )
+
+    resultat: list[LigneBilanDetail] = []
+    for ligne in lignes:
+        codes_ligne = anomalies_par_ligne.get(ligne.ligne_id, ())
+        codes_bloc = anomalies_par_bloc.get(ligne.bloc_id, ())
+        resultat.append(
+            LigneBilanDetail(
+                ligne_id=ligne.ligne_id,
+                bloc_id=ligne.bloc_id,
+                facture_id=ligne.facture_id,
+                mois=_mois_ligne(ligne.date_doc, ligne.created_at),
+                fournisseur_id=ligne.fournisseur_id,
+                fournisseur_nom=ligne.fournisseur_nom,
+                numero_facture=ligne.numero_facture,
+                date_facture=ligne.date_doc,
+                chantier_id=ligne.chantier_id,
+                nom_chantier=ligne.nom_canonique,
+                agence=ligne.agence,
+                numero_bl=ligne.numero_bl,
+                statut_rapprochement=ligne.statut_rapprochement,
+                type_ligne=ligne.type_ligne,
+                code_article=ligne.code_brut,
+                designation=ligne.article_brut,
+                qte_facturee=ligne.qte_totale,
+                unite=ligne.unite_brut,
+                pu_ht=ligne.pu_ht,
+                remise_pct=ligne.remise_pct,
+                montant_ht=ligne.montant_ht,
+                qte_bl_appariee=ligne.qte_bl_appariee,
+                nb_anomalies_ouvertes=len(codes_ligne) + len(codes_bloc),
+                codes_regles=tuple(sorted(set(codes_ligne) | set(codes_bloc))),
+            )
+        )
+    return resultat

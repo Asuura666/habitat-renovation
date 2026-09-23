@@ -607,6 +607,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bilan/detail.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bilan Detail Csv Endpoint
+         * @description Export détaillé (décision d'Ilane du 23/09/2026, réponse à Q3 du lot
+         *     5) : une ligne par ligne de facture, sur tout le périmètre filtré --
+         *     voir `ingest.bilan.bilan_detail`/`ingest.export.csv_bilan_detail`.
+         */
+        get: operations["bilan_detail_csv_endpoint_api_bilan_detail_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/journal": {
         parameters: {
             query?: never;
@@ -2712,6 +2734,38 @@ export interface operations {
             path: {
                 fournisseur_id: string;
             };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Export CSV UTF-8 du bilan. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bilan_detail_csv_endpoint_api_bilan_detail_csv_get: {
+        parameters: {
+            query?: {
+                mois?: string | null;
+                agence?: string | null;
+            };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;

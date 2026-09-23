@@ -257,6 +257,7 @@ async def test_routes_csv_declarent_text_csv_dans_openapi(
         "/api/bilan/chantiers/{chantier_id}/fournisseurs.csv",
         "/api/bilan/chantiers/{chantier_id}/fournisseurs/{fournisseur_id}/bl.csv",
         "/api/bilan/fournisseurs.csv",
+        "/api/bilan/detail.csv",
     )
 
     for chemin in chemins:
@@ -760,3 +761,127 @@ async def test_get_bilan_bl_csv_contenu_correspond_au_json(
             _montant_virgule(montants["non_justifie"]),
             str(montants["nb_anomalies_ouvertes"]),
         ]
+
+
+# --------------------------------------------------------------------------
+# Export détaillé (décision d'Ilane du 23/09/2026, réponse à Q3 du lot 5) --
+# `GET /api/bilan/detail.csv`, sans route JSON équivalente (voir le
+# docstring d'en-tête d'`api/bilan.py`).
+# --------------------------------------------------------------------------
+
+
+async def _creer_ligne_facture(
+    db_session: AsyncSession,
+    *,
+    document: Document,
+    bloc: BlocFacture,
+    montant_ht: Decimal = Decimal("100.00"),
+) -> Ligne:
+    ligne = Ligne(
+        document_id=document.id,
+        bloc_id=bloc.id,
+        montant_ht=montant_ht,
+        type_ligne="article",
+        ordre=0,
+        code_brut="ART1",
+        article_brut="Article CSV Detail",
+        qte_totale=Decimal("10"),
+        unite_brut="U",
+        pu_ht=Decimal("10.00"),
+    )
+    db_session.add(ligne)
+    await db_session.commit()
+    await db_session.refresh(ligne)
+    return ligne
+
+
+async def test_get_bilan_detail_csv_anonyme_401(
+    sessions_test: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    app_test = _app_test(sessions_test, tmp_path)
+
+    reponse = await _requete(app_test, "/api/bilan/detail.csv", cookie=None)
+
+    assert reponse.status_code == 401
+
+
+async def test_get_bilan_detail_csv_agent_403(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    await _creer_utilisateur(
+        db_session, email="agent.csv5detail@example.invalid", role="agent"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="agent.csv5detail@example.invalid")
+
+    reponse = await _requete(app_test, "/api/bilan/detail.csv", cookie=cookie)
+
+    assert reponse.status_code == 403
+
+
+async def test_get_bilan_detail_csv_admin_bom_content_type_et_nom_fichier(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    chantier, fournisseur, _bloc = await _scenario_simple(
+        db_session, date_doc=date(2026, 8, 3)
+    )
+    facture = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-DETAIL",
+        date_doc=date(2026, 8, 3),
+    )
+    bloc_detail = await _creer_bloc(
+        db_session, facture=facture, chantier_id=chantier.id
+    )
+    await _creer_ligne_facture(db_session, document=facture, bloc=bloc_detail)
+    await _creer_utilisateur(
+        db_session, email="admin.csvdetail1@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.csvdetail1@example.invalid")
+
+    reponse = await _requete(
+        app_test,
+        "/api/bilan/detail.csv",
+        cookie=cookie,
+        params={"mois": "2026-08-01"},
+    )
+
+    assert reponse.status_code == 200
+    assert reponse.content.startswith(b"\xef\xbb\xbf")
+    assert reponse.headers["content-type"] == "text/csv; charset=utf-8"
+    assert (
+        reponse.headers["content-disposition"]
+        == 'attachment; filename="bilan-detail-2026-08.csv"'
+    )
+    lignes = _lignes_csv(reponse)
+    assert lignes[0][0] == "Mois"
+    # Deux lignes de données : celle de `_scenario_simple` et celle ajoutée
+    # ci-dessus (une ligne de facture par ligne exportée, jamais un agrégat).
+    assert len(lignes) == 3
+
+
+async def test_get_bilan_detail_csv_nom_fichier_sans_mois(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    await _scenario_simple(db_session)
+    await _creer_utilisateur(
+        db_session, email="admin.csvdetail2@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.csvdetail2@example.invalid")
+
+    reponse = await _requete(app_test, "/api/bilan/detail.csv", cookie=cookie)
+
+    assert reponse.status_code == 200
+    assert (
+        reponse.headers["content-disposition"]
+        == 'attachment; filename="bilan-detail.csv"'
+    )

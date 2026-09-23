@@ -22,6 +22,8 @@ def test_ecran_bilan_couvre_le_contrat_responsive() -> None:
     assert "md:hidden" in page
     assert "hidden" in page and "md:block" in page
     assert "Exporter en CSV" in page
+    assert "Export détaillé (CSV)" in page
+    assert "urlExportBilanDetail" in page
     assert "Aucun chantier pour ces filtres." in page
 
 
@@ -33,6 +35,8 @@ def test_client_bilan_transmet_les_filtres_et_reste_type_openapi() -> None:
     assert 'params.set("agence", filtres.agence)' in client
     assert '"/api/bilan/chantiers"' in client
     assert '"/api/bilan/chantiers.csv"' in client
+    assert '"/api/bilan/detail.csv"' in client
+    assert "export function urlExportBilanDetail" in client
 
 
 def test_bilan_est_accessible_depuis_la_navigation_admin() -> None:

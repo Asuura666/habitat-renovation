@@ -535,3 +535,29 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   message) plutôt que par un bandeau d'erreur global cohérent ; corriger
   proprement demande de repenser la gestion d'erreur par section, hors
   périmètre de cette tâche.
+
+### Export détaillé du bilan (décision d'Ilane du 23/09/2026, Q3) — ingest/export
+
+- **R06 n'apparaît jamais dans `codes_regles`/`nb_anomalies_ouvertes` de ce
+  fichier.** Cette règle (« ligne du BL non facturée ») porte `ligne_id` sur
+  la ligne de *BL* absente de la facture, jamais sur une ligne de facture ni
+  `None` — `bilan_detail` (`ingest/bilan.py`) n'attribue une anomalie sans
+  ligne de facture propre qu'à son bloc (`bloc_id`, cas de R01/R02) ; une
+  anomalie dont `ligne_id` est renseigné mais étranger au périmètre exporté
+  ne peut donc être rattachée à aucune ligne de ce fichier, testé
+  explicitement
+  (`test_bilan_detail_anomalie_r06_jamais_attribuee_a_une_ligne_de_facture`).
+  R06 reste visible depuis l'écran Anomalies et le compte
+  `nb_anomalies_ouvertes` des cinq autres niveaux du bilan (au niveau bloc/
+  chantier) ; seule sa décomposition par ligne de facture manque ici, faute
+  d'une ligne de facture à laquelle la rattacher sans l'inventer.
+- **Les quantités (`Quantité facturée`, `Quantité BL appariée`) sont
+  arrondies à deux décimales, virgule française, comme les montants**
+  (`_formater_montant`, décision explicite pour réutiliser au maximum le
+  format des exports existants) — alors que le front (`lib/formats.ts
+  ::formaterQuantite`) en affiche jusqu'à trois pour une quantité. Aucune
+  quantité observée aujourd'hui n'en porte une troisième significative,
+  mais rien dans le modèle (`Ligne.qte_totale`, `Numeric` sans échelle
+  fixe) ne le garantit ; à corriger (formateur de quantité dédié dans
+  `ingest/export.py`, sans toucher `_formater_montant`) si une facture
+  réelle porte une quantité à trois décimales.

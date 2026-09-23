@@ -1878,6 +1878,70 @@
     }
    }
   },
+  "/api/bilan/detail.csv": {
+   "get": {
+    "summary": "Bilan Detail Csv Endpoint",
+    "description": "Export détaillé (décision d'Ilane du 23/09/2026, réponse à Q3 du lot\n5) : une ligne par ligne de facture, sur tout le périmètre filtré --\nvoir `ingest.bilan.bilan_detail`/`ingest.export.csv_bilan_detail`.",
+    "operationId": "bilan_detail_csv_endpoint_api_bilan_detail_csv_get",
+    "parameters": [
+     {
+      "name": "mois",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Mois"
+      }
+     },
+     {
+      "name": "agence",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Agence"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Export CSV UTF-8 du bilan.",
+      "content": {
+       "text/csv": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/journal": {
    "get": {
     "summary": "Lister Journal Endpoint",

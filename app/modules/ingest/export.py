@@ -38,6 +38,21 @@ tâche si elle se révèle fausse. Une valeur absente (chantier ou fournisseur
 non résolu, `numero_bl`/`date_bl` non lus) rend une cellule vide, jamais la
 chaîne "None" que `csv.writer` écrirait pour un `None` littéral passé sans
 traitement -- voir `_cellule`.
+
+Export détaillé (décision d'Ilane du 23/09/2026, réponse à Q3 du lot 5) :
+`csv_bilan_detail` -- une ligne par ligne de facture (`ingest.bilan
+.LigneBilanDetail`/`bilan_detail`), même route `/api/bilan/detail.csv`.
+Deux écarts assumés par rapport aux six fonctions ci-dessus (décision du
+contrôleur pour cette tâche, ce fichier étant ouvert directement par le
+client dans Excel, jamais recroisé avec une vue JSON) :
+- `statut du bloc` est traduit avec les libellés déjà utilisés par le front
+  (`web/src/pages/BilanFournisseur.tsx::statutBl`), pas le code brut ;
+- les quantités (`qte_facturee`, `qte_bl_appariee`) passent par
+  `_formater_montant` comme les montants (deux décimales, virgule
+  française) -- une quantité à trois décimales (front : jusqu'à trois,
+  `lib/formats.ts::formaterQuantite`) y perd sa troisième décimale ; aucune
+  quantité observée aujourd'hui n'en porte plus de deux, mais rien ne le
+  garantit (même réserve documentée pour les montants ci-dessus).
 """
 
 from __future__ import annotations
@@ -51,6 +66,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from app.modules.ingest.bilan import (
     LigneBilanBl,
     LigneBilanChantier,
+    LigneBilanDetail,
     LigneBilanFournisseur,
 )
 
@@ -83,6 +99,37 @@ _ENTETES_BL: tuple[str, ...] = (
     "Non justifié",
     "Anomalies ouvertes",
 )
+
+_ENTETES_DETAIL: tuple[str, ...] = (
+    "Mois",
+    "Fournisseur",
+    "N° Facture",
+    "Date facture",
+    "Chantier",
+    "Agence",
+    "N° BL",
+    "Statut BL",
+    "Type de ligne",
+    "Référence article",
+    "Désignation",
+    "Quantité facturée",
+    "Unité",
+    "Prix unitaire HT",
+    "Remise (%)",
+    "Montant HT",
+    "Quantité BL appariée",
+    "Anomalies ouvertes",
+    "Règles concernées",
+)
+
+# Mêmes libellés que le front (`web/src/pages/BilanFournisseur.tsx
+# ::statutBl`) -- décision explicite pour cet export détaillé (voir le
+# docstring d'en-tête).
+_LIBELLES_STATUT_BLOC: dict[str, str] = {
+    "recu": "BL reçu",
+    "pas_de_bon": "Pas de bon",
+    "non_recu": "BL non reçu",
+}
 
 
 def _cellule(valeur: str | None) -> str:
@@ -197,3 +244,70 @@ def csv_bilan_bl(lignes: Sequence[LigneBilanBl]) -> str:
     français ("Reçu", ...) est une mise en forme d'écran (L5-D1, réservée au
     front d'une tâche ultérieure), pas une règle de sérialisation."""
     return _ecrire_csv(_ENTETES_BL, [_ligne_csv_bl(ligne) for ligne in lignes])
+
+
+# --------------------------------------------------------------------------
+# Export détaillé (décision d'Ilane du 23/09/2026, réponse à Q3 du lot 5) --
+# voir le docstring d'en-tête pour les deux écarts assumés par rapport aux
+# six fonctions ci-dessus.
+# --------------------------------------------------------------------------
+
+
+def _libelle_statut_bloc(statut: str | None) -> str | None:
+    """`None` (bloc jamais rapproché) reste `None`, rendu comme une cellule
+    vide par `_cellule` -- jamais un libellé inventé. Une valeur non
+    reconnue (défensif : `statut_rapprochement_valide` en base n'autorise
+    que les trois clés de `_LIBELLES_STATUT_BLOC`, donc inatteignable en
+    pratique) retombe sur le code brut, même esprit que `libelleRegle` côté
+    front pour un code de règle inconnu."""
+    if statut is None:
+        return None
+    return _LIBELLES_STATUT_BLOC.get(statut, statut)
+
+
+def _formater_montant_optionnel(valeur: Decimal | None) -> str:
+    """`_formater_montant` n'accepte pas `None` : plusieurs colonnes de
+    l'export détaillé le sont réellement (une ligne "commentaire" n'a ni
+    prix ni montant, un article non apparié n'a pas de quantité BL) --
+    cellule vide plutôt qu'un `None` recopié tel quel (même convention que
+    `_cellule`, jamais la chaîne "None")."""
+    if valeur is None:
+        return ""
+    return _formater_montant(valeur)
+
+
+def _ligne_csv_detail(ligne: LigneBilanDetail) -> tuple[str, ...]:
+    date_facture = (
+        ligne.date_facture.isoformat() if ligne.date_facture is not None else None
+    )
+    return (
+        ligne.mois.strftime("%Y-%m"),
+        _cellule(ligne.fournisseur_nom),
+        _cellule(ligne.numero_facture),
+        _cellule(date_facture),
+        _cellule(ligne.nom_chantier),
+        _cellule(ligne.agence),
+        _cellule(ligne.numero_bl),
+        _cellule(_libelle_statut_bloc(ligne.statut_rapprochement)),
+        _cellule(ligne.type_ligne),
+        _cellule(ligne.code_article),
+        _cellule(ligne.designation),
+        _formater_montant_optionnel(ligne.qte_facturee),
+        _cellule(ligne.unite),
+        _formater_montant_optionnel(ligne.pu_ht),
+        _formater_montant_optionnel(ligne.remise_pct),
+        _formater_montant_optionnel(ligne.montant_ht),
+        _formater_montant_optionnel(ligne.qte_bl_appariee),
+        str(ligne.nb_anomalies_ouvertes),
+        _cellule(", ".join(ligne.codes_regles)),
+    )
+
+
+def csv_bilan_detail(lignes: Sequence[LigneBilanDetail]) -> str:
+    """`GET /api/bilan/detail.csv` (décision d'Ilane du 23/09/2026, réponse
+    à Q3 du lot 5) -- une ligne par ligne de facture, colonnes détaillées ;
+    voir `ingest.bilan.bilan_detail` pour la construction (même service,
+    mêmes filtres `mois`/`agence` que les six autres exports de ce module,
+    jamais une deuxième requête) et le docstring d'en-tête pour les deux
+    écarts assumés par rapport à eux."""
+    return _ecrire_csv(_ENTETES_DETAIL, [_ligne_csv_detail(ligne) for ligne in lignes])

@@ -8,6 +8,7 @@ import {
   type LigneBilanChantier,
   listerBilanChantiers,
   urlExportBilanChantiers,
+  urlExportBilanDetail,
 } from "../api/bilan";
 import { formaterMontant, TIRET } from "../lib/formats";
 import { CLE_AGENCES, obtenirAgences } from "../api/referentiels";
@@ -153,6 +154,9 @@ export function Bilan(): ReactElement {
           </Link>
           <a href={urlExportBilanChantiers(filtres)} className="hidden rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white outline-none hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 md:block">
             Exporter en CSV
+          </a>
+          <a href={urlExportBilanDetail(filtres)} className="hidden rounded-md border border-blue-600 px-4 py-2 text-sm font-medium text-blue-700 outline-none hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 md:block">
+            Export détaillé (CSV)
           </a>
         </div>
       </div>

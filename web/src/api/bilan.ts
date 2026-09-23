@@ -101,6 +101,14 @@ export function urlExportBilanChantiers(filtres: FiltresBilan = {}): string {
   return ajouterFiltres("/api/bilan/chantiers.csv", filtres);
 }
 
+/** Export détaillé (décision d'Ilane du 23/09/2026, réponse à Q3 du lot 5) :
+ * une ligne par ligne de facture, sans niveau (pas de route JSON équivalente,
+ * ce fichier n'a pas d'écran) -- mêmes filtres `mois`/`agence` que les
+ * exports par niveau ci-dessus. */
+export function urlExportBilanDetail(filtres: FiltresBilan = {}): string {
+  return ajouterFiltres("/api/bilan/detail.csv", filtres);
+}
+
 export function urlExportBilanFournisseurs(
   chantierId: string | null,
   filtres: FiltresBilan = {},

@@ -54,6 +54,14 @@ et la période, jamais d'accent ni d'espace). `GET /api/bilan/fournisseurs.csv`
 et `GET /api/bilan/chantiers/{id}/fournisseurs.csv` réutilisent la même
 fonction de sérialisation (`csv_bilan_fournisseurs`) : les deux routes JSON
 correspondantes renvoient déjà la même forme (`LigneBilanFournisseurReponse`).
+
+Export détaillé (décision d'Ilane du 23/09/2026, réponse à Q3 du lot 5) :
+`GET /api/bilan/detail.csv`, sans route JSON équivalente (ce niveau n'a pas
+sa place à l'écran, seulement dans le fichier que le client ouvre dans
+Excel) -- même service (`ingest.bilan.bilan_detail`), même sérialisation
+(`ingest.export.csv_bilan_detail`), mêmes paramètres `mois`/`agence`, même
+contrôle admin, même `_reponse_csv`/`_nom_fichier_csv` que les six routes
+ci-dessus.
 """
 
 from __future__ import annotations
@@ -75,6 +83,7 @@ from app.modules.api.schemas import (
 )
 from app.modules.ingest.bilan import (
     bilan_chantiers_du_fournisseur,
+    bilan_detail,
     bilan_par_bl,
     bilan_par_chantier,
     bilan_par_fournisseur,
@@ -83,6 +92,7 @@ from app.modules.ingest.bilan import (
 from app.modules.ingest.export import (
     csv_bilan_bl,
     csv_bilan_chantiers,
+    csv_bilan_detail,
     csv_bilan_fournisseurs,
 )
 
@@ -295,4 +305,20 @@ async def bilan_chantiers_du_fournisseur_csv_endpoint(
     return _reponse_csv(
         csv_bilan_chantiers(lignes),
         nom_fichier=_nom_fichier_csv("chantiers", mois),
+    )
+
+
+@router.get("/bilan/detail.csv", response_class=Response, responses=_REPONSES_CSV)
+async def bilan_detail_csv_endpoint(
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    mois: Annotated[date | None, Query()] = None,
+    agence: Annotated[str | None, Query()] = None,
+) -> Response:
+    """Export détaillé (décision d'Ilane du 23/09/2026, réponse à Q3 du lot
+    5) : une ligne par ligne de facture, sur tout le périmètre filtré --
+    voir `ingest.bilan.bilan_detail`/`ingest.export.csv_bilan_detail`."""
+    lignes = await bilan_detail(session, mois=mois, agence=agence)
+    return _reponse_csv(
+        csv_bilan_detail(lignes), nom_fichier=_nom_fichier_csv("detail", mois)
     )
