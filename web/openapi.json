@@ -2862,6 +2862,17 @@
       ],
       "title": "Bl Document Id"
      },
+     "statut_rapprochement": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Statut Rapprochement"
+     },
      "lignes": {
       "items": {
        "$ref": "#/components/schemas/LigneFactureReponse"
@@ -2882,6 +2893,7 @@
      "montant_ht",
      "bl_recu",
      "bl_document_id",
+     "statut_rapprochement",
      "lignes"
     ],
     "title": "BlocFactureReponse",
@@ -4655,6 +4667,18 @@
       ],
       "title": "Pu Facture"
      },
+     "montant_facture": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Montant Facture"
+     },
      "regles_ouvertes": {
       "items": {
        "type": "string"
@@ -4668,6 +4692,7 @@
        "conforme",
        "ecart",
        "non_facture",
+       "non_controle",
        "pas_encore_facture"
       ],
       "title": "Controle"
@@ -4681,6 +4706,7 @@
      "qte_livree",
      "qte_facturee",
      "pu_facture",
+     "montant_facture",
      "regles_ouvertes",
      "controle"
     ],

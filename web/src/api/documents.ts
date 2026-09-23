@@ -49,10 +49,10 @@ export function cleComparaisonBl(id: string): readonly [string, string, string] 
 /** `GET /api/documents/{id}/comparaison` (Task 3, admin uniquement, refonte
  * front) : lignes du BL appariées à la facture qui le cite, pour le tableau
  * « Livré et facturé » de la page BL (`PageBl.tsx`). 404 si le document est
- * absent ou n'est pas de type `bl` (un enlèvement n'a pas de comparaison,
- * décision du serveur — voir `ingest/comparaison_bl.py`) : l'appelant ne
- * déclenche cette requête que pour un document de type `bl`, jamais pour en
- * déduire le type. */
+ * absent ou n'est ni un BL ni un bon d'enlèvement (revue finale, constat
+ * SERVEUR-5 : un enlèvement est traité comme un BL, CDC §4.5 — voir
+ * `ingest/comparaison_bl.py`). Chaque ligne porte son verdict (`controle`),
+ * calculé par le serveur. */
 export function obtenirComparaisonBl(id: string): Promise<ComparaisonBl> {
   return appelerApi<ComparaisonBl>("/api/documents/{document_id}/comparaison", {
     url: `/api/documents/${id}/comparaison`,

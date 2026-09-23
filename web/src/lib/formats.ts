@@ -65,6 +65,19 @@ export function moisParis(horodatageIso: string): string {
 
 export const TIRET = "—";
 
+/** Séparateur des milliers produit par `Intl` en français : l'espace fine
+ * insécable (U+202F), presque invisible dans les grands chiffres en
+ * Fraunces (« 1310,00 € » à l'écran). Remplacée à l'affichage par l'espace
+ * insécable ordinaire (U+00A0), aussi insécable mais bien visible (revue
+ * finale de la refonte du front, constats ECRAN-7/COUVERTURE-25) — pure
+ * présentation, aucun calcul. */
+const ESPACE_FINE_INSECABLE = /\u202f/g;
+const ESPACE_INSECABLE = "\u00a0";
+
+function espacesVisibles(texte: string): string {
+  return texte.replace(ESPACE_FINE_INSECABLE, ESPACE_INSECABLE);
+}
+
 /** `valeur` est la chaîne décimale renvoyée par l'API ; `null` (champ
  * absent, ex. facture pas encore reconnue) affiche un tiret. */
 export function formaterMontant(valeur: string | null): string {
@@ -76,7 +89,67 @@ export function formaterMontant(valeur: string | null): string {
   // l'accepte à l'exécution, mais les types de la bibliothèque standard
   // n'exposent cette surcharge que pour un littéral de gabarit `` `${number}` ``,
   // jamais pour un `string` général comme celui renvoyé par l'API.
-  return FORMATEUR_MONTANT.format(valeur as unknown as number);
+  return espacesVisibles(FORMATEUR_MONTANT.format(valeur as unknown as number));
+}
+
+/** `true` quand un montant renvoyé par l'API vaut zéro (« 0 », « 0.00 »,
+ * « -0.00 ») — sert seulement à choisir une couleur neutre plutôt qu'une
+ * couleur d'alerte pour un montant nul (revue finale, constats
+ * ECRAN-15/TELEPHONE-11) : une comparaison de chaîne, jamais un calcul. */
+export function estMontantNul(valeur: string | null): boolean {
+  return valeur !== null && /^-?0+(?:\.0+)?$/.test(valeur);
+}
+
+/** Pourcentage déjà exprimé en points par le serveur (`"30.56"` =
+ * 30,56 %), au format français et arrondi au dixième (« 30,6 % », maquette
+ * `ARegler`) — revue finale, constats ECRAN-1/COUVERTURE-5 : la chaîne brute
+ * s'affichait « 30.56 % ». Même technique que `formaterQuantite` (chaîne
+ * décimale passée telle quelle à `Intl`, aucune arithmétique). */
+const FORMATEUR_POINTS = new Intl.NumberFormat("fr-FR", {
+  maximumFractionDigits: 1,
+  minimumFractionDigits: 0,
+});
+
+export function formaterPoints(valeur: string): string {
+  return `${espacesVisibles(FORMATEUR_POINTS.format(valeur as unknown as number))}${ESPACE_INSECABLE}%`;
+}
+
+/** Mois d'une URL (`?mois=`), au format `AAAA-MM` (convention unique de
+ * l'application depuis la revue finale, constat LIENS-5) — accepte aussi
+ * `AAAA-MM-01`, la forme des anciens liens déjà envoyés. Toute autre valeur
+ * (vide, `2026-13`, texte) donne `undefined` : jamais une date invalide
+ * transmise à `Intl.DateTimeFormat`, qui lève et laisse un écran blanc. */
+const REGEX_MOIS_URL = /^(\d{4})-(0[1-9]|1[0-2])(?:-01)?$/;
+
+export function lireMois(valeur: string | null | undefined): string | undefined {
+  if (valeur === null || valeur === undefined) {
+    return undefined;
+  }
+  const correspondance = REGEX_MOIS_URL.exec(valeur);
+  return correspondance === null ? undefined : `${correspondance[1]}-${correspondance[2]}`;
+}
+
+/** Mois `AAAA-MM` -> premier jour `AAAA-MM-01`, la forme attendue par
+ * l'API (`?mois=` du bilan et du tableau de bord). */
+export function moisApi(mois: string): string {
+  return `${mois}-01`;
+}
+
+const FORMATEUR_LIBELLE_MOIS = new Intl.DateTimeFormat("fr-FR", {
+  timeZone: "Europe/Paris",
+  month: "long",
+  year: "numeric",
+});
+
+/** « septembre 2026 » à partir d'un mois `AAAA-MM` (ou `AAAA-MM-01`) ;
+ * repli sur la valeur brute plutôt qu'une exception si elle n'est pas
+ * lisible. */
+export function libelleMois(mois: string): string {
+  const lu = lireMois(mois);
+  if (lu === undefined) {
+    return mois;
+  }
+  return FORMATEUR_LIBELLE_MOIS.format(new Date(`${lu}-01T12:00:00Z`));
 }
 
 /** `valeur` est la chaîne décimale renvoyée par l'API pour une quantité,
@@ -98,7 +171,7 @@ export function formaterQuantite(valeur: string | null): string {
   if (valeur === null) {
     return TIRET;
   }
-  return FORMATEUR_QUANTITE.format(valeur as unknown as number);
+  return espacesVisibles(FORMATEUR_QUANTITE.format(valeur as unknown as number));
 }
 
 /** `valeur` est une chaîne décimale entre 0 et 1 (ex. `"0.80"` : confiance

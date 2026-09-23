@@ -96,12 +96,22 @@ def test_fiche_fournisseur_couvre_le_contrat_de_la_tache() -> None:
     assert "Problèmes ouverts" in page
     assert "FilAriane" in page
     assert "md:hidden" in page
-    assert "`/chantiers/${" in page
+    # Revue finale (constats LIENS-12/LIENS-13) : la destination d'un
+    # chantier est construite par l'aide partagée `lib/liens.ts`, qui
+    # reporte le mois affiché (fiche du chantier, ou « À régler » filtré
+    # sur les chantiers à rattacher).
+    assert "lienChantier(ligne.chantier_id, mois)" in page
+    liens = (RACINE_WEB / "lib" / "liens.ts").read_text()
+    assert "`/chantiers/${chantierId}`" in liens
+    assert '"/a-regler?filtre=rattacher"' in liens
     assert "`/a-regler/${" in page
 
-    # Trois `Chiffre` (brief : « fiche : FilAriane, trois Chiffre ») —
-    # jamais un quatrième recalculé côté front.
-    assert page.count("<Chiffre") == 3
+    # Quatre `Chiffre` (spec §4 « les quatre chiffres ») : le quatrième,
+    # « Conforme », est fourni par le serveur depuis la revue finale
+    # (`MontantsBilan.conforme`, constat COUVERTURE-12) — jamais recalculé
+    # côté front.
+    assert page.count("<Chiffre") == 4
+    assert "ligneMontants.montants.conforme" in page
 
     # Agences connues + export, mêmes fonctions existantes que la liste.
     assert "Agences connues" in page
@@ -129,7 +139,23 @@ def test_fiche_fournisseur_couvre_le_contrat_de_la_tache() -> None:
     # rattacher`, est le texte attendu (correction de revue, tour 1).
     assert "Chantier non résolu" not in page
     assert "Chantier à rattacher" in page
-    assert "/a-regler?filtre=rattacher" in page
+
+
+def test_fournisseurs_referentiel_complet_et_liens_de_la_fiche() -> None:
+    """Revue finale : la liste montre tous les fournisseurs du référentiel,
+    y compris sans facture (constat COUVERTURE-8 — Point.P, dont le parseur
+    de facture n'existe pas encore, n'avait plus d'entrée vers sa fiche) ;
+    la fiche mène aux factures du fournisseur (constat COUVERTURE-13) et à
+    l'historique de ses problèmes (constat LIENS-14)."""
+    liste = _page("FournisseursListe.tsx")
+    assert "Tous les fournisseurs" in liste
+    assert "listerFournisseurs" in liste
+    assert "`/fournisseurs/${fournisseur.id}`" in liste
+
+    fiche = _page("FicheFournisseur.tsx")
+    assert "/documents?filtre=factures&fournisseur=" in fiche
+    assert "Voir les factures de ce fournisseur" in fiche
+    assert "/a-regler?filtre=regles&fournisseur=" in fiche
 
 
 def test_fiche_fournisseur_filtre_par_mois_et_agence() -> None:

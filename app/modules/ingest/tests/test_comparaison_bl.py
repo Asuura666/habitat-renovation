@@ -624,13 +624,40 @@ async def test_comparer_bl_controle_par_ligne(db_session: AsyncSession) -> None:
         montant_ht=Decimal("4.00"),
     )
     await _creer_rapprochement(db_session, ligne_facture=ligne_f, ligne_bl=ligne_ok)
+    # Ligne de BL appariée à une ligne de facture sans quantité ni prix
+    # unitaire (éco-participation facturée au seul montant) : rien n'a pu
+    # être comparé -- `non_controle`, jamais « conforme » (constat ECRAN-3,
+    # capture de la démo : « Facturé — · Prix — · Conforme »).
+    ligne_eco_bl = await _creer_ligne(
+        db_session,
+        document=bl,
+        ordre=2,
+        article_brut="Éco-participation inventée",
+        qte_totale=Decimal("1"),
+        type_ligne="eco",
+    )
+    ligne_eco_f = await _creer_ligne(
+        db_session,
+        document=facture,
+        bloc=bloc,
+        ordre=1,
+        article_brut="Éco-participation inventée",
+        montant_ht=Decimal("1.10"),
+        type_ligne="eco",
+    )
+    await _creer_rapprochement(
+        db_session, ligne_facture=ligne_eco_f, ligne_bl=ligne_eco_bl
+    )
 
     comparaison = await comparer_bl(db_session, bl.id)
 
     assert [ligne.controle for ligne in comparaison.lignes] == [
         "conforme",
         "non_facture",
+        "non_controle",
     ]
+    assert comparaison.lignes[2].montant_facture == Decimal("1.10")
+    assert comparaison.lignes[1].montant_facture is None
 
 
 async def test_lister_anomalies_du_bl_meme_perimetre_que_nb_problemes(

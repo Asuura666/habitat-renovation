@@ -26,15 +26,26 @@ import {
   obtenirChantiersSansDepot,
   obtenirDepotsParAgent,
 } from "../api/referentiels";
+import { CLE_PARAMETRES, listerParametres } from "../api/parametres";
 import { cleTableauDeBord, obtenirTableauDeBord, type TableauDeBord } from "../api/tableauDeBord";
-import { formaterDateHeure, formaterMontant, TIRET } from "../lib/formats";
+import { estMontantNul, formaterDateHeure, formaterMontant, lireMois, moisApi, TIRET } from "../lib/formats";
 import { Bouton, Carte, EnTetePage, type Etat, EtatVide, PastilleEtat } from "../ui";
 
 const CLASSES_CHAMP =
   "min-h-[44px] w-full rounded-lg border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent";
 const CLASSES_LABEL = "mb-1 block text-xs font-medium text-encre-2";
+// Exports visibles aussi au téléphone (revue finale, constat COUVERTURE-11 :
+// ils y étaient masqués) — même habillage que les autres boutons-liens.
 const CLASSES_LIEN_EXPORT =
-  "hidden min-h-[44px] items-center rounded-lg border border-bordure bg-surface px-4 py-2 text-sm font-medium text-encre outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 md:inline-flex";
+  "inline-flex min-h-[44px] items-center rounded-lg border border-bordure bg-surface px-4 py-2 text-sm font-medium text-encre outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
+
+/** Couleur d'un montant d'alerte ou d'écart : neutre quand il vaut zéro
+ * (revue finale, constats ECRAN-15/TELEPHONE-11 — « 0,00 € » en rouge ou
+ * en orange faisait croire à un problème et diluait l'alerte). Choix de
+ * présentation sur une valeur du serveur, jamais un calcul. */
+function classeMontant(valeur: string | null, classeSiNonNul: string): string {
+  return estMontantNul(valeur) ? "text-encre-2" : classeSiNonNul;
+}
 
 /** Une ligne de tableau affichable, qu'elle vienne du bilan brut (tous les
  * mois, `GET /api/bilan/chantiers`) ou du tableau de bord d'un mois choisi
@@ -88,7 +99,7 @@ function depuisTableauDeBord(
       nom: chantier.nom_canonique,
       client: chantier.client,
       agence: chantier.agence,
-      etat: chantier.etat as Etat,
+      etat: chantier.etat,
       aVerifier: chantier.a_verifier,
       factureHt: chantier.montants.facture_ht,
       enEcart: null,
@@ -179,7 +190,7 @@ function CarteChantier({ ligne, mois }: { ligne: LigneChantierAffichee; mois: st
           {ligne.etat !== null ? (
             <div>
               <dt className="text-xs text-encre-2">À vérifier</dt>
-              <dd className="font-mono tabular-nums text-ecart-texte">
+              <dd className={`font-mono tabular-nums ${classeMontant(ligne.aVerifier, "text-ecart-texte")}`}>
                 {formaterMontant(ligne.aVerifier)}
               </dd>
             </div>
@@ -187,13 +198,13 @@ function CarteChantier({ ligne, mois }: { ligne: LigneChantierAffichee; mois: st
             <>
               <div>
                 <dt className="text-xs text-encre-2">En écart</dt>
-                <dd className="font-mono tabular-nums text-ecart-texte">
+                <dd className={`font-mono tabular-nums ${classeMontant(ligne.enEcart, "text-ecart-texte")}`}>
                   {formaterMontant(ligne.enEcart)}
                 </dd>
               </div>
               <div>
                 <dt className="text-xs text-encre-2">Sans bon</dt>
-                <dd className="font-mono tabular-nums text-alerte">
+                <dd className={`font-mono tabular-nums ${classeMontant(ligne.nonJustifie, "text-alerte")}`}>
                   {formaterMontant(ligne.nonJustifie)}
                 </dd>
               </div>
@@ -253,15 +264,21 @@ function TableauChantiers({
                 {formaterMontant(ligne.factureHt)}
               </td>
               {avecEtat ? (
-                <td className="px-4 py-3 text-right font-mono tabular-nums text-ecart-texte">
+                <td
+                  className={`px-4 py-3 text-right font-mono tabular-nums ${classeMontant(ligne.aVerifier, "text-ecart-texte")}`}
+                >
                   {formaterMontant(ligne.aVerifier)}
                 </td>
               ) : (
                 <>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-ecart-texte">
+                  <td
+                    className={`px-4 py-3 text-right font-mono tabular-nums ${classeMontant(ligne.enEcart, "text-ecart-texte")}`}
+                  >
                     {formaterMontant(ligne.enEcart)}
                   </td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-alerte">
+                  <td
+                    className={`px-4 py-3 text-right font-mono tabular-nums ${classeMontant(ligne.nonJustifie, "text-alerte")}`}
+                  >
                     {formaterMontant(ligne.nonJustifie)}
                   </td>
                 </>
@@ -297,7 +314,7 @@ function ListeChantiers({
   );
 }
 
-/** Bandeau « Chantiers sans bon déposé depuis 7 jours » (reprise de
+/** Bandeau « Chantiers sans bon déposé depuis N jours » (reprise de
  * `Chantiers.tsx::SectionChantiersSilencieux`, L5-T8) : seuil lu et calculé
  * côté serveur (`GET /api/referentiels/chantiers-silencieux`), jamais
  * recalculé ici. Chaque nom mène à la fiche du chantier (fix round 1,
@@ -308,7 +325,21 @@ function ListeChantiers({
  * cliquable (ce qui masquerait le reste de la ligne), le lien lui-même
  * garantit une cible d'au moins 44 px (`inline-flex min-h-[44px]
  * items-center`, corrections de revue, tour 4, constat 1). */
-function BandeauSilencieux({ chantiers }: { chantiers: ChantierSilencieux[] }): ReactElement {
+function BandeauSilencieux({
+  chantiers,
+  delaiJours,
+}: {
+  chantiers: ChantierSilencieux[];
+  delaiJours: string | undefined;
+}): ReactElement {
+  // Revue finale (constat COUVERTURE-20) : le délai est un réglage
+  // (`delai_chantier_silencieux_j`, écran Réglages) — le titre ne l'écrit
+  // plus en dur (« 7 jours » devenait faux dès qu'il changeait) ; valeur lue
+  // telle quelle sur `GET /api/parametres`, repli sans chiffre.
+  const titre =
+    delaiJours !== undefined
+      ? `Chantiers sans bon déposé depuis ${delaiJours} jours`
+      : "Chantiers sans bon déposé récemment";
   if (chantiers.length === 0) {
     return (
       <Carte className="border-conforme bg-[#e4f1ea]">
@@ -319,7 +350,7 @@ function BandeauSilencieux({ chantiers }: { chantiers: ChantierSilencieux[] }): 
     );
   }
   return (
-    <Carte titre="Chantiers sans bon déposé depuis 7 jours" className="border-ecart">
+    <Carte titre={titre} className="border-ecart">
       <ul className="space-y-2 text-sm">
         {chantiers.map((chantier) => (
           <li key={chantier.chantier_id} className="flex flex-wrap items-baseline justify-between gap-2 border-b border-bordure py-2 last:border-0">
@@ -626,11 +657,15 @@ const CLE_BILAN_CHANTIERS_TOUTES = cleBilanChantiers({});
 
 export function ChantiersListe(): ReactElement {
   const [parametres, setParametres] = useSearchParams();
+  // Mois de l'URL au format `AAAA-MM` (convention unique depuis la revue
+  // finale, constat LIENS-5 ; `AAAA-MM-01` des anciens liens accepté par
+  // `lireMois`), converti en `AAAA-MM-01` au seul moment de l'appel à l'API.
+  const mois = lireMois(parametres.get("mois"));
   const filtres: FiltresBilan = {
-    mois: parametres.get("mois") || undefined,
+    mois: mois !== undefined ? moisApi(mois) : undefined,
     agence: parametres.get("agence") || undefined,
   };
-  const moisChoisi = filtres.mois !== undefined;
+  const moisChoisi = mois !== undefined;
   const [creationOuverte, setCreationOuverte] = useState(false);
 
   const chantiers = useQuery({ queryKey: CLE_CHANTIERS, queryFn: listerChantiers });
@@ -647,12 +682,13 @@ export function ChantiersListe(): ReactElement {
   });
   const silencieux = useQuery({ queryKey: CLE_CHANTIERS_SILENCIEUX, queryFn: obtenirChantiersSansDepot });
   const depots = useQuery({ queryKey: CLE_DEPOTS_PAR_AGENT, queryFn: obtenirDepotsParAgent });
+  const reglages = useQuery({ queryKey: CLE_PARAMETRES, queryFn: listerParametres });
+  const delaiSilence = reglages.data?.find((parametre) => parametre.cle === "delai_chantier_silencieux_j")?.valeur;
 
   function changerFiltre(nom: "mois" | "agence", valeur: string): void {
     const suivants = new URLSearchParams(parametres);
-    const valeurApi = nom === "mois" && valeur !== "" ? `${valeur}-01` : valeur;
-    if (valeurApi.trim() === "") suivants.delete(nom);
-    else suivants.set(nom, valeurApi);
+    if (valeur.trim() === "") suivants.delete(nom);
+    else suivants.set(nom, valeur);
     setParametres(suivants, { replace: true });
   }
 
@@ -675,11 +711,13 @@ export function ChantiersListe(): ReactElement {
             <Bouton variante="secondaire" onClick={() => setCreationOuverte((ouvert) => !ouvert)}>
               Nouveau chantier
             </Bouton>
+            {/* Libellés alignés sur la vue d'ensemble (revue finale,
+                constat COUVERTURE-11 : le nom du format de fichier était un terme technique). */}
             <a href={urlExportBilanChantiers(filtres)} className={CLASSES_LIEN_EXPORT}>
-              Exporter en CSV
+              Exporter pour Excel
             </a>
             <a href={urlExportBilanDetail(filtres)} className={CLASSES_LIEN_EXPORT}>
-              Export détaillé (CSV)
+              Exporter le détail pour Excel
             </a>
           </>
         }
@@ -701,7 +739,7 @@ export function ChantiersListe(): ReactElement {
             <input
               id="filtre-mois"
               type="month"
-              value={filtres.mois?.slice(0, 7) ?? ""}
+              value={mois ?? ""}
               onChange={(evenement) => changerFiltre("mois", evenement.target.value)}
               className={CLASSES_CHAMP}
               placeholder="Tous les mois"
@@ -728,11 +766,11 @@ export function ChantiersListe(): ReactElement {
         </form>
       </Carte>
 
-      {silencieux.data && <BandeauSilencieux chantiers={silencieux.data} />}
+      {silencieux.data && <BandeauSilencieux chantiers={silencieux.data} delaiJours={delaiSilence} />}
 
       {chargementListe && <p role="status" className="text-sm text-encre-2">Chargement…</p>}
       {erreurListe && <p role="alert" className="text-sm text-alerte">Impossible de charger les chantiers.</p>}
-      {lignes && <ListeChantiers lignes={lignes} mois={filtres.mois} />}
+      {lignes && <ListeChantiers lignes={lignes} mois={mois} />}
 
       {chantiers.data && (
         <CarteTousLesChantiers chantiers={chantiers.data} agence={filtres.agence} />

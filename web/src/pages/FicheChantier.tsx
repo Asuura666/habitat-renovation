@@ -27,15 +27,15 @@ import {
   modifierChantier,
 } from "../api/referentiels";
 import { cleTableauDeBord, obtenirTableauDeBord } from "../api/tableauDeBord";
-import { formaterDate, formaterMontant, TIRET } from "../lib/formats";
+import { estMontantNul, formaterDate, formaterMontant, libelleMois, lireMois, moisApi, TIRET } from "../lib/formats";
 import {
   Bouton,
   Carte,
   Chiffre,
-  type Etat,
   EtatVide,
   FilAriane,
   PastilleEtat,
+  PastilleUrgence,
   phraseProbleme,
   titreRegle,
   urgence,
@@ -44,22 +44,9 @@ import {
 const CLASSES_CHAMP =
   "min-h-[44px] w-full rounded-lg border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent";
 const CLASSES_LABEL = "mb-1 block text-xs font-medium text-encre-2";
+const CLASSES_LIEN =
+  "inline-flex min-h-[44px] items-center font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent";
 const FILTRES_TOUS_MOIS: FiltresBilan = {};
-
-const FORMATEUR_LIBELLE_MOIS = new Intl.DateTimeFormat("fr-FR", {
-  timeZone: "Europe/Paris",
-  month: "long",
-  year: "numeric",
-});
-
-/** « septembre 2026 » à partir d'un mois choisi au format `AAAA-MM-01`
- * (même représentation que `filtres.mois` sur `ChantiersListe`) — sert à
- * préciser la période des `Chiffre` de la fiche (fix round 1, constat 3) :
- * sans elle, « Facturé » n'indique jamais si le montant porte sur un mois
- * ou sur toute l'historique du chantier. */
-function libelleMois(mois: string): string {
-  return FORMATEUR_LIBELLE_MOIS.format(new Date(mois));
-}
 
 /** « Facturé — tous les mois » ou « Facturé en septembre 2026 » (fix round
  * 1, constat 3) : précise sur quelle période porte chaque `Chiffre`, sans
@@ -363,20 +350,24 @@ export function FicheChantier(): ReactElement {
   const [editionOuverte, setEditionOuverte] = useState(false);
   const id = chantierId ?? "";
 
-  // Mois choisi (fix round 1, constat 3) : lu depuis `?mois=` (même
-  // représentation `AAAA-MM-01` que `ChantiersListe`, transmise aussi bien
-  // par ses liens que par l'ancienne redirection `/bilan/:c?mois=…`).
-  // Absent de l'URL -> pas de mois : les montants portent alors sur tout
-  // l'historique du chantier (`FILTRES_TOUS_MOIS`), comme avant le choix
-  // d'une période, et aucun état calculé (`PastilleEtat`) n'est affiché —
+  // Mois choisi (fix round 1, constat 3) : lu depuis `?mois=` — `AAAA-MM`
+  // (convention unique depuis la revue finale, constat LIENS-5), ou
+  // `AAAA-MM-01` des anciens liens (`/bilan/:c?mois=…`), validé par
+  // `lireMois` : une valeur illisible ne fait plus lever `Intl` (écran
+  // blanc), elle est simplement ignorée. Absent -> tout l'historique du
+  // chantier (`FILTRES_TOUS_MOIS`), sans état calculé (`PastilleEtat`) —
   // `/api/tableau-de-bord` n'a de sens que pour un mois précis.
-  const moisParam = parametres.get("mois") ?? undefined;
+  const moisParam = lireMois(parametres.get("mois"));
   const moisChoisi = moisParam !== undefined;
-  const filtresActifs: FiltresBilan = moisChoisi ? { mois: moisParam } : FILTRES_TOUS_MOIS;
+  const moisPourApi = moisParam !== undefined ? moisApi(moisParam) : "";
+  const filtresActifs: FiltresBilan = moisChoisi ? { mois: moisPourApi } : FILTRES_TOUS_MOIS;
 
   // Titre et état vide de la carte « Livraisons » (fix round 2, constat 1) :
   // précisent désormais la période affichée, comme les trois `Chiffre`.
   const periodeLivraisons = libellePeriodeCourte(moisParam);
+  // Les problèmes ouverts ne sont pas filtrés par mois : le dire quand un
+  // mois est choisi ailleurs sur la fiche (revue finale, constat ECRAN-18).
+  const periodeProblemes = moisChoisi ? " — tous les mois" : "";
   const titreLivraisons = periodeLivraisons !== null ? `Livraisons — ${periodeLivraisons}` : "Livraisons";
   const messageAucuneLivraison =
     periodeLivraisons !== null
@@ -389,8 +380,8 @@ export function FicheChantier(): ReactElement {
     queryFn: () => listerBilanChantiers(filtresActifs),
   });
   const tableauDeBord = useQuery({
-    queryKey: cleTableauDeBord(moisParam ?? ""),
-    queryFn: () => obtenirTableauDeBord(moisParam ?? ""),
+    queryKey: cleTableauDeBord(moisPourApi),
+    queryFn: () => obtenirTableauDeBord(moisPourApi),
     enabled: moisChoisi,
   });
   const fournisseurs = useQuery({
@@ -448,7 +439,7 @@ export function FicheChantier(): ReactElement {
   // affiché sans le dire à côté de chiffres qui pouvaient porter sur toute
   // la durée du chantier (deux périodes différentes sur le même écran).
   const etatChoisi = moisChoisi
-    ? (tableauDeBord.data?.chantiers.find((c) => c.chantier_id === id)?.etat as Etat | undefined)
+    ? tableauDeBord.data?.chantiers.find((c) => c.chantier_id === id)?.etat
     : undefined;
 
   // « Fournisseur à rattacher » (corrections de revue, tour 4, constat 2) :
@@ -582,20 +573,30 @@ export function FicheChantier(): ReactElement {
 
       {editionOuverte && <FormulaireEdition chantier={chantier} onFermer={() => setEditionOuverte(false)} />}
 
-      <section aria-label="Chiffres du chantier" className="grid grid-cols-2 gap-3 md:grid-cols-3">
+      {/* Quatre chiffres (spec §4, maquette `FicheChantier`) : « Conforme »
+          est désormais fourni par le serveur pour chaque chantier
+          (`MontantsBilan.conforme`, calculé livraison par livraison — revue
+          finale, constats ECRAN-4/COUVERTURE-12), jamais recalculé ici. Un
+          montant nul reste en couleur neutre (constat TELEPHONE-11). */}
+      <section aria-label="Chiffres du chantier" className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Chiffre
           libelle={libelleAvecPeriode("Facturé", moisParam)}
           valeur={formaterMontant(ligneBilan?.montants.facture_ht ?? null)}
         />
         <Chiffre
+          libelle={libelleAvecPeriode("Conforme", moisParam)}
+          valeur={formaterMontant(ligneBilan?.montants.conforme ?? null)}
+          ton={estMontantNul(ligneBilan?.montants.conforme ?? null) ? "neutre" : "conforme"}
+        />
+        <Chiffre
           libelle={libelleAvecPeriode("Écart prix ou quantité", moisParam)}
           valeur={formaterMontant(ligneBilan?.montants.en_ecart ?? null)}
-          ton="ecart"
+          ton={estMontantNul(ligneBilan?.montants.en_ecart ?? null) ? "neutre" : "ecart"}
         />
         <Chiffre
           libelle={libelleAvecPeriode("Sans bon de livraison", moisParam)}
           valeur={formaterMontant(ligneBilan?.montants.non_justifie ?? null)}
-          ton="alerte"
+          ton={estMontantNul(ligneBilan?.montants.non_justifie ?? null) ? "neutre" : "alerte"}
         />
       </section>
 
@@ -627,34 +628,42 @@ export function FicheChantier(): ReactElement {
               liens s'empilaient sur 4 lignes ou plus à 375 px et réduisaient
               chaque cible à environ 20 px de haut, sous les 44 px exigés. */}
           <div className="mt-4 flex flex-col gap-3 border-t border-bordure pt-4 text-sm md:mt-auto md:flex-row md:items-start md:justify-between md:gap-6">
+            {/* Revue finale (constat LIENS-13) : le mois de la fiche suit
+                vers les documents du chantier. */}
             <Link
-              to={`/documents?chantier=${id}`}
-              className="inline-flex min-h-[44px] items-center font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+              to={`/documents?chantier=${id}${moisParam !== undefined ? `&mois=${moisParam}` : ""}`}
+              className={CLASSES_LIEN}
             >
               Voir les documents du chantier
             </Link>
+            {/* Libellés sans « CSV » (revue finale, constat COUVERTURE-11) :
+                le titre du groupe dit déjà « Exporter pour Excel ». */}
             <div className="flex flex-col gap-1 md:items-end">
               <span className="text-xs font-medium uppercase tracking-wide text-encre-2">Exporter pour Excel</span>
-              <a
-                href={urlExportBilanFournisseurs(id, filtresActifs)}
-                className="inline-flex min-h-[44px] items-center font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
-              >
-                Récapitulatif par fournisseur (CSV)
+              <a href={urlExportBilanFournisseurs(id, filtresActifs)} className={CLASSES_LIEN}>
+                Récapitulatif par fournisseur
               </a>
               {fournisseursResolus.map((fournisseur) => (
                 <a
                   key={fournisseur.fournisseur_id}
                   href={urlExportBilanBl(id, fournisseur.fournisseur_id as string, filtresActifs)}
-                  className="inline-flex min-h-[44px] items-center font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+                  className={CLASSES_LIEN}
                 >
-                  Exporter les livraisons {fournisseur.nom} (CSV)
+                  Exporter les livraisons {fournisseur.nom}
                 </a>
               ))}
             </div>
           </div>
         </Carte>
 
-        <Carte titre={`Problèmes ouverts · ${anomalies.data?.length ?? 0}`}>
+        {/* Revue finale : la période est dite quand un mois est choisi
+            ailleurs sur la fiche (constat ECRAN-18 — les problèmes ouverts
+            ne sont pas filtrés par mois) ; l'urgence est une pastille,
+            comme dans « À régler » (constat LIENS-12) ; « Voir l'historique »
+            ouvre les problèmes déjà réglés de ce chantier (constat
+            LIENS-14 : l'historique d'un chantier n'était plus consultable
+            nulle part depuis la suppression de l'écran « Anomalies »). */}
+        <Carte titre={`Problèmes ouverts · ${anomalies.data?.length ?? 0}${periodeProblemes}`} className="flex flex-col">
           {anomalies.isPending && <p role="status" className="text-sm text-encre-2">Chargement…</p>}
           {anomalies.isError && <p role="alert" className="text-sm text-alerte">Impossible de charger les problèmes.</p>}
           {anomalies.data && anomalies.data.length === 0 && (
@@ -666,11 +675,11 @@ export function FicheChantier(): ReactElement {
                 <li key={anomalie.id}>
                   <Link
                     to={`/a-regler/${anomalie.id}`}
-                    className="block rounded-lg border border-bordure bg-fond p-3 outline-none hover:bg-surface focus-visible:ring-2 focus-visible:ring-accent"
+                    className="block rounded-lg border border-bordure bg-surface p-3 outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
                   >
-                    <p className="flex items-center justify-between gap-2 text-sm font-semibold text-encre">
+                    <p className="flex items-start justify-between gap-2 text-sm font-semibold text-encre">
                       {titreRegle(anomalie.regle)}
-                      <span className="text-xs font-medium text-encre-2">{urgence(anomalie.gravite)}</span>
+                      <PastilleUrgence urgence={urgence(anomalie.gravite)} />
                     </p>
                     <p className="mt-1 text-sm text-encre-2">{phraseProbleme(anomalie)}</p>
                   </Link>
@@ -678,6 +687,14 @@ export function FicheChantier(): ReactElement {
               ))}
             </ul>
           )}
+          <div className="mt-3 flex flex-wrap gap-x-6 border-t border-bordure pt-3 text-sm md:mt-auto">
+            <Link to={`/a-regler?chantier=${id}`} className={CLASSES_LIEN}>
+              Régler les problèmes de ce chantier
+            </Link>
+            <Link to={`/a-regler?filtre=regles&chantier=${id}`} className={CLASSES_LIEN}>
+              Voir l'historique
+            </Link>
+          </div>
         </Carte>
       </div>
     </div>

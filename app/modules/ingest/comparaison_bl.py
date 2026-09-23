@@ -56,7 +56,12 @@ du seul fait que `regles_ouvertes` est vide :
 - `non_facture` : la ligne n'a été appariée à aucune ligne de la facture
   affichée (« non retrouvée sur la facture ») -- elle n'est pas pour autant
   « conforme » ;
-- `conforme` : ligne appariée, sans anomalie ouverte.
+- `non_controle` : la ligne est appariée à une ligne de facture qui ne
+  porte ni quantité ni prix unitaire (ex. une éco-participation facturée
+  au seul montant) -- rien n'a pu être comparé, ce n'est pas un
+  « conforme » ; son montant facturé (`montant_facture`) est exposé pour
+  que la page le montre tel quel ;
+- `conforme` : ligne appariée, comparée, sans anomalie ouverte.
 
 `nb_problemes` (tour de correction 1, Task 8 -- constat de revue : « le
 front décide lui-même du verdict à partir de données partielles ») compte
@@ -89,7 +94,9 @@ from app.modules.ingest.models import (
     RapprochementLigne,
 )
 
-Controle = Literal["conforme", "ecart", "non_facture", "pas_encore_facture"]
+Controle = Literal[
+    "conforme", "ecart", "non_facture", "non_controle", "pas_encore_facture"
+]
 
 
 @dataclass(frozen=True)
@@ -105,7 +112,8 @@ class LigneComparee:
     `qte_facturee` -- même convention que R03 (`rules/R03.py`) et le bilan
     (`ingest.bilan`, `bl_ligne.qte_totale` -> `qte_bl_appariee`).
 
-    `controle` : voir le docstring de module."""
+    `controle` et `montant_facture` (montant HT de la ligne de facture
+    appariée, `None` sans appariement) : voir le docstring de module."""
 
     ordre: int
     code: str | None
@@ -113,6 +121,7 @@ class LigneComparee:
     qte_livree: Decimal | None
     qte_facturee: Decimal | None
     pu_facture: Decimal | None
+    montant_facture: Decimal | None
     regles_ouvertes: list[str]
     controle: Controle
 
@@ -148,6 +157,8 @@ def _controle(
         return "ecart"
     if ligne_facture is None:
         return "non_facture"
+    if ligne_facture.qte_totale is None and ligne_facture.pu_ht is None:
+        return "non_controle"
     return "conforme"
 
 
@@ -271,6 +282,9 @@ async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> Comparai
                     ligne_facture.qte_totale if ligne_facture is not None else None
                 ),
                 pu_facture=ligne_facture.pu_ht if ligne_facture is not None else None,
+                montant_facture=(
+                    ligne_facture.montant_ht if ligne_facture is not None else None
+                ),
                 regles_ouvertes=regles_ouvertes,
                 controle=_controle(
                     facture_connue=facture_id is not None,

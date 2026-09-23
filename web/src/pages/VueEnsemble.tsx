@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useState, type MouseEvent, type ReactElement } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { urlExportBilanDetail } from "../api/bilan";
 import { CLE_MOI, DUREE_CACHE_MOI, recupererMoi } from "../api/moi";
@@ -9,18 +9,9 @@ import {
   type TableauDeBord,
   obtenirTableauDeBord,
 } from "../api/tableauDeBord";
-import {
-  Carte,
-  Chiffre,
-  ETATS,
-  type Etat,
-  EnTetePage,
-  EtatVide,
-  PastilleEtat,
-  phraseProbleme,
-  titreRegle,
-} from "../ui";
-import { formaterMontant, TIRET } from "../lib/formats";
+import { Carte, Chiffre, EnTetePage, EtatVide, PastilleEtat, phraseProbleme, titreRegle } from "../ui";
+import { formaterMontant, libelleMois, lireMois, moisApi, TIRET } from "../lib/formats";
+import { lienChantier } from "../lib/liens";
 
 type Chantier = TableauDeBord["chantiers"][number];
 type Priorite = TableauDeBord["priorites"][number];
@@ -29,9 +20,10 @@ type Priorite = TableauDeBord["priorites"][number];
  * `^\d{4}-\d{2}$` acceptait `00` et `13` à `99` — `new Date("2026-13-01")`
  * est invalide et faisait lever `Intl.DateTimeFormat.format` avec
  * `RangeError: Invalid time value`, sans `ErrorBoundary` dans l'app, d'où un
- * écran blanc sur `/?mois=2026-13`). Utilisée à la fois à la lecture de
- * l'URL et dans `changerMois` : aucune des deux voies ne peut donc pousser
- * un mois hors bornes vers `titreMois`/`obtenirTableauDeBord`. */
+ * écran blanc sur `/?mois=2026-13`). Valide la saisie du sélecteur de mois
+ * (`changerMois`) ; la lecture de l'URL passe par `lireMois` (`lib/
+ * formats.ts`, même garde, partagée par tous les écrans depuis la revue
+ * finale — constat LIENS-5). */
 const REGEX_MOIS = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 /** Mois courant au format `AAAA-MM`, fuseau Europe/Paris (brief T5 : « mois
@@ -49,27 +41,9 @@ function moisCourant(): string {
 }
 
 /** Titre de l'en-tête (« Septembre 2026 »), dérivé du mois affiché — mise en
- * forme uniquement, aucun calcul. `mois` est au format `AAAA-MM`. */
+ * forme uniquement, aucun calcul. */
 function titreMois(mois: string): string {
-  // Forme « date seule » (pas de suffixe `T...`), interprétée en UTC par
-  // `Date` (même convention que `formaterDate`/`formaterDateHeure`, `lib/
-  // formats.ts`) : le fuseau du navigateur n'entre jamais en jeu, seul le
-  // `timeZone: "Europe/Paris"` du formateur ci-dessous compte.
-  const date = new Date(`${mois}-01`);
-  if (Number.isNaN(date.getTime())) {
-    // Filet de sécurité (correction de revue, tour 1) : avec `REGEX_MOIS`
-    // restreinte à `01`-`12`, `mois` est déjà valide à chaque appel — ce
-    // repli n'est donc jamais exercé aujourd'hui, mais il évite qu'un futur
-    // appelant de `titreMois` fasse à nouveau lever `Intl.DateTimeFormat
-    // .format` sur une `Invalid Date` plutôt que d'afficher le mois courant.
-    return titreMois(moisCourant());
-  }
-  const formateur = new Intl.DateTimeFormat("fr-FR", {
-    timeZone: "Europe/Paris",
-    month: "long",
-    year: "numeric",
-  });
-  const texte = formateur.format(date);
+  const texte = libelleMois(mois);
   return texte.charAt(0).toUpperCase() + texte.slice(1);
 }
 
@@ -81,14 +55,6 @@ function prenomAffiche(nom: string | null, email: string): string {
   return source.split(/\s+/)[0] ?? source;
 }
 
-/** `etat` vient de l'API sous forme de chaîne libre côté schéma OpenAPI
- * (voir `ChantierTableauReponse`, non restreinte au niveau des types
- * générés) : repli défensif sur « à voir » pour toute valeur inconnue,
- * jamais un plantage de `PastilleEtat`. */
-function etatValide(etat: string): Etat {
-  return (ETATS as readonly string[]).includes(etat) ? (etat as Etat) : "a_voir";
-}
-
 /** Nom affiché d'un chantier : celui non résolu (brief T5) porte le nom
  * fixe « Chantier à rattacher » et renvoie vers l'écran « À régler » plutôt
  * que vers une fiche chantier qui n'existe pas encore pour lui. */
@@ -96,10 +62,15 @@ function nomChantier(chantier: Chantier): string {
   return chantier.nom_canonique ?? "Chantier à rattacher";
 }
 
-function lienChantier(chantier: Chantier): string {
-  return chantier.chantier_id === null
-    ? "/a-regler?filtre=rattacher"
-    : `/chantiers/${chantier.chantier_id}`;
+/** « Client · agence », avec « Client non renseigné » plutôt que l'agence
+ * seule, qui se lisait comme un nom de client (revue finale, constat
+ * ECRAN-19 — même libellé que l'écran « Chantiers »). */
+function clientEtAgence(chantier: Chantier): string {
+  if (chantier.chantier_id === null) {
+    return TIRET;
+  }
+  const client = chantier.client ?? "Client non renseigné";
+  return chantier.agence !== null ? `${client} · ${chantier.agence}` : client;
 }
 
 /** Nombre de problèmes ouverts d'un chantier, ou tiret cadratin quand il
@@ -110,41 +81,56 @@ function nbProblemesChantier(chantier: Chantier): string {
   return nb > 0 ? String(nb) : TIRET;
 }
 
-function LigneChantier({ chantier }: { chantier: Chantier }): ReactElement {
+/** Ligne du tableau (ordinateur) : un vrai `<table>` (revue finale, constat
+ * COUVERTURE-6 — chaque ligne était une grille indépendante, une pastille
+ * longue élargissait sa colonne dans sa seule ligne et désalignait le
+ * tableau). Toute la ligne ouvre le chantier (clic), et le nom porte le
+ * vrai lien pour le clavier et les lecteurs d'écran — même motif que la
+ * carte « Livraisons » de la fiche chantier. */
+function LigneChantier({ chantier, lien }: { chantier: Chantier; lien: string }): ReactElement {
+  const navigate = useNavigate();
+
+  function gererClic(evenement: MouseEvent<HTMLTableRowElement>): void {
+    if (evenement.defaultPrevented) return;
+    if ((evenement.target as HTMLElement).closest("a") !== null) return;
+    if (evenement.button !== 0 || evenement.metaKey || evenement.ctrlKey || evenement.shiftKey || evenement.altKey) {
+      return;
+    }
+    navigate(lien);
+  }
+
   return (
-    <Link
-      to={lienChantier(chantier)}
-      className="grid grid-cols-[2.2fr_1.4fr_1fr_1fr_1fr] items-center gap-3 border-b border-fond px-1 py-3 text-sm text-encre outline-none last:border-b-0 hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
-    >
-      <span className="flex min-w-0 flex-col">
-        <span className="truncate font-medium">{nomChantier(chantier)}</span>
-        <span className="truncate text-xs text-encre-2">
-          {[chantier.client, chantier.agence].filter((valeur) => valeur !== null).join(" · ") || TIRET}
-        </span>
-      </span>
-      <span>
-        <PastilleEtat etat={etatValide(chantier.etat)} />
-      </span>
-      <span className="text-right font-mono">{formaterMontant(chantier.montants.facture_ht)}</span>
-      <span className="text-right font-mono">{formaterMontant(chantier.a_verifier)}</span>
-      <span className="text-right">{nbProblemesChantier(chantier)}</span>
-    </Link>
+    <tr onClick={gererClic} className="cursor-pointer hover:bg-fond">
+      <th scope="row" className="py-3 pl-1 pr-3 text-left font-normal">
+        <Link
+          to={lien}
+          className="font-medium text-encre outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          {nomChantier(chantier)}
+        </Link>
+        <span className="block text-xs text-encre-2">{clientEtAgence(chantier)}</span>
+      </th>
+      <td className="py-3 pr-3">
+        <PastilleEtat etat={chantier.etat} />
+      </td>
+      <td className="py-3 pr-3 text-right font-mono">{formaterMontant(chantier.montants.facture_ht)}</td>
+      <td className="py-3 pr-3 text-right font-mono">{formaterMontant(chantier.a_verifier)}</td>
+      <td className="py-3 pr-1 text-right">{nbProblemesChantier(chantier)}</td>
+    </tr>
   );
 }
 
-function CarteChantier({ chantier }: { chantier: Chantier }): ReactElement {
+function CarteChantier({ chantier, lien }: { chantier: Chantier; lien: string }): ReactElement {
   return (
     <li>
       <Link
-        to={lienChantier(chantier)}
+        to={lien}
         className="block rounded-carte border border-bordure bg-surface p-4 outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         <p className="font-medium text-encre">{nomChantier(chantier)}</p>
-        <p className="text-xs text-encre-2">
-          {[chantier.client, chantier.agence].filter((valeur) => valeur !== null).join(" · ") || TIRET}
-        </p>
+        <p className="text-xs text-encre-2">{clientEtAgence(chantier)}</p>
         <div className="mt-3">
-          <PastilleEtat etat={etatValide(chantier.etat)} />
+          <PastilleEtat etat={chantier.etat} />
         </div>
         <dl className="mt-3 grid grid-cols-3 gap-2 text-sm">
           <div>
@@ -165,33 +151,66 @@ function CarteChantier({ chantier }: { chantier: Chantier }): ReactElement {
   );
 }
 
-function SectionChantiers({ chantiers }: { chantiers: Chantier[] }): ReactElement {
+function SectionChantiers({
+  chantiers,
+  mois,
+  dernierMoisFacture,
+}: {
+  chantiers: Chantier[];
+  mois: string;
+  dernierMoisFacture: string | undefined;
+}): ReactElement {
+  // Revue finale (constats ECRAN-4, COUVERTURE-3) : la fiche s'ouvre sur le
+  // mois affiché ici — elle montre alors les mêmes montants que la ligne
+  // cliquée, sa pastille d'état et ses quatre chiffres.
+  const lien = (chantier: Chantier): string => lienChantier(chantier.chantier_id, mois);
+
   if (chantiers.length === 0) {
-    return <EtatVide message="Aucune facture ce mois-ci." />;
+    return (
+      <div className="space-y-3">
+        <EtatVide message="Aucune facture ce mois-ci." />
+        {/* Revue finale (constat COUVERTURE-26) : les factures fournisseur
+            sont mensuelles (celle d'août arrive en septembre) — le serveur
+            indique le dernier mois facturé, un clic suffit pour y aller. */}
+        {dernierMoisFacture !== undefined && dernierMoisFacture !== mois && (
+          <Link
+            to={`/?mois=${dernierMoisFacture}`}
+            className="inline-flex min-h-[44px] items-center text-sm font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            Voir {libelleMois(dernierMoisFacture)}, dernier mois facturé →
+          </Link>
+        )}
+      </div>
+    );
   }
   return (
     <>
       {/* Cartes empilées — téléphone (< md) */}
       <ul className="space-y-3 md:hidden">
         {chantiers.map((chantier) => (
-          <CarteChantier key={chantier.chantier_id ?? "a-rattacher"} chantier={chantier} />
+          <CarteChantier key={chantier.chantier_id ?? "a-rattacher"} chantier={chantier} lien={lien(chantier)} />
         ))}
       </ul>
 
       {/* Tableau — ordinateur (>= md) */}
-      <div className="hidden md:block">
-        <div className="grid grid-cols-[2.2fr_1.4fr_1fr_1fr_1fr] gap-3 border-b border-bordure px-1 pb-2 text-xs font-medium uppercase tracking-wide text-encre-2">
-          <span>Chantier · client</span>
-          <span>État</span>
-          <span className="text-right">Facturé</span>
-          <span className="text-right">À vérifier</span>
-          <span className="text-right">Problèmes</span>
-        </div>
-        <div>
-          {chantiers.map((chantier) => (
-            <LigneChantier key={chantier.chantier_id ?? "a-rattacher"} chantier={chantier} />
-          ))}
-        </div>
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full text-sm text-encre">
+          <caption className="sr-only">Chantiers du mois</caption>
+          <thead className="border-b border-bordure text-left text-xs font-medium uppercase tracking-wide text-encre-2">
+            <tr>
+              <th scope="col" className="pb-2 pl-1 pr-3">Chantier · client</th>
+              <th scope="col" className="pb-2 pr-3">État</th>
+              <th scope="col" className="pb-2 pr-3 text-right">Facturé</th>
+              <th scope="col" className="pb-2 pr-3 text-right">À vérifier</th>
+              <th scope="col" className="pb-2 pr-1 text-right">Problèmes</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-fond">
+            {chantiers.map((chantier) => (
+              <LigneChantier key={chantier.chantier_id ?? "a-rattacher"} chantier={chantier} lien={lien(chantier)} />
+            ))}
+          </tbody>
+        </table>
       </div>
     </>
   );
@@ -203,22 +222,23 @@ function contextePriorite(priorite: Priorite): string {
 }
 
 function CartePriorite({ priorite }: { priorite: Priorite }): ReactElement {
-  const chemin =
-    priorite.anomalie.chantier_id !== null
-      ? `/chantiers/${priorite.anomalie.chantier_id}`
-      : "/a-regler";
+  // Revue finale (constat COUVERTURE-3) : un problème prioritaire ouvre son
+  // détail dans « À régler » (uuid brut, accepté par la route
+  // `/a-regler/:id`), là où on peut le contester — plus la fiche chantier.
+  const montant = priorite.montant_en_jeu;
+  // Un avoir (montant négatif, signé par le serveur comme dans « À
+  // régler ») n'est pas une somme perdue : couleur neutre, pas d'alerte.
+  const classeMontant = montant !== null && montant.startsWith("-") ? "text-encre-2" : "text-alerte";
   return (
     <li>
       <Link
-        to={chemin}
+        to={`/a-regler/${priorite.anomalie.id}`}
         className="flex flex-col gap-1 rounded-lg border border-bordure bg-fond px-3.5 py-3 outline-none hover:bg-surface focus-visible:ring-2 focus-visible:ring-accent"
       >
         <span className="flex items-start justify-between gap-2">
           <span className="text-sm font-semibold text-encre">{titreRegle(priorite.anomalie.regle)}</span>
-          {priorite.montant_en_jeu !== null && (
-            <span className="whitespace-nowrap font-mono text-sm text-alerte">
-              {formaterMontant(priorite.montant_en_jeu)}
-            </span>
+          {montant !== null && (
+            <span className={`whitespace-nowrap font-mono text-sm ${classeMontant}`}>{formaterMontant(montant)}</span>
           )}
         </span>
         <span className="text-sm text-encre">{phraseProbleme(priorite.anomalie)}</span>
@@ -228,28 +248,39 @@ function CartePriorite({ priorite }: { priorite: Priorite }): ReactElement {
   );
 }
 
-function SectionPriorites({
-  priorites,
-  nbProblemesOuverts,
-}: {
-  priorites: Priorite[];
-  nbProblemesOuverts: number;
-}): ReactElement {
-  if (priorites.length === 0) {
-    return <p className="text-sm text-encre-2">Rien à régler ce mois-ci.</p>;
-  }
+function SectionPriorites({ priorites }: { priorites: Priorite[] }): ReactElement {
   return (
     <>
-      <ul className="flex flex-col gap-2.5">
-        {priorites.map((priorite) => (
-          <CartePriorite key={priorite.anomalie.id} priorite={priorite} />
-        ))}
-      </ul>
-      <Link to="/a-regler" className="text-sm font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent">
-        Voir les {nbProblemesOuverts} problèmes →
+      {priorites.length === 0 ? (
+        <p className="text-sm text-encre-2">Rien à régler sur les factures de ce mois.</p>
+      ) : (
+        <ul className="flex flex-col gap-2.5">
+          {priorites.map((priorite) => (
+            <CartePriorite key={priorite.anomalie.id} priorite={priorite} />
+          ))}
+        </ul>
+      )}
+      {/* Revue finale (constats LIENS-2, ECRAN-6, TELEPHONE-2,
+          COUVERTURE-17) : plus de nombre dans ce lien — « Voir les 6
+          problèmes » (ceux du mois) ouvrait une liste de 10 (tous les mois,
+          plus les bons illisibles et les chantiers à rattacher). Toujours
+          affiché, même sans problème ce mois-ci : d'autres mois peuvent en
+          avoir. */}
+      <Link
+        to="/a-regler"
+        className="mt-3 inline-flex min-h-[44px] items-center text-sm font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        Voir tous les problèmes à régler →
       </Link>
     </>
   );
+}
+
+function sousTexteBonsRecus(nbManquants: number): string {
+  if (nbManquants === 0) {
+    return "aucun bon à réclamer";
+  }
+  return `${nbManquants} bon${nbManquants > 1 ? "s" : ""} à réclamer`;
 }
 
 /** Vue d'ensemble (Task 5, maquette `Main`) — écran d'accueil de l'admin :
@@ -259,34 +290,26 @@ function SectionPriorites({
  * MM`) — défaut au mois courant Europe/Paris, jamais recalculé côté front
  * au-delà de cette mise en forme (aucune somme/différence/pourcentage sur
  * un montant, chaque valeur vient telle quelle de `GET /api/tableau-de-
- * bord`). */
+ * bord`, y compris le nombre de bons à réclamer depuis la revue finale). */
 export function VueEnsemble(): ReactElement {
   const [parametres, setParametres] = useSearchParams();
-  const moisParam = parametres.get("mois");
-  const mois = moisParam !== null && REGEX_MOIS.test(moisParam) ? moisParam : moisCourant();
-  const moisApi = `${mois}-01`;
+  const mois = lireMois(parametres.get("mois")) ?? moisCourant();
+  const moisPourApi = moisApi(mois);
 
   const moi = useQuery({ queryKey: CLE_MOI, queryFn: recupererMoi, staleTime: DUREE_CACHE_MOI });
   const tableauDeBord = useQuery({
-    queryKey: cleTableauDeBord(moisApi),
-    queryFn: () => obtenirTableauDeBord(moisApi),
+    queryKey: cleTableauDeBord(moisPourApi),
+    queryFn: () => obtenirTableauDeBord(moisPourApi),
   });
 
   // Brouillon local du sélecteur de mois (correction de revue, tour 1).
   // `mois` ci-dessus est la valeur *effective* (repli sur le mois courant
   // si absente/invalide) : la contrôler directement dans le champ empêchait
   // de saisir un mois, notamment sur Firefox où `type="month"` retombe en
-  // champ texte (le navigateur envoie alors chaque frappe intermédiaire,
-  // ex. « 2026-0 »). Poussée telle quelle dans `changerMois`, une valeur
-  // intermédiaire invalide effaçait aussitôt le paramètre d'URL, `mois`
-  // revenait au mois courant et le champ contrôlé était réécrasé en plein
-  // milieu de la frappe. `brouillonMois` affiche toujours exactement ce que
-  // la personne tape ; seule une valeur qui passe `REGEX_MOIS` est poussée
-  // dans l'URL. Resynchronisé depuis `mois` quand celui-ci change pour une
-  // raison extérieure à la frappe (navigation, lien, retour arrière) —
-  // jamais pendant la saisie, puisque tant qu'aucune valeur valide n'est
-  // poussée dans l'URL, `mois` ne change pas et l'effet ne se redéclenche
-  // pas.
+  // champ texte. `brouillonMois` affiche toujours exactement ce que la
+  // personne tape ; seule une valeur qui passe `REGEX_MOIS` est poussée dans
+  // l'URL. Resynchronisé depuis `mois` quand celui-ci change pour une raison
+  // extérieure à la frappe (navigation, lien, retour arrière).
   const [brouillonMois, setBrouillonMois] = useState(mois);
   useEffect(() => {
     setBrouillonMois(mois);
@@ -295,10 +318,8 @@ export function VueEnsemble(): ReactElement {
   function changerMois(valeur: string): void {
     setBrouillonMois(valeur);
     if (!REGEX_MOIS.test(valeur)) {
-      // Valeur incomplète ou hors bornes (« 2026-0 », « 2026-19 »…) :
-      // affichée telle quelle dans le champ, jamais poussée dans l'URL —
-      // ni effacée au profit du mois courant, qui reprendrait la main sur
-      // le champ en pleine saisie.
+      // Valeur incomplète ou hors bornes : affichée telle quelle dans le
+      // champ, jamais poussée dans l'URL.
       return;
     }
     const suivants = new URLSearchParams(parametres);
@@ -307,6 +328,10 @@ export function VueEnsemble(): ReactElement {
   }
 
   const donnees = tableauDeBord.data;
+  const dernierMoisFacture =
+    donnees?.dernier_mois_facture !== null && donnees?.dernier_mois_facture !== undefined
+      ? lireMois(donnees.dernier_mois_facture)
+      : undefined;
 
   return (
     <div className="space-y-6">
@@ -328,7 +353,7 @@ export function VueEnsemble(): ReactElement {
               />
             </div>
             <a
-              href={urlExportBilanDetail({ mois: moisApi })}
+              href={urlExportBilanDetail({ mois: moisPourApi })}
               className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-accent bg-accent px-4 py-2 text-sm font-medium text-white outline-none hover:bg-accent-fonce focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
             >
               Exporter pour Excel
@@ -350,6 +375,11 @@ export function VueEnsemble(): ReactElement {
 
       {donnees && (
         <>
+          {/* Sous-textes (revue finale, constats ECRAN-20, COUVERTURE-4,
+              LIENS-2) : décrire ce que le montant contient, sans promettre
+              une somme à réclamer que les définitions monétaires (à
+              confirmer par Ilane) ne garantissent pas ; préciser que les
+              problèmes sont ceux des factures du mois affiché. */}
           <section
             aria-label="Chiffres du mois"
             className="grid grid-cols-2 gap-3.5 md:grid-cols-3 xl:grid-cols-6"
@@ -363,39 +393,40 @@ export function VueEnsemble(): ReactElement {
             <Chiffre
               libelle="Écart prix ou quantité"
               valeur={formaterMontant(donnees.totaux.en_ecart)}
-              sousTexte="à contester au fournisseur"
+              sousTexte="livraisons concernées par un écart"
               ton="ecart"
             />
             <Chiffre
               libelle="Sans bon de livraison"
               valeur={formaterMontant(donnees.totaux.non_justifie)}
-              sousTexte="BL à réclamer à l'équipe"
+              sousTexte="facturé sans bon reçu"
               ton="alerte"
             />
             <Chiffre
               libelle="Problèmes à régler"
               valeur={String(donnees.nb_problemes_ouverts)}
-              sousTexte={`dont ${donnees.nb_problemes_urgents} urgent${donnees.nb_problemes_urgents > 1 ? "s" : ""}`}
+              sousTexte={`dont ${donnees.nb_problemes_urgents} urgent${
+                donnees.nb_problemes_urgents > 1 ? "s" : ""
+              }, sur les factures du mois`}
             />
             <Chiffre
               libelle="Bons de livraison reçus"
               valeur={`${donnees.nb_bl_recus} / ${donnees.nb_bl_factures}`}
-              sousTexte={`${donnees.nb_bl_factures - donnees.nb_bl_recus} manquant${
-                donnees.nb_bl_factures - donnees.nb_bl_recus > 1 ? "s" : ""
-              } à réclamer`}
+              sousTexte={sousTexteBonsRecus(donnees.nb_bl_manquants)}
             />
           </section>
 
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
             <Carte titre="Chantiers" className="xl:col-span-2">
-              <SectionChantiers chantiers={donnees.chantiers} />
+              <SectionChantiers
+                chantiers={donnees.chantiers}
+                mois={mois}
+                dernierMoisFacture={dernierMoisFacture}
+              />
             </Carte>
 
-            <Carte titre="À régler en priorité">
-              <SectionPriorites
-                priorites={donnees.priorites}
-                nbProblemesOuverts={donnees.nb_problemes_ouverts}
-              />
+            <Carte titre="À régler en priorité" className="flex flex-col">
+              <SectionPriorites priorites={donnees.priorites} />
             </Carte>
           </div>
         </>

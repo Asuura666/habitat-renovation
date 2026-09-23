@@ -1,6 +1,6 @@
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { type UseQueryResult, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router";
+import { Link, useLocation, useParams } from "react-router";
 
 import { ErreurApi } from "../api/client";
 import {
@@ -15,6 +15,7 @@ import {
 } from "../api/documents";
 import { CLE_MOI, DUREE_CACHE_MOI, recupererMoi } from "../api/moi";
 import { formaterDate, formaterDateHeure, formaterMontant, formaterQuantite, TIRET } from "../lib/formats";
+import { CHANTIER_A_RATTACHER, lienFacture } from "../lib/liens";
 import { Carte, EtatVide, FilAriane, type ElementFilAriane, titreRegle } from "../ui";
 import { DocumentDetail } from "./DocumentDetail";
 import { FactureDetail } from "./FactureDetail";
@@ -60,8 +61,16 @@ function classesConfirmation(confirmation: "verifiee" | "ecart" | null): string 
 /** Fil d'Ariane « Chantiers › chantier › n° BL » (spec, maquette `BL`) : le
  * chantier n'est un lien que lorsqu'il est rattaché (`chantier_id` connu) —
  * un document jamais rattaché affiche « Chantier à rattacher » en texte
- * seul, jamais un lien mort. */
-function construireFilAriane(donnees: DonneesDocument, numero: string): ElementFilAriane[] {
+ * seul, jamais un lien mort.
+ *
+ * Revue finale (constats LIENS-9, DROITS-1, TELEPHONE-10) : pour un agent,
+ * « Mes dépôts › n° BL » — les écrans « Chantiers » et fiche chantier lui
+ * sont réservés (`GardeAdmin`), un lien vers eux le renvoyait sans
+ * explication vers ses dépôts. */
+function construireFilAriane(donnees: DonneesDocument, numero: string, estAdmin: boolean): ElementFilAriane[] {
+  if (!estAdmin) {
+    return [{ libelle: "Mes dépôts", vers: "/documents" }, { libelle: numero }];
+  }
   const elements: ElementFilAriane[] = [{ libelle: "Chantiers", vers: "/chantiers" }];
   if (donnees.chantier !== null) {
     elements.push(
@@ -70,7 +79,7 @@ function construireFilAriane(donnees: DonneesDocument, numero: string): ElementF
         : { libelle: donnees.chantier },
     );
   } else {
-    elements.push({ libelle: "Chantier à rattacher" });
+    elements.push({ libelle: CHANTIER_A_RATTACHER });
   }
   elements.push({ libelle: numero });
   return elements;
@@ -165,37 +174,54 @@ function PhotoBl({ id, numero }: { id: string; numero: string }): ReactElement {
   );
 }
 
-/** Colonne « Contrôle » d'une ligne comparée (maquette `BL`) : les codes de
- * `regles_ouvertes` (Task 3) sont traduits par `titreRegle` — jamais le code
- * brut affiché (spec §5, sans jargon). Aucune ligne ouverte et une facture
- * citant bien ce bon (`factureConnue`) = « Conforme » ; aucune ligne
- * ouverte mais aucune facture ne cite encore ce bon = « Pas encore
- * facturé » (constat de revue corrigé au tour de correction 1 : cette
- * ligne n'a en réalité jamais été comparée à rien, « Conforme » l'affirmait
- * à tort). */
-function ControleLigne({ regles, factureConnue }: { regles: string[]; factureConnue: boolean }): ReactElement {
-  if (regles.length === 0) {
-    if (!factureConnue) {
+/** Colonne « Contrôle » d'une ligne comparée (maquette `BL`) : le verdict
+ * vient du serveur (`controle`, revue finale, constats SERVEUR-6/ECRAN-3) —
+ * avant, la page concluait « Conforme » dès qu'aucun problème n'était
+ * ouvert sur la ligne, y compris pour une ligne jamais retrouvée sur la
+ * facture (« Facturé — », « Prix — », « Conforme » en vert). Les codes de
+ * `regles_ouvertes` sont traduits par `titreRegle`, jamais affichés bruts
+ * (spec §5). Toujours un libellé, jamais la couleur seule. */
+function ControleLigne({ ligne }: { ligne: LigneComparee }): ReactElement {
+  switch (ligne.controle) {
+    case "ecart":
+      return (
+        <span className="inline-flex items-center gap-2 text-ecart-texte">
+          <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full bg-ecart" />
+          {ligne.regles_ouvertes.map((code) => titreRegle(code)).join(", ")}
+        </span>
+      );
+    case "conforme":
+      return (
+        <span className="inline-flex items-center gap-2 text-conforme">
+          <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full bg-conforme" />
+          Conforme
+        </span>
+      );
+    case "non_facture":
+      return (
+        <span className="inline-flex items-center gap-2 text-encre-2">
+          <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full bg-encre-2" />
+          Non retrouvé sur la facture
+        </span>
+      );
+    case "non_controle":
+      // Ligne retrouvée sur la facture, mais facturée au seul montant (ex.
+      // éco-participation) : rien à comparer — le montant est montré tel
+      // quel, jamais un « Conforme » qui n'a rien vérifié.
+      return (
+        <span className="inline-flex items-center gap-2 text-encre-2">
+          <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full bg-encre-2" />
+          Facturé {formaterMontant(ligne.montant_facture)}, sans quantité à comparer
+        </span>
+      );
+    case "pas_encore_facture":
       return (
         <span className="inline-flex items-center gap-2 text-encre-2">
           <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full bg-encre-2" />
           Pas encore facturé
         </span>
       );
-    }
-    return (
-      <span className="inline-flex items-center gap-2 text-conforme">
-        <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full bg-conforme" />
-        Conforme
-      </span>
-    );
   }
-  return (
-    <span className="inline-flex items-center gap-2 text-ecart-texte">
-      <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full bg-ecart" />
-      {regles.map((code) => titreRegle(code)).join(", ")}
-    </span>
-  );
 }
 
 function ArticleLigne({ ligne }: { ligne: LigneComparee }): ReactElement {
@@ -214,13 +240,7 @@ function ArticleLigne({ ligne }: { ligne: LigneComparee }): ReactElement {
  * unit., Contrôle (brief Task 8). Aucun calcul ici : `qte_livree`/
  * `qte_facturee`/`pu_facture` viennent tels quels de `GET /api/documents/
  * {id}/comparaison` (Task 3). */
-function TableauLivreFacture({
-  lignes,
-  factureConnue,
-}: {
-  lignes: LigneComparee[];
-  factureConnue: boolean;
-}): ReactElement {
+function TableauLivreFacture({ lignes }: { lignes: LigneComparee[] }): ReactElement {
   if (lignes.length === 0) {
     return <EtatVide message="Aucune ligne sur ce bon." />;
   }
@@ -246,7 +266,7 @@ function TableauLivreFacture({
               </div>
             </dl>
             <div className="mt-2 text-sm">
-              <ControleLigne regles={ligne.regles_ouvertes} factureConnue={factureConnue} />
+              <ControleLigne ligne={ligne} />
             </div>
           </li>
         ))}
@@ -254,7 +274,7 @@ function TableauLivreFacture({
 
       {/* Tableau : ordinateur (>= md) */}
       <div className="hidden overflow-x-auto md:block">
-        <table className="w-full min-w-[560px] text-sm">
+        <table className="w-full min-w-[500px] text-sm">
           <caption className="sr-only">Lignes livrées et facturées de ce bon</caption>
           <thead className="border-b border-bordure text-left text-xs font-medium uppercase tracking-wide text-encre-2">
             <tr>
@@ -281,7 +301,7 @@ function TableauLivreFacture({
                   {formaterMontant(ligne.pu_facture)}
                 </td>
                 <td className="py-2">
-                  <ControleLigne regles={ligne.regles_ouvertes} factureConnue={factureConnue} />
+                  <ControleLigne ligne={ligne} />
                 </td>
               </tr>
             ))}
@@ -292,11 +312,13 @@ function TableauLivreFacture({
   );
 }
 
-/** Carte « Livré et facturé » (admin, BL uniquement — un enlèvement n'a pas
- * de comparaison, le serveur refuse `GET .../comparaison` pour ce type,
- * voir `api/documents.ts::obtenirComparaisonBl`) : contenu de
- * `comparaison`, lien « Voir la facture » et bouton « Régler les N
- * problèmes » (brief Task 8, vers `/a-regler?document=`). */
+/** Carte « Livré et facturé » (admin ; un bon d'enlèvement a aussi la
+ * sienne depuis la revue finale, constat SERVEUR-5 — CDC §4.5) : contenu de
+ * `comparaison`, lien « Voir la facture » (ouverte sur la livraison de ce
+ * bon, constat LIENS-13) et bouton « Régler les N problèmes » vers
+ * `/a-regler?document=` — l'écran « À régler » lit désormais ce paramètre et
+ * n'affiche que les problèmes de ce bon, exactement ceux comptés ici
+ * (constats LIENS-1, ECRAN-2, COUVERTURE-1). */
 function CarteLivreFacture({
   documentId,
   comparaison,
@@ -313,8 +335,8 @@ function CarteLivreFacture({
       action={
         donnees?.facture_id !== null && donnees?.facture_id !== undefined ? (
           <Link
-            to={`/documents/${donnees.facture_id}`}
-            className="text-sm font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+            to={lienFacture(donnees.facture_id, donnees.bloc_id)}
+            className="inline-flex min-h-[44px] items-center text-sm font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
           >
             Voir la facture {donnees.numero_facture}
           </Link>
@@ -331,7 +353,7 @@ function CarteLivreFacture({
       )}
       {donnees && (
         <>
-          <TableauLivreFacture lignes={donnees.lignes} factureConnue={donnees.facture_id !== null} />
+          <TableauLivreFacture lignes={donnees.lignes} />
           <div className="mt-4 flex items-center justify-between border-t border-bordure pt-3 text-sm">
             <span className="text-encre-2">Montant facturé pour ce bon</span>
             <span className="font-mono font-semibold text-encre">
@@ -344,7 +366,7 @@ function CarteLivreFacture({
                 to={`/a-regler?document=${documentId}`}
                 className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-accent px-4 text-sm font-medium text-white outline-none hover:bg-accent-fonce focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
               >
-                Régler les {nbProblemes} problèmes
+                {nbProblemes > 1 ? `Régler les ${nbProblemes} problèmes` : "Régler le problème"}
               </Link>
             </div>
           )}
@@ -370,7 +392,13 @@ function CarteLivreFacture({
  * champ ni ligne n'était visible pour un document archivé (constat de
  * revue). Titre et ouverture par défaut différents pour ce second usage :
  * rien à corriger, la section s'appelle « Lecture du bon » et s'ouvre
- * directement plutôt que de rester repliée sans raison. */
+ * directement plutôt que de rester repliée sans raison.
+ *
+ * Revue finale : un chevron qui pivote signale que la section se déplie
+ * (constat ECRAN-11 — sans lui, le titre ressemblait à une carte vide) ;
+ * l'ancre `#corriger` (lien « Corriger le bon » de l'écran « À régler »)
+ * cible la section, ouverte d'office pour un bon « à vérifier » (constat
+ * COUVERTURE-17). */
 function SectionCorrection({
   titre,
   ouvertParDefaut = false,
@@ -379,8 +407,15 @@ function SectionCorrection({
   ouvertParDefaut?: boolean;
 }): ReactElement {
   return (
-    <details className="rounded-carte border border-bordure bg-surface p-5" open={ouvertParDefaut}>
+    <details
+      id="corriger"
+      className="group scroll-mt-4 rounded-carte border border-bordure bg-surface p-5"
+      open={ouvertParDefaut}
+    >
       <summary className="inline-flex min-h-[44px] w-full cursor-pointer list-none items-center gap-2 text-sm font-semibold text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent">
+        <span aria-hidden="true" className="inline-block transition-transform group-open:rotate-90">
+          ▸
+        </span>
         {titre}
       </summary>
       <div className="mt-4">
@@ -418,7 +453,11 @@ export function PageBl(): ReactElement {
     retry: false,
   });
 
-  const estBl = document.data?.type === "bl";
+  // Revue finale (constat SERVEUR-5) : un bon d'enlèvement est traité comme
+  // un BL (CDC §4.5) — le serveur accepte désormais sa comparaison. Cette
+  // page ne reçoit jamais une facture (404 -> `FactureDetail`, plus bas).
+  const estBl = document.data !== undefined && document.data.type !== "facture";
+  const location = useLocation();
   const comparaison = useQuery({
     queryKey: id !== undefined ? cleComparaisonBl(id) : ["document", "sans-identifiant", "comparaison"],
     queryFn: () => obtenirComparaisonBl(id ?? ""),
@@ -445,6 +484,16 @@ export function PageBl(): ReactElement {
       void queryClient.invalidateQueries({ queryKey: cleComparaisonBl(id) });
     }
   }, [document.dataUpdatedAt, id, queryClient]);
+
+  // Ancre `#corriger` (lien « Corriger le bon » de l'écran « À régler ») :
+  // la section n'existe qu'une fois le document chargé, le navigateur ne
+  // peut donc pas y défiler seul (revue finale, constat COUVERTURE-17).
+  const documentCharge = document.data !== undefined;
+  useEffect(() => {
+    if (documentCharge && location.hash === "#corriger") {
+      window.document.getElementById("corriger")?.scrollIntoView({ block: "start" });
+    }
+  }, [documentCharge, location.hash]);
 
   if (id === undefined) {
     return (
@@ -492,7 +541,7 @@ export function PageBl(): ReactElement {
 
   return (
     <div className="space-y-6">
-      <FilAriane elements={construireFilAriane(donnees, numero)} />
+      <FilAriane elements={construireFilAriane(donnees, numero, estAdmin)} />
 
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -500,13 +549,16 @@ export function PageBl(): ReactElement {
             {libelleTypePage(donnees.type)}{" "}
             <span className="font-mono text-xl text-encre sm:text-2xl">{numero}</span>
           </h1>
+          {/* Numéro de dépôt, cité par chaque message Telegram (tour de
+              correction 1 de la Task 8) — gardé pour retrouver un bon. */}
           <p className="text-xs text-encre-2">Document n° {donnees.numero_interne}</p>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-encre">
             <span>
-              Livré le <strong>{formaterDate(donnees.champs.date_doc.valeur)}</strong>
+              {donnees.type === "enlevement" ? "Enlevé le" : "Livré le"}{" "}
+              <strong>{formaterDate(donnees.champs.date_doc.valeur)}</strong>
             </span>
             <span>{donnees.champs.fournisseur.valeur ?? TIRET}</span>
-            <span>{donnees.chantier ?? "Chantier à rattacher"}</span>
+            <span>{donnees.chantier ?? CHANTIER_A_RATTACHER}</span>
           </div>
         </div>
         <PastilleDocument
@@ -517,10 +569,13 @@ export function PageBl(): ReactElement {
         />
       </header>
 
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-5">
+      {/* Deux colonnes seulement à partir de `lg` (revue finale, constat
+          ECRAN-12) : entre 768 et 1023 px, le tableau « Livré et facturé »
+          n'avait pas la place de ses cinq colonnes dans 3/5 de la largeur. */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
         <section
           aria-label="Photo du bon"
-          className="flex flex-col gap-4 rounded-carte border border-bordure bg-surface p-5 md:col-span-2"
+          className="flex flex-col gap-4 rounded-carte border border-bordure bg-surface p-5 lg:col-span-2"
         >
           <PhotoBl id={donnees.id} numero={numero} />
           <div className="flex gap-2">
@@ -541,8 +596,11 @@ export function PageBl(): ReactElement {
             </a>
           </div>
           {donnees.photo_compressee === true && (
+            // CDC : une photo compressée par Telegram est acceptée mais
+            // marquée comme telle — libellé en français courant (revue
+            // finale, constats ECRAN-13/TELEPHONE-13).
             <span className="inline-flex w-fit shrink-0 items-center rounded-full bg-bordure px-2 py-0.5 text-xs font-medium text-encre">
-              Photo compressée
+              Photo envoyée en qualité réduite
             </span>
           )}
           <div className="flex flex-col gap-1 text-sm text-encre">
@@ -566,7 +624,7 @@ export function PageBl(): ReactElement {
         </section>
 
         {estAdmin && estBl && (
-          <div className="md:col-span-3">
+          <div className="lg:col-span-3">
             <CarteLivreFacture documentId={donnees.id} comparaison={comparaison} nbProblemes={nbProblemes} />
           </div>
         )}
@@ -576,14 +634,22 @@ export function PageBl(): ReactElement {
           d'édition des lignes (`TableauLignesEdition`, `DocumentDetail.tsx`)
           a besoin de place — le coincer dans la colonne de 3/5 le forçait à
           défiler horizontalement dès l'ouverture (constat de la vérification
-          visuelle, Task 8). */}
-      {donnees.modifiable && <SectionCorrection titre="Corriger la lecture du bon" />}
-      {/* Document non modifiable (archivé) consulté par un admin : constat
-          de revue (tour de correction 1) — plus aucun champ ni ligne
-          n'était visible dans ce cas, faute d'être monté du tout. Jamais
-          pour un agent (`estAdmin`) : le brief Task 8 ne lui réserve que
-          l'image, le téléchargement et le statut de confirmation. */}
-      {!donnees.modifiable && estAdmin && <SectionCorrection titre="Lecture du bon" ouvertParDefaut />}
+          visuelle, Task 8). Ouverte d'office pour un bon « à vérifier » ou
+          quand on arrive par l'ancre `#corriger` (revue finale, constat
+          COUVERTURE-17). */}
+      {donnees.modifiable && (
+        <SectionCorrection
+          titre="Corriger la lecture du bon"
+          ouvertParDefaut={donnees.statut === "a_verifier" || location.hash === "#corriger"}
+        />
+      )}
+      {/* Document non modifiable : admin consultant un document archivé
+          (tour de correction 1), ou agent consultant son propre dépôt —
+          revue finale (constat COUVERTURE-15) : l'agent voyait, avant la
+          refonte, les champs et lignes lus sur son bon ; il les retrouve ici
+          en lecture seule (`DocumentDetail` n'affiche aucun bouton quand
+          `modifiable` vaut `false`), section repliée par défaut. */}
+      {!donnees.modifiable && <SectionCorrection titre="Lecture du bon" ouvertParDefaut={estAdmin} />}
     </div>
   );
 }

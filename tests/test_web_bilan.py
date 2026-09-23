@@ -24,9 +24,15 @@ def test_ecran_bilan_couvre_le_contrat_responsive() -> None:
     assert '"/api/referentiels/agences"' in referentiels
     assert "CLE_AGENCES" in referentiels
     assert "md:hidden" in page
-    assert "hidden" in page and "md:inline-flex" in page
-    assert "Exporter en CSV" in page
-    assert "Export détaillé (CSV)" in page
+    # Revue finale (constat COUVERTURE-11) : libellés sans « CSV », alignés
+    # sur la vue d'ensemble (« Exporter pour Excel »), et exports visibles
+    # aussi au téléphone (ils y étaient masqués).
+    assert "Exporter pour Excel" in page
+    assert "Exporter le détail pour Excel" in page
+    assert "CSV" not in page.split("export function ChantiersListe", 1)[1]
+    classes_export = page.split("const CLASSES_LIEN_EXPORT =", 1)[1].split(";", 1)[0]
+    assert "inline-flex" in classes_export
+    assert "hidden" not in classes_export
     assert "urlExportBilanDetail" in page
     assert "Aucun chantier pour ces filtres." in page
 

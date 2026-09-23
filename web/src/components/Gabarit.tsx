@@ -1,6 +1,6 @@
-import type { ReactElement } from "react";
+import { type ReactElement, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { NavLink, Outlet, useNavigate } from "react-router";
+import { NavLink, Outlet, useLocation, useMatch, useNavigate } from "react-router";
 
 import { cleAnomalies, listerAnomalies } from "../api/anomalies";
 import { appelerApi } from "../api/client";
@@ -94,11 +94,35 @@ function classesLienBarreLaterale({ isActive }: { isActive: boolean }): string {
   return isActive ? `${base} bg-accent font-medium text-white` : `${base} text-encre hover:bg-fond`;
 }
 
+/** Liens discrets Réglages/Journal : l'entrée active se distingue par la
+ * graisse, la couleur d'accent et un fond (barre latérale) ou un
+ * soulignement (en-tête téléphone) — revue finale, constat TELEPHONE-14 :
+ * rien n'indiquait où l'on se trouvait sur ces deux écrans. */
+function classesLienDiscret({ isActive }: { isActive: boolean }): string {
+  const base = "block min-h-[44px] rounded-lg px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-accent";
+  return isActive ? `${base} bg-fond font-semibold text-accent` : `${base} hover:bg-fond`;
+}
+
+function classesLienEnTete({ isActive }: { isActive: boolean }): string {
+  const base = "flex min-h-[44px] items-center border-b-2 outline-none focus-visible:ring-2 focus-visible:ring-accent";
+  return isActive ? `${base} border-accent font-semibold text-accent` : `${base} border-transparent`;
+}
+
+/** Libellé en toutes lettres de la pastille « À régler » (revue finale,
+ * constats LIENS-2, ECRAN-6, TELEPHONE-2) : elle compte les problèmes
+ * urgents de **tous les mois** — les mêmes que « N urgents » en tête de
+ * l'écran « À régler » —, pas ceux du seul mois affiché par la vue
+ * d'ensemble. Le dire (infobulle et lecteur d'écran) évite de lire deux
+ * nombres contradictoires sur le même écran. */
+function libellePastilleUrgents(compte: number): string {
+  return `${compte} problème${compte > 1 ? "s" : ""} urgent${compte > 1 ? "s" : ""} à régler, tous mois confondus`;
+}
+
 /** Pastille du nombre de problèmes urgents ouverts sur l'entrée « À régler »
  * (Task 6, exception à la règle Gabarit) : à partir d'un appel serveur déjà
  * existant (`GET /api/anomalies?statut=ouverte&gravite=haute`, même route
  * que l'écran « À régler »), jamais un nouveau calcul ni une nouvelle route.
- * Toujours doublée d'un `aria-label` en toutes lettres (spec §2 : jamais la
+ * Toujours doublée d'un libellé en toutes lettres (spec §2 : jamais la
  * couleur seule). `undefined` (requête pas encore résolue) ou `0` n'affiche
  * rien. */
 function PastilleUrgents({ compte }: { compte: number | undefined }): ReactElement | null {
@@ -107,7 +131,8 @@ function PastilleUrgents({ compte }: { compte: number | undefined }): ReactEleme
   }
   return (
     <span
-      aria-label={`${compte} urgent${compte > 1 ? "s" : ""}`}
+      aria-label={libellePastilleUrgents(compte)}
+      title={libellePastilleUrgents(compte)}
       className="inline-flex min-w-[20px] shrink-0 items-center justify-center rounded-full bg-alerte px-1.5 py-0.5 text-xs font-semibold text-white"
     >
       {compte}
@@ -145,14 +170,45 @@ export function Gabarit(): ReactElement {
 
   const deconnexion = useMutation({
     mutationFn: () => appelerApi("/api/auth/logout", { method: "POST" }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: CLE_MOI });
+    onSuccess: () => {
+      // Revue finale (constat DROITS-2) : le cache est entièrement vidé,
+      // plus seulement `["moi"]` invalidé — sur un navigateur partagé, la
+      // personne qui se connecte ensuite ne doit jamais voir, même un
+      // instant, les chiffres restés en mémoire de la précédente.
       navigate("/connexion", { replace: true });
+      queryClient.clear();
     },
   });
 
+  // Revue finale (constat TELEPHONE-1) : changer d'écran repart du haut de
+  // la page — sans cela, un écran déjà en cache s'ouvrait à la position de
+  // défilement du précédent (au téléphone : titre et chiffres hors de
+  // l'écran). Seul le chemin compte : changer un filtre (`?filtre=`,
+  // `?mois=`) ne fait pas sauter la page ; une ancre (`#…`) est laissée à
+  // l'écran qui la cible.
+  const { pathname, hash } = useLocation();
+  useEffect(() => {
+    if (hash === "") {
+      window.scrollTo(0, 0);
+    }
+    // `hash` volontairement absent : seul un changement d'écran remonte.
+  }, [pathname]);
+
+  // La page d'un bon (`/bl/:id`) appartient à « Documents » (revue finale,
+  // constat LIENS-8) : sans cela, aucune entrée n'était active sur cette
+  // page, pourtant ouverte depuis Documents, la fiche chantier et « À
+  // régler ».
+  const surPageBon = useMatch("/bl/*") !== null;
+
   const estAdmin = moi?.role === "admin";
   const entrees = estAdmin ? NAV_ADMIN : NAV_AGENT;
+
+  function activeAussiSurPageBon(
+    vers: string,
+    classes: (etat: { isActive: boolean }) => string,
+  ): (etat: { isActive: boolean }) => string {
+    return ({ isActive }) => classes({ isActive: isActive || (vers === "/documents" && surPageBon) });
+  }
 
   // Pastille « À régler » (Task 6, exception à la règle Gabarit) : appel
   // serveur déjà existant, jamais chargé pour un agent (qui n'a pas
@@ -186,23 +242,22 @@ export function Gabarit(): ReactElement {
           <ul className="flex flex-col gap-1">
             {entrees.map(({ vers, libelle, Icone }) => (
               <li key={vers}>
-                <NavLink to={vers} end={vers === "/"} className={classesLienBarreLaterale}>
+                <NavLink
+                  to={vers}
+                  end={vers === "/"}
+                  className={activeAussiSurPageBon(vers, classesLienBarreLaterale)}
+                >
                   <Icone className="h-4 w-4 shrink-0" />
                   <span className="flex-1">{libelle}</span>
                   {vers === "/a-regler" && <PastilleUrgents compte={compteUrgents} />}
                 </NavLink>
-                {/* R1 (fix round 1) : la création de chantier et la
-                    validation d'alias (`Chantiers.tsx`) restent
-                    accessibles tant que la Task 7 ne les a pas reprises
-                    dans la fiche chantier. */}
-                {vers === "/chantiers" && (
-                  <NavLink
-                    to="/chantiers/referentiel"
-                    className="ml-7 mt-1 block min-h-[44px] rounded-lg px-2 py-1 text-xs text-encre-2 outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
-                  >
-                    Gérer les chantiers
-                  </NavLink>
-                )}
+                {/* Revue finale (constats LIENS-7, ECRAN-17, COUVERTURE-21) :
+                    plus de sous-lien « Gérer les chantiers » — la création
+                    de chantier est reprise par l'écran « Chantiers » et la
+                    validation d'alias par « À régler » ; le lien menait à
+                    `/chantiers/referentiel`, une simple redirection vers
+                    « Chantiers » (doublon sans effet). La redirection reste
+                    pour les anciens favoris (`App.tsx`). */}
               </li>
             ))}
           </ul>
@@ -210,15 +265,12 @@ export function Gabarit(): ReactElement {
           {estAdmin && (
             <ul className="mt-auto flex flex-col gap-1 text-sm text-encre-2">
               <li>
-                <NavLink to="/reglages" className="block min-h-[44px] rounded-lg px-3 py-2 outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent">
+                <NavLink to="/reglages" className={classesLienDiscret}>
                   Réglages
                 </NavLink>
               </li>
               <li>
-                <NavLink
-                  to="/journal"
-                  className="block min-h-[44px] rounded-lg px-3 py-2 outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
-                >
+                <NavLink to="/journal" className={classesLienDiscret}>
                   Journal
                 </NavLink>
               </li>
@@ -239,7 +291,11 @@ export function Gabarit(): ReactElement {
         </nav>
       )}
 
-      <div className="flex min-h-screen flex-1 flex-col">
+      {/* `min-w-0` (décision d'intégration de la refonte, revue finale,
+          constat COUVERTURE-21) : sans lui, une colonne flexible ne
+          rétrécit pas sous la largeur de son contenu — un tableau large
+          débordait entre 768 et ~1100 px au lieu de défiler dans sa carte. */}
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         {/* En-tête compact — téléphone (< md). Deuxième rangée avec
             Réglages/Journal (fix round 1, finding 3) : la barre de
             navigation basse ne montre que les cinq entrées principales,
@@ -262,16 +318,10 @@ export function Gabarit(): ReactElement {
             </div>
             {estAdmin && (
               <div className="flex items-center gap-4 border-t border-bordure px-4 text-sm text-encre-2">
-                <NavLink
-                  to="/reglages"
-                  className="flex min-h-[44px] items-center outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                >
+                <NavLink to="/reglages" className={classesLienEnTete}>
                   Réglages
                 </NavLink>
-                <NavLink
-                  to="/journal"
-                  className="flex min-h-[44px] items-center outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                >
+                <NavLink to="/journal" className={classesLienEnTete}>
                   Journal
                 </NavLink>
               </div>
@@ -291,12 +341,18 @@ export function Gabarit(): ReactElement {
           className="fixed bottom-0 inset-x-0 z-10 flex border-t border-bordure bg-surface md:hidden"
         >
           {entrees.map(({ vers, libelle, libelleCourt, Icone }) => (
-            <NavLink key={vers} to={vers} end={vers === "/"} className={classesLienBarreBasse}>
+            <NavLink
+              key={vers}
+              to={vers}
+              end={vers === "/"}
+              className={activeAussiSurPageBon(vers, classesLienBarreBasse)}
+            >
               <span className="relative">
                 <Icone className="h-5 w-5" />
                 {vers === "/a-regler" && compteUrgents !== undefined && compteUrgents > 0 && (
                   <span
-                    aria-label={`${compteUrgents} urgent${compteUrgents > 1 ? "s" : ""}`}
+                    aria-label={libellePastilleUrgents(compteUrgents)}
+                    title={libellePastilleUrgents(compteUrgents)}
                     className="absolute -right-1.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-alerte px-1 text-[10px] font-semibold text-white"
                   >
                     {compteUrgents}

@@ -86,14 +86,87 @@ def test_probleme_detail_couvre_le_traitement_d_une_anomalie() -> None:
     assert "disabled={!soumissionValide" in page or "disabled={" in page
 
     # Invalidation après succès (brief Task 6) : anomalies, tableau de
-    # bord, bilan.
-    assert "CLE_ANOMALIES" in page
-    assert "CLE_TABLEAU_DE_BORD" in page
-    assert '["bilan"]' in page
-    assert "invalidateQueries" in page
+    # bord, bilan -- et, depuis la revue finale (constat LIENS-4), la
+    # comparaison des bons : une seule aide partagée par toutes les
+    # écritures qui changent des problèmes.
+    assert "invaliderApresChangementAnomalies(queryClient)" in page
+    aide = _lire("api", "invalidations.ts")
+    for cle in ("CLE_ANOMALIES", "CLE_TABLEAU_DE_BORD", '["bilan"]', '["document"]'):
+        assert f"queryKey: {cle}" in aide, cle
 
     # Jamais un code de règle brut affiché.
     assert "{anomalie.regle}" not in page
+
+
+def test_ecritures_qui_changent_des_problemes_invalident_tout() -> None:
+    """Revue finale (constat LIENS-4) : valider/archiver/relire un bon
+    (rapprochement relancé), déposer une facture (idem), rattacher un
+    chantier (chantier des livraisons réécrit) changent des problèmes côté
+    serveur -- la pastille « À régler », la vue d'ensemble, le bilan et la
+    comparaison du bon doivent être invalidés, pas seulement après le
+    traitement d'un problème."""
+    for chemin in (
+        ("pages", "DocumentDetail.tsx"),
+        ("pages", "DocumentsListe.tsx"),
+        ("components", "AliasCarte.tsx"),
+        ("pages", "ProblemeDetail.tsx"),
+    ):
+        assert "invaliderApresChangementAnomalies(queryClient)" in _lire(*chemin), (
+            chemin
+        )
+
+    detail = _lire("pages", "DocumentDetail.tsx")
+    sur_ecriture = detail.split("function surEcriture", 1)[1].split("\n  }\n", 1)[0]
+    assert "invaliderApresChangementAnomalies(queryClient)" in sur_ecriture
+
+    liste = _lire("pages", "DocumentsListe.tsx")
+    depot = liste.split("function DepotFacture", 1)[1].split("\nfunction ", 1)[0]
+    assert "invaliderApresChangementAnomalies(queryClient)" in depot
+
+
+def test_a_regler_lit_les_perimetres_poses_par_les_autres_ecrans() -> None:
+    """Revue finale (constats LIENS-1, ECRAN-2, COUVERTURE-1, COUVERTURE-23)
+    : un paramètre posé par un écran doit être lu par l'écran cible. La page
+    du bon ouvre `/a-regler?document=<id>` (« Régler les N problèmes »), les
+    fiches chantier et fournisseur ouvrent `?chantier=`/`?fournisseur=`
+    (« Régler les problèmes », « Voir l'historique ») -- `ARegler` lit chacun
+    et le transmet au serveur, qui filtre (`bl_document_id`, `chantier_id`,
+    `fournisseur_id`) : jamais la file complète à la place."""
+    page_bl = _lire("pages", "PageBl.tsx")
+    assert "`/a-regler?document=${documentId}`" in page_bl
+
+    fiche_chantier = _lire("pages", "FicheChantier.tsx")
+    assert "`/a-regler?chantier=${id}`" in fiche_chantier
+    assert "`/a-regler?filtre=regles&chantier=${id}`" in fiche_chantier
+
+    fiche_fournisseur = _lire("pages", "FicheFournisseur.tsx")
+    assert "/a-regler?fournisseur=" in fiche_fournisseur
+    assert "/a-regler?filtre=regles&fournisseur=" in fiche_fournisseur
+
+    aregler = _lire("pages", "ARegler.tsx")
+    for parametre in ("document", "blocId", "chantier", "fournisseur"):
+        assert f'parametres.get("{parametre}")' in aregler, parametre
+    for filtre in (
+        "blDocumentId: portee.id",
+        "blocId: portee.id",
+        "chantierId: portee.id",
+        "fournisseurId: portee.id",
+    ):
+        assert filtre in aregler, filtre
+    # Bandeau qui dit la restriction, avec la sortie vers la file complète.
+    assert "Problèmes de ce bon de livraison uniquement." in aregler
+    assert "Afficher tous les problèmes" in aregler
+
+    client = _lire("api", "anomalies.ts")
+    assert 'params.set("bl_document_id", filtres.blDocumentId)' in client
+
+
+def test_page_bl_accorde_le_bouton_regler() -> None:
+    """Mineur de la Task 8 (« Régler les 1 problèmes ») corrigé à la revue
+    finale."""
+    page_bl = _lire("pages", "PageBl.tsx")
+    assert '"Régler le problème"' in page_bl
+    assert "Régler les ${nbProblemes} problèmes" in page_bl
 
 
 def test_probleme_detail_couvre_documents_alias_et_articles() -> None:
@@ -120,9 +193,16 @@ def test_probleme_detail_couvre_documents_alias_et_articles() -> None:
     # (BL/enlèvement) ou de la facture -- jamais un formulaire dupliqué
     # ici, jamais le même lien pour les deux (finding 5(a) : `/bl/:id`
     # refuse une facture, `_document_pour_lecture`,
-    # `app/modules/ingest/corrections.py`).
-    assert "/bl/${document.id}" in page
-    assert "/factures/${document.id}" in page
+    # `app/modules/ingest/corrections.py`). Revue finale : la facture
+    # s'ouvre sur sa nouvelle URL (constat LIENS-10, plus `/factures/:id` et
+    # sa redirection), le bon directement sur sa section de correction
+    # (constat COUVERTURE-17, ancre `#corriger`).
+    assert "`${lienBon(document.id)}#corriger`" in page
+    assert "`/documents/${document.id}`" in page
+    assert "/factures/" not in page
+    page_bl = _lire("pages", "PageBl.tsx")
+    assert 'id="corriger"' in page_bl
+    assert 'location.hash === "#corriger"' in page_bl
 
     # Chantiers à rattacher : réutilise le composant partagé, ne le
     # réimplémente pas.
@@ -289,9 +369,9 @@ def test_lien_bon_de_livraison_saffiche_meme_pour_une_anomalie_de_facture() -> N
     condition exacte retenue pour `cibleBon`."""
     page = _lire("pages", "ProblemeDetail.tsx")
 
-    bloc_liens = page.split('<div className="flex flex-wrap gap-3 text-sm">', 1)[
-        1
-    ].split("</div>", 1)[0]
+    bloc_liens = page.split(
+        '<div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">', 1
+    )[1].split("</div>", 1)[0]
     # Le bloc du lien bon (après celui de la facture) : le lien s'affiche
     # dès que `cibleBon` est connu -- jamais recontrôlé par `anomalie.type`
     # à cet endroit précis (c'est cette condition en trop, ajoutée au tour
@@ -406,6 +486,91 @@ def test_a_regler_ignore_le_cache_a_traiter_perime_quand_un_bloc_est_cible() -> 
     rendre des données en cache d'une visite précédente de l'écran --
     `construireProblemes` recevait alors des documents/alias/articles sans
     rapport avec le bon consulté, comptés dans le surtitre et les
-    filtres."""
+    filtres. Revue finale (périmètres `?document=`/`?chantier=`/
+    `?fournisseur=`) : la même garde couvre tous les périmètres -- aucun
+    pseudo-problème pour une livraison, un chantier ou un fournisseur, et
+    seulement le bon lui-même pour `?document=`."""
     page = _lire("pages", "ARegler.tsx")
-    assert "blocId === undefined ? aTraiter.data : undefined" in page
+    assert (
+        "aTraiterUtile ? aTraiterDuPerimetre(aTraiter.data, portee) : undefined" in page
+    )
+    garde = page.split("function aTraiterDuPerimetre", 1)[1].split("\nfunction ", 1)[0]
+    assert "document.id === portee.id" in garde
+    assert "alias: []" in garde
+    assert "articles: []" in garde
+    assert "return undefined;" in garde
+
+
+# ---------------------------------------------------------------------------
+# Revue finale de la refonte du front
+# ---------------------------------------------------------------------------
+
+
+def test_rattachement_d_un_chantier_a_la_charte() -> None:
+    """Constats LIENS-3, COUVERTURE-7, ECRAN-10, TELEPHONE-5 : le formulaire
+    « Chantier à rattacher » était la seule tache bleue de l'application,
+    avec des cibles d'environ 32 px et sans champ Client à la création.
+    Constat LIENS-11 : un rattachement réussi passe au problème suivant."""
+    carte = _lire("components", "AliasCarte.tsx")
+    for ancien in ("blue-", "slate-", "red-700", "py-1.5"):
+        assert ancien not in carte, ancien
+    assert "<Bouton" in carte
+    assert 'variante="secondaire"' in carte
+    assert "min-h-[44px]" in carte
+    assert ">\n                Client\n" in carte
+    assert "client.trim()" in carte
+    assert "onReussite?.();" in carte
+    # Plus de double cadre dans la carte du détail (`<li>` bordé dans un
+    # `<ul>` ajouté par l'appelant).
+    assert "<li" not in carte
+
+    detail = _lire("pages", "ProblemeDetail.tsx")
+    assert "onReussite={onTraitementReussi}" in detail
+    assert '<ul className="list-none">' not in detail
+    # Un article validé passe lui aussi au problème suivant.
+    article = detail.split("function DetailArticle", 1)[1].split("\nfunction ", 1)[0]
+    assert "onTraitementReussi();" in article
+
+
+def test_categorie_des_problemes_vient_du_serveur() -> None:
+    """Constats SERVEUR-3/COUVERTURE-14 : plus de table règle -> catégorie
+    côté front (elle contredisait l'état des chantiers) ; la catégorie est
+    lue sur l'anomalie, calculée par le serveur."""
+    libelles = _lire("ui", "libelles.ts")
+    assert "const CATEGORIES_REGLE" not in libelles
+    assert "return anomalie.categorie;" in libelles
+    page = _lire("pages", "ARegler.tsx")
+    assert "categorieRegle(probleme.anomalie)" in page
+
+
+def test_deja_regles_montrent_leur_issue() -> None:
+    """Constats ECRAN-16/TELEPHONE-12 : sous « Déjà réglés », chaque
+    problème montre « Contesté le … »/« Ignoré le … » plutôt que son
+    urgence d'origine."""
+    page = _lire("pages", "ARegler.tsx")
+    ligne = page.split("function LigneProbleme", 1)[1].split("\nexport function ", 1)[0]
+    assert "estDejaRegle(probleme)" in ligne
+    assert "<PastilleIssue" in ligne
+    issue = page.split("function PastilleIssue", 1)[1].split("\nfunction ", 1)[0]
+    assert '"Contesté"' in issue
+    assert '"Ignoré"' in issue
+    assert "formaterDate(anomalie.traitee_le)" in issue
+
+
+def test_chantier_non_rattache_nomme_et_pourcentages_francais() -> None:
+    """Constats COUVERTURE-5, ECRAN-1, ECRAN-9, TELEPHONE-8 : « Chantier à
+    rattacher » plutôt qu'un tiret dans le contexte d'un problème ;
+    pourcentages au format français ; plus de « (—) » ni de « (s) » dans les
+    phrases."""
+    page = _lire("pages", "ARegler.tsx")
+    assert "a.chantier ?? CHANTIER_A_RATTACHER" in page
+
+    formats = _lire("lib", "formats.ts")
+    assert "export function formaterPoints" in formats
+    assert "maximumFractionDigits: 1" in formats.split("FORMATEUR_POINTS", 1)[1]
+
+    libelles = _lire("ui", "libelles.ts")
+    phrases = libelles.split("export function phraseProbleme", 1)[1]
+    for scorie in ("facturé(s)", "facture(s)", "(${", "BL facturé(s)"):
+        assert scorie not in phrases, scorie
+    assert "garde(detail, cle, formaterPoints)" in libelles

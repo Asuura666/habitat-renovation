@@ -106,9 +106,11 @@ def test_chantiers_referentiel_reste_accessible() -> None:
     validation d'alias (désormais dans l'écran « À régler ») ont repris tout
     le contenu utile de l'ancien écran « Chantiers & fournisseurs »
     (`Chantiers.tsx`, supprimé) — `/chantiers/referentiel` devient une
-    simple redirection vers `/chantiers`, et le lien « Gérer les chantiers »
-    de la navigation reste valide (spec §3, aucune fonctionnalité
-    supprimée)."""
+    simple redirection vers `/chantiers`, gardée pour les anciens favoris
+    (spec §3, aucune fonctionnalité supprimée). Revue finale (constats
+    LIENS-7, ECRAN-17, COUVERTURE-21) : le sous-lien « Gérer les chantiers »
+    de la barre latérale, qui ne menait plus qu'à « Chantiers » (doublon
+    sans effet visible, jamais actif), est retiré."""
     app = (SRC / "App.tsx").read_text()
     assert 'path="chantiers/referentiel"' in app
     declaration = app.split('path="chantiers/referentiel"', 1)[1].split("path=", 1)[0]
@@ -117,8 +119,28 @@ def test_chantiers_referentiel_reste_accessible() -> None:
     assert not (SRC / "pages" / "Chantiers.tsx").exists()
 
     gabarit = (SRC / "components" / "Gabarit.tsx").read_text()
-    assert "Gérer les chantiers" in gabarit
-    assert "/chantiers/referentiel" in gabarit
+    assert 'to="/chantiers/referentiel"' not in gabarit
+
+
+def test_gabarit_remonte_en_haut_et_signale_l_ecran_actif() -> None:
+    """Revue finale : changer d'écran repart du haut de la page (constat
+    TELEPHONE-1, sur le chemin seulement : un changement de filtre ne fait
+    pas sauter la page, une ancre est laissée à l'écran qui la cible) ; la
+    page d'un bon allume « Documents » (constat LIENS-8) ; Réglages et
+    Journal ont un état actif (constat TELEPHONE-14) ; la colonne de
+    contenu peut rétrécir (`min-w-0`, constat COUVERTURE-21) ; la pastille
+    « À régler » dit en toutes lettres qu'elle compte les urgents de tous
+    les mois (constats LIENS-2/ECRAN-6)."""
+    gabarit = (SRC / "components" / "Gabarit.tsx").read_text()
+    assert "window.scrollTo(0, 0)" in gabarit
+    assert "}, [pathname]);" in gabarit
+    assert 'useMatch("/bl/*")' in gabarit
+    assert "activeAussiSurPageBon(vers, classesLienBarreLaterale)" in gabarit
+    assert "activeAussiSurPageBon(vers, classesLienBarreBasse)" in gabarit
+    assert "className={classesLienDiscret}" in gabarit
+    assert "className={classesLienEnTete}" in gabarit
+    assert "min-w-0 flex-1 flex-col" in gabarit
+    assert "tous mois confondus" in gabarit
 
 
 def test_redirection_preserve_recherche_et_ancre() -> None:

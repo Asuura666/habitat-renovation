@@ -8,27 +8,30 @@ import {
   CLE_A_TRAITER,
   type DocumentATraiter,
 } from "../api/aTraiter";
-import { type Anomalie, CLE_ANOMALIES, traiterAnomalie } from "../api/anomalies";
+import { type Anomalie, traiterAnomalie } from "../api/anomalies";
 import { ErreurApi } from "../api/client";
+import { invaliderApresChangementAnomalies } from "../api/invalidations";
 import { type Chantier, CLE_CHANTIERS, validerArticle } from "../api/referentiels";
-import { CLE_TABLEAU_DE_BORD } from "../api/tableauDeBord";
 import { AliasCarte } from "../components/AliasCarte";
 import { formaterDateHeure, TIRET } from "../lib/formats";
+import { CHANTIER_A_RATTACHER, lienBon, lienFacture } from "../lib/liens";
 import { libelleMotif } from "../lib/motifs";
-import { Bouton, Carte, phraseProbleme, titreRegle, type TonChiffre, urgence } from "../ui";
 import {
-  categorieFiltreProbleme,
+  Bouton,
+  Carte,
   dateHeureOuTiret,
   dateOuTiret,
   montantOuTiret,
+  phraseProbleme,
   pointsOuAucun,
   pointsOuTiret,
-  type Probleme,
   quantiteOuTiret,
   texteOuTiret,
-  titreDocument,
-  type Urgence,
-} from "./ARegler";
+  titreRegle,
+  type TonChiffre,
+  urgence,
+} from "../ui";
+import { categorieFiltreProbleme, type Probleme, titreDocument, type Urgence } from "./ARegler";
 
 /**
  * Panneau de détail de l'écran « À régler » (Task 6) : monté à droite par
@@ -55,12 +58,22 @@ const CLASSES_KICKER: Record<Urgence, string> = {
   Info: "text-encre-2",
 };
 
+// `ecart` en #7a4a00 (texte d'écart foncé de la charte) plutôt que
+// `text-ecart-texte` (#a86400) : sur le fond ivoire de l'encart « Pourquoi
+// c'est signalé », ce dernier n'atteignait que 4,26:1, sous le 4,5:1 exigé
+// (revue finale, constat COUVERTURE-24).
 const CLASSES_TON: Record<TonChiffre, string> = {
   neutre: "text-encre",
   conforme: "text-conforme",
-  ecart: "text-ecart-texte",
+  ecart: "text-[#7a4a00]",
   alerte: "text-alerte",
 };
+
+// Liens texte isolés du panneau : cible d'au moins 44 px de haut, au
+// téléphone comme à l'ordinateur (revue finale, constats TELEPHONE-7 et
+// COUVERTURE-24).
+const CLASSES_LIEN =
+  "inline-flex min-h-[44px] items-center font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 interface ChiffreProbleme {
   libelle: string;
@@ -69,12 +82,11 @@ interface ChiffreProbleme {
 }
 
 /** 2 à 3 valeurs chiffrées nommées justifiant l'anomalie (brief Task 6),
- * tirées de `detail` sans aucun calcul (mêmes clés que `phraseProbleme`,
- * `web/src/ui/libelles.ts`) — pas ajoutée à ce fichier partagé (règle
- * globale de la refonte : ne pas modifier `web/src/ui/`, sans exception
- * pour `libelles.ts`), donc réimplémentée ici avec les mêmes garanties
- * défensives (`montantOuTiret`/`quantiteOuTiret`/… d'`ARegler.tsx`). Voir
- * le rapport de tâche pour cette décision. */
+ * tirées de `detail` sans aucun calcul (mêmes clés que `phraseProbleme`),
+ * avec les gardes partagées de `ui/libelles.ts` (revue finale, constat
+ * LIENS-12 : elles étaient recopiées dans `ARegler.tsx`). Une règle inconnue
+ * n'affiche aucun chiffre (revue finale, constat COUVERTURE-19 : les clés
+ * brutes de `detail`, « pu_facture : 12.5 », étaient du jargon). */
 function chiffresProbleme(anomalie: Anomalie): ChiffreProbleme[] {
   const { detail, regle, gravite } = anomalie;
   const tonPrincipal: TonChiffre | undefined =
@@ -156,7 +168,7 @@ function chiffresProbleme(anomalie: Anomalie): ChiffreProbleme[] {
         { libelle: "Conditionnement", valeur: texteOuTiret(detail, "conditionnement") },
       ];
     default:
-      return Object.entries(detail).map(([cle, valeur]) => ({ libelle: cle, valeur }));
+      return [];
   }
 }
 
@@ -212,12 +224,10 @@ function FormulaireTraitement({
     mutationFn: (statut: "traitee" | "ignoree") => traiterAnomalie(anomalie.id, { statut, commentaire: commentaire.trim() }),
     onSuccess: async () => {
       // Invalidation après succès (brief Task 6) : anomalies (pastille du
-      // gabarit incluse, même préfixe de clé), tableau de bord, bilan.
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: CLE_ANOMALIES }),
-        queryClient.invalidateQueries({ queryKey: CLE_TABLEAU_DE_BORD }),
-        queryClient.invalidateQueries({ queryKey: ["bilan"] }),
-      ]);
+      // gabarit incluse), tableau de bord, bilan, comparaison des bons —
+      // même aide que toute autre écriture qui change des problèmes (revue
+      // finale, constat LIENS-4).
+      await invaliderApresChangementAnomalies(queryClient);
       setCommentaire("");
       onTraitementReussi();
     },
@@ -326,7 +336,7 @@ function DetailAnomalie({
         <Kicker probleme={{ kind: "anomalie", id: "", anomalie }} />
         <h2 className="font-titre text-2xl font-medium text-encre">{titreRegle(anomalie.regle)}</h2>
         <p className="text-sm text-encre-2">
-          {anomalie.chantier ?? TIRET} · {anomalie.fournisseur ?? TIRET}
+          {anomalie.chantier ?? CHANTIER_A_RATTACHER} · {anomalie.fournisseur ?? TIRET}
           {anomalie.numero_bl !== null ? ` · ${anomalie.numero_bl}` : ""}
         </p>
       </div>
@@ -355,21 +365,17 @@ function DetailAnomalie({
           Lien bon : voir `cibleBon` ci-dessus (fix round 2 finding 1, affiné
           au fix round 3 finding 1 pour R06) — jamais conditionné par
           `anomalie.type` à cet endroit, les deux liens peuvent s'afficher
-          ensemble. */}
-      <div className="flex flex-wrap gap-3 text-sm">
+          ensemble. Revue finale (constat LIENS-13) : « Voir la facture »
+          ouvre la facture directement sur la livraison concernée (ancre
+          `/documents/:id#…`, une facture réelle en compte 28). */}
+      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
         {anomalie.type === "facture" && anomalie.document_id !== null && (
-          <Link
-            to={`/documents/${anomalie.document_id}`}
-            className="font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
+          <Link to={lienFacture(anomalie.document_id, anomalie.bloc_id)} className={CLASSES_LIEN}>
             Voir la facture
           </Link>
         )}
         {cibleBon !== null && (
-          <Link
-            to={`/bl/${cibleBon}`}
-            className="font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
+          <Link to={`/bl/${cibleBon}`} className={CLASSES_LIEN}>
             Voir le bon de livraison
           </Link>
         )}
@@ -400,14 +406,13 @@ function libelleTypeDocument(type: string): string {
   }
 }
 
-/** Lien et libellé de correction d'un document « à vérifier » (fix round
- * 1, finding 5) : une facture n'a pas de section de correction sur `/bl/:id`
- * (route réservée au BL/enlèvement, `_document_pour_lecture`,
- * `app/modules/ingest/corrections.py`) — elle renvoie vers `/factures/:id`
- * (écran existant, `FactureDetail.tsx`, toujours monté tant que la Task 8
- * ne l'a pas remplacé par `/documents/:id`, voir le rapport de tâche). */
+/** Lien de correction d'un document « à vérifier » (fix round 1, finding
+ * 5) : une facture s'ouvre sur son détail (`/documents/:id`, revue finale,
+ * constat LIENS-10 — plus l'ancienne adresse des factures et sa
+ * redirection) ; un bon s'ouvre directement sur sa section de correction
+ * (`#corriger`, dépliée par la page du bon — constat COUVERTURE-17). */
 function cheminCorrectionDocument(document: DocumentATraiter): string {
-  return document.type === "facture" ? `/factures/${document.id}` : `/bl/${document.id}`;
+  return document.type === "facture" ? `/documents/${document.id}` : `${lienBon(document.id)}#corriger`;
 }
 
 function DetailDocument({ document }: { document: DocumentATraiter }): ReactElement {
@@ -460,7 +465,15 @@ function DetailDocument({ document }: { document: DocumentATraiter }): ReactElem
   );
 }
 
-function DetailAlias({ alias, chantiers }: { alias: AliasEnAttente; chantiers: Chantier[] }): ReactElement {
+function DetailAlias({
+  alias,
+  chantiers,
+  onTraitementReussi,
+}: {
+  alias: AliasEnAttente;
+  chantiers: Chantier[];
+  onTraitementReussi: () => void;
+}): ReactElement {
   return (
     <>
       <div className="flex flex-col gap-1">
@@ -470,14 +483,20 @@ function DetailAlias({ alias, chantiers }: { alias: AliasEnAttente; chantiers: C
           {alias.fournisseur} · {alias.nb_documents} document{alias.nb_documents > 1 ? "s" : ""}
         </p>
       </div>
-      <ul className="list-none">
-        <AliasCarte alias={alias} chantiers={chantiers} />
-      </ul>
+      {/* Revue finale (constat LIENS-11) : un rattachement réussi passe au
+          problème suivant, comme un problème traité. */}
+      <AliasCarte alias={alias} chantiers={chantiers} onReussite={onTraitementReussi} />
     </>
   );
 }
 
-function DetailArticle({ article }: { article: ArticleAValider }): ReactElement {
+function DetailArticle({
+  article,
+  onTraitementReussi,
+}: {
+  article: ArticleAValider;
+  onTraitementReussi: () => void;
+}): ReactElement {
   const queryClient = useQueryClient();
   const [uniteCdt, setUniteCdt] = useState(article.unite_cdt ?? "");
   const [uniteFact, setUniteFact] = useState(article.unite_fact ?? "");
@@ -495,6 +514,10 @@ function DetailArticle({ article }: { article: ArticleAValider }): ReactElement 
         queryClient.invalidateQueries({ queryKey: CLE_A_TRAITER }),
         queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS }),
       ]);
+      // Revue finale (constat LIENS-11) : comme un problème traité, un
+      // article validé passe au problème suivant — plus jamais le message
+      // « Ce problème n'est plus disponible » juste après sa propre action.
+      onTraitementReussi();
     },
   });
 
@@ -588,18 +611,19 @@ export function ProblemeDetail({
     // `lg:sticky`/`lg:max-h-*` avec défilement interne — cette carte se
     // dimensionne à son propre contenu à l'intérieur.
     <Carte className="flex flex-col gap-5">
-      <Link
-        to={lienRetour}
-        className="text-sm font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden"
-      >
+      <Link to={lienRetour} className={`${CLASSES_LIEN} text-sm lg:hidden`}>
         ← Retour à la liste
       </Link>
       {probleme.kind === "anomalie" && (
         <DetailAnomalie anomalie={probleme.anomalie} onTraitementReussi={onTraitementReussi} />
       )}
       {probleme.kind === "document" && <DetailDocument document={probleme.document} />}
-      {probleme.kind === "alias" && <DetailAlias alias={probleme.alias} chantiers={chantiers} />}
-      {probleme.kind === "article" && <DetailArticle article={probleme.article} />}
+      {probleme.kind === "alias" && (
+        <DetailAlias alias={probleme.alias} chantiers={chantiers} onTraitementReussi={onTraitementReussi} />
+      )}
+      {probleme.kind === "article" && (
+        <DetailArticle article={probleme.article} onTraitementReussi={onTraitementReussi} />
+      )}
     </Carte>
   );
 }

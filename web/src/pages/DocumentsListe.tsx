@@ -11,6 +11,7 @@ import {
   deposerFacture,
   listerFactures,
 } from "../api/factures";
+import { invaliderApresChangementAnomalies } from "../api/invalidations";
 import { CLE_MOI, DUREE_CACHE_MOI, recupererMoi } from "../api/moi";
 import {
   CLE_CHANTIERS,
@@ -20,7 +21,7 @@ import {
   listerChantiers,
   listerFournisseurs,
 } from "../api/referentiels";
-import { formaterDate, formaterDateHeure, formaterMontant, moisParis, TIRET } from "../lib/formats";
+import { formaterDate, formaterDateHeure, formaterMontant, lireMois, moisParis, TIRET } from "../lib/formats";
 import { Bouton, EnTetePage, EtatVide, Filtres, type OptionFiltre } from "../ui";
 
 type CodeFiltre = "tous" | "factures" | "bl" | "a_corriger";
@@ -196,14 +197,15 @@ function PastilleStatut({ ligne }: { ligne: LigneListe }): ReactElement {
   );
 }
 
-/** Badge « Confiance réduite » d'une facture (repris de l'ancien
+/** Badge « lecture incertaine » d'une facture (repris de l'ancien
  * `FacturesListe.tsx`, perdu par la fusion dans la liste unifiée — constat
- * de revue) : jamais de jargon technique dans le texte affiché (spec §5,
- * sans jargon). */
+ * de revue) : libellé en français courant (revue finale, constats
+ * ECRAN-13/TELEPHONE-13 : « Confiance réduite (lecture automatique) »
+ * restait un terme technique). */
 function BadgeConfianceReduite(): ReactElement {
   return (
     <span className="inline-flex shrink-0 items-center rounded-full bg-[#fbe9c6] px-2 py-0.5 text-xs font-medium text-[#7a4a00]">
-      Confiance réduite (lecture automatique)
+      Lecture incertaine
     </span>
   );
 }
@@ -258,7 +260,13 @@ function DepotFacture(): ReactElement {
   const depot = useMutation({
     mutationFn: (fichier: File) => deposerFacture(fichier),
     onSuccess: async (deposee) => {
-      await queryClient.invalidateQueries({ queryKey: CLE_FACTURES });
+      // Revue finale (constat LIENS-4) : déposer une facture lance sa
+      // comparaison avec les bons côté serveur, qui ouvre des problèmes — pastille « À
+      // régler », vue d'ensemble et chiffres des chantiers invalidés aussi.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: CLE_FACTURES }),
+        invaliderApresChangementAnomalies(queryClient),
+      ]);
       navigate(`/documents/${deposee.id}`);
     },
   });
@@ -305,35 +313,58 @@ function DepotFacture(): ReactElement {
   );
 }
 
+/** Carte téléphone (< md) d'un document. Revue finale (constat
+ * TELEPHONE-3) : toute la carte ouvre le document (avant, seul un titre
+ * souligné de 18 px de haut le faisait) ; une facture « ordinaire »
+ * n'affiche plus de tiret isolé à la place du statut ; la date de dépôt
+ * porte son libellé. */
 function CarteLigne({ ligne }: { ligne: LigneListe }): ReactElement {
+  const afficherStatut = ligne.origine === "document" || ligne.statut === "a_verifier";
   return (
-    <li className="rounded-lg border border-bordure bg-surface p-4">
-      <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold text-encre">
-            <Link to={ligne.lien} className="underline outline-none focus-visible:ring-2 focus-visible:ring-accent">
+    <li>
+      <Link
+        to={ligne.lien}
+        className="block min-h-[44px] rounded-lg border border-bordure bg-surface p-4 outline-none transition-colors hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold text-accent">
               {ligne.libelleType} {ligne.numero}
-            </Link>
-          </p>
-          {ligne.numeroInterne !== null && (
-            <p className="text-xs text-encre-2">Document n° {ligne.numeroInterne}</p>
-          )}
-          <p className="text-xs text-encre-2">{ligne.fournisseur ?? TIRET}</p>
-          {ligne.contexte !== null && <p className="text-xs text-encre-2">{ligne.contexte}</p>}
-          {ligne.deposant !== null && <p className="text-xs text-encre-2">Déposé par {ligne.deposant}</p>}
-          {ligne.origine === "facture" && ligne.totalHt !== null && (
-            <p className="text-xs text-encre-2">Total HT : {formaterMontant(ligne.totalHt)}</p>
-          )}
+            </p>
+            {ligne.numeroInterne !== null && (
+              <p className="text-xs text-encre-2">Document n° {ligne.numeroInterne}</p>
+            )}
+            <p className="text-xs text-encre-2">{ligne.fournisseur ?? TIRET}</p>
+            {ligne.contexte !== null && <p className="text-xs text-encre-2">{ligne.contexte}</p>}
+            {ligne.deposant !== null && <p className="text-xs text-encre-2">Déposé par {ligne.deposant}</p>}
+            {ligne.origine === "facture" && ligne.totalHt !== null && (
+              <p className="text-xs text-encre-2">Total HT : {formaterMontant(ligne.totalHt)}</p>
+            )}
+          </div>
+          <div className="flex flex-col items-end gap-1.5">
+            {afficherStatut && <PastilleStatut ligne={ligne} />}
+            {ligne.confianceReduite && <BadgeConfianceReduite />}
+          </div>
         </div>
-        <div className="flex flex-col items-end gap-1.5">
-          <PastilleStatut ligne={ligne} />
-          {ligne.confianceReduite && <BadgeConfianceReduite />}
-        </div>
-      </div>
-      {ligne.confirmation !== null && <BadgeConfirmation confirmation={ligne.confirmation} />}
-      <p className="mt-2 text-xs text-encre-2">{formaterDateHeure(ligne.creeLe)}</p>
+        {ligne.confirmation !== null && <BadgeConfirmation confirmation={ligne.confirmation} />}
+        <p className="mt-2 text-xs text-encre-2">Déposé le {formaterDateHeure(ligne.creeLe)}</p>
+      </Link>
     </li>
   );
+}
+
+/** Nom du chantier rattaché à un bon (revue finale, constat TELEPHONE-3) :
+ * le nom de la liste des chantiers quand le bon y est rattaché
+ * (`chantier_id`), plutôt que le texte lu sur la photo (« IMMEUBLE
+ * VOLTAIRE (6014) ») — repli sur ce texte sinon (bon non rattaché, ou liste
+ * des chantiers non chargée pour un agent). Simple recherche par
+ * identifiant, jamais un calcul. */
+function avecNomChantier(document: DocumentResume, chantiers: Chantier[] | undefined): DocumentResume {
+  const nom =
+    document.chantier_id !== null
+      ? chantiers?.find((chantier) => chantier.id === document.chantier_id)?.nom_canonique
+      : undefined;
+  return nom !== undefined ? { ...document, chantier_brut: nom } : document;
 }
 
 function LigneTableau({ ligne }: { ligne: LigneListe }): ReactElement {
@@ -472,7 +503,9 @@ export function DocumentsListe(): ReactElement {
   const fournisseurs = useQuery({ queryKey: CLE_FOURNISSEURS, queryFn: listerFournisseurs, enabled: estAdmin });
 
   const filtre = (parametres.get("filtre") as CodeFiltre | null) ?? "tous";
-  const mois = parametres.get("mois") ?? "";
+  // Mois validé (`AAAA-MM`, revue finale, constat LIENS-5) : une valeur
+  // illisible dans l'URL ne filtre plus rien au lieu de vider la liste.
+  const mois = lireMois(parametres.get("mois")) ?? "";
   const chantierId = parametres.get("chantier") ?? "";
   const fournisseurId = parametres.get("fournisseur") ?? "";
 
@@ -506,7 +539,7 @@ export function DocumentsListe(): ReactElement {
 
   const lignes = useMemo(() => {
     const brutes: LigneListe[] = [
-      ...(documents.data?.map(depuisDocument) ?? []),
+      ...(documents.data?.map((document) => depuisDocument(avecNomChantier(document, chantiers.data))) ?? []),
       ...(estAdmin ? (factures.data?.map(depuisFacture) ?? []) : []),
     ];
     const filtrees = brutes.filter((ligne) => {
@@ -529,7 +562,7 @@ export function DocumentsListe(): ReactElement {
       return true;
     });
     return filtrees.sort((a, b) => b.creeLe.localeCompare(a.creeLe));
-  }, [documents.data, factures.data, estAdmin, filtre, mois, chantierCible, fournisseurCible]);
+  }, [documents.data, factures.data, chantiers.data, estAdmin, filtre, mois, chantierCible, fournisseurCible]);
 
   if (!estAdmin) {
     return <VueAgent documents={documents} />;

@@ -4,6 +4,7 @@ import { useParams } from "react-router";
 
 import { CLE_A_TRAITER } from "../api/aTraiter";
 import { ErreurApi } from "../api/client";
+import { invaliderApresChangementAnomalies } from "../api/invalidations";
 import {
   CLE_DOCUMENTS,
   type ChampDocument,
@@ -145,7 +146,7 @@ const CHAMPS_AFFICHES: Array<{
   { cle: "fournisseur", libelle: "Fournisseur" },
   { cle: "numero", libelle: "Numéro" },
   { cle: "date_doc", libelle: "Date", formater: formaterDate },
-  { cle: "chantier_brut", libelle: "Chantier (brut)" },
+  { cle: "chantier_brut", libelle: "Chantier indiqué sur le bon" },
   { cle: "numero_commande", libelle: "Commande" },
   { cle: "enleve_par", libelle: "Enlevé par" },
   { cle: "total_ht", libelle: "Total HT", formater: formaterMontant },
@@ -356,7 +357,7 @@ function FormulaireEntete({
         />
         <ChampTexteEntete
           id="entete-chantier"
-          label="Chantier (brut)"
+          label="Chantier indiqué sur le bon"
           valeur={brouillon.chantierBrut}
           onChange={(v) => definir("chantierBrut", v)}
         />
@@ -913,7 +914,15 @@ export function DocumentDetail(): ReactElement {
    * _chantier` sur l'écran « Chantiers & fournisseurs », corrigé ici pour
    * ce même symptôme sur cet écran-ci. Validation et archivage ne touchent
    * jamais `chantier_id` : l'invalidation est inoffensive pour eux (elle
-   * ne fait que marquer une liste non montée comme périmée). */
+   * ne fait que marquer une liste non montée comme périmée).
+   *
+   * Revue finale de la refonte du front (constat LIENS-4) : valider,
+   * archiver ou relire un bon relance côté serveur la comparaison avec les
+   * factures qui le citent (`rapprocher_factures_du_bl`) — des problèmes
+   * s'ouvrent ou se ferment. Pastille « À régler », vue d'ensemble,
+   * chiffres des chantiers et comparaison du bon sont donc invalidés aussi
+   * (`invaliderApresChangementAnomalies`), après la mise à jour immédiate
+   * du détail ci-dessous. */
   function surEcriture(detail: DocumentDetailApi): void {
     if (id === undefined) {
       return;
@@ -923,6 +932,7 @@ export function DocumentDetail(): ReactElement {
     void queryClient.invalidateQueries({ queryKey: CLE_DOCUMENTS });
     void queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS });
     void queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS_SILENCIEUX });
+    void invaliderApresChangementAnomalies(queryClient);
   }
 
   /** Fix round 1 (revue L3-T10), corrigé au fix round 2 : une correction
@@ -997,7 +1007,7 @@ export function DocumentDetail(): ReactElement {
   function relancerAvecConfirmation(): void {
     if (
       window.confirm(
-        "Relancer l'extraction ? Les valeurs actuelles seront remplacées par une nouvelle lecture automatique.",
+        "Relire le document ? Les valeurs actuelles seront remplacées par une nouvelle lecture automatique.",
       )
     ) {
       mutationRelance.mutate();
@@ -1113,7 +1123,7 @@ export function DocumentDetail(): ReactElement {
               disabled={mutationRelance.isPending}
               className="inline-flex min-h-[44px] items-center rounded-md border border-bordure px-4 py-2 text-sm font-medium text-encre outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Relancer l'extraction
+              Relire le document
             </button>
           )}
           <button

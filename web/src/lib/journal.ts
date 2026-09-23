@@ -230,7 +230,7 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   // de `pages/DocumentDetail.tsx` pour chaque champ partagé.
   type: "Type",
   date_doc: "Date",
-  chantier_brut: "Chantier (brut)",
+  chantier_brut: "Chantier indiqué sur le bon",
   numero_commande: "Commande",
   enleve_par: "Enlevé par",
   nb_lignes: "Lignes",

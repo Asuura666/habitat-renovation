@@ -32,15 +32,19 @@ def test_ecran_liste_chantiers_a_la_creation_et_au_bandeau_silencieux() -> None:
     page = _lire("pages", "ChantiersListe.tsx")
 
     assert "Nouveau chantier" in page
-    assert "Chantiers sans bon déposé depuis 7 jours" in page
+    # Revue finale (constat COUVERTURE-20) : le délai du bandeau est un
+    # réglage, lu sur `GET /api/parametres` -- plus « 7 jours » écrit en dur.
+    assert "`Chantiers sans bon déposé depuis ${delaiJours} jours`" in page
+    assert '"delai_chantier_silencieux_j"' in page
+    assert "Chantiers sans bon déposé depuis 7 jours" not in page
     assert "obtenirChantiersSansDepot" in page
     assert "useSearchParams" in page
     assert 'type="month"' in page
     assert "obtenirAgences" in page
     assert "md:hidden" in page
     assert "md:block" in page
-    assert "Exporter en CSV" in page
-    assert "Export détaillé (CSV)" in page
+    assert "Exporter pour Excel" in page
+    assert "Exporter le détail pour Excel" in page
     assert "urlExportBilanDetail" in page
     assert "Aucun chantier pour ces filtres." in page
     # Dépôts par agent (CDC §4 « Chantiers & fournisseurs ») : repris ici,
@@ -88,8 +92,9 @@ def test_fiche_chantier_est_montee_et_les_anciennes_routes_redirigent() -> None:
     # `chantiers/referentiel` (ex-« Chantiers & fournisseurs ») et
     # `chantiers/:chantierId/:fournisseurId` (ex-`BilanBl`) sont maintenant
     # de simples redirections (contenu repris par ChantiersListe/
-    # FicheChantier) — le lien « Gérer les chantiers » de Gabarit.tsx reste
-    # valide (redirige vers `/chantiers`).
+    # FicheChantier), gardées pour les anciens favoris — le sous-lien
+    # « Gérer les chantiers » de Gabarit.tsx, qui ne menait plus qu'à
+    # « Chantiers », est retiré (revue finale, constats LIENS-7/ECRAN-17).
     assert 'path="chantiers/referentiel"' in app
     declaration_referentiel = app.split('path="chantiers/referentiel"', 1)[1].split(
         "path=", 1
@@ -105,7 +110,7 @@ def test_fiche_chantier_est_montee_et_les_anciennes_routes_redirigent() -> None:
     assert "/chantiers/${p.chantierId" in declaration_bl
 
     gabarit = _lire("components", "Gabarit.tsx")
-    assert "/chantiers/referentiel" in gabarit
+    assert 'to="/chantiers/referentiel"' not in gabarit
 
 
 def test_bilan_et_chantiers_ne_sont_plus_importes() -> None:
@@ -267,7 +272,11 @@ def test_fiche_chantier_respecte_le_mois_choisi() -> None:
 
     liste = _lire("pages", "ChantiersListe.tsx")
     assert "lienChantier(ligne.chantierId, mois)" in liste
-    assert "mois={filtres.mois}" in liste
+    # Revue finale (constat LIENS-5) : mois de l'URL validé et au format
+    # `AAAA-MM` partout, converti en `AAAA-MM-01` pour l'API seulement.
+    assert 'lireMois(parametres.get("mois"))' in liste
+    assert "mois={mois}" in liste
+    assert 'lireMois(parametres.get("mois"))' in page
 
 
 def test_fiche_chantier_exporte_les_livraisons_par_fournisseur() -> None:
@@ -354,7 +363,11 @@ def test_fiche_chantier_exports_livraisons_en_pied_de_carte_sur_telephone() -> N
     # Plus d'`action=` sur cette carte : les liens sont dans les enfants,
     # en pied de carte.
     assert "action={" not in carte_livraisons
-    assert "min-h-[44px]" in carte_livraisons
+    # Revue finale : classes des liens isolés factorisées (`CLASSES_LIEN`,
+    # cible de 44 px) plutôt que recopiées sur chaque lien.
+    assert "className={CLASSES_LIEN}" in carte_livraisons
+    classes_lien = page.split("const CLASSES_LIEN =", 1)[1].split(";", 1)[0]
+    assert "inline-flex min-h-[44px] items-center" in classes_lien
     # « (vue fournisseurs) », peu parlant pour un non-technicien, a été
     # renommé en langage courant.
     assert "(vue fournisseurs)" not in carte_livraisons

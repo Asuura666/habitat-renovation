@@ -109,12 +109,55 @@ def test_page_bl_reintroduit_les_champs_perdus_par_la_fusion() -> None:
     page = (WEB / "pages" / "PageBl.tsx").read_text()
 
     assert "donnees.photo_compressee === true" in page
-    assert "Photo compressée" in page
+    # Revue finale (constats ECRAN-13/TELEPHONE-13) : même marquage, en
+    # français courant.
+    assert "Photo envoyée en qualité réduite" in page
     assert "Document n° {donnees.numero_interne}" in page
+    # Revue finale (constat COUVERTURE-15) : la lecture seule du bon est
+    # montée pour tout document non modifiable -- archivé consulté par
+    # l'admin (ouverte d'office) ou dépôt consulté par l'agent (repliée) :
+    # l'agent retrouve les champs et lignes lus sur son bon, comme avant la
+    # refonte.
     assert (
-        '!donnees.modifiable && estAdmin && <SectionCorrection titre="Lecture du bon"'
-        in page
-    )
+        "!donnees.modifiable && "
+        '<SectionCorrection titre="Lecture du bon" ouvertParDefaut={estAdmin} />'
+    ) in page
+
+
+def test_page_bl_fil_d_ariane_selon_le_role() -> None:
+    """Revue finale (constats LIENS-9, DROITS-1, TELEPHONE-10) : un agent ne
+    voit jamais de lien vers les écrans « Chantiers »/fiche chantier (réservés
+    à l'admin, `GardeAdmin` l'y renvoyait sans explication) — son fil
+    d'Ariane est « Mes dépôts », puis le numéro du bon."""
+    page = (WEB / "pages" / "PageBl.tsx").read_text()
+
+    fil = page.split("function construireFilAriane", 1)[1].split("\nfunction ", 1)[0]
+    branche_agent = fil.split("if (!estAdmin) {", 1)[1].split("\n  }", 1)[0]
+    assert '"Mes dépôts"' in branche_agent
+    assert '"/documents"' in branche_agent
+    assert "/chantiers" not in branche_agent
+    assert "construireFilAriane(donnees, numero, estAdmin)" in page
+
+
+def test_page_bl_controle_par_ligne_vient_du_serveur() -> None:
+    """Revue finale (constats SERVEUR-6/ECRAN-3) : une ligne livrée mais
+    jamais retrouvée sur la facture n'est plus « Conforme » — le verdict
+    vient du serveur (`controle`), la page n'en déduit rien. Un bon
+    d'enlèvement a aussi sa comparaison (constat SERVEUR-5)."""
+    page = (WEB / "pages" / "PageBl.tsx").read_text()
+
+    controle = page.split("function ControleLigne", 1)[1].split("\nfunction ", 1)[0]
+    assert "switch (ligne.controle)" in controle
+    for valeur in (
+        '"conforme"',
+        '"ecart"',
+        '"non_facture"',
+        '"non_controle"',
+        '"pas_encore_facture"',
+    ):
+        assert f"case {valeur}:" in controle, valeur
+    assert "Non retrouvé sur la facture" in controle
+    assert 'document.data.type !== "facture"' in page
 
 
 def test_documents_liste_contrat() -> None:
@@ -445,3 +488,74 @@ def test_document_detail_reste_la_correction_montee_par_pagebl() -> None:
         "bg-green-",
     ):
         assert jargon not in page, jargon
+
+
+# ---------------------------------------------------------------------------
+# Revue finale de la refonte du front
+# ---------------------------------------------------------------------------
+
+
+def test_facture_mene_au_bon_et_s_ouvre_sur_la_livraison() -> None:
+    """Constats LIENS-13, ECRAN-14, COUVERTURE-18 : « Voir la facture »
+    (problème, page du bon) ouvre la facture sur la livraison concernée
+    (ancre `#bloc-…`, défilement une fois les données chargées) ; chaque
+    livraison mène à la page de son bon (plus au seul fichier brut) ; trois
+    états du bon (« Reçu », « Jamais reçu », « Livré sans bon »)."""
+    liens = (WEB / "lib" / "liens.ts").read_text()
+    assert "`/documents/${factureId}#bloc-${livraisonId}`" in liens
+
+    page_bl = (WEB / "pages" / "PageBl.tsx").read_text()
+    assert "lienFacture(donnees.facture_id, donnees.bloc_id)" in page_bl
+    detail = (WEB / "pages" / "ProblemeDetail.tsx").read_text()
+    assert "lienFacture(anomalie.document_id, anomalie.bloc_id)" in detail
+
+    facture = (WEB / "pages" / "FactureDetail.tsx").read_text()
+    assert "scrollIntoView" in facture
+    assert "lienBon(bloc.bl_document_id)" in facture
+    assert "Voir le bon de livraison" in facture
+    for libelle in ('"Reçu"', '"Jamais reçu"', '"Livré sans bon"'):
+        assert libelle in facture, libelle
+    assert "Chantier (brut)" not in facture
+    assert "formaterPoints" in facture
+
+
+def test_facture_lignes_en_cartes_au_telephone() -> None:
+    """Constat TELEPHONE-4 : au téléphone, les lignes d'une livraison sont
+    des cartes empilées, plus un tableau de 640 px qui cachait prix et
+    montants."""
+    facture = (WEB / "pages" / "FactureDetail.tsx").read_text()
+    lignes = facture.split("function LignesLivraison", 1)[1].split("\nfunction ", 1)[0]
+    assert "md:hidden" in lignes
+    assert "hidden overflow-x-auto md:block" in lignes
+
+
+def test_documents_liste_carte_entierement_cliquable() -> None:
+    """Constat TELEPHONE-3 : toute la carte ouvre le document (cible de
+    44 px), plus de tiret isolé pour une facture, date de dépôt nommée,
+    nom du chantier rattaché plutôt que le texte lu sur la photo."""
+    page = (WEB / "pages" / "DocumentsListe.tsx").read_text()
+    carte = page.split("function CarteLigne", 1)[1].split("\nfunction ", 1)[0]
+    assert "<Link" in carte
+    assert "block min-h-[44px]" in carte
+    assert "Déposé le {formaterDateHeure(ligne.creeLe)}" in carte
+    assert "afficherStatut &&" in carte
+    assert "avecNomChantier(document, chantiers.data)" in page
+
+
+def test_libelles_de_lecture_en_francais_courant() -> None:
+    """Constats ECRAN-13, TELEPHONE-13, COUVERTURE-18 : plus de « Chantier
+    (brut) », « Relancer l'extraction », « Confiance réduite (lecture
+    automatique) »."""
+    for nom in ("DocumentDetail.tsx", "DocumentsListe.tsx", "FactureDetail.tsx"):
+        page = (WEB / "pages" / nom).read_text()
+        for terme in ("Chantier (brut)", "Relancer l'extraction", "Confiance réduite"):
+            # Texte affiché : ligne de texte JSX ou chaîne entre guillemets
+            # (un commentaire qui cite l'ancien libellé reste permis).
+            assert re.search(rf"^\s*{re.escape(terme)}", page, re.MULTILINE) is None, (
+                nom,
+                terme,
+            )
+            assert f'"{terme}' not in page, (nom, terme)
+    detail = (WEB / "pages" / "DocumentDetail.tsx").read_text()
+    assert "Chantier indiqué sur le bon" in detail
+    assert "Relire le document" in detail

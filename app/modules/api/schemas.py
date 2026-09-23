@@ -88,6 +88,11 @@ class BlocFactureReponse(BaseModel):
     montant_ht: Decimal
     bl_recu: bool
     bl_document_id: uuid.UUID | None
+    # Revue finale de la refonte du front (constat ECRAN-14) : déjà porté
+    # par `ingest.lecture.BlocFactureLu`, exposé tel quel pour que la
+    # facture distingue « jamais reçu » de « livré sans bon » (`None` tant
+    # qu'aucun rapprochement n'a tourné).
+    statut_rapprochement: str | None
     lignes: list[LigneFactureReponse]
 
 
@@ -723,10 +728,13 @@ class LigneCompareeReponse(BaseModel):
     qte_livree: Decimal | None
     qte_facturee: Decimal | None
     pu_facture: Decimal | None
+    montant_facture: Decimal | None
     regles_ouvertes: list[str]
     # Revue finale (constats SERVEUR-6/ECRAN-3) : verdict de la ligne,
     # calculé par `ingest.comparaison_bl`, affiché tel quel par la page BL.
-    controle: Literal["conforme", "ecart", "non_facture", "pas_encore_facture"]
+    controle: Literal[
+        "conforme", "ecart", "non_facture", "non_controle", "pas_encore_facture"
+    ]
 
 
 class ComparaisonBlReponse(BaseModel):

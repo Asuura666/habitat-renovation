@@ -23,6 +23,10 @@ export interface FiltresAnomalies {
   blocId?: string;
   chantierId?: string;
   fournisseurId?: string;
+  /** Problèmes d'un bon précis (revue finale, constat LIENS-1) : même
+   * périmètre que le nombre de problèmes annoncé par la page du bon
+   * (`ingest.anomalies.condition_anomalies_du_bl`). */
+  blDocumentId?: string;
   depuis?: string;
   jusquA?: string;
   /** `limite` existe déjà côté API (1..500, défaut 100) : l'écran « À
@@ -59,6 +63,9 @@ function construireRequete(filtres: FiltresAnomalies): string {
   }
   if (filtres.fournisseurId) {
     params.set("fournisseur_id", filtres.fournisseurId);
+  }
+  if (filtres.blDocumentId) {
+    params.set("bl_document_id", filtres.blDocumentId);
   }
   if (filtres.depuis) {
     params.set("depuis", filtres.depuis);

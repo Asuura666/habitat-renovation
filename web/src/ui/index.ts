@@ -15,3 +15,4 @@ export type { OptionFiltre } from "./Filtres";
 export * from "./libelles";
 export { ETATS, PastilleEtat } from "./PastilleEtat";
 export type { Etat } from "./PastilleEtat";
+export { PastilleUrgence } from "./PastilleUrgence";

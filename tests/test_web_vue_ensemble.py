@@ -131,3 +131,83 @@ def test_ecran_en_construction_supprime_si_inutilise() -> None:
         contenu = fichier.read_text()
         assert "<EcranEnConstruction" not in contenu, fichier
         assert "ui/EcranEnConstruction" not in contenu, fichier
+
+
+# ---------------------------------------------------------------------------
+# Revue finale de la refonte du front
+# ---------------------------------------------------------------------------
+
+
+def test_vue_ensemble_ne_promet_pas_un_nombre_que_la_cible_ne_montre_pas() -> None:
+    """Constats LIENS-2, ECRAN-6, TELEPHONE-2, COUVERTURE-17 : la tuile
+    compte les problèmes des factures du mois, l'écran « À régler » tous les
+    problèmes ouverts -- le lien ne porte plus de nombre, le sous-texte de
+    la tuile dit sa période, et le lien a une cible de 44 px."""
+    page = (SRC / "pages" / "VueEnsemble.tsx").read_text()
+    assert "Voir les {" not in page
+    assert "Voir tous les problèmes à régler →" in page
+    assert "sur les factures du mois" in page
+    lien = page.split("Voir tous les problèmes à régler →", 1)[0].rsplit("<Link", 1)[1]
+    assert "inline-flex min-h-[44px] items-center" in lien
+
+
+def test_vue_ensemble_bons_a_reclamer_comptes_par_le_serveur() -> None:
+    """Constats SERVEUR-1/COUVERTURE-4 : le nombre de bons à réclamer vient
+    du serveur (`nb_bl_manquants`), plus d'une soustraction côté front qui
+    comptait aussi les livraisons « sans bon » et les bons déjà réglés."""
+    page = (SRC / "pages" / "VueEnsemble.tsx").read_text()
+    assert "donnees.nb_bl_manquants" in page
+    assert "nb_bl_factures - donnees.nb_bl_recus" not in page
+    assert "BL à réclamer à l'équipe" not in page
+    assert "à contester au fournisseur" not in page
+
+
+def test_vue_ensemble_liens_vers_la_fiche_et_le_probleme() -> None:
+    """Constats ECRAN-4, COUVERTURE-3 : la fiche chantier s'ouvre au mois
+    affiché (mêmes montants, pastille d'état) ; un problème prioritaire
+    ouvre son détail dans « À régler ». Constat COUVERTURE-23 (RF2) : le
+    chantier non rattaché mène à « À régler » filtré sur les chantiers à
+    rattacher."""
+    page = (SRC / "pages" / "VueEnsemble.tsx").read_text()
+    assert "lienChantier(chantier.chantier_id, mois)" in page
+    assert "`/a-regler/${priorite.anomalie.id}`" in page
+    liens = (SRC / "lib" / "liens.ts").read_text()
+    assert 'LIEN_CHANTIERS_A_RATTACHER = "/a-regler?filtre=rattacher"' in liens
+    assert "chantierId === null ? LIEN_CHANTIERS_A_RATTACHER" in liens
+
+
+def test_vue_ensemble_tableau_aligne_et_client_nomme() -> None:
+    """Constat COUVERTURE-6 : un vrai tableau (colonnes alignées d'une
+    ligne à l'autre). Constat ECRAN-19 : « Client non renseigné » plutôt que
+    l'agence seule, lue comme un client. Constat COUVERTURE-26 : lien vers
+    le dernier mois facturé quand le mois affiché est vide."""
+    page = (SRC / "pages" / "VueEnsemble.tsx").read_text()
+    assert "<table" in page
+    assert "grid-cols-[2.2fr_1.4fr_1fr_1fr_1fr]" not in page
+    assert '"Client non renseigné"' in page
+    assert "dernier_mois_facture" in page
+    assert "dernier mois facturé" in page
+
+
+def test_mois_de_l_url_valide_partout() -> None:
+    """Constat LIENS-5 : un seul format de mois dans l'URL (`AAAA-MM`),
+    validé par `lireMois` sur chaque écran qui le lit -- une valeur
+    illisible ne fait plus lever `Intl.DateTimeFormat` (écran blanc)."""
+    formats = (SRC / "lib" / "formats.ts").read_text()
+    correspondance = re.search(r"const REGEX_MOIS_URL = /(\^.*\$)/;", formats)
+    assert correspondance is not None
+    motif = re.compile(correspondance.group(1))
+    for valide in ("2026-09", "2026-09-01", "2026-12"):
+        assert motif.match(valide), valide
+    for invalide in ("2026-13", "2026-00", "", "2026-09-15", "texte"):
+        assert motif.match(invalide) is None, invalide
+    for page in (
+        "VueEnsemble.tsx",
+        "ChantiersListe.tsx",
+        "FicheChantier.tsx",
+        "FournisseursListe.tsx",
+        "FicheFournisseur.tsx",
+        "DocumentsListe.tsx",
+    ):
+        contenu = (SRC / "pages" / page).read_text()
+        assert 'lireMois(parametres.get("mois"))' in contenu, page

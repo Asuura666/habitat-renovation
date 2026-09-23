@@ -944,6 +944,8 @@ export interface components {
             bl_recu: boolean;
             /** Bl Document Id */
             bl_document_id: string | null;
+            /** Statut Rapprochement */
+            statut_rapprochement: string | null;
             /** Lignes */
             lignes: components["schemas"]["LigneFactureReponse"][];
         };
@@ -1558,13 +1560,15 @@ export interface components {
             qte_facturee: string | null;
             /** Pu Facture */
             pu_facture: string | null;
+            /** Montant Facture */
+            montant_facture: string | null;
             /** Regles Ouvertes */
             regles_ouvertes: string[];
             /**
              * Controle
              * @enum {string}
              */
-            controle: "conforme" | "ecart" | "non_facture" | "pas_encore_facture";
+            controle: "conforme" | "ecart" | "non_facture" | "non_controle" | "pas_encore_facture";
         };
         /**
          * LigneDocumentReponse
