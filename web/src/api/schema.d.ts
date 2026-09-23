@@ -1104,6 +1104,13 @@ export interface components {
          *     `facture_id`/`numero_facture`/`montant_facture_ht` valent `None` quand
          *     aucun bloc de facture ne cite ce BL (`bloc_facture.bl_document_id`,
          *     même principe que `LigneBilanBlReponse.bl_document_id`).
+         *
+         *     `nb_problemes` (tour de correction 1, Task 8) : nombre d'anomalies
+         *     ouvertes concernant ce BL, au sens large — pas seulement la somme des
+         *     `regles_ouvertes` des `lignes` (voir le docstring de
+         *     `ingest.comparaison_bl.ComparaisonBl`). C'est ce champ, jamais un calcul
+         *     front, qui doit fonder le nombre de problèmes affiché et déterminer si
+         *     le BL peut être présenté comme « Conforme ».
          */
         ComparaisonBlReponse: {
             /**
@@ -1119,6 +1126,8 @@ export interface components {
             montant_facture_ht: string | null;
             /** Lignes */
             lignes: components["schemas"]["LigneCompareeReponse"][];
+            /** Nb Problemes */
+            nb_problemes: number;
         };
         /**
          * CorrectionEnteteRequete
@@ -1261,7 +1270,16 @@ export interface components {
          *     L2-R8, correction de revue L2-T7 : le front ne doit plus dériver
          *     vérifié/écart à partir de `statut`, qui suit une tout autre logique —
          *     voir `ingest/service.py::lister_documents` ; `fournisseur`/
-         *     `chantier_brut` ajoutés en L3-T8a pour un aperçu utile dans la liste).
+         *     `chantier_brut` ajoutés en L3-T8a pour un aperçu utile dans la liste ;
+         *     `chantier_id` ajouté au tour de correction 1 de Task 8 — le filtre
+         *     `?chantier=` de la liste « Documents » ne peut comparer un identifiant
+         *     de chantier connu (`?chantier=<id>`, résolu par `GET /api/chantiers`)
+         *     qu'à un identifiant, jamais à un préfixe de texte brut non normalisé
+         *     (`chantier_brut`) ; `date_doc` ajouté au tour de correction 2 — pour un
+         *     BL/enlèvement, la date du bon telle qu'imprimée (sa date de livraison),
+         *     pas sa date de dépôt (`cree_le`) : le filtre `?mois=` de la liste
+         *     « Documents » comparait tout document sur `cree_le`, ce qui excluait un
+         *     BL de son mois de livraison réel quand il est déposé un autre mois.
          */
         DocumentReponse: {
             /**
@@ -1284,6 +1302,8 @@ export interface components {
              * Format: date-time
              */
             cree_le: string;
+            /** Date Doc */
+            date_doc: string | null;
             /** Confirme Le */
             confirme_le: string | null;
             /** Confirme Par */
@@ -1296,6 +1316,8 @@ export interface components {
             fournisseur: string | null;
             /** Chantier Brut */
             chantier_brut: string | null;
+            /** Chantier Id */
+            chantier_id: string | null;
         };
         /** FactureDeposeeReponse */
         FactureDeposeeReponse: {

@@ -7,6 +7,8 @@ export type ChampDocument = components["schemas"]["ChampReponse"];
 export type ChampsDocument = components["schemas"]["ChampsDocumentReponse"];
 export type LigneDocument = components["schemas"]["LigneDocumentReponse"];
 export type Motif = components["schemas"]["MotifReponse"];
+export type ComparaisonBl = components["schemas"]["ComparaisonBlReponse"];
+export type LigneComparee = components["schemas"]["LigneCompareeReponse"];
 
 export const CLE_DOCUMENTS = ["documents"] as const;
 
@@ -27,6 +29,33 @@ export function cleDocument(id: string): readonly [string, string] {
 export function lireDocument(id: string): Promise<DocumentDetail> {
   return appelerApi<DocumentDetail>("/api/documents/{document_id}", {
     url: `/api/documents/${id}`,
+  });
+}
+
+/** URL de téléchargement direct de la photo/du PDF d'un document (Task 3,
+ * refonte front) : `telechargement=true` fait poser par le serveur
+ * `Content-Disposition: attachment` avec un nom de fichier explicite (voir
+ * `app/modules/api/documents.py`) — utilisée telle quelle dans un
+ * `<a href=... download>`, jamais via `fetch` (le navigateur gère lui-même
+ * le téléchargement). */
+export function urlTelechargement(id: string): string {
+  return `/api/documents/${id}/fichier?telechargement=true`;
+}
+
+export function cleComparaisonBl(id: string): readonly [string, string, string] {
+  return ["document", id, "comparaison"] as const;
+}
+
+/** `GET /api/documents/{id}/comparaison` (Task 3, admin uniquement, refonte
+ * front) : lignes du BL appariées à la facture qui le cite, pour le tableau
+ * « Livré et facturé » de la page BL (`PageBl.tsx`). 404 si le document est
+ * absent ou n'est pas de type `bl` (un enlèvement n'a pas de comparaison,
+ * décision du serveur — voir `ingest/comparaison_bl.py`) : l'appelant ne
+ * déclenche cette requête que pour un document de type `bl`, jamais pour en
+ * déduire le type. */
+export function obtenirComparaisonBl(id: string): Promise<ComparaisonBl> {
+  return appelerApi<ComparaisonBl>("/api/documents/{document_id}/comparaison", {
+    url: `/api/documents/${id}/comparaison`,
   });
 }
 

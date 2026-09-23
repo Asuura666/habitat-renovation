@@ -573,3 +573,69 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   retirés, chaîne vide -> `None`). Si le nombre de clients grandit ou
   qu'un besoin de recherche/à normaliser apparaît, un référentiel dédié
   serait alors justifié — hors périmètre de cette tâche.
+
+### Liste « Documents » (Task 8, refonte front) — web/src/pages/DocumentsListe.tsx
+
+- **Filtres `?mois=`/`?chantier=`/`?fournisseur=` côté client, pas côté
+  serveur.** `GET /api/documents` et `GET /api/factures` n'exposent aucun
+  paramètre de requête pour ces filtres (contrairement à
+  `/api/bilan/chantiers`, par exemple) : `DocumentsListe` filtre donc après
+  coup, sur les pages déjà chargées (jusqu'à `LIMITE_DOCUMENTS_DEFAUT`/100
+  documents pour `GET /api/documents`, aucune pagination ajoutée). Depuis
+  le tour de correction 1, un texte s'affiche quand un filtre est actif et
+  que la liste atteint cette borne (« Seuls les 100 bons de livraison les
+  plus récents sont chargés ici… ») — signalement, pas une résolution : un
+  document plus ancien que les 100 derniers déposés reste invisible à tout
+  filtre. Négligeable au volume actuel (un seul client, quelques dizaines
+  de documents par mois) ; à revoir si le volume grandit (ajouter les
+  paramètres côté serveur, sur le modèle de `bilan.py`).
+- **Filtre `?chantier=` corrigé au tour de correction 1** (était par
+  préfixe de `chantier_brut`, texte OCR non normalisé, cf. `git log` de ce
+  fichier pour l'ancienne version de cette entrée) : `chantier_id` a été
+  ajouté à `DocumentReponse`/`ingest.lecture.DocumentResume` (petit ajout
+  serveur, un champ déjà présent sur `Document` et déjà sélectionné par la
+  requête, aucune jointure supplémentaire) — le filtre compare désormais
+  cet identifiant par égalité, comme `chantiers/:id` le fait déjà côté
+  fiche chantier. Limite résiduelle, assumée : `FactureResumeReponse` ne
+  porte toujours aucun chantier (une facture regroupe plusieurs chantiers
+  via ses livraisons) — le filtre chantier continue d'exclure toutes les
+  factures, quel que soit le chantier ciblé.
+- **Filtre `?fournisseur=` (spec §4, absent avant ce tour) comparé au nom
+  du fournisseur, pas à son identifiant.** Ni `DocumentReponse` ni
+  `FactureResumeReponse` ne porte `fournisseur_id` (seul le nom résolu,
+  `fournisseur: str | None`) — `DocumentsListe` compare donc ce nom par
+  égalité stricte au `nom` du fournisseur choisi dans le sélecteur (les
+  deux valeurs proviennent de la même colonne `fournisseur.nom`, jamais
+  d'un texte OCR non normalisé comme `chantier_brut` — aucun des travers du
+  filtre chantier d'avant ce tour ne s'applique ici). À revoir si deux
+  fournisseurs finissaient par porter un jour le même nom (le référentiel
+  ne l'interdit pas explicitement) — hors périmètre de ce tour, aucune
+  fixture démo ne présente ce cas.
+- **Filtre `?mois=` corrigé au tour de correction 2** (constat de revue :
+  un BL/enlèvement était toujours classé sur `cree_le`, sa date de dépôt,
+  jamais sa date de livraison, contrairement à une facture déjà classée sur
+  `date_doc`) : `date_doc` a été ajouté à `DocumentReponse`/
+  `ingest.lecture.DocumentResume`, même colonne `Document.date_doc` qu'une
+  facture (déjà sélectionnée par la requête, aucune jointure
+  supplémentaire) — `extract/bl.py` la lit déjà comme « date du bon telle
+  qu'imprimée ». Limite résiduelle, assumée : un BL dont l'extraction n'a
+  jamais pu lire cette date (`date_doc` nul) retombe toujours sur
+  `cree_le` — rare en pratique (`date_doc` est un champ obligatoire du BL,
+  `CHAMPS_OBLIGATOIRES_BL`, et l'un des deux seuls champs que `verifier_bl`
+  peut classer illisible plutôt qu'absent, `extract/verification.py`), pas
+  observé sur les fixtures démo.
+- **Tri de la liste toujours sur `creeLe` (date de dépôt), pas sur
+  `date_doc` (constat de revue, tour de correction 3).** Le constat notait
+  que `date_doc` classe le filtre `?mois=` mais n'apparaissait jamais à
+  l'écran ; corrigé en affichant « Livré le … » dans le contexte de chaque
+  bon (`contexteDocument`, carte et tableau). Le constat suggérait aussi,
+  en piste secondaire (« envisager »), de trier sur `date_doc` avant
+  `creeLe` : non fait — un document qui vient d'être déposé mais dont
+  l'extraction n'a pas encore lu `date_doc` (donc `null`) serait alors
+  systématiquement relégué en fin de liste malgré son dépôt récent,
+  masquant justement les dépôts qui ont le plus besoin d'attention
+  immédiate (écran « À corriger »). Le tri par date de dépôt (le plus
+  récent en premier, comportement inchangé depuis avant Task 8) reste donc
+  la clé principale ; à revoir si un besoin explicite de tri par date de
+  livraison est exprimé (ex. un tri choisi par l'utilisateur, hors
+  périmètre de ce tour).

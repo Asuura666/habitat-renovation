@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -203,6 +203,8 @@ async def _creer_document_bl(
     fichier_path: str | None = None,
     fournisseur: Fournisseur | None = None,
     chantier_brut: str | None = None,
+    chantier_id: uuid.UUID | None = None,
+    date_doc: date | None = None,
 ) -> Document:
     document = Document(
         type=type_,
@@ -216,6 +218,8 @@ async def _creer_document_bl(
         photo_compressee=photo_compressee,
         fournisseur_id=fournisseur.id if fournisseur is not None else None,
         chantier_brut=chantier_brut,
+        chantier_id=chantier_id,
+        date_doc=date_doc,
     )
     if created_at is not None:
         document.created_at = created_at
@@ -880,6 +884,64 @@ async def test_lister_documents_sans_fournisseur_ni_chantier_brut(
 
     assert resultat[0].fournisseur is None
     assert resultat[0].chantier_brut is None
+    assert resultat[0].chantier_id is None
+
+
+async def test_lister_documents_chantier_id_expose(db_session: AsyncSession) -> None:
+    """Tour de correction 1 de Task 8 : `chantier_id` (pas seulement
+    `chantier_brut`, un texte non normalisé) doit être exposé pour que le
+    front puisse filtrer par égalité d'identifiant plutôt que par préfixe
+    de texte brut."""
+    admin = await _creer_utilisateur(db_session, role="admin")
+    chantier = Chantier(nom_canonique="Villa des Tilleuls (test)")
+    db_session.add(chantier)
+    await db_session.flush()
+    document = await _creer_document_bl(
+        db_session,
+        numero="L372",
+        chantier_brut="VILLA DES TILLEULS (4521)",
+        chantier_id=chantier.id,
+    )
+
+    resultat = await lister_documents(
+        db_session, utilisateur_id=admin.id, role="admin", depuis=None, limite=100
+    )
+
+    assert resultat[0].id == document.id
+    assert resultat[0].chantier_id == chantier.id
+
+
+async def test_lister_documents_date_doc_expose(db_session: AsyncSession) -> None:
+    """Tour de correction 2 de Task 8 : `date_doc` (date du bon telle
+    qu'imprimée, sa date de livraison — `extract/bl.py`) doit être exposée
+    pour que le front puisse filtrer `?mois=` sur cette date plutôt que
+    sur `cree_le` (date de dépôt), même convention qu'une facture."""
+    admin = await _creer_utilisateur(db_session, role="admin")
+    document = await _creer_document_bl(
+        db_session,
+        numero="L373",
+        date_doc=date(2026, 8, 4),
+    )
+
+    resultat = await lister_documents(
+        db_session, utilisateur_id=admin.id, role="admin", depuis=None, limite=100
+    )
+
+    assert resultat[0].id == document.id
+    assert resultat[0].date_doc == date(2026, 8, 4)
+
+
+async def test_lister_documents_sans_date_doc(db_session: AsyncSession) -> None:
+    """`date_doc` vaut `None` quand l'extraction ne l'a pas encore lue
+    (ou pas encore tournée) — pas de valeur par défaut inventée."""
+    admin = await _creer_utilisateur(db_session, role="admin")
+    await _creer_document_bl(db_session, numero="L374")
+
+    resultat = await lister_documents(
+        db_session, utilisateur_id=admin.id, role="admin", depuis=None, limite=100
+    )
+
+    assert resultat[0].date_doc is None
 
 
 # --------------------------------------------------------------------------

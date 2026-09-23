@@ -40,6 +40,29 @@ const FORMATEUR_DATE_HEURE = new Intl.DateTimeFormat("fr-FR", {
   timeStyle: "short",
 });
 
+/** Année et mois seuls, en heure de Paris (`formatToParts`, jamais un
+ * gabarit de chaîne dépendant de la locale de l'utilisateur) — utilisé par
+ * `DocumentsListe.tsx` (tour de correction 1, Task 8) pour comparer le
+ * filtre `?mois=` (`"AAAA-MM"`, valeur d'un `<input type="month">`) à un
+ * horodatage de dépôt (`cree_le`), jamais par simple troncature de la
+ * chaîne ISO (en UTC) : un dépôt entre minuit et 2 h, heure de Paris,
+ * tombe sinon dans le mois suivant — même convention que le mois d'un bloc
+ * de facture (L5-D4, `ingest/bilan.py`), qui préfère `date_doc` (une date
+ * simple, sans fuseau) et ne retombe sur `created_at` converti qu'à
+ * défaut. */
+const FORMATEUR_MOIS_PARIS = new Intl.DateTimeFormat("fr-FR", {
+  timeZone: "Europe/Paris",
+  year: "numeric",
+  month: "2-digit",
+});
+
+export function moisParis(horodatageIso: string): string {
+  const parties = FORMATEUR_MOIS_PARIS.formatToParts(new Date(horodatageIso));
+  const annee = parties.find((partie) => partie.type === "year")?.value ?? "";
+  const mois = parties.find((partie) => partie.type === "month")?.value ?? "";
+  return `${annee}-${mois}`;
+}
+
 export const TIRET = "—";
 
 /** `valeur` est la chaîne décimale renvoyée par l'API ; `null` (champ

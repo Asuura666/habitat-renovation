@@ -34,62 +34,6 @@ import { libelleMotif } from "../lib/motifs";
 
 type NomChampDocument = keyof ChampsDocument;
 
-/** `type` d'un document (BL ou enlèvement, seuls types acceptés par cette
- * route — L3-D19) : présentation uniquement, même principe que
- * `libelleTypeDocument` d'`ATraiter.tsx` (dupliqué, décision du
- * contrôleur). */
-function libelleTypeDocument(type: string): string {
-  return type === "enlevement" ? "Enlèvement" : "Livraison";
-}
-
-function libelleStatutDocument(statut: string): string {
-  if (statut === "a_verifier") {
-    return "À vérifier";
-  }
-  if (statut === "archive") {
-    return "Archivé";
-  }
-  return "Reçu";
-}
-
-function classesStatutDocument(statut: string): string {
-  if (statut === "a_verifier") {
-    return "bg-orange-100 text-orange-800";
-  }
-  if (statut === "archive") {
-    return "bg-slate-200 text-slate-700";
-  }
-  return "bg-green-100 text-green-800";
-}
-
-function ConfirmationInfo({
-  confirmation,
-  confirmePar,
-  confirmeLe,
-}: {
-  confirmation: "verifiee" | "ecart" | null;
-  confirmePar: string | null;
-  confirmeLe: string | null;
-}): ReactElement {
-  if (confirmation === null) {
-    return <>En attente de confirmation.</>;
-  }
-  const qui = confirmePar ?? TIRET;
-  const quand = formaterDateHeure(confirmeLe);
-  if (confirmation === "ecart") {
-    return (
-      <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
-        Écart signalé par {qui} le {quand}
-      </span>
-    );
-  }
-  return (
-    <>
-      Quantités vérifiées par {qui} le {quand}
-    </>
-  );
-}
-
 /** Champs cités par au moins un motif (`motif.champ`, hors `ligne:<ordre>`) :
  * bordure orange sur le champ concerné (décision du contrôleur, L3-T10). */
 function champsSurlignes(motifs: Motif[]): Set<string> {
@@ -129,7 +73,7 @@ function ResumeSomme({ motifs }: { motifs: Motif[] }): ReactElement | null {
     return null;
   }
   return (
-    <p className="mb-3 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-900">
+    <p className="mb-3 rounded-md border border-ecart/40 bg-[#fbe9c6] px-3 py-2 text-sm text-[#7a4a00]">
       {libelleMotif(motif)}
     </p>
   );
@@ -150,7 +94,7 @@ function BadgeConfiance({
     return null;
   }
   const faible = Number(confiance) < Number(seuil);
-  const classes = faible ? "bg-orange-100 text-orange-800" : "bg-slate-100 text-slate-700";
+  const classes = faible ? "bg-[#fbe9c6] text-[#7a4a00]" : "bg-fond text-encre";
   return (
     <span className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${classes}`}>
       {Math.round(Number(confiance) * 100)} %
@@ -175,17 +119,17 @@ function ChampAffiche({
   return (
     <div
       className={`rounded-md border p-2 ${
-        surligne ? "border-orange-400 bg-orange-50" : "border-transparent"
+        surligne ? "border-ecart bg-[#fbe9c6]" : "border-transparent"
       }`}
     >
-      <dt className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+      <dt className="flex flex-wrap items-center gap-2 text-xs text-encre-2">
         {libelle}
         <BadgeConfiance confiance={champ.confiance} seuil={seuil} />
       </dt>
-      <dd className="text-sm text-slate-900">{valeurAffichee}</dd>
+      <dd className="text-sm text-encre">{valeurAffichee}</dd>
       {champ.corrige && (
-        <p className="mt-1 text-xs text-slate-500">
-          Valeur OCR : {champ.valeur_ocr ?? TIRET} — corrigée par {champ.corrige_par ?? TIRET} le{" "}
+        <p className="mt-1 text-xs text-encre-2">
+          Valeur lue : {champ.valeur_ocr ?? TIRET} — corrigée par {champ.corrige_par ?? TIRET} le{" "}
           {formaterDateHeure(champ.corrige_le)}
         </p>
       )}
@@ -208,35 +152,6 @@ const CHAMPS_AFFICHES: Array<{
   { cle: "total_tva", libelle: "Total TVA", formater: formaterMontant },
   { cle: "total_ttc", libelle: "Total TTC", formater: formaterMontant },
 ];
-
-function Photo({ documentId }: { documentId: string }): ReactElement {
-  const [enErreur, setEnErreur] = useState(false);
-  const src = `/api/documents/${documentId}/fichier`;
-  return (
-    <div className="mb-6">
-      {!enErreur && (
-        // `onError` : le fichier est un PDF (pas une image) ou est absent du
-        // disque — seul le lien reste alors affiché (décision du
-        // contrôleur, L3-T10).
-        <img
-          src={src}
-          loading="lazy"
-          onError={() => setEnErreur(true)}
-          alt="Photo du document déposé"
-          className="mb-2 max-h-[480px] w-full max-w-md rounded-lg border border-slate-200 bg-white object-contain"
-        />
-      )}
-      <a
-        href={src}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-block text-sm font-medium text-blue-700 underline outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
-      >
-        Ouvrir la photo
-      </a>
-    </div>
-  );
-}
 
 // --------------------------------------------------------------------------
 // Correction de l'en-tête (PATCH, L3-D13)
@@ -337,7 +252,7 @@ function ChampTexteEntete({
 }): ReactElement {
   return (
     <div>
-      <label htmlFor={id} className="mb-1 block text-xs font-medium text-slate-700">
+      <label htmlFor={id} className="mb-1 block text-xs font-medium text-encre">
         {label}
       </label>
       <input
@@ -346,7 +261,7 @@ function ChampTexteEntete({
         inputMode={decimal ? "decimal" : undefined}
         value={valeur}
         onChange={(evenement) => onChange(evenement.target.value)}
-        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+        className="w-full rounded-md border border-bordure px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent"
       />
     </div>
   );
@@ -390,33 +305,33 @@ function FormulaireEntete({
   return (
     <form
       onSubmit={soumettre}
-      className="mb-6 space-y-4 rounded-lg border border-blue-200 bg-blue-50 p-4"
+      className="mb-6 space-y-4 rounded-lg border border-accent/30 bg-fond p-4"
       aria-label="Modifier l'en-tête du document"
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <div>
-          <label htmlFor="entete-type" className="mb-1 block text-xs font-medium text-slate-700">
+          <label htmlFor="entete-type" className="mb-1 block text-xs font-medium text-encre">
             Type
           </label>
           <select
             id="entete-type"
             value={brouillon.type}
             onChange={(evenement) => definir("type", evenement.target.value)}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="w-full rounded-md border border-bordure px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <option value="bl">Livraison</option>
             <option value="enlevement">Enlèvement</option>
           </select>
         </div>
         <div>
-          <label htmlFor="entete-fournisseur" className="mb-1 block text-xs font-medium text-slate-700">
+          <label htmlFor="entete-fournisseur" className="mb-1 block text-xs font-medium text-encre">
             Fournisseur
           </label>
           <select
             id="entete-fournisseur"
             value={brouillon.fournisseurId}
             onChange={(evenement) => definir("fournisseurId", evenement.target.value)}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="w-full rounded-md border border-bordure px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <option value="">— Aucun —</option>
             {fournisseurs.map((fournisseur) => (
@@ -484,7 +399,7 @@ function FormulaireEntete({
         <button
           type="submit"
           disabled={mutation.isPending}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white outline-none hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex min-h-[44px] items-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-white outline-none hover:bg-accent-fonce focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
         >
           Enregistrer l'en-tête
         </button>
@@ -492,14 +407,14 @@ function FormulaireEntete({
           type="button"
           onClick={onAnnuler}
           aria-label="Annuler la modification de l'en-tête"
-          className="text-sm font-medium text-slate-600 underline outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+          className="inline-flex min-h-[44px] items-center text-sm font-medium text-encre-2 underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           Annuler
         </button>
       </div>
 
       {mutation.isError && (
-        <p role="alert" className="text-sm text-red-700">
+        <p role="alert" className="text-sm text-alerte">
           {mutation.error instanceof ErreurApi
             ? mutation.error.detail
             : "Une erreur est survenue, réessayez."}
@@ -523,7 +438,7 @@ function LignesLecture({
   lignesSurlignees: Set<number>;
 }): ReactElement {
   if (lignes.length === 0) {
-    return <p className="mb-6 text-sm text-slate-600">Aucune ligne détectée.</p>;
+    return <p className="mb-6 text-sm text-encre-2">Aucune ligne détectée.</p>;
   }
   return (
     <>
@@ -533,16 +448,16 @@ function LignesLecture({
           <li
             key={ligne.id}
             className={`rounded-lg border p-3 text-sm ${
-              surlignees.has(ligne.ordre) ? "border-orange-400 bg-orange-50" : "border-slate-200 bg-white"
+              surlignees.has(ligne.ordre) ? "border-ecart bg-[#fbe9c6]" : "border-bordure bg-surface"
             }`}
           >
             <div className="mb-2 flex items-start justify-between gap-2">
-              <p className="font-medium text-slate-900">
+              <p className="font-medium text-encre">
                 {ligne.code_brut ?? TIRET} — {ligne.article_brut ?? TIRET}
               </p>
               <BadgeConfiance confiance={ligne.confiance} seuil={seuil} />
             </div>
-            <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-600">
+            <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-encre-2">
               <div>
                 <dt>Conditionnements</dt>
                 <dd>{formaterQuantite(ligne.qte_livree)}</dd>
@@ -569,10 +484,10 @@ function LignesLecture({
       </ul>
 
       {/* Tableau : ordinateur (>= md) */}
-      <div className="mb-6 hidden overflow-x-auto rounded-lg border border-slate-200 bg-white md:block">
-        <table className="w-full min-w-[760px] divide-y divide-slate-200 text-sm">
+      <div className="mb-6 hidden overflow-x-auto rounded-lg border border-bordure bg-surface md:block">
+        <table className="w-full min-w-[760px] divide-y divide-bordure text-sm">
           <caption className="sr-only">Lignes du document</caption>
-          <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+          <thead className="bg-fond text-left text-xs font-medium uppercase tracking-wide text-encre-2">
             <tr>
               <th scope="col" className="px-3 py-2">Code</th>
               <th scope="col" className="px-3 py-2">Désignation</th>
@@ -584,16 +499,16 @@ function LignesLecture({
               <th scope="col" className="px-3 py-2">Confiance</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200">
+          <tbody className="divide-y divide-bordure">
             {lignes.map((ligne) => (
-              <tr key={ligne.id} className={surlignees.has(ligne.ordre) ? "bg-orange-50" : undefined}>
-                <td className="px-3 py-2 text-slate-700">{ligne.code_brut ?? TIRET}</td>
-                <td className="px-3 py-2 text-slate-700">{ligne.article_brut ?? TIRET}</td>
-                <td className="px-3 py-2 text-slate-700">{formaterQuantite(ligne.qte_livree)}</td>
-                <td className="px-3 py-2 text-slate-700">{formaterQuantite(ligne.qte_totale)}</td>
-                <td className="px-3 py-2 text-slate-700">{ligne.unite_brut ?? TIRET}</td>
-                <td className="px-3 py-2 text-slate-700">{formaterMontant(ligne.pu_ht)}</td>
-                <td className="px-3 py-2 text-slate-700">{formaterMontant(ligne.montant_ht)}</td>
+              <tr key={ligne.id} className={surlignees.has(ligne.ordre) ? "bg-[#fbe9c6]" : undefined}>
+                <td className="px-3 py-2 text-encre">{ligne.code_brut ?? TIRET}</td>
+                <td className="px-3 py-2 text-encre">{ligne.article_brut ?? TIRET}</td>
+                <td className="px-3 py-2 text-encre">{formaterQuantite(ligne.qte_livree)}</td>
+                <td className="px-3 py-2 text-encre">{formaterQuantite(ligne.qte_totale)}</td>
+                <td className="px-3 py-2 text-encre">{ligne.unite_brut ?? TIRET}</td>
+                <td className="px-3 py-2 text-encre">{formaterMontant(ligne.pu_ht)}</td>
+                <td className="px-3 py-2 text-encre">{formaterMontant(ligne.montant_ht)}</td>
                 <td className="px-3 py-2">
                   <BadgeConfiance confiance={ligne.confiance} seuil={seuil} />
                 </td>
@@ -685,7 +600,7 @@ function ChampLigneEdition({
     <div>
       <label
         htmlFor={id}
-        className={masquerLabel ? "sr-only" : "mb-1 block text-xs font-medium text-slate-700"}
+        className={masquerLabel ? "sr-only" : "mb-1 block text-xs font-medium text-encre"}
       >
         {label}
       </label>
@@ -695,7 +610,7 @@ function ChampLigneEdition({
         inputMode={decimal ? "decimal" : undefined}
         value={valeur}
         onChange={(evenement) => onChange(evenement.target.value)}
-        className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+        className="w-full rounded-md border border-bordure px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent"
       />
     </div>
   );
@@ -739,13 +654,13 @@ function TableauLignesEdition({
   return (
     <form
       onSubmit={soumettre}
-      className="mb-6 space-y-3 rounded-lg border border-blue-200 bg-blue-50 p-4"
+      className="mb-6 space-y-3 rounded-lg border border-accent/30 bg-fond p-4"
       aria-label="Modifier les lignes du document"
     >
       {/* Cartes empilées : téléphone (< md) */}
       <ul className="space-y-3 md:hidden">
         {lignes.map((ligne) => (
-          <li key={ligne.cle} className="rounded-lg border border-slate-200 bg-white p-3">
+          <li key={ligne.cle} className="rounded-lg border border-bordure bg-surface p-3">
             <div className="mb-2 grid grid-cols-2 gap-2">
               <ChampLigneEdition
                 id={`code-${ligne.cle}`}
@@ -797,7 +712,7 @@ function TableauLignesEdition({
             <button
               type="button"
               onClick={() => supprimer(ligne.cle)}
-              className="text-sm font-medium text-red-700 underline outline-none focus-visible:ring-2 focus-visible:ring-red-600"
+              className="inline-flex min-h-[44px] items-center text-sm font-medium text-alerte underline outline-none focus-visible:ring-2 focus-visible:ring-alerte"
             >
               Supprimer la ligne
             </button>
@@ -807,9 +722,9 @@ function TableauLignesEdition({
 
       {/* Tableau : ordinateur (>= md) */}
       <div className="hidden overflow-x-auto md:block">
-        <table className="w-full min-w-[900px] divide-y divide-slate-200 text-sm">
+        <table className="w-full min-w-[900px] divide-y divide-bordure text-sm">
           <caption className="sr-only">Lignes du document, en édition</caption>
-          <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+          <thead className="bg-fond text-left text-xs font-medium uppercase tracking-wide text-encre-2">
             <tr>
               <th scope="col" className="px-2 py-2">Code</th>
               <th scope="col" className="px-2 py-2">Désignation</th>
@@ -823,7 +738,7 @@ function TableauLignesEdition({
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200">
+          <tbody className="divide-y divide-bordure">
             {lignes.map((ligne, index) => (
               <tr key={ligne.cle}>
                 <td className="px-2 py-2">
@@ -897,7 +812,7 @@ function TableauLignesEdition({
                   <button
                     type="button"
                     onClick={() => supprimer(ligne.cle)}
-                    className="text-sm font-medium text-red-700 underline outline-none focus-visible:ring-2 focus-visible:ring-red-600"
+                    className="inline-flex min-h-[44px] items-center text-sm font-medium text-alerte underline outline-none focus-visible:ring-2 focus-visible:ring-alerte"
                   >
                     Supprimer
                   </button>
@@ -912,14 +827,14 @@ function TableauLignesEdition({
         <button
           type="button"
           onClick={() => setLignes((precedent) => [...precedent, nouvelleLigneBrouillon()])}
-          className="text-sm font-medium text-blue-700 underline outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+          className="inline-flex min-h-[44px] items-center text-sm font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           Ajouter une ligne
         </button>
         <button
           type="submit"
           disabled={mutation.isPending}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white outline-none hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex min-h-[44px] items-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-white outline-none hover:bg-accent-fonce focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
         >
           Enregistrer les lignes
         </button>
@@ -927,14 +842,14 @@ function TableauLignesEdition({
           type="button"
           onClick={onAnnuler}
           aria-label="Annuler la modification des lignes"
-          className="text-sm font-medium text-slate-600 underline outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+          className="inline-flex min-h-[44px] items-center text-sm font-medium text-encre-2 underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           Annuler
         </button>
       </div>
 
       {mutation.isError && (
-        <p role="alert" className="text-sm text-red-700">
+        <p role="alert" className="text-sm text-alerte">
           {mutation.error instanceof ErreurApi
             ? mutation.error.detail
             : "Une erreur est survenue, réessayez."}
@@ -945,14 +860,23 @@ function TableauLignesEdition({
 }
 
 // --------------------------------------------------------------------------
-// Page
+// Section de correction
 // --------------------------------------------------------------------------
 
-/** `GET /api/documents/{id}` (L3-D19, L3-T10) : détail, correction,
- * validation, archivage et relance d'un BL/enlèvement. Ouverte à l'admin
- * (tous) et à l'agent (ses dépôts, en lecture seule) — aucune vérification
- * de rôle ici, `donnees.modifiable` (calculé par le service) décide seul de
- * l'affichage des contrôles d'édition. */
+/** Section « Corriger la lecture du bon » (Task 8, refonte front) :
+ * motifs, champs et lignes lus par la lecture automatique, correction,
+ * validation, archivage et relance d'un BL/enlèvement — logique
+ * intégralement conservée depuis
+ * `GET /api/documents/{id}` (L3-D19, L3-T10), seulement habillée et
+ * amputée de son ancien en-tête de page (photo, titre, badge de statut,
+ * confirmation) : la page `PageBl` qui la monte, dans un `<details>`
+ * repliable, affiche déjà cette information au-dessus. Toujours montée
+ * dans le même arbre de route que `PageBl` (`/documents/:id` ou `/bl/:id`),
+ * donc `useParams` y lit le même identifiant sans avoir besoin d'une prop.
+ * Ouverte à l'admin (tous) et à l'agent (ses dépôts, en lecture seule) —
+ * aucune vérification de rôle ici, `donnees.modifiable` (calculé par le
+ * service) décide seul de l'affichage des contrôles d'édition ; `PageBl` ne
+ * monte de toute façon cette section que lorsque `modifiable` vaut `true`. */
 export function DocumentDetail(): ReactElement {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
@@ -1011,9 +935,9 @@ export function DocumentDetail(): ReactElement {
    * jour renvoyé par l'API — l'autre section, si elle est encore ouverte,
    * n'est jamais touchée : son brouillon non enregistré survit (fix round 2
    * : un seul drapeau partagé perdait silencieusement le brouillon de la
-   * section non enregistrée). La trace OCR (« Valeur OCR : … — corrigée
-   * par … ») s'affiche tout de suite dans la section refermée, sans qu'il
-   * faille annuler ou recharger. */
+   * section non enregistrée). La trace de la correction (« Valeur lue :
+   * … — corrigée par … ») s'affiche tout de suite dans la section
+   * refermée, sans qu'il faille annuler ou recharger. */
   function surEcritureEtFermetureEntete(detail: DocumentDetailApi): void {
     surEcriture(detail);
     setEnEditionEntete(false);
@@ -1043,7 +967,7 @@ export function DocumentDetail(): ReactElement {
 
   if (id === undefined) {
     return (
-      <p role="alert" className="text-sm text-red-700">
+      <p role="alert" className="text-sm text-alerte">
         Document introuvable.
       </p>
     );
@@ -1051,7 +975,7 @@ export function DocumentDetail(): ReactElement {
 
   if (document.isPending) {
     return (
-      <p role="status" className="text-sm text-slate-500">
+      <p role="status" className="text-sm text-encre-2">
         Chargement…
       </p>
     );
@@ -1059,7 +983,7 @@ export function DocumentDetail(): ReactElement {
 
   if (document.isError || !document.data) {
     return (
-      <p role="alert" className="text-sm text-red-700">
+      <p role="alert" className="text-sm text-alerte">
         Document introuvable.
       </p>
     );
@@ -1073,7 +997,7 @@ export function DocumentDetail(): ReactElement {
   function relancerAvecConfirmation(): void {
     if (
       window.confirm(
-        "Relancer l'extraction ? Les valeurs actuelles seront remplacées par une nouvelle lecture OCR.",
+        "Relancer l'extraction ? Les valeurs actuelles seront remplacées par une nouvelle lecture automatique.",
       )
     ) {
       mutationRelance.mutate();
@@ -1087,34 +1011,12 @@ export function DocumentDetail(): ReactElement {
 
   return (
     <div>
-      <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold text-slate-900">
-            Document n° {donnees.numero_interne} · {libelleTypeDocument(donnees.type)}
-          </h1>
-          <p className="text-sm text-slate-600">
-            Déposé par {donnees.deposant ?? TIRET} le {formaterDateHeure(donnees.cree_le)}
-          </p>
-        </div>
-        <span
-          className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${classesStatutDocument(donnees.statut)}`}
-        >
-          {libelleStatutDocument(donnees.statut)}
-        </span>
-      </div>
-
-      <p className="mb-4 text-sm text-slate-600">
-        <ConfirmationInfo
-          confirmation={donnees.confirmation}
-          confirmePar={donnees.confirme_par}
-          confirmeLe={donnees.confirme_le}
-        />
-      </p>
-
       {donnees.statut === "a_verifier" && donnees.motifs.length > 0 && (
-        <div className="mb-6 rounded-lg border border-orange-200 bg-orange-50 p-4">
-          <h2 className="mb-2 text-sm font-semibold text-orange-900">Motifs</h2>
-          <ul className="list-disc space-y-1 pl-5 text-sm text-orange-900">
+        <div className="mb-6 rounded-lg border border-ecart/40 bg-[#fbe9c6] p-4">
+          <h3 className="mb-2 text-sm font-semibold text-[#7a4a00]">
+            Pourquoi une vérification est demandée
+          </h3>
+          <ul className="list-disc space-y-1 pl-5 text-sm text-[#7a4a00]">
             {donnees.motifs.map((motif, index) => (
               <li key={index}>{libelleMotif(motif)}</li>
             ))}
@@ -1122,14 +1024,12 @@ export function DocumentDetail(): ReactElement {
         </div>
       )}
 
-      <Photo documentId={donnees.id} />
-
       {donnees.modifiable && !enEditionEntete && (
         <button
           type="button"
           onClick={() => setEnEditionEntete(true)}
           aria-label="Modifier l'en-tête"
-          className="mb-4 rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 outline-none hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-blue-600"
+          className="inline-flex min-h-[44px] items-center mb-4 rounded-md border border-bordure px-4 py-2 text-sm font-medium text-encre outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
         >
           Modifier
         </button>
@@ -1160,20 +1060,20 @@ export function DocumentDetail(): ReactElement {
       )}
 
       {!enEditionEntete && (
-        <p className="mb-6 text-xs text-slate-500">
+        <p className="mb-6 text-xs text-encre-2">
           {donnees.agence_fournisseur !== null && <>Agence : {donnees.agence_fournisseur} · </>}
           Chantier rattaché : {donnees.chantier ?? "non rattaché"}
         </p>
       )}
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-base font-semibold text-slate-900">Lignes ({donnees.lignes.length})</h2>
+        <h2 className="font-titre text-lg font-medium text-encre">Lignes ({donnees.lignes.length})</h2>
         {donnees.modifiable && !enEditionLignes && (
           <button
             type="button"
             onClick={() => setEnEditionLignes(true)}
             aria-label="Modifier les lignes"
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 outline-none hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="inline-flex min-h-[44px] items-center rounded-md border border-bordure px-4 py-2 text-sm font-medium text-encre outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
           >
             Modifier
           </button>
@@ -1195,13 +1095,13 @@ export function DocumentDetail(): ReactElement {
       )}
 
       {donnees.modifiable && (
-        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-200 pt-4">
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-bordure pt-4">
           {donnees.statut === "a_verifier" && (
             <button
               type="button"
               onClick={() => mutationValidation.mutate()}
               disabled={mutationValidation.isPending}
-              className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white outline-none hover:bg-green-700 focus-visible:ring-2 focus-visible:ring-green-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex min-h-[44px] items-center rounded-md bg-conforme px-4 py-2 text-sm font-medium text-white outline-none hover:bg-conforme/90 focus-visible:ring-2 focus-visible:ring-conforme focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Valider
             </button>
@@ -1211,7 +1111,7 @@ export function DocumentDetail(): ReactElement {
               type="button"
               onClick={relancerAvecConfirmation}
               disabled={mutationRelance.isPending}
-              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 outline-none hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex min-h-[44px] items-center rounded-md border border-bordure px-4 py-2 text-sm font-medium text-encre outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
               Relancer l'extraction
             </button>
@@ -1219,7 +1119,7 @@ export function DocumentDetail(): ReactElement {
           <button
             type="button"
             onClick={() => setArchivageOuvert((valeur) => !valeur)}
-            className="rounded-md border border-red-300 px-4 py-2 text-sm font-medium text-red-700 outline-none hover:bg-red-50 focus-visible:ring-2 focus-visible:ring-red-600"
+            className="inline-flex min-h-[44px] items-center rounded-md border border-alerte/50 px-4 py-2 text-sm font-medium text-alerte outline-none hover:bg-[#f9dedc] focus-visible:ring-2 focus-visible:ring-alerte"
           >
             Archiver
           </button>
@@ -1227,10 +1127,10 @@ export function DocumentDetail(): ReactElement {
       )}
 
       {mutationValidation.isError && (
-        <div role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+        <div role="alert" className="mt-3 rounded-md border border-alerte/30 bg-[#f9dedc] p-3 text-sm text-[#8c1d18]">
           {mutationValidation.error instanceof ValidationRefuseeErreur ? (
             <>
-              <p className="mb-1 font-medium">Validation refusée : des anomalies subsistent.</p>
+              <p className="mb-1 font-medium">Validation refusée : des points restent à corriger.</p>
               <ul className="list-disc space-y-1 pl-5">
                 {mutationValidation.error.motifs.map((motif, index) => (
                   <li key={index}>{libelleMotif(motif)}</li>
@@ -1246,7 +1146,7 @@ export function DocumentDetail(): ReactElement {
       )}
 
       {mutationRelance.isError && (
-        <p role="alert" className="mt-3 text-sm text-red-700">
+        <p role="alert" className="mt-3 text-sm text-alerte">
           {mutationRelance.error instanceof ErreurApi
             ? mutationRelance.error.detail
             : "Une erreur est survenue, réessayez."}
@@ -1256,12 +1156,12 @@ export function DocumentDetail(): ReactElement {
       {archivageOuvert && (
         <form
           onSubmit={soumettreArchivage}
-          className="mt-4 space-y-3 rounded-lg border border-red-200 bg-red-50 p-4"
+          className="mt-4 space-y-3 rounded-lg border border-alerte/30 bg-[#f9dedc] p-4"
         >
           <div>
             <label
               htmlFor="commentaire-archivage"
-              className="mb-1 block text-xs font-medium text-slate-700"
+              className="mb-1 block text-xs font-medium text-encre"
             >
               Commentaire (obligatoire)
             </label>
@@ -1270,27 +1170,27 @@ export function DocumentDetail(): ReactElement {
               value={commentaireArchivage}
               onChange={(evenement) => setCommentaireArchivage(evenement.target.value)}
               rows={2}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              className="w-full rounded-md border border-bordure px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="submit"
               disabled={commentaireArchivage.trim() === "" || mutationArchivage.isPending}
-              className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white outline-none hover:bg-red-700 focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex min-h-[44px] items-center rounded-md bg-alerte px-4 py-2 text-sm font-medium text-white outline-none hover:bg-alerte/90 focus-visible:ring-2 focus-visible:ring-alerte focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Confirmer l'archivage
             </button>
             <button
               type="button"
               onClick={() => setArchivageOuvert(false)}
-              className="text-sm font-medium text-slate-600 underline outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              className="inline-flex min-h-[44px] items-center text-sm font-medium text-encre-2 underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Annuler
             </button>
           </div>
           {mutationArchivage.isError && (
-            <p role="alert" className="text-sm text-red-700">
+            <p role="alert" className="text-sm text-alerte">
               {mutationArchivage.error instanceof ErreurApi
                 ? mutationArchivage.error.detail
                 : "Une erreur est survenue, réessayez."}

@@ -481,7 +481,15 @@ async def facture_detail(session: AsyncSession, facture_id: uuid.UUID) -> Factur
 class DocumentResume:
     """Une ligne de `GET /api/documents` (L2-T5, `confirmation` ajouté au
     Ruling L2-R8 ; `fournisseur`/`chantier_brut` ajoutés en L3-T8a pour un
-    aperçu utile dans la liste, sans ouvrir le détail de chaque document)."""
+    aperçu utile dans la liste, sans ouvrir le détail de chaque document ;
+    `chantier_id` ajouté au tour de correction 1 de Task 8, voir
+    `DocumentReponse` ; `date_doc` ajouté au tour de correction 2 — même
+    colonne `Document.date_doc` qu'une facture, mais pour un BL/enlèvement
+    elle porte la date du bon telle qu'imprimée (`extract/bl.py`), donc sa
+    date de livraison, pas sa date de dépôt (`cree_le`, toujours la date de
+    réception Telegram) : le filtre `?mois=` de la liste « Documents »
+    comparait un BL sur `cree_le` faute de mieux, ce qui l'excluait du mois
+    où il a réellement été livré quand il est déposé un autre mois."""
 
     id: uuid.UUID
     numero_interne: int
@@ -490,6 +498,7 @@ class DocumentResume:
     statut: str
     deposant: str | None
     cree_le: datetime
+    date_doc: date | None
     confirme_le: datetime | None
     confirme_par: str | None
     photo_compressee: bool | None
@@ -498,6 +507,7 @@ class DocumentResume:
     confirmation: str | None
     fournisseur: str | None
     chantier_brut: str | None
+    chantier_id: uuid.UUID | None
 
 
 LIMITE_DOCUMENTS_MIN = 1
@@ -584,6 +594,7 @@ async def lister_documents(
             statut=document.statut,
             deposant=nom_deposant,
             cree_le=document.created_at,
+            date_doc=document.date_doc,
             confirme_le=document.confirme_le,
             confirme_par=nom_confirmateur,
             photo_compressee=document.photo_compressee,
@@ -592,6 +603,7 @@ async def lister_documents(
             else None,
             fournisseur=nom_fournisseur,
             chantier_brut=document.chantier_brut,
+            chantier_id=document.chantier_id,
         )
         for (
             document,

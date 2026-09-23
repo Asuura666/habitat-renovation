@@ -181,6 +181,12 @@ async def test_liste_admin_voit_tous_les_documents(
     # L3-T8a : aucun fournisseur/chantier résolu sur ce document minimal.
     assert ligne["fournisseur"] is None
     assert ligne["chantier_brut"] is None
+    # Tour de correction 1 de Task 8 : `chantier_id` (identifiant, pas
+    # seulement le texte brut `chantier_brut`).
+    assert ligne["chantier_id"] is None
+    # Tour de correction 2 de Task 8 : `date_doc` (date du bon telle
+    # qu'imprimée, jamais lue sur ce document minimal).
+    assert ligne["date_doc"] is None
     assert set(ligne.keys()) == {
         "id",
         "numero_interne",
@@ -189,12 +195,14 @@ async def test_liste_admin_voit_tous_les_documents(
         "statut",
         "deposant",
         "cree_le",
+        "date_doc",
         "confirme_le",
         "confirme_par",
         "photo_compressee",
         "confirmation",
         "fournisseur",
         "chantier_brut",
+        "chantier_id",
     }
 
 
@@ -546,3 +554,6 @@ async def test_comparaison_admin_renvoie_le_detail(
     assert corps["numero_facture"] == "FAC-CMP-01"
     assert corps["montant_facture_ht"] == "0"
     assert corps["lignes"] == []
+    # Tour de correction 1 de Task 8 : nombre d'anomalies ouvertes, jamais
+    # recalculé côté front à partir de `lignes`.
+    assert corps["nb_problemes"] == 0
