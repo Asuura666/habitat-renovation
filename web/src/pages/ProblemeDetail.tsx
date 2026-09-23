@@ -289,6 +289,20 @@ function DetailAnomalie({
   anomalie: Anomalie;
   onTraitementReussi: () => void;
 }): ReactElement {
+  // Fix round 2, finding 1 : régression du fix round 1 (finding 6,
+  // commentaire ci-dessous) -- le lien bon n'était affiché que pour une
+  // anomalie dont `type !== "facture"` (R11, R15), alors que
+  // `rapprochement.py:931-936` pose `document_id = facture_id` sur toutes
+  // les règles pures (R01 à R09, R12, R13, R17), qui ont donc toutes
+  // `type === "facture"` mais peuvent malgré tout connaître leur bon via
+  // le bloc (`bl_document_id`, joint depuis `BlocFacture`,
+  // `app/modules/ingest/anomalies.py::_requete_anomalies`) dès que ce
+  // bloc est apparié à un BL. `cibleBon` vaut `document_id` lui-même pour
+  // R11/R15 (`document_id` porte déjà l'identifiant du BL, `type = "bl"`)
+  // ou `bl_document_id` pour tout le reste -- y compris une anomalie de
+  // facture, qui peut donc afficher les deux liens à la fois (ex. R01/R02,
+  // maquette `ARegler` : « Voir la facture · Voir le bon de livraison »).
+  const cibleBon = anomalie.type !== "facture" ? anomalie.document_id : anomalie.bl_document_id;
   return (
     <>
       <div className="flex flex-col gap-1">
@@ -315,21 +329,15 @@ function DetailAnomalie({
         </dl>
       </div>
 
-      {/* Fix round 1, finding 6 : « Voir la facture » s'affichait pour
-          toute anomalie avec un `document_id`, sans regarder son type —
-          pour les règles portées par un BL (R11, R15 : `document_id` porte
-          l'identifiant du BL lui-même, `type = "bl"`), le seul lien
-          affiché s'appelait « Voir la facture » et ouvrait pourtant le bon
-          de livraison. `anomalie.type` (le type du document résolu par
-          `document_id`, `app/modules/ingest/anomalies.py::_anomalie_lue`)
-          tranche désormais laquelle des deux étiquettes est correcte,
-          jamais les deux à la fois sur un même document : une facture
-          (`type === "facture"`, ex. R10) vers `/documents/:id` (dépend de
-          la Task 8 tant qu'elle n'est pas fusionnée, `_document_pour_
-          lecture` refuse une facture, `app/modules/ingest/corrections.py`)
-          ; sinon `document_id` est déjà un bon de livraison (R11, R15) et
-          `bl_document_id` (résolu via le bloc, R01/R02/R06…) n'est utilisé
-          qu'en second recours. */}
+      {/* Lien facture : seulement pour une anomalie dont le document résolu
+          par `document_id` est bien une facture (`type === "facture"`) —
+          jamais pour R11/R15, dont `document_id` porte l'identifiant du BL
+          lui-même (`type = "bl"`). Dépend de la Task 8 tant qu'elle n'est
+          pas fusionnée (`/documents/:id` refuse une facture,
+          `_document_pour_lecture`, `app/modules/ingest/corrections.py`).
+          Lien bon : voir `cibleBon` ci-dessus (fix round 2, finding 1) —
+          jamais conditionné par `anomalie.type`, les deux liens peuvent
+          s'afficher ensemble. */}
       <div className="flex flex-wrap gap-3 text-sm">
         {anomalie.type === "facture" && anomalie.document_id !== null && (
           <Link
@@ -339,17 +347,9 @@ function DetailAnomalie({
             Voir la facture
           </Link>
         )}
-        {anomalie.type !== "facture" && anomalie.document_id !== null && (
+        {cibleBon !== null && (
           <Link
-            to={`/bl/${anomalie.document_id}`}
-            className="font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            Voir le bon de livraison
-          </Link>
-        )}
-        {anomalie.type !== "facture" && anomalie.document_id === null && anomalie.bl_document_id !== null && (
-          <Link
-            to={`/bl/${anomalie.bl_document_id}`}
+            to={`/bl/${cibleBon}`}
             className="font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Voir le bon de livraison

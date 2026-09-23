@@ -255,16 +255,49 @@ def test_probleme_detail_monte_avec_une_cle_stable_par_probleme() -> None:
 
 
 def test_lien_anomalie_choisit_facture_ou_bon_de_livraison_selon_le_type() -> None:
-    """Finding 6 (Important) : « Voir la facture » s'affichait pour toute
+    """Finding 6 (tour 1) : « Voir la facture » s'affichait pour toute
     anomalie ayant un `document_id`, même quand ce document est en réalité
     un bon de livraison (R11, R15 : `document_id` porte l'identifiant du
     BL) -- jamais deux liens vers deux documents différents affichés en
-    même temps pour une même anomalie."""
+    même temps pour une même anomalie. Le lien facture reste conditionné
+    par `anomalie.type === "facture"` (voir le test suivant pour le lien
+    bon, dont la condition a changé au tour 2)."""
     page = _lire("pages", "ProblemeDetail.tsx")
     assert 'anomalie.type === "facture" && anomalie.document_id !== null' in page
-    assert 'anomalie.type !== "facture" && anomalie.document_id !== null' in page
-    assert 'anomalie.type !== "facture" && anomalie.document_id === null' in page
-    assert "anomalie.bl_document_id !== null" in page
+
+
+def test_lien_bon_de_livraison_saffiche_meme_pour_une_anomalie_de_facture() -> None:
+    """Finding 1 (tour 2, régression du fix du finding 6 au tour 1) : le
+    correctif précédent conditionnait aussi le lien bon par `anomalie.type
+    !== "facture"` -- or `rapprochement.py:931-936` pose `document_id =
+    facture_id` sur toutes les règles pures (R01 à R09, R12, R13, R17), qui
+    ont donc toutes `type === "facture"`. Résultat : aucune de ces
+    anomalies n'affichait plus le lien bon, même avec un `bl_document_id`
+    connu (capture `a-regler-detail-prix-1440.png`, anomalie de prix,
+    maquette `ARegler` : « Voir la facture · Voir le bon de livraison »).
+    Le lien bon ne dépend plus du type de l'anomalie : seulement de
+    `cibleBon` (`document_id` pour R11/R15, dont `document_id` porte déjà
+    l'identifiant du BL ; `bl_document_id` sinon, y compris pour une
+    anomalie de facture) -- les deux liens peuvent s'afficher ensemble."""
+    page = _lire("pages", "ProblemeDetail.tsx")
+    declaration_cible_bon = (
+        'const cibleBon = anomalie.type !== "facture" ? anomalie.document_id'
+        " : anomalie.bl_document_id;"
+    )
+    assert declaration_cible_bon in page
+
+    bloc_liens = page.split('<div className="flex flex-wrap gap-3 text-sm">', 1)[
+        1
+    ].split("</div>", 1)[0]
+    # Le bloc du lien bon (après celui de la facture) : le lien s'affiche
+    # dès que `cibleBon` est connu -- jamais recontrôlé par `anomalie.type`
+    # à cet endroit précis (c'est cette condition en trop, ajoutée au tour
+    # 1, qui masquait le lien pour toute anomalie de facture ayant
+    # pourtant un `bl_document_id`).
+    bloc_lien_bon = bloc_liens.split("Voir la facture", 1)[1]
+    assert "cibleBon !== null" in bloc_lien_bon
+    assert "anomalie.type" not in bloc_lien_bon
+    assert "/bl/${cibleBon}" in bloc_lien_bon
 
 
 def test_panneau_detail_reste_visible_et_defile_en_interne_sur_grand_ecran() -> None:
@@ -292,6 +325,23 @@ def test_montant_en_jeu_jamais_un_prix_unitaire_ni_une_quantite_nue() -> None:
     page = _lire("pages", "ARegler.tsx")
     assert '"pu_facture"' not in page
     assert "quantiteAvecUnite(detail, " in page
+
+
+def test_quantite_avec_unite_replie_sur_tiret_quand_lunite_est_absente() -> None:
+    """Finding 2 (tour 2, Important, correction partielle du finding 8 du
+    tour 1) : quand l'article n'a pas d'`unite_fact` validée,
+    `detail.unite` vaut le tiret cadratin (`R03.py::detail_ecart_qte` --
+    le cas le plus courant, capturé sur les deux anomalies R03/R04 de la
+    démo) et `quantiteAvecUnite` rendait alors la quantité nue (« 5 »,
+    « -10 », captures `a-regler-liste-{1440,375}.png`) -- exactement le
+    défaut que ce même correctif était censé éliminer, et incohérent avec
+    R06/R17, déjà au tiret cadratin pour cette même raison. Repli
+    désormais sur le tiret cadratin, jamais une quantité seule ni une
+    unité inventée."""
+    page = _lire("pages", "ARegler.tsx")
+    ternaire = "unite !== undefined && unite !== TIRET"
+    assert f"return {ternaire} ? `${{quantite}} ${{unite}}` : TIRET;" in page
+    assert f"return {ternaire} ? `${{quantite}} ${{unite}}` : quantite;" not in page
 
 
 def test_a_regler_separe_ouverts_et_deja_regles_sans_troncature_silencieuse() -> None:

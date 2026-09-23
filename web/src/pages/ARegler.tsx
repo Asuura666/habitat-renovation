@@ -166,15 +166,23 @@ export function dateHeureOuTiret(detail: Record<string, string>, cle: string): s
  * porte (fix round 1, finding 8) : une quantité nue dans la colonne
  * « montant en jeu » ressemble à un montant sans en être un (« 5 », « -10 »
  * sur les captures) — jamais un non-technicien ne peut la lire
- * correctement. `cleUnite` absente ou valant le tiret cadratin : la
- * quantité seule est rendue (jamais une unité inventée). */
+ * correctement.
+ *
+ * Fix round 2, finding 2 : `cleUnite` absente ou valant le tiret cadratin
+ * rendait la quantité seule (même défaut que celui corrigé au tour 1, R03/
+ * R04 dès que l'article n'a pas d'`unite_fact` validée,
+ * `R03.py::detail_ecart_qte` pose alors `TIRET` sur `unite` — le cas le
+ * plus courant de la démo). Rendu désormais au tiret cadratin dans ce cas,
+ * comme R06/R17 (mêmes captures `a-regler-liste`) : jamais une unité
+ * inventée, jamais non plus une quantité nue qu'un non-technicien lirait
+ * comme un montant. */
 export function quantiteAvecUnite(detail: Record<string, string>, cleQuantite: string, cleUnite: string): string {
   const quantite = quantiteOuTiret(detail, cleQuantite);
   if (quantite === "?" || quantite === TIRET) {
     return quantite;
   }
   const unite = detail[cleUnite];
-  return unite !== undefined && unite !== TIRET ? `${quantite} ${unite}` : quantite;
+  return unite !== undefined && unite !== TIRET ? `${quantite} ${unite}` : TIRET;
 }
 
 export function pointsOuTiret(detail: Record<string, string>, cle: string): string {
