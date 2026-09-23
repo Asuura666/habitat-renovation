@@ -95,15 +95,20 @@ def test_ecrans_sans_remplacement_restent_montes() -> None:
 
 
 def test_chantiers_referentiel_reste_accessible() -> None:
-    """Fix round 1, R1 : la création de chantier et la validation d'alias
-    (`Chantiers.tsx`, ex-écran « Chantiers & fournisseurs ») restent
-    accessibles à `/chantiers/referentiel`, avec un lien visible depuis la
-    navigation."""
+    """Fix round 1, R1, mis à jour par la Task 7 de la refonte du front :
+    la création de chantier (désormais dans `ChantiersListe.tsx`) et la
+    validation d'alias (désormais dans l'écran « À régler ») ont repris tout
+    le contenu utile de l'ancien écran « Chantiers & fournisseurs »
+    (`Chantiers.tsx`, supprimé) — `/chantiers/referentiel` devient une
+    simple redirection vers `/chantiers`, et le lien « Gérer les chantiers »
+    de la navigation reste valide (spec §3, aucune fonctionnalité
+    supprimée)."""
     app = (SRC / "App.tsx").read_text()
     assert 'path="chantiers/referentiel"' in app
     declaration = app.split('path="chantiers/referentiel"', 1)[1].split("path=", 1)[0]
-    assert "<Chantiers" in declaration
-    assert "GardeAdmin" in declaration
+    assert "RedirectionAncienneUrl" in declaration
+    assert '"/chantiers"' in declaration
+    assert not (SRC / "pages" / "Chantiers.tsx").exists()
 
     gabarit = (SRC / "components" / "Gabarit.tsx").read_text()
     assert "Gérer les chantiers" in gabarit

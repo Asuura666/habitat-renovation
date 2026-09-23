@@ -573,3 +573,59 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   retirés, chaîne vide -> `None`). Si le nombre de clients grandit ou
   qu'un besoin de recherche/à normaliser apparaît, un référentiel dédié
   serait alors justifié — hors périmètre de cette tâche.
+
+### Chantiers et fiche chantier (Task 7, refonte du front) — web
+
+- **Pas de « Conforme » par chantier sur la fiche.** La consigne de la
+  Task 7 demandait quatre `Chiffre` sur `FicheChantier.tsx` (Facturé,
+  Conforme, Écart, Sans bon), avec un repli explicite « sinon n'afficher
+  que Facturé / Écart / Sans bon » si le serveur ne fournit pas
+  « conforme ». Vérification faite : aucun endpoint ne fournit ce montant
+  par chantier — `LigneBilanChantierReponse.montants` et
+  `ChantierTableauReponse.montants` (`MontantsBilanReponse`) n'ont que
+  `facture_ht`/`rapproche`/`en_ecart`/`non_justifie`/
+  `nb_anomalies_ouvertes` ; seul `TableauDeBordReponse.totaux.conforme`
+  existe, agrégé sur tous les chantiers du mois, inutilisable pour un seul
+  chantier sans le recalculer côté front (interdit). Le repli s'applique
+  donc toujours : la fiche affiche trois chiffres, jamais quatre. Pour
+  aller plus loin, il faudrait exposer un `conforme` par chantier dans
+  `ChantierTableau`/`MontantsBilan` côté serveur (`ingest/tableau_de_bord
+  .py`/`ingest/bilan.py`).
+- **Pastille d'état de la fiche chantier limitée au mois courant.** Faute
+  d'un sélecteur de mois sur `FicheChantier.tsx` (non demandé par la
+  consigne, contrairement à `ChantiersListe.tsx`), la pastille d'état de
+  l'en-tête interroge silencieusement `/api/tableau-de-bord` pour le mois
+  courant (Europe/Paris) uniquement ; elle est simplement absente si le
+  chantier n'a aucun bloc facturé ce mois-ci (chantier vu uniquement sur
+  un mois passé, par exemple). Aucune régression : l'ancien écran
+  (`BilanFournisseursChantier`) n'avait pas de pastille du tout.
+- **Livraisons d'un fournisseur non résolu absentes de la fiche.** La
+  carte « Livraisons » assemble les BL de tous les fournisseurs du
+  chantier via `GET /api/bilan/chantiers/{id}/fournisseurs` puis, pour
+  chacun, `GET /api/bilan/chantiers/{id}/fournisseurs/{fournisseur_id}/bl`
+  — cette seconde route exige un `fournisseur_id` réel (chemin), donc les
+  blocs dont le fournisseur n'a pas pu être résolu (`fournisseur_id`
+  `None` dans `GET .../fournisseurs`) n'ont aucune route pour récupérer
+  leurs lignes de BL et n'apparaissent pas dans la liste. Ils restent
+  visibles depuis « À régler » (règle R14, chantier/fournisseur à
+  rattacher) et depuis « Documents ». Un endpoint qui accepterait
+  `fournisseur_id=null` (ou une route unique « toutes les livraisons du
+  chantier ») lèverait cette limite.
+- **« Exporter pour Excel » de la fiche chantier réutilise l'export CSV
+  fournisseurs du chantier** (`GET /api/bilan/chantiers/{id}
+  /fournisseurs.csv`, même route que l'ancien écran
+  `BilanFournisseursChantier`) — c'est le seul export existant scopé sur ce
+  chantier ; il n'y a pas de CSV « toutes les livraisons, tous
+  fournisseurs confondus » correspondant exactement à la carte
+  « Livraisons » affichée (qui, elle, vient de l'assemblage décrit
+  ci-dessus, sans route CSV équivalente).
+- **Dépôts par agent (CDC §4, 30 jours) repris dans `ChantiersListe.tsx`,
+  pas dans un écran dédié.** L'ancien écran « Chantiers & fournisseurs »
+  regroupait référentiels, alias, activité (dépôts par agent + chantiers
+  silencieux) ; la refonte disperse ce contenu (alias → « À régler », Task
+  6 ; agences d'un fournisseur → fiche fournisseur, Task 9) sans lui
+  laisser de nouvel écran dédié. Faute d'un tel écran, la Task 7 a ajouté
+  une carte « Dépôts récents (30 jours) » en bas de `ChantiersListe.tsx`
+  pour que cette exigence du CDC reste accessible quelque part — décision
+  du contrôleur/de l'implémenteur à confirmer, un autre emplacement
+  (Réglages ? un écran « Activité » séparé ?) étant tout aussi défendable.

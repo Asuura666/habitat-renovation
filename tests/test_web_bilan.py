@@ -6,7 +6,12 @@ RACINE_WEB = Path(__file__).parents[1] / "web" / "src"
 
 
 def test_ecran_bilan_couvre_le_contrat_responsive() -> None:
-    page = (RACINE_WEB / "pages" / "Bilan.tsx").read_text()
+    """`Bilan.tsx` (écran « Bilan ») est repris par `ChantiersListe.tsx`
+    (écran « Chantiers », Task 7 de la refonte du front) : même contrat
+    (filtres mois/agence, export CSV au niveau affiché et export détaillé,
+    présentation responsive), fichier différent — voir aussi
+    `tests/test_web_chantiers.py`."""
+    page = (RACINE_WEB / "pages" / "ChantiersListe.tsx").read_text()
 
     assert "useSearchParams" in page
     assert 'type="month"' in page
@@ -18,9 +23,8 @@ def test_ecran_bilan_couvre_le_contrat_responsive() -> None:
     referentiels = (RACINE_WEB / "api" / "referentiels.ts").read_text()
     assert '"/api/referentiels/agences"' in referentiels
     assert "CLE_AGENCES" in referentiels
-    assert "Les quatre montants ne s" in page
     assert "md:hidden" in page
-    assert "hidden" in page and "md:block" in page
+    assert "hidden" in page and "md:inline-flex" in page
     assert "Exporter en CSV" in page
     assert "Export détaillé (CSV)" in page
     assert "urlExportBilanDetail" in page
