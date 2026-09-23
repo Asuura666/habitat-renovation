@@ -21,6 +21,7 @@ from app.modules.api import (
     moi,
     parametres,
     referentiels,
+    tableau_de_bord,
 )
 
 router = APIRouter(prefix="/api")
@@ -33,5 +34,6 @@ router.include_router(anomalies.router)
 router.include_router(bilan.router)
 router.include_router(journal.router)
 router.include_router(parametres.router)
+router.include_router(tableau_de_bord.router)
 
 __all__ = ["router"]

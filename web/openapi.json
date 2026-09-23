@@ -2192,6 +2192,46 @@
     }
    }
   },
+  "/api/tableau-de-bord": {
+   "get": {
+    "summary": "Tableau De Bord Endpoint",
+    "operationId": "tableau_de_bord_endpoint_api_tableau_de_bord_get",
+    "parameters": [
+     {
+      "name": "mois",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "date",
+       "title": "Mois"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TableauDeBordReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/health": {
    "get": {
     "summary": "Health",
@@ -3139,6 +3179,79 @@
     ],
     "title": "ChantierSilencieuxReponse",
     "description": "Une ligne de `GET /api/referentiels/chantiers-silencieux` (L5-T7) —\nmêmes attributs qu'`ingest.referentiels_vue.ChantierSilencieux`."
+   },
+   "ChantierTableauReponse": {
+    "properties": {
+     "chantier_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chantier Id"
+     },
+     "nom_canonique": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Nom Canonique"
+     },
+     "client": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Client"
+     },
+     "agence": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Agence"
+     },
+     "etat": {
+      "type": "string",
+      "title": "Etat"
+     },
+     "montants": {
+      "$ref": "#/components/schemas/MontantsBilanReponse"
+     },
+     "a_verifier": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "A Verifier"
+     }
+    },
+    "type": "object",
+    "required": [
+     "chantier_id",
+     "nom_canonique",
+     "client",
+     "agence",
+     "etat",
+     "montants",
+     "a_verifier"
+    ],
+    "title": "ChantierTableauReponse",
+    "description": "Une ligne de `chantiers` dans `GET /api/tableau-de-bord` — mêmes\nattributs qu'`ingest.tableau_de_bord.ChantierTableau`. `chantier_id`\n(et `nom_canonique`/`client`/`agence`) valent `None` pour les blocs\ndont le chantier n'a pas pu être résolu (`etat=\"a_rattacher\"` dans ce\ncas), même principe que `LigneBilanChantierReponse.chantier_id`."
    },
    "CorrectionEnteteRequete": {
     "properties": {
@@ -4867,6 +4980,126 @@
     ],
     "title": "ParametreReponse",
     "description": "Un seuil administrable avec ses métadonnées de présentation."
+   },
+   "ProblemePrioritaireReponse": {
+    "properties": {
+     "anomalie": {
+      "$ref": "#/components/schemas/AnomalieReponse"
+     },
+     "montant_en_jeu": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Montant En Jeu"
+     }
+    },
+    "type": "object",
+    "required": [
+     "anomalie",
+     "montant_en_jeu"
+    ],
+    "title": "ProblemePrioritaireReponse",
+    "description": "Une ligne de `priorites` dans `GET /api/tableau-de-bord` — mêmes\nattributs qu'`ingest.tableau_de_bord.ProblemePrioritaire`.\n`montant_en_jeu` vaut `None` quand la règle de l'anomalie n'en porte\npas ou que la valeur lue sur `detail` n'est pas convertible."
+   },
+   "TableauDeBordReponse": {
+    "properties": {
+     "mois": {
+      "type": "string",
+      "format": "date",
+      "title": "Mois"
+     },
+     "totaux": {
+      "$ref": "#/components/schemas/TotauxMoisReponse"
+     },
+     "nb_problemes_ouverts": {
+      "type": "integer",
+      "title": "Nb Problemes Ouverts"
+     },
+     "nb_problemes_urgents": {
+      "type": "integer",
+      "title": "Nb Problemes Urgents"
+     },
+     "nb_bl_factures": {
+      "type": "integer",
+      "title": "Nb Bl Factures"
+     },
+     "nb_bl_recus": {
+      "type": "integer",
+      "title": "Nb Bl Recus"
+     },
+     "chantiers": {
+      "items": {
+       "$ref": "#/components/schemas/ChantierTableauReponse"
+      },
+      "type": "array",
+      "title": "Chantiers"
+     },
+     "priorites": {
+      "items": {
+       "$ref": "#/components/schemas/ProblemePrioritaireReponse"
+      },
+      "type": "array",
+      "title": "Priorites"
+     }
+    },
+    "type": "object",
+    "required": [
+     "mois",
+     "totaux",
+     "nb_problemes_ouverts",
+     "nb_problemes_urgents",
+     "nb_bl_factures",
+     "nb_bl_recus",
+     "chantiers",
+     "priorites"
+    ],
+    "title": "TableauDeBordReponse",
+    "description": "`GET /api/tableau-de-bord` — mêmes attributs\nqu'`ingest.tableau_de_bord.TableauDeBord`."
+   },
+   "TotauxMoisReponse": {
+    "properties": {
+     "facture_ht": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Facture Ht"
+     },
+     "rapproche": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Rapproche"
+     },
+     "en_ecart": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "En Ecart"
+     },
+     "non_justifie": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Non Justifie"
+     },
+     "conforme": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Conforme"
+     }
+    },
+    "type": "object",
+    "required": [
+     "facture_ht",
+     "rapproche",
+     "en_ecart",
+     "non_justifie",
+     "conforme"
+    ],
+    "title": "TotauxMoisReponse",
+    "description": "Les quatre montants du bilan du mois plus `conforme` — mêmes\nattributs qu'`ingest.tableau_de_bord.TotauxMois`."
    },
    "TraitementAnomalieRequete": {
     "properties": {
