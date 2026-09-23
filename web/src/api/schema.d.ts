@@ -714,6 +714,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tableau-de-bord": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tableau De Bord Endpoint */
+        get: operations["tableau_de_bord_endpoint_api_tableau_de_bord_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1056,6 +1073,29 @@ export interface components {
             agence: string | null;
             /** Dernier Depot Le */
             dernier_depot_le: string | null;
+        };
+        /**
+         * ChantierTableauReponse
+         * @description Une ligne de `chantiers` dans `GET /api/tableau-de-bord` — mêmes
+         *     attributs qu'`ingest.tableau_de_bord.ChantierTableau`. `chantier_id`
+         *     (et `nom_canonique`/`client`/`agence`) valent `None` pour les blocs
+         *     dont le chantier n'a pas pu être résolu (`etat="a_rattacher"` dans ce
+         *     cas), même principe que `LigneBilanChantierReponse.chantier_id`.
+         */
+        ChantierTableauReponse: {
+            /** Chantier Id */
+            chantier_id: string | null;
+            /** Nom Canonique */
+            nom_canonique: string | null;
+            /** Client */
+            client: string | null;
+            /** Agence */
+            agence: string | null;
+            /** Etat */
+            etat: string;
+            montants: components["schemas"]["MontantsBilanReponse"];
+            /** A Verifier */
+            a_verifier: string;
         };
         /**
          * ComparaisonBlReponse
@@ -1663,6 +1703,60 @@ export interface components {
             maximum: string;
             /** Entier */
             entier: boolean;
+        };
+        /**
+         * ProblemePrioritaireReponse
+         * @description Une ligne de `priorites` dans `GET /api/tableau-de-bord` — mêmes
+         *     attributs qu'`ingest.tableau_de_bord.ProblemePrioritaire`.
+         *     `montant_en_jeu` vaut `None` quand la règle de l'anomalie n'en porte
+         *     pas ou que la valeur lue sur `detail` n'est pas convertible.
+         */
+        ProblemePrioritaireReponse: {
+            anomalie: components["schemas"]["AnomalieReponse"];
+            /** Montant En Jeu */
+            montant_en_jeu: string | null;
+        };
+        /**
+         * TableauDeBordReponse
+         * @description `GET /api/tableau-de-bord` — mêmes attributs
+         *     qu'`ingest.tableau_de_bord.TableauDeBord`.
+         */
+        TableauDeBordReponse: {
+            /**
+             * Mois
+             * Format: date
+             */
+            mois: string;
+            totaux: components["schemas"]["TotauxMoisReponse"];
+            /** Nb Problemes Ouverts */
+            nb_problemes_ouverts: number;
+            /** Nb Problemes Urgents */
+            nb_problemes_urgents: number;
+            /** Nb Bl Factures */
+            nb_bl_factures: number;
+            /** Nb Bl Recus */
+            nb_bl_recus: number;
+            /** Chantiers */
+            chantiers: components["schemas"]["ChantierTableauReponse"][];
+            /** Priorites */
+            priorites: components["schemas"]["ProblemePrioritaireReponse"][];
+        };
+        /**
+         * TotauxMoisReponse
+         * @description Les quatre montants du bilan du mois plus `conforme` — mêmes
+         *     attributs qu'`ingest.tableau_de_bord.TotauxMois`.
+         */
+        TotauxMoisReponse: {
+            /** Facture Ht */
+            facture_ht: string;
+            /** Rapproche */
+            rapproche: string;
+            /** En Ecart */
+            en_ecart: string;
+            /** Non Justifie */
+            non_justifie: string;
+            /** Conforme */
+            conforme: string;
         };
         /**
          * TraitementAnomalieRequete
@@ -3038,6 +3132,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ParametreReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tableau_de_bord_endpoint_api_tableau_de_bord_get: {
+        parameters: {
+            query: {
+                mois: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableauDeBordReponse"];
                 };
             };
             /** @description Validation Error */

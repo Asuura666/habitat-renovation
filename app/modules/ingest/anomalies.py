@@ -85,7 +85,7 @@ Décisions du contrôleur (L4-T8) :
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -523,6 +523,7 @@ async def lister_anomalies(
     fournisseur_id: uuid.UUID | None = None,
     depuis: datetime | None = None,
     jusqu_a: datetime | None = None,
+    ids: Collection[uuid.UUID] | None = None,
     limite: int = LIMITE_ANOMALIES_DEFAUT,
 ) -> list[AnomalieLue]:
     """Liste des anomalies (`GET /api/anomalies`, L4-T9), filtres
@@ -533,7 +534,15 @@ async def lister_anomalies(
     Le filtre `chantier_id` porte sur `CHANTIER_ID_RESOLU` (Ruling R19,
     fix round 2 de L4-T7) -- exactement la même expression que celle
     affichée par `_requete_anomalies`, sinon l'écran montrerait un chantier
-    sur lequel il refuse de filtrer."""
+    sur lequel il refuse de filtrer.
+
+    `ids` (correction de revue, refonte front T2) : restreint aux
+    identifiants donnés (`Anomalie.id.in_(...)`), pour un appelant qui a
+    déjà déterminé la portée exacte des anomalies à lire par une autre
+    requête (ex. `ingest.tableau_de_bord`, qui réutilise
+    `ingest.bilan._sous_requete_anomalies` pour ne jamais recalculer
+    divergemment le périmètre "anomalies du mois") -- combinable avec les
+    autres filtres, qui restent tous optionnels."""
     conditions: list[Any] = []
     if regle is not None:
         conditions.append(Anomalie.regle == regle)
@@ -551,6 +560,8 @@ async def lister_anomalies(
         conditions.append(Anomalie.created_at >= depuis)
     if jusqu_a is not None:
         conditions.append(Anomalie.created_at <= jusqu_a)
+    if ids is not None:
+        conditions.append(Anomalie.id.in_(tuple(ids)))
 
     resultat = await session.execute(
         _requete_anomalies(*conditions)

@@ -568,6 +568,75 @@ class LigneBilanBlReponse(BaseModel):
     montants: MontantsBilanReponse
 
 
+# --------------------------------------------------------------------------
+# Tableau de bord du mois (refonte front T2) : schémas construits à partir
+# des dataclasses d'`ingest.tableau_de_bord` (`TotauxMois`,
+# `ChantierTableau`, `ProblemePrioritaire`, `TableauDeBord`), consommés par
+# `api/tableau_de_bord.py`. Même principe que les sections précédentes :
+# aucun de ces modèles n'importe `ingest`, ils sont peuplés par attribut
+# (`from_attributes=True`) sur les dataclasses renvoyées par le service.
+# --------------------------------------------------------------------------
+
+
+class TotauxMoisReponse(BaseModel):
+    """Les quatre montants du bilan du mois plus `conforme` — mêmes
+    attributs qu'`ingest.tableau_de_bord.TotauxMois`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    facture_ht: Decimal
+    rapproche: Decimal
+    en_ecart: Decimal
+    non_justifie: Decimal
+    conforme: Decimal
+
+
+class ChantierTableauReponse(BaseModel):
+    """Une ligne de `chantiers` dans `GET /api/tableau-de-bord` — mêmes
+    attributs qu'`ingest.tableau_de_bord.ChantierTableau`. `chantier_id`
+    (et `nom_canonique`/`client`/`agence`) valent `None` pour les blocs
+    dont le chantier n'a pas pu être résolu (`etat="a_rattacher"` dans ce
+    cas), même principe que `LigneBilanChantierReponse.chantier_id`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    chantier_id: uuid.UUID | None
+    nom_canonique: str | None
+    client: str | None
+    agence: str | None
+    etat: str
+    montants: MontantsBilanReponse
+    a_verifier: Decimal
+
+
+class ProblemePrioritaireReponse(BaseModel):
+    """Une ligne de `priorites` dans `GET /api/tableau-de-bord` — mêmes
+    attributs qu'`ingest.tableau_de_bord.ProblemePrioritaire`.
+    `montant_en_jeu` vaut `None` quand la règle de l'anomalie n'en porte
+    pas ou que la valeur lue sur `detail` n'est pas convertible."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    anomalie: AnomalieReponse
+    montant_en_jeu: Decimal | None
+
+
+class TableauDeBordReponse(BaseModel):
+    """`GET /api/tableau-de-bord` — mêmes attributs
+    qu'`ingest.tableau_de_bord.TableauDeBord`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    mois: date
+    totaux: TotauxMoisReponse
+    nb_problemes_ouverts: int
+    nb_problemes_urgents: int
+    nb_bl_factures: int
+    nb_bl_recus: int
+    chantiers: list[ChantierTableauReponse]
+    priorites: list[ProblemePrioritaireReponse]
+
+
 class DepotAgentReponse(BaseModel):
     """Une ligne de `GET /api/referentiels/depots-par-agent` (L5-T7) —
     mêmes attributs qu'`ingest.referentiels_vue.DepotAgent`. `role`
