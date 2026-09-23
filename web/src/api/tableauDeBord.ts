@@ -10,7 +10,8 @@ export function cleTableauDeBord(mois: string): readonly [string, string] {
 }
 
 export function obtenirTableauDeBord(mois: string): Promise<TableauDeBord> {
+  const params = new URLSearchParams({ mois });
   return appelerApi<TableauDeBord>("/api/tableau-de-bord", {
-    url: `/api/tableau-de-bord?mois=${mois}`,
+    url: `/api/tableau-de-bord?${params.toString()}`,
   });
 }

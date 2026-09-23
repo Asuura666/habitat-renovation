@@ -19,12 +19,29 @@ décision du contrôleur, brief T2.
 de mois que le bilan, jamais une seconde définition de "quel bloc appartient
 à ce mois").
 
-Anomalies ouvertes du mois (brief T2) : `lister_anomalies(statut="ouverte",
-limite=500)` puis filtrées sur les chantiers présents dans le bilan du mois
-(par `chantier_id`, `None` compris — un chantier non résolu du bilan est un
-chantier comme un autre pour ce filtre). `nb_problemes_ouverts`/
-`nb_problemes_urgents` et les `priorites` sont tous les trois dérivés de
-cette même liste filtrée, jamais recalculés séparément.
+Anomalies ouvertes du mois (correction de revue, fix round 1 -- décision du
+contrôleur qui prime sur la règle de filtrage du brief, spec §6.2 "jamais un
+second calcul divergent") : la portée exacte vient d'`ingest.bilan
+._sous_requete_anomalies(mois)`, la même sous-requête que celle qui calcule
+`MontantsBilan.nb_anomalies_ouvertes` par chantier (Ruling L5-R4) -- une
+anomalie de bloc suit le mois de sa facture, une anomalie de document son
+propre mois, une anomalie sans les deux `Anomalie.created_at`, les
+documents archivés exclus. Ses identifiants sont ensuite relus par
+`lister_anomalies(ids=..., limite=len(ids))` (voir `_anomalies_ouvertes_du_
+mois` ci-dessous) pour obtenir leur forme `AnomalieLue` complète. L'ancienne
+version filtrait après coup par `chantier_id` présent dans le bilan du mois
+: un chantier qui facture ce mois-ci et portait par ailleurs une anomalie
+ouverte d'un *autre* mois se voyait alors compter cette anomalie-là aussi
+(fuite inter-mois, constat de revue) -- impossible avec la sous-requête du
+bilan, qui borne déjà chaque anomalie à son propre mois. `nb_problemes_
+ouverts`/`nb_problemes_urgents` et les `priorites` sont tous les trois
+dérivés de cette même liste, jamais recalculés séparément ; `etat` en
+dérive aussi (groupée par chantier), ce qui garantit qu'un chantier ne peut
+jamais afficher `prix`/`quantites`/`a_voir` alors que
+`montants.nb_anomalies_ouvertes == 0` (même portée que ce compteur,
+Ruling L5-R4). Pas de plafond arbitraire (l'ancien `limite=500` tronquait
+silencieusement) : `limite` vaut le nombre d'identifiants à relire, jamais
+moins.
 
 `etat` d'un chantier (brief T2, ordre de priorité strict) :
 `chantier_id is None` -> `a_rattacher` ; `non_justifie > 0` -> `bl_manquant`
@@ -71,6 +88,7 @@ from app.modules.ingest.bilan import (
     LigneBilanChantier,
     MontantsBilan,
     _conditions_base,
+    _sous_requete_anomalies,
     _sous_requete_blocs,
     bilan_par_chantier,
 )
@@ -90,7 +108,6 @@ _REGLES_MONTANT_ABSOLU = frozenset({"R05", "R13"})
 
 _ORDRE_GRAVITE_PRIORITE: dict[str, int] = {"haute": 0, "moyenne": 1, "basse": 2}
 
-LIMITE_ANOMALIES_TABLEAU = 500
 NB_PRIORITES_MAX = 4
 
 
@@ -214,6 +231,27 @@ def _cle_tri_chantier(chantier: ChantierTableau) -> tuple[Decimal, bool, str]:
     )
 
 
+async def _anomalies_ouvertes_du_mois(
+    session: AsyncSession, *, mois: date
+) -> list[AnomalieLue]:
+    """Anomalies ouvertes du mois, au sens strict du bilan (correction de
+    revue, fix round 1) -- voir docstring de module. Les identifiants
+    viennent d'`ingest.bilan._sous_requete_anomalies(mois)`, jamais
+    recalculés ici ; `lister_anomalies(ids=..., limite=len(ids))` les relit
+    ensuite sous leur forme `AnomalieLue` complète, sans plafond arbitraire
+    (la portée est déjà bornée par la sous-requête du mois)."""
+    ids_anomalies = (
+        (await session.execute(select(_sous_requete_anomalies(mois).c.anomalie_id)))
+        .scalars()
+        .all()
+    )
+    if not ids_anomalies:
+        return []
+    return await lister_anomalies(
+        session, statut="ouverte", ids=ids_anomalies, limite=len(ids_anomalies)
+    )
+
+
 async def _compter_blocs(session: AsyncSession, *, mois: date) -> tuple[int, int]:
     """`nb_bl_factures`/`nb_bl_recus` -- même sous-requête de blocs que
     `ingest.bilan` (`_sous_requete_blocs`/`_conditions_base`), jamais une
@@ -255,17 +293,7 @@ async def tableau_de_bord(session: AsyncSession, *, mois: date) -> TableauDeBord
 
     nb_bl_factures, nb_bl_recus = await _compter_blocs(session, mois=mois)
 
-    toutes_anomalies_ouvertes = await lister_anomalies(
-        session, statut="ouverte", limite=LIMITE_ANOMALIES_TABLEAU
-    )
-    chantiers_du_mois: set[uuid.UUID | None] = {
-        ligne.chantier_id for ligne in lignes_bilan
-    }
-    anomalies_du_mois = [
-        anomalie
-        for anomalie in toutes_anomalies_ouvertes
-        if anomalie.chantier_id in chantiers_du_mois
-    ]
+    anomalies_du_mois = await _anomalies_ouvertes_du_mois(session, mois=mois)
     nb_problemes_ouverts = len(anomalies_du_mois)
     nb_problemes_urgents = sum(
         1 for anomalie in anomalies_du_mois if anomalie.gravite == "haute"
