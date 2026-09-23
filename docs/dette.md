@@ -635,3 +635,18 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   pour que cette exigence du CDC reste accessible quelque part — décision
   du contrôleur/de l'implémenteur à confirmer, un autre emplacement
   (Réglages ? un écran « Activité » séparé ?) étant tout aussi défendable.
+- **« Dernière livraison reçue » recalculée sans filtre de mois — corrigé
+  (fix round 2, constat 1), coût réseau résiduel.** Elle portait sur
+  `livraisons`, déjà filtrée par `?mois` : un chantier livré en août et en
+  septembre, la fiche filtrée sur octobre, affichait « Aucune livraison
+  reçue » — une affirmation fausse. `FicheChantier.tsx` interroge
+  désormais `GET .../fournisseurs` et `GET .../fournisseurs/{f}/bl` une
+  seconde fois, sans `?mois` (`fournisseursTous`/`blTousParFournisseur`) —
+  mêmes clés que les requêtes filtrées quand aucun mois n'est choisi
+  (`@tanstack/react-query` partage alors le cache, pas de requête réseau en
+  double), mais deux requêtes HTTP de plus par fournisseur résolu quand un
+  mois est choisi. Sans incidence perceptible avec le volume de données de
+  démo (un seul fournisseur résolu par chantier) ; à surveiller si un
+  chantier accumule beaucoup de fournisseurs. Un champ serveur dédié (ex.
+  `dernier_bl_recu_le` par chantier, indépendant de `?mois`) lèverait ce
+  doublon.

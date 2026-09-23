@@ -319,15 +319,20 @@ function BandeauSilencieux({ chantiers }: { chantiers: ChantierSilencieux[] }): 
  * (`listerChantiers`, déjà chargé pour le formulaire de création),
  * filtrée par agence comme le reste de l'écran — jamais par mois, un
  * chantier existe indépendamment de toute facturation — avec le statut
- * Actif/Inactif (disparu de la liste depuis l'ancien `Chantiers.tsx`). */
+ * Actif/Inactif (disparu de la liste depuis l'ancien `Chantiers.tsx`).
+ * Fix round 2 (constat 1) : ses liens vers la fiche (`lienChantier(...,
+ * undefined)`) ne reportent plus le mois choisi sur cet écran — avant,
+ * cliquer un chantier sans facture ce mois-ci depuis cette carte ouvrait
+ * sa fiche filtrée sur ce mois, qui affichait alors « Aucune livraison
+ * enregistrée » même quand le chantier avait des livraisons sur d'autres
+ * mois (voir aussi `FicheChantier.tsx`, « Dernière livraison reçue »
+ * recalculée sans filtre de mois). */
 function CarteTousLesChantiers({
   chantiers,
   agence,
-  mois,
 }: {
   chantiers: Chantier[];
   agence: string | undefined;
-  mois: string | undefined;
 }): ReactElement {
   const filtres =
     agence === undefined ? chantiers : chantiers.filter((chantier) => chantier.agence === agence);
@@ -343,7 +348,7 @@ function CarteTousLesChantiers({
             {tries.map((chantier) => (
               <li key={chantier.id} className="rounded-lg border border-bordure p-3">
                 <Link
-                  to={lienChantier(chantier.id, mois)}
+                  to={lienChantier(chantier.id, undefined)}
                   className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
                 >
                   {chantier.nom_canonique}
@@ -372,7 +377,7 @@ function CarteTousLesChantiers({
                   <tr key={chantier.id}>
                     <th scope="row" className="px-4 py-3 text-left font-medium text-encre">
                       <Link
-                        to={lienChantier(chantier.id, mois)}
+                        to={lienChantier(chantier.id, undefined)}
                         className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
                       >
                         {chantier.nom_canonique}
@@ -662,7 +667,7 @@ export function ChantiersListe(): ReactElement {
       {lignes && <ListeChantiers lignes={lignes} mois={filtres.mois} />}
 
       {chantiers.data && (
-        <CarteTousLesChantiers chantiers={chantiers.data} agence={filtres.agence} mois={filtres.mois} />
+        <CarteTousLesChantiers chantiers={chantiers.data} agence={filtres.agence} />
       )}
 
       {depots.data && <CarteDepotsRecents depots={depots.data} />}

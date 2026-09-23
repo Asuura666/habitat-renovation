@@ -172,13 +172,13 @@ def test_liste_chantiers_expose_le_referentiel_complet() -> None:
 
 
 def test_fiche_chantier_dernier_bl_reflete_une_vraie_reception() -> None:
-    """Constat 2 (Important) : « Dernier BL déposé » prenait `date_bl` (la
-    date imprimée sur la facture) sur toutes les lignes, y compris « Jamais
-    reçu »/« Livré sans bon », et affichait « Aucun dépôt enregistré »
-    pendant le chargement. Seules les lignes où une photo de BL a été
-    rattachée (`bl_document_id`) comptent désormais, le libellé ne prétend
-    plus qu'il s'agit d'un dépôt, et rien ne s'affiche avant la fin du
-    chargement."""
+    """Constat 2 (Important, tour 1) : « Dernier BL déposé » prenait
+    `date_bl` (la date imprimée sur la facture) sur toutes les lignes, y
+    compris « Jamais reçu »/« Livré sans bon », et affichait « Aucun dépôt
+    enregistré » pendant le chargement. Seules les lignes où une photo de
+    BL a été rattachée (`bl_document_id`) comptent désormais, le libellé ne
+    prétend plus qu'il s'agit d'un dépôt, et rien ne s'affiche avant la fin
+    du chargement."""
     page = _lire("pages", "FicheChantier.tsx")
 
     assert "Dernier BL déposé" not in page
@@ -189,10 +189,49 @@ def test_fiche_chantier_dernier_bl_reflete_une_vraie_reception() -> None:
     entete = page.split("Dernière livraison reçue", 1)[1].split("chantier.actif &&", 1)[
         0
     ]
-    assert "!livraisonsChargees" in entete
+    # Fix round 2 (constat 1) : ce calcul ne porte plus sur `livraisons`
+    # (filtrée par `?mois`) mais sur `livraisonsToutesChargees`, alimenté
+    # par des requêtes sans filtre de mois — voir
+    # test_fiche_chantier_dernier_bl_ignore_le_mois_choisi ci-dessous.
+    assert "!livraisonsToutesChargees" in entete
     assert "Chargement…" in entete
     assert "Aucune livraison reçue" in entete
     assert "derniereLivraisonRecue" in entete
+
+
+def test_fiche_chantier_dernier_bl_ignore_le_mois_choisi() -> None:
+    """Constat 1 (Important, tour 2) : « Dernière livraison reçue » et
+    l'état vide de la carte « Livraisons » étaient calculés sur
+    `livraisons`, déjà filtrée par `?mois` — un chantier livré en août et
+    en septembre, la liste filtrée sur octobre, affichait « Dernière
+    livraison reçue : Aucune livraison reçue » et « Aucune livraison
+    enregistrée pour ce chantier. », une affirmation fausse. Ce calcul doit
+    désormais venir de requêtes *sans* filtre de mois, distinctes de celles
+    qui alimentent la carte « Livraisons » elle-même."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    # Requêtes dédiées, sans mois, pour la seule « Dernière livraison
+    # reçue » — jamais `filtresActifs` (qui reste réservé à la carte
+    # « Livraisons », aux trois `Chiffre` et aux exports).
+    assert "cleBilanFournisseurs(id, FILTRES_TOUS_MOIS)" in page
+    assert "listerBilanFournisseurs(id, FILTRES_TOUS_MOIS)" in page
+    assert (
+        "cleBilanBl(id, fournisseur.fournisseur_id as string, FILTRES_TOUS_MOIS)"
+        in page
+    )
+    assert (
+        "listerBilanBl(id, fournisseur.fournisseur_id as string, FILTRES_TOUS_MOIS)"
+        in page
+    )
+    assert "fournisseursTous" in page
+    assert "blTousParFournisseur" in page
+
+    # Titre et état vide de la carte « Livraisons » indiquent maintenant la
+    # période affichée, avec un moyen d'y échapper.
+    assert "titreLivraisons" in page
+    assert "messageAucuneLivraison" in page
+    assert "Voir tous les mois" in page
+    assert "to={`/chantiers/${id}`}" in page
 
 
 def test_fiche_chantier_respecte_le_mois_choisi() -> None:
@@ -241,3 +280,74 @@ def test_fiche_chantier_exporte_les_livraisons_par_fournisseur() -> None:
 
     client = _lire("api", "bilan.ts")
     assert "export function urlExportBilanBl" in client
+
+
+# ---------------------------------------------------------------------------
+# Fix round 2 (relecture du tour 1)
+# ---------------------------------------------------------------------------
+
+
+def test_liste_chantiers_ne_reporte_pas_le_mois_dans_le_referentiel_complet() -> None:
+    """Constat 1 (Important) — volet `ChantiersListe.tsx` : la carte « Tous
+    les chantiers » n'est filtrée que par agence, jamais par mois (un
+    chantier existe indépendamment de toute facturation), mais ses liens
+    reportaient quand même `?mois` : un clic sur un chantier sans facture
+    ce mois-ci ouvrait sa fiche filtrée sur ce mois, qui affichait alors des
+    informations fausses (voir `test_fiche_chantier_dernier_bl_ignore_le_
+    mois_choisi`). Ses liens ne reportent plus aucun mois."""
+    page = _lire("pages", "ChantiersListe.tsx")
+
+    carte = page.split("function CarteTousLesChantiers", 1)[1]
+    assert "lienChantier(chantier.id, undefined)" in carte
+    assert "lienChantier(chantier.id, mois)" not in carte
+    # La signature de `CarteTousLesChantiers` n'a plus de prop `mois`.
+    signature = page.split("function CarteTousLesChantiers", 1)[1].split(
+        "): ReactElement", 1
+    )[0]
+    assert "mois" not in signature
+
+
+def test_fiche_chantier_ligne_livraison_ne_navigue_pas_deux_fois() -> None:
+    """Constat 2 (Important) : la `<tr>` de la carte « Livraisons » navigue
+    au clic (`onClick`) et porte aussi un vrai `<Link>` sur le n° BL, dont
+    le gestionnaire de clic navigue déjà sans `stopPropagation` — le clic
+    remontait ensuite jusqu'à la `<tr>`, qui navigue une seconde fois (deux
+    entrées d'historique identiques). Le gestionnaire de la `<tr>` doit
+    désormais ignorer les clics déjà traités par un lien et les clics avec
+    modificateur (Ctrl/Cmd/Maj/Alt) ou autre que le bouton gauche."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    ligne = page.split("function LigneLivraisonTableau", 1)[1].split(
+        "function TableauLivraisons", 1
+    )[0]
+    assert "evenement.defaultPrevented" in ligne
+    assert '.closest("a")' in ligne
+    assert "evenement.metaKey" in ligne
+    assert "evenement.ctrlKey" in ligne
+    assert "onClick={gererClicLigne}" in ligne
+    # Toujours un vrai <Link> accessible sur le n° BL (contrat Step 1).
+    assert "<Link" in ligne
+
+
+def test_fiche_chantier_exports_livraisons_en_pied_de_carte_sur_telephone() -> None:
+    """Constat 3 (Important) : les liens d'export de la carte « Livraisons »
+    (« Voir les documents du chantier », l'export fournisseurs et un export
+    par fournisseur) étaient dans l'action de la `Carte`, à côté du titre —
+    à 375 px, cette zone se partage environ 190 px avec le titre, les liens
+    passent sur 4 lignes ou plus et chaque cible ne fait plus 44 px de haut.
+    Ils doivent être en pied de carte (comme la maquette FicheChantier),
+    empilés en pleine largeur sous `md` avec des cibles d'au moins 44 px, et
+    non plus dans l'action de la `Carte` « Livraisons »."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    carte_livraisons = page.split("<Carte titre={titreLivraisons}", 1)[1].split(
+        "<Carte titre={`Problèmes ouverts", 1
+    )[0]
+    # Plus d'`action=` sur cette carte : les liens sont dans les enfants,
+    # en pied de carte.
+    assert "action={" not in carte_livraisons
+    assert "min-h-[44px]" in carte_livraisons
+    # « (vue fournisseurs) », peu parlant pour un non-technicien, a été
+    # renommé en langage courant.
+    assert "(vue fournisseurs)" not in carte_livraisons
+    assert "Récapitulatif par fournisseur" in carte_livraisons

@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactElement, useState } from "react";
+import { type FormEvent, type MouseEvent, type ReactElement, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
@@ -67,6 +67,15 @@ function libelleMois(mois: string): string {
  * l'API, filtré par le même `mois` que la requête qui l'a produit). */
 function libelleAvecPeriode(base: string, mois: string | undefined): string {
   return mois !== undefined ? `${base} en ${libelleMois(mois)}` : `${base} — tous les mois`;
+}
+
+/** « septembre 2026 », ou `null` si aucun mois n'est choisi (fix round 2,
+ * constat 1) : précise la période affichée par la carte « Livraisons »
+ * (titre et état vide) — avant ce correctif, ni l'un ni l'autre
+ * n'indiquait que la liste était filtrée par `?mois`, alors que les trois
+ * `Chiffre` le disent déjà via `libelleAvecPeriode`. */
+function libellePeriodeCourte(mois: string | undefined): string | null {
+  return mois !== undefined ? libelleMois(mois) : null;
 }
 
 function libelleStatutBon(statut: string | null): string {
@@ -156,9 +165,29 @@ function LigneLivraisonCarte({ livraison }: { livraison: LivraisonAffichee }): R
  * BL) pour le clavier et les lecteurs d'écran — jamais la `<tr>` seule, qui
  * ne serait pas atteignable sans souris. */
 function LigneLivraisonTableau({ livraison, naviguer }: { livraison: LivraisonAffichee; naviguer: () => void }): ReactElement {
+  // Garde contre la double navigation (fix round 2, constat 2) : le n° BL
+  // porte un vrai <Link> (accessibilité clavier/lecteur d'écran) dont le
+  // gestionnaire de clic (react-router `useLinkClickHandler`) fait
+  // `preventDefault` puis navigue, mais ne fait jamais `stopPropagation` —
+  // le clic remonte ensuite jusqu'à cette <tr>, qui naviguait une seconde
+  // fois (deux entrées d'historique identiques, un premier « Retour » sans
+  // effet visible) et, pour un Ctrl/Cmd+clic ouvrant le lien dans un
+  // nouvel onglet, faisait quand même naviguer l'onglet courant. On
+  // ignore donc les clics déjà traités par un lien (`defaultPrevented`
+  // ou une cible à l'intérieur d'un `<a>`) et les clics avec modificateur
+  // ou bouton autre que le clic gauche.
+  function gererClicLigne(evenement: MouseEvent<HTMLTableRowElement>): void {
+    if (evenement.defaultPrevented) return;
+    if ((evenement.target as HTMLElement).closest("a") !== null) return;
+    if (evenement.button !== 0 || evenement.metaKey || evenement.ctrlKey || evenement.shiftKey || evenement.altKey) {
+      return;
+    }
+    naviguer();
+  }
+
   return (
     <tr
-      onClick={naviguer}
+      onClick={gererClicLigne}
       className="cursor-pointer outline-none hover:bg-fond focus-within:bg-fond"
     >
       <td className="py-2.5 pl-2 text-encre">{formaterDate(livraison.dateBl)}</td>
@@ -345,6 +374,15 @@ export function FicheChantier(): ReactElement {
   const moisChoisi = moisParam !== undefined;
   const filtresActifs: FiltresBilan = moisChoisi ? { mois: moisParam } : FILTRES_TOUS_MOIS;
 
+  // Titre et état vide de la carte « Livraisons » (fix round 2, constat 1) :
+  // précisent désormais la période affichée, comme les trois `Chiffre`.
+  const periodeLivraisons = libellePeriodeCourte(moisParam);
+  const titreLivraisons = periodeLivraisons !== null ? `Livraisons — ${periodeLivraisons}` : "Livraisons";
+  const messageAucuneLivraison =
+    periodeLivraisons !== null
+      ? `Aucune livraison en ${periodeLivraisons}.`
+      : "Aucune livraison enregistrée pour ce chantier.";
+
   const chantiers = useQuery({ queryKey: CLE_CHANTIERS, queryFn: listerChantiers });
   const bilanChantiers = useQuery({
     queryKey: cleBilanChantiers(filtresActifs),
@@ -378,6 +416,30 @@ export function FicheChantier(): ReactElement {
     })),
   });
 
+  // Fournisseurs/BL *sans* filtre de mois (fix round 2, constat 1), pour
+  // « Dernière livraison reçue » ci-dessous uniquement — jamais pour la
+  // carte « Livraisons » elle-même, qui reste filtrée par `filtresActifs`.
+  // Mêmes clés que `fournisseurs`/`blParFournisseur` quand aucun mois
+  // n'est choisi (`filtresActifs === FILTRES_TOUS_MOIS`) : `@tanstack/
+  // react-query` partage alors le cache par clé, donc pas de requête
+  // réseau en double dans ce cas.
+  const fournisseursTous = useQuery({
+    queryKey: cleBilanFournisseurs(id, FILTRES_TOUS_MOIS),
+    queryFn: () => listerBilanFournisseurs(id, FILTRES_TOUS_MOIS),
+    enabled: chantierId !== undefined,
+  });
+  const fournisseursTousResolus: LigneBilanFournisseur[] =
+    fournisseursTous.data?.filter(
+      (f): f is LigneBilanFournisseur & { fournisseur_id: string } => f.fournisseur_id !== null,
+    ) ?? [];
+  const blTousParFournisseur = useQueries({
+    queries: fournisseursTousResolus.map((fournisseur) => ({
+      queryKey: cleBilanBl(id, fournisseur.fournisseur_id as string, FILTRES_TOUS_MOIS),
+      queryFn: () => listerBilanBl(id, fournisseur.fournisseur_id as string, FILTRES_TOUS_MOIS),
+      enabled: chantierId !== undefined,
+    })),
+  });
+
   const chantier = chantiers.data?.find((c) => c.id === id);
   const ligneBilan = bilanChantiers.data?.find((l) => l.chantier_id === id);
   // Pastille d'état (fix round 1, constat 3) : uniquement quand un mois est
@@ -402,15 +464,33 @@ export function FicheChantier(): ReactElement {
         )
         .sort(comparerDateDesc)
     : [];
-  // « Dernière livraison reçue » (fix round 1, constat 2) : seules les
-  // lignes où une photo de BL a réellement été rattachée
-  // (`bl_document_id !== null`) comptent comme une livraison reçue — les
-  // lignes « Jamais reçu »/« Livré sans bon » n'en sont pas une. `date_bl`
-  // reste la date imprimée sur le bon, pas une date de dépôt (celle-ci
-  // n'est pas exposée par ligne côté serveur, voir docs/dette.md) : le
-  // libellé affiché ci-dessous le dit explicitement, jamais « déposé ».
-  const livraisonsRecues = livraisonsChargees
-    ? livraisons.filter((livraison) => livraison.ligne.bl_document_id !== null)
+  // « Dernière livraison reçue » (fix round 1, constat 2 ; recalculée sans
+  // filtre de mois au fix round 2, constat 1) : seules les lignes où une
+  // photo de BL a réellement été rattachée (`bl_document_id !== null`)
+  // comptent comme une livraison reçue — les lignes « Jamais reçu »/« Livré
+  // sans bon » n'en sont pas une. `date_bl` reste la date imprimée sur le
+  // bon, pas une date de dépôt (celle-ci n'est pas exposée par ligne côté
+  // serveur, voir docs/dette.md) : le libellé affiché ci-dessous le dit
+  // explicitement, jamais « déposé ». Calculée sur `blTousParFournisseur`
+  // (sans `?mois`, voir ci-dessus) : avant ce correctif, elle portait sur
+  // `livraisons`, déjà filtrée par le mois choisi — un chantier livré en
+  // août et en septembre, filtré sur octobre, affichait « Aucune livraison
+  // reçue », une affirmation fausse.
+  const livraisonsToutesChargees =
+    fournisseursTous.isSuccess && blTousParFournisseur.every((requete) => requete.isSuccess);
+  const livraisonsRecues: LivraisonAffichee[] = livraisonsToutesChargees
+    ? blTousParFournisseur
+        .flatMap((requete, index) =>
+          (requete.data ?? []).map((ligne) => ({
+            blocId: ligne.bloc_id,
+            numeroBl: ligne.numero_bl,
+            dateBl: ligne.date_bl,
+            fournisseur: fournisseursTousResolus[index]?.nom ?? "Fournisseur non résolu",
+            ligne,
+          })),
+        )
+        .filter((livraison) => livraison.ligne.bl_document_id !== null)
+        .sort(comparerDateDesc)
     : [];
   const derniereLivraisonRecue = livraisonsRecues[0]?.dateBl ?? null;
 
@@ -441,13 +521,21 @@ export function FicheChantier(): ReactElement {
             <span>Agence : {chantier.agence ?? "Non renseignée"}</span>
             <span>
               Dernière livraison reçue :{" "}
-              {!livraisonsChargees
+              {!livraisonsToutesChargees
                 ? "Chargement…"
                 : derniereLivraisonRecue === null
                   ? "Aucune livraison reçue"
                   : formaterDate(derniereLivraisonRecue)}
             </span>
             {!chantier.actif && <span className="font-medium text-alerte">Chantier inactif</span>}
+            {moisChoisi && (
+              <Link
+                to={`/chantiers/${id}`}
+                className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                Voir tous les mois
+              </Link>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -478,38 +566,13 @@ export function FicheChantier(): ReactElement {
       </section>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Carte
-          titre="Livraisons"
-          className="lg:col-span-2"
-          action={
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-              <Link to={`/documents?chantier=${id}`} className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent">
-                Voir les documents du chantier
-              </Link>
-              <a
-                href={urlExportBilanFournisseurs(id, filtresActifs)}
-                className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
-              >
-                Exporter pour Excel (vue fournisseurs)
-              </a>
-              {fournisseursResolus.map((fournisseur) => (
-                <a
-                  key={fournisseur.fournisseur_id}
-                  href={urlExportBilanBl(id, fournisseur.fournisseur_id as string, filtresActifs)}
-                  className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
-                >
-                  Exporter les livraisons {fournisseur.nom} (CSV)
-                </a>
-              ))}
-            </div>
-          }
-        >
+        <Carte titre={titreLivraisons} className="flex flex-col lg:col-span-2">
           {fournisseurs.isPending && <p role="status" className="text-sm text-encre-2">Chargement…</p>}
           {fournisseurs.isError && <p role="alert" className="text-sm text-alerte">Impossible de charger les fournisseurs du chantier.</p>}
           {fournisseurs.isSuccess && !livraisonsChargees && (
             <p role="status" className="text-sm text-encre-2">Chargement…</p>
           )}
-          {livraisonsChargees && livraisons.length === 0 && <EtatVide message="Aucune livraison enregistrée pour ce chantier." />}
+          {livraisonsChargees && livraisons.length === 0 && <EtatVide message={messageAucuneLivraison} />}
           {livraisonsChargees && livraisons.length > 0 && (
             <>
               <ul className="space-y-3 md:hidden">
@@ -520,6 +583,41 @@ export function FicheChantier(): ReactElement {
               <TableauLivraisons livraisons={livraisons} />
             </>
           )}
+
+          {/* Pied de carte (fix round 2, constat 3) : la maquette FicheChantier
+              place ces liens en pied de carte (margin-top:auto), pas dans
+              l'en-tête — l'en-tête ne tient que le titre. Les exports par
+              fournisseur (fix round 1, constat 4) sont regroupés sous un seul
+              libellé « Exporter pour Excel » plutôt que d'ajouter un lien de
+              plus par fournisseur à côté du titre : avant ce correctif, ces
+              liens s'empilaient sur 4 lignes ou plus à 375 px et réduisaient
+              chaque cible à environ 20 px de haut, sous les 44 px exigés. */}
+          <div className="mt-4 flex flex-col gap-3 border-t border-bordure pt-4 text-sm md:mt-auto md:flex-row md:items-start md:justify-between md:gap-6">
+            <Link
+              to={`/documents?chantier=${id}`}
+              className="inline-flex min-h-[44px] items-center font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Voir les documents du chantier
+            </Link>
+            <div className="flex flex-col gap-1 md:items-end">
+              <span className="text-xs font-medium uppercase tracking-wide text-encre-2">Exporter pour Excel</span>
+              <a
+                href={urlExportBilanFournisseurs(id, filtresActifs)}
+                className="inline-flex min-h-[44px] items-center font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                Récapitulatif par fournisseur (CSV)
+              </a>
+              {fournisseursResolus.map((fournisseur) => (
+                <a
+                  key={fournisseur.fournisseur_id}
+                  href={urlExportBilanBl(id, fournisseur.fournisseur_id as string, filtresActifs)}
+                  className="inline-flex min-h-[44px] items-center font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  Exporter les livraisons {fournisseur.nom} (CSV)
+                </a>
+              ))}
+            </div>
+          </div>
         </Carte>
 
         <Carte titre={`Problèmes ouverts · ${anomalies.data?.length ?? 0}`}>
