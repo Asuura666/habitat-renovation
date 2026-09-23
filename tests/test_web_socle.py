@@ -143,6 +143,69 @@ def test_gabarit_remonte_en_haut_et_signale_l_ecran_actif() -> None:
     assert "à régler en tout" in gabarit
 
 
+def test_gabarit_remonte_en_haut_seulement_au_changement_d_ecran() -> None:
+    """Contrôle (régression du premier correctif, revue démo constat
+    défilement) : à chaque changement de chemin, la page remonte en haut --
+    sauf sur grand écran (`GRAND_ECRAN`, même seuil `lg`/1024 px que le
+    panneau collant d'« À régler ») quand l'ancien ET le nouveau chemin
+    commencent tous les deux par `/a-regler` (liste <-> détail <-> détail
+    suivant dans le même écran maître/détail). Au téléphone (< 1024 px),
+    cette exception ne s'applique jamais : on remonte toujours, y compris
+    `/a-regler/:id` -> `/a-regler/:idSuivant` et le retour à la liste.
+    Aucune autre heuristique (nombre de segments, premier segment commun)
+    n'entre en jeu."""
+    gabarit = (SRC / "components" / "Gabarit.tsx").read_text()
+    assert 'const GRAND_ECRAN = "(min-width: 1024px)";' in gabarit
+
+    effet = gabarit.split("const cheminPrecedent = useRef<string | null>(null);", 1)[
+        1
+    ].split("}, [pathname]);", 1)[0]
+    # L'exception ne joue que si l'ancien ET le nouveau chemin sont dans
+    # « À régler » -- jamais un simple partage de premier segment
+    # quelconque (ex. `/chantiers` -> `/chantiers/:id`).
+    assert 'precedent !== null && precedent.startsWith("/a-regler")' in effet
+    assert 'pathname.startsWith("/a-regler")' in effet
+    assert "window.matchMedia(GRAND_ECRAN).matches" in effet
+    # Aucune trace de l'ancienne heuristique par segments.
+    assert "segmentsDuChemin" not in effet
+    assert "segments" not in effet.lower()
+    # En dehors de l'exception, on remonte toujours en haut.
+    assert "window.scrollTo(0, 0)" in effet
+
+
+def test_pastille_a_regler_couleur_neutre_et_libelle_avec_urgents() -> None:
+    """Revue démo, constat couleur : la pastille de navigation compte
+    désormais tous les problèmes à régler (pas seulement les urgents,
+    revue finale) -- couleur neutre de la charte (`bg-encre`, texte blanc),
+    le rouge `bg-alerte` restant réservé à un compte d'urgents affiché comme
+    tel, que cette pastille n'affiche pas. Le libellé accessible donne aussi
+    le nombre d'urgents quand il est connu -- `nb_urgents` de la même
+    réponse que le compte total, jamais un second appel réseau."""
+    gabarit = (SRC / "components" / "Gabarit.tsx").read_text()
+
+    # Couleur neutre sur les deux pastilles (barre latérale, barre basse) ;
+    # plus aucune n'est rouge.
+    assert 'bg-encre px-1.5 py-0.5 text-xs font-semibold text-white"' in gabarit
+    assert 'bg-encre px-1 text-[10px] font-semibold text-white"' in gabarit
+    assert 'bg-alerte px-1.5 py-0.5 text-xs font-semibold text-white"' not in gabarit
+    assert 'bg-alerte px-1 text-[10px] font-semibold text-white"' not in gabarit
+
+    # Nombre d'urgents lu sur la même requête que le compte total, jamais un
+    # second appel.
+    assert (
+        "const urgentsARegler = estAdmin ? compte.data?.nb_urgents : undefined;"
+        in gabarit
+    )
+    assert "urgents: number | undefined" in gabarit
+
+    fonction = gabarit.split("function libellePastilleARegler(", 1)[1].split(
+        "\n}\n", 1
+    )[0]
+    assert "compte: number, urgents: number | undefined" in fonction
+    assert "à régler en tout" in fonction
+    assert "à régler, dont ${urgents} urgent${urgents > 1" in fonction
+
+
 def test_redirection_preserve_recherche_et_ancre() -> None:
     """Fix round 1, finding 1 : une redirection d'ancienne URL ne doit
     jamais perdre les filtres (`search`) ni l'ancre (`hash`) de l'URL

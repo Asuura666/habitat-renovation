@@ -1,4 +1,4 @@
-import { type ReactElement, useEffect } from "react";
+import { type ReactElement, useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink, Outlet, useLocation, useMatch, useNavigate } from "react-router";
 
@@ -115,25 +115,46 @@ function classesLienEnTete({ isActive }: { isActive: boolean }): string {
  * d'ensemble (`GET /api/a-regler/compte`, compte unique calculé par le
  * serveur). Avant ce correctif, elle comptait les seuls urgents : trois
  * nombres différents (tuile du mois, pastille, écran « À régler ») se
- * lisaient sur le même parcours. */
-function libellePastilleARegler(compte: number): string {
-  return `${problemes(compte)} à régler en tout`;
+ * lisaient sur le même parcours.
+ *
+ * `urgents` (`CompteProblemesReponse.nb_urgents`, revue démo, constat
+ * couleur) : quand connu — jamais un second appel réseau, c'est la même
+ * réponse que `compte` — le libellé le dit en toutes lettres (« N
+ * problèmes à régler, dont U urgents ») ; `undefined` retombe sur « … en
+ * tout ». La pastille elle-même n'affiche que le compte total (couleur
+ * neutre, voir `PastilleARegler`) : le rouge `bg-alerte` reste réservé à un
+ * compte d'urgents affiché comme tel, pas à ce total-ci. */
+function libellePastilleARegler(compte: number, urgents: number | undefined): string {
+  if (urgents === undefined) {
+    return `${problemes(compte)} à régler en tout`;
+  }
+  return `${problemes(compte)} à régler, dont ${urgents} urgent${urgents > 1 ? "s" : ""}`;
 }
 
 /** Pastille du nombre de problèmes à régler sur l'entrée « À régler »
  * (Task 6, exception à la règle Gabarit ; compte unique depuis la revue
  * finale). Toujours doublée d'un libellé en toutes lettres (spec §2 :
  * jamais la couleur seule). `undefined` (requête pas encore résolue) ou `0`
- * n'affiche rien. */
-function PastilleARegler({ compte }: { compte: number | undefined }): ReactElement | null {
+ * n'affiche rien. Couleur neutre de la charte (`bg-encre`, texte blanc,
+ * contraste ≥ 4,5:1, revue démo, constat couleur) : la pastille compte tous
+ * les problèmes, pas seulement les urgents — le rouge reste pour un compte
+ * d'urgents affiché comme tel. */
+function PastilleARegler({
+  compte,
+  urgents,
+}: {
+  compte: number | undefined;
+  urgents: number | undefined;
+}): ReactElement | null {
   if (compte === undefined || compte === 0) {
     return null;
   }
+  const libelle = libellePastilleARegler(compte, urgents);
   return (
     <span
-      aria-label={libellePastilleARegler(compte)}
-      title={libellePastilleARegler(compte)}
-      className="inline-flex min-w-[20px] shrink-0 items-center justify-center rounded-full bg-alerte px-1.5 py-0.5 text-xs font-semibold text-white"
+      aria-label={libelle}
+      title={libelle}
+      className="inline-flex min-w-[20px] shrink-0 items-center justify-center rounded-full bg-encre px-1.5 py-0.5 text-xs font-semibold text-white"
     >
       {compte}
     </span>
@@ -150,6 +171,13 @@ function classesLienBarreBasse({ isActive }: { isActive: boolean }): string {
     ? `${base} border-accent font-semibold text-accent`
     : `${base} border-transparent text-encre-2`;
 }
+
+/** Seuil du panneau collant d'« À régler » (`lg`, 1024 px, seuil Tailwind
+ * par défaut, jamais changé dans `tailwind.config.cjs`) : à partir de là,
+ * la liste et le panneau de détail partagent l'écran côte à côte — voir
+ * l'effet de défilement ci-dessous. En dessous, ce même détail est une
+ * page plein écran. */
+const GRAND_ECRAN = "(min-width: 1024px)";
 
 /**
  * Gabarit de l'application (Task 4, socle de la refonte du front) : barre
@@ -180,18 +208,39 @@ export function Gabarit(): ReactElement {
     },
   });
 
-  // Revue finale (constat TELEPHONE-1) : changer d'écran repart du haut de
-  // la page — sans cela, un écran déjà en cache s'ouvrait à la position de
-  // défilement du précédent (au téléphone : titre et chiffres hors de
-  // l'écran). Seul le chemin compte : changer un filtre (`?filtre=`,
-  // `?mois=`) ne fait pas sauter la page ; une ancre (`#…`) est laissée à
-  // l'écran qui la cible.
+  // Revue finale (constat TELEPHONE-1), corrigé (revue démo, constat
+  // défilement), règle réécrite (contrôle, régression du premier
+  // correctif) : à chaque changement de chemin, on remonte en haut —
+  // sans cela, un écran déjà en cache s'ouvrait à la position de
+  // défilement du précédent. Seule exception : sur grand écran (`lg+`,
+  // même seuil que le panneau collant, `GRAND_ECRAN`), quand l'ancien ET
+  // le nouveau chemin commencent tous les deux par `/a-regler` — liste,
+  // détail et détail suivant partagent alors le même écran maître/détail,
+  // remonter en haut sortirait la ligne choisie de l'écran. Au téléphone
+  // (sous `lg`), cette exception ne s'applique jamais : on remonte
+  // toujours, y compris `/a-regler/:id` → `/a-regler/:idSuivant` et le
+  // retour à la liste (arriver en haut de la liste est acceptable).
+  // Changer un filtre (`?filtre=`, `?mois=`) ne fait pas sauter la page ;
+  // une ancre (`#…`) est laissée à l'écran qui la cible.
   const { pathname, hash } = useLocation();
+  const cheminPrecedent = useRef<string | null>(null);
   useEffect(() => {
-    if (hash === "") {
-      window.scrollTo(0, 0);
+    const precedent = cheminPrecedent.current;
+    cheminPrecedent.current = pathname;
+
+    if (hash !== "") {
+      // `hash` volontairement absent des dépendances : seul un changement
+      // de chemin remonte, jamais un changement d'ancre seul.
+      return;
     }
-    // `hash` volontairement absent : seul un changement d'écran remonte.
+
+    const memeEcranMaitreDetailARegler =
+      precedent !== null && precedent.startsWith("/a-regler") && pathname.startsWith("/a-regler");
+    if (memeEcranMaitreDetailARegler && window.matchMedia(GRAND_ECRAN).matches) {
+      return;
+    }
+
+    window.scrollTo(0, 0);
   }, [pathname]);
 
   // La page d'un bon (`/bl/:id`) appartient à « Documents » (revue finale,
@@ -224,6 +273,10 @@ export function Gabarit(): ReactElement {
     staleTime: 30_000,
   });
   const compteARegler = estAdmin ? compte.data?.nb_problemes : undefined;
+  // Même requête que `compteARegler` (`CompteProblemesReponse.nb_urgents`,
+  // déjà dans la réponse) : jamais un second appel pour le libellé
+  // accessible de la pastille (revue démo, constat couleur).
+  const urgentsARegler = estAdmin ? compte.data?.nb_urgents : undefined;
 
   return (
     <div className="min-h-screen bg-fond font-sans text-encre md:flex">
@@ -252,7 +305,9 @@ export function Gabarit(): ReactElement {
                 >
                   <Icone className="h-4 w-4 shrink-0" />
                   <span className="flex-1">{libelle}</span>
-                  {vers === "/a-regler" && <PastilleARegler compte={compteARegler} />}
+                  {vers === "/a-regler" && (
+                    <PastilleARegler compte={compteARegler} urgents={urgentsARegler} />
+                  )}
                 </NavLink>
                 {/* Revue finale (constats LIENS-7, ECRAN-17, COUVERTURE-21) :
                     plus de sous-lien « Gérer les chantiers » — la création
@@ -354,9 +409,9 @@ export function Gabarit(): ReactElement {
                 <Icone className="h-5 w-5" />
                 {vers === "/a-regler" && compteARegler !== undefined && compteARegler > 0 && (
                   <span
-                    aria-label={libellePastilleARegler(compteARegler)}
-                    title={libellePastilleARegler(compteARegler)}
-                    className="absolute -right-1.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-alerte px-1 text-[10px] font-semibold text-white"
+                    aria-label={libellePastilleARegler(compteARegler, urgentsARegler)}
+                    title={libellePastilleARegler(compteARegler, urgentsARegler)}
+                    className="absolute -right-1.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-encre px-1 text-[10px] font-semibold text-white"
                   >
                     {compteARegler}
                   </span>
