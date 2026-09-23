@@ -140,7 +140,11 @@ def test_gabarit_remonte_en_haut_et_signale_l_ecran_actif() -> None:
     assert "className={classesLienDiscret}" in gabarit
     assert "className={classesLienEnTete}" in gabarit
     assert "min-w-0 flex-1 flex-col" in gabarit
-    assert "à régler en tout" in gabarit
+    # Branche vivante pour un compte admin chargé (`urgents` connu) --
+    # l'ancienne assertion (« … en tout ») ne couvrait que la branche
+    # `undefined` (non-admin ou requête pas encore résolue), jamais celle
+    # réellement affichée à l'admin.
+    assert 'à régler, dont ${urgents} urgent${urgents > 1 ? "s" : ""}' in gabarit
 
 
 def test_gabarit_remonte_en_haut_seulement_au_changement_d_ecran() -> None:
@@ -160,12 +164,30 @@ def test_gabarit_remonte_en_haut_seulement_au_changement_d_ecran() -> None:
     effet = gabarit.split("const cheminPrecedent = useRef<string | null>(null);", 1)[
         1
     ].split("}, [pathname]);", 1)[0]
+    # Espaces normalisés (suites d'espaces/retours à la ligne réduites à un
+    # seul espace) : la mise en forme peut changer sans casser le test, mais
+    # les expressions exactes ci-dessous, elles, doivent rester intactes.
+    effet_normalise = " ".join(effet.split())
+
     # L'exception ne joue que si l'ancien ET le nouveau chemin sont dans
     # « À régler » -- jamais un simple partage de premier segment
-    # quelconque (ex. `/chantiers` -> `/chantiers/:id`).
-    assert 'precedent !== null && precedent.startsWith("/a-regler")' in effet
-    assert 'pathname.startsWith("/a-regler")' in effet
-    assert "window.matchMedia(GRAND_ECRAN).matches" in effet
+    # quelconque (ex. `/chantiers` -> `/chantiers/:id`), et seulement avec
+    # un ET (jamais un OU, qui déclencherait dès qu'un seul des deux
+    # chemins est dans « À régler »).
+    assert (
+        'precedent !== null && precedent.startsWith("/a-regler") '
+        '&& pathname.startsWith("/a-regler")'
+    ) in effet_normalise
+    # L'exception (ne pas remonter) exige le ET avec le grand écran -- pas
+    # un OU (qui s'appliquerait même au téléphone) -- et sa condition n'est
+    # pas inversée (un `!` devant `window.matchMedia` déclencherait
+    # l'exception sur petit écran au lieu du grand). Le corps du `if` doit
+    # être un vrai `return;`, pas une instruction vide (no-op) qui laisserait
+    # passer le `window.scrollTo(0, 0)` qui suit.
+    assert (
+        "if (memeEcranMaitreDetailARegler && window.matchMedia(GRAND_ECRAN).matches) "
+        "{ return; }"
+    ) in effet_normalise
     # Aucune trace de l'ancienne heuristique par segments.
     assert "segmentsDuChemin" not in effet
     assert "segments" not in effet.lower()
