@@ -128,3 +128,16 @@ async def test_valeur_modifiee_est_relue_par_le_rapprochement(
     parametres = await _charger_parametres(db_session)
 
     assert str(parametres.seuil_prix_pct) == "8.25"
+
+
+def test_libelles_des_reglages_en_francais_courant() -> None:
+    """Revue finale de la refonte du front (constat COUVERTURE-9) : les
+    libellés et unités affichés par l'écran Réglages ne portent ni
+    « occurrence » (jargon, déjà refusé dans les phrases des problèmes) ni
+    « anomalie » (« problème » partout ailleurs dans l'application)."""
+    from app.modules.ingest.parametres import DEFINITIONS_PARAMETRES
+
+    for definition in DEFINITIONS_PARAMETRES:
+        for texte in (definition.libelle, definition.unite):
+            assert "occurrence" not in texte.lower(), definition.cle
+            assert "anomalie" not in texte.lower(), definition.cle

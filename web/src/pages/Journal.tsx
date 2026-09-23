@@ -58,6 +58,10 @@ function DetailAvantApres({
 }
 
 function LigneJournal({ entree }: { entree: EntreeJournal }): ReactElement {
+  // Identifiant de la cible, seulement quand il a un sens pour le lecteur
+  // (nom d'un réglage, identifiant d'un compte pour le filtre « Auteur ») —
+  // jamais un UUID brut sous chaque ligne (revue finale, COUVERTURE-10).
+  const idCible = entree.cible_id !== null ? libelleCibleId(entree.cible_table, entree.cible_id) : null;
   return (
     <tr>
       <td className="px-4 py-3 align-top font-mono text-xs text-encre-2 [overflow-wrap:anywhere]">
@@ -71,7 +75,7 @@ function LigneJournal({ entree }: { entree: EntreeJournal }): ReactElement {
       </td>
       <td className="px-4 py-3 align-top text-encre-2">
         {entree.cible_table !== null ? libelleCible(entree.cible_table) : TIRET}
-        {entree.cible_id !== null && (
+        {idCible !== null && (
           <>
             <br />
             <span
@@ -81,7 +85,7 @@ function LigneJournal({ entree }: { entree: EntreeJournal }): ReactElement {
                   : "font-mono text-xs text-encre-2 [overflow-wrap:anywhere]"
               }
             >
-              {libelleCibleId(entree.cible_table, entree.cible_id)}
+              {idCible}
             </span>
           </>
         )}
@@ -97,6 +101,7 @@ function LigneJournal({ entree }: { entree: EntreeJournal }): ReactElement {
  * mêmes informations que `LigneJournal`, un tableau ne tenant pas dans
  * 375 px (contrainte téléphone = cible à part entière, spec §7). */
 function CarteJournal({ entree }: { entree: EntreeJournal }): ReactElement {
+  const idCible = entree.cible_id !== null ? libelleCibleId(entree.cible_table, entree.cible_id) : null;
   return (
     <Carte>
       <div className="flex items-baseline justify-between gap-3">
@@ -106,7 +111,7 @@ function CarteJournal({ entree }: { entree: EntreeJournal }): ReactElement {
       <p className="mt-1 text-sm text-encre-2 [overflow-wrap:anywhere]">
         {libelleAuteur(entree.auteur)}
         {entree.cible_table !== null && ` · ${libelleCible(entree.cible_table)}`}
-        {entree.cible_id !== null && (
+        {idCible !== null && (
           <>
             {" "}
             <span
@@ -116,7 +121,7 @@ function CarteJournal({ entree }: { entree: EntreeJournal }): ReactElement {
                   : "font-mono text-xs [overflow-wrap:anywhere]"
               }
             >
-              {libelleCibleId(entree.cible_table, entree.cible_id)}
+              {idCible}
             </span>
           </>
         )}
@@ -188,14 +193,24 @@ function FormFiltres({ filtres, onChange }: FormFiltresProps): ReactElement {
             </select>
           </div>
 
-          <div>
+          {/* Revue finale (constat COUVERTURE-10) : filtre replié sous
+              « Filtre avancé » — il demande un identifiant de compte, faute
+              d'une liste des comptes (limite inscrite dans docs/dette.md).
+              Ouvert d'office quand il est déjà utilisé. */}
+          <details className="group" open={filtres.utilisateurId !== undefined}>
+            <summary className="inline-flex min-h-[44px] cursor-pointer list-none items-center gap-2 text-sm font-medium text-encre-2 outline-none focus-visible:ring-2 focus-visible:ring-accent">
+              <span aria-hidden="true" className="inline-block transition-transform group-open:rotate-90">
+                ▸
+              </span>
+              Filtre avancé
+            </summary>
             <label htmlFor="filtre-utilisateur-id" className={CLASSES_LABEL}>
               Auteur
             </label>
             <input
               id="filtre-utilisateur-id"
               type="text"
-              placeholder="Identifiant de la personne"
+              placeholder="Identifiant du compte"
               value={filtres.utilisateurId ?? ""}
               onChange={(evenement) =>
                 onChange({
@@ -206,9 +221,9 @@ function FormFiltres({ filtres, onChange }: FormFiltresProps): ReactElement {
               className={CLASSES_CHAMP}
             />
             <p className="mt-1 text-xs text-encre-2">
-              Identifiant du compte, visible dans la colonne Cible d'une entrée « Compte utilisateur créé ».
+              Identifiant affiché sous « Compte utilisateur » dans une entrée « Compte utilisateur créé ».
             </p>
-          </div>
+          </details>
 
           <div>
             <label htmlFor="filtre-depuis" className={CLASSES_LABEL}>

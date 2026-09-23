@@ -401,3 +401,40 @@ def test_lib_journal_lignes_corrigees_detail_pas_seulement_resume() -> None:
     assert corps is not None, "corps de formaterLigneCorrigee introuvable"
     assert '"id"' not in corps.group(0)
     assert ".id" not in corps.group(0)
+
+
+def test_journal_sans_identifiant_brut_et_filtre_auteur_replie() -> None:
+    """Revue finale de la refonte du front (constat COUVERTURE-10) : plus
+    d'UUID brut sous chaque cible (sauf un compte, recopiable dans le
+    filtre « Auteur »), et le filtre « Auteur », qui demande un
+    identifiant, est replié sous « Filtre avancé »."""
+    journal_lib = (WEB / "lib" / "journal.ts").read_text(encoding="utf-8")
+    fonction = journal_lib.split("export function libelleCibleId", 1)[1].split(
+        "\n}\n", 1
+    )[0]
+    assert "string | null" in fonction
+    assert 'cibleTable === "utilisateur"' in fonction
+    assert "return null;" in fonction
+
+    page = (WEB / "pages" / "Journal.tsx").read_text(encoding="utf-8")
+    assert page.count("idCible !== null &&") == 2
+    filtre = page.split("Filtre avancé", 1)[1].split("</details>", 1)[0]
+    assert 'id="filtre-utilisateur-id"' in filtre
+
+
+def test_libelles_des_reglages_alignes_avec_le_serveur() -> None:
+    """Revue finale (constat COUVERTURE-9) : mêmes libellés en français
+    courant côté serveur (`ingest/parametres.py`, écran Réglages) et côté
+    journal (`lib/journal.ts`), sans « occurrence » ni « anomalie »."""
+    journal_lib = (WEB / "lib" / "journal.ts").read_text(encoding="utf-8")
+    parametres = (
+        Path(__file__).parents[1] / "app" / "modules" / "ingest" / "parametres.py"
+    ).read_text(encoding="utf-8")
+    for libelle in (
+        "Nombre minimum de factures pour établir le prix habituel",
+        "Durée pendant laquelle un problème ignoré reste masqué",
+    ):
+        assert libelle in journal_lib, libelle
+        assert libelle in parametres, libelle
+    assert "Occurrences minimales" not in journal_lib
+    assert "Durée d'ignorance" not in journal_lib

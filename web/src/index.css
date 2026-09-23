@@ -5,3 +5,17 @@
 body {
   @apply bg-fond text-encre font-sans;
 }
+
+/* Revue finale de la refonte du front (constat TELEPHONE-6) : Safari (iOS)
+   zoome la page dès qu'on touche un champ de moins de 16 px, et la laisse
+   zoomée — gênant pour l'action principale au téléphone (commentaire
+   obligatoire avant « Contesté auprès du fournisseur »). Sous `md`, tous
+   les champs passent à 16 px ; `!important` parce que les classes
+   utilitaires (`text-sm`) l'emporteraient sur un sélecteur d'élément. */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}

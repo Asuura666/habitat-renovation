@@ -8,7 +8,7 @@
  * back-end en ajoute un que ce fichier ne connaît pas encore).
  */
 
-import { formaterMontant, formaterPourcentage } from "./formats";
+import { formaterMontant } from "./formats";
 import type { components } from "../api/schema";
 
 export type Motif = components["schemas"]["MotifReponse"];
@@ -52,18 +52,6 @@ function montant(detail: Record<string, string>, cle: string): string {
   return brute !== undefined ? formaterMontant(brute) : "?";
 }
 
-/** `cle` porte une confiance ou un seuil (`verifier_bl`, chaîne décimale
- * entre 0 et 1, ou littéralement `"inconnue"` quand aucun score n'existe) :
- * fix round 1 (revue L3-T9), affichée en pourcentage français plutôt que la
- * fraction brute (« 0.80 » n'est pas lisible pour un admin) ; `"inconnue"`
- * reste inchangée. */
-function pourcentage(detail: Record<string, string>, cle: string): string {
-  const brute = detail[cle];
-  if (brute === undefined) {
-    return "?";
-  }
-  return brute === "inconnue" ? brute : formaterPourcentage(brute);
-}
 
 export function libelleMotif(motif: Motif): string {
   const champ = libelleChamp(motif.champ);
@@ -72,11 +60,11 @@ export function libelleMotif(motif: Motif): string {
       return `${champ || "Champ"} absent`;
     case "valeur_illisible":
       return `${champ || "Champ"} illisible`;
-    case "confiance_faible": {
-      const confiance = pourcentage(motif.detail, "confiance");
-      const seuil = pourcentage(motif.detail, "seuil");
-      return `Confiance insuffisante sur « ${champ} » (confiance ${confiance}, seuil ${seuil})`;
-    }
+    case "confiance_faible":
+      // Revue finale de la refonte du front (constats ECRAN-13,
+      // TELEPHONE-13) : plus de pourcentages de confiance et de seuil de
+      // lecture, termes techniques — une phrase qui dit quoi faire.
+      return `Lecture incertaine de « ${champ || "ce champ"} » — à vérifier sur la photo`;
     case "somme_incoherente":
       return (
         `Somme des lignes (${montant(motif.detail, "somme")}) différente du total ` +

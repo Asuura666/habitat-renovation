@@ -125,24 +125,31 @@ const LIBELLES_PARAMETRE: Record<string, string> = {
   tolerance_total_ht: "Tolérance sur le total HT",
   seuil_prix_pct: "Écart de prix",
   seuil_prix_fort_pct: "Écart de prix important",
-  occurrences_prix_min: "Occurrences minimales pour l'historique",
+  occurrences_prix_min: "Nombre minimum de factures pour établir le prix habituel",
   delai_ligne_bl_non_facturee_j: "Délai avant alerte d'une ligne de BL non facturée",
   delai_alias_non_resolu_h: "Délai avant alerte d'un chantier non reconnu",
   delai_confirmation_bl_h: "Délai de confirmation d'un BL",
   delai_chantier_silencieux_j: "Délai d'inactivité d'un chantier",
-  duree_ignorance_j: "Durée d'ignorance d'un problème",
+  duree_ignorance_j: "Durée pendant laquelle un problème ignoré reste masqué",
 };
 
 /** Libellé de la cible (`cible_id`) d'une entrée : pour un réglage
  * (`cible_table === "parametre"`), la clé technique brute n'a aucun sens
- * pour le dirigeant — remplacée par le nom du réglage. Pour toute autre
- * table, `cible_id` reste affiché tel quel (un identifiant, jamais un mot
- * de jargon). */
-export function libelleCibleId(cibleTable: string | null, cibleId: string): string {
+ * pour le dirigeant — remplacée par le nom du réglage. Pour un compte
+ * utilisateur, l'identifiant reste affiché : c'est la seule façon, tant
+ * qu'aucune liste des comptes n'existe, de le recopier dans le filtre
+ * « Auteur » (limite inscrite dans `docs/dette.md`). Pour toute autre table,
+ * `null` : l'identifiant brut (UUID) ne dit rien au dirigeant, le libellé
+ * de la table suffit (revue finale de la refonte du front, constat
+ * COUVERTURE-10). */
+export function libelleCibleId(cibleTable: string | null, cibleId: string): string | null {
   if (cibleTable === "parametre") {
     return LIBELLES_PARAMETRE[cibleId] ?? cibleId;
   }
-  return cibleId;
+  if (cibleTable === "utilisateur") {
+    return cibleId;
+  }
+  return null;
 }
 
 /** Libellé court d'un code de motif de mise « à vérifier »
@@ -158,7 +165,7 @@ export function libelleCibleId(cibleTable: string | null, cibleId: string): stri
 const LIBELLES_CODE_MOTIF: Record<string, string> = {
   champ_absent: "Champ manquant",
   valeur_illisible: "Valeur illisible",
-  confiance_faible: "Confiance insuffisante",
+  confiance_faible: "Lecture incertaine",
   somme_incoherente: "Somme incohérente",
   total_absent: "Total manquant",
   lignes_absentes: "Aucune ligne détectée",

@@ -67,8 +67,8 @@ DEFINITIONS_PARAMETRES: tuple[DefinitionParametre, ...] = (
     ),
     DefinitionParametre(
         "occurrences_prix_min",
-        "Occurrences minimales pour l'historique",
-        "occurrences",
+        "Nombre minimum de factures pour établir le prix habituel",
+        "factures",
         Decimal("3"),
         Decimal("1"),
         Decimal("100"),
@@ -112,7 +112,7 @@ DEFINITIONS_PARAMETRES: tuple[DefinitionParametre, ...] = (
     ),
     DefinitionParametre(
         "duree_ignorance_j",
-        "Durée d'ignorance d'une anomalie",
+        "Durée pendant laquelle un problème ignoré reste masqué",
         "jours",
         Decimal("90"),
         Decimal("1"),

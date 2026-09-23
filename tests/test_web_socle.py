@@ -216,3 +216,29 @@ def test_cache_vide_quand_le_compte_change() -> None:
     assert "queryClient.clear();" in deconnexion
     ecoute = (SRC / "components" / "EcouteAuthentification.tsx").read_text()
     assert "queryClient.clear();" in ecoute
+
+
+def test_telephone_champs_16px_et_tuiles_lisibles() -> None:
+    """Revue finale : sous `md`, tous les champs passent à 16 px (Safari
+    zoome sinon la page au toucher, constat TELEPHONE-6) ; le grand chiffre
+    d'une tuile réduit sa taille là où six tuiles partagent la ligne
+    (constat COUVERTURE-25) ; l'espace des milliers est visible (constat
+    ECRAN-7)."""
+    css = (SRC / "index.css").read_text()
+    regle = css.split("@media (max-width: 767px)", 1)[1]
+    assert "font-size: 16px !important;" in regle
+    for element in ("input", "select", "textarea"):
+        assert element in regle
+    chiffre = (SRC / "ui" / "Chiffre.tsx").read_text()
+    assert "xl:text-xl 2xl:text-2xl" in chiffre
+    formats = (SRC / "lib" / "formats.ts").read_text()
+    assert "const ESPACE_FINE_INSECABLE = /\\u202f/g;" in formats
+    assert "espacesVisibles(FORMATEUR_MONTANT.format(" in formats
+
+
+def test_motif_de_lecture_sans_pourcentage_technique() -> None:
+    """Revue finale (constats ECRAN-13, TELEPHONE-13) : plus de
+    « confiance 45 %, seuil 80 % » affiché au dirigeant."""
+    motifs = (SRC / "lib" / "motifs.ts").read_text()
+    assert "seuil ${" not in motifs
+    assert "Lecture incertaine de « " in motifs

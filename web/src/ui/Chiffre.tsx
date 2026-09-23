@@ -33,7 +33,11 @@ export function Chiffre({
       <dl>
         <dt className="text-sm text-encre-2">{libelle}</dt>
         <dd
-          className={`mt-1 whitespace-nowrap font-titre text-2xl font-semibold ${CLASSES_TON[ton]}`}
+          // `xl:text-xl` (revue finale, constat COUVERTURE-25) : entre 1280
+          // et 1535 px, six tuiles se partagent la ligne de la vue
+          // d'ensemble — un montant réel à 5 chiffres (« 12 345,00 € »,
+          // insécable) débordait de sa tuile en `text-2xl`.
+          className={`mt-1 whitespace-nowrap font-titre text-2xl font-semibold xl:text-xl 2xl:text-2xl ${CLASSES_TON[ton]}`}
         >
           {valeur}
         </dd>
