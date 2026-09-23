@@ -17,6 +17,13 @@ function messageErreur(erreur: unknown): string {
   return "Une erreur est survenue, réessayez.";
 }
 
+const CLASSES_CHAMP =
+  "w-full rounded-lg border border-bordure bg-surface px-3 py-2.5 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent";
+const CLASSES_LABEL = "mb-1 block text-sm font-medium text-encre";
+
+/** Carte centrée sur fond ivoire, titre Fraunces — même charte que le reste
+ * de l'application (Task 4, habillage seulement : logique de connexion
+ * inchangée). */
 export function Connexion(): ReactElement {
   const [email, setEmail] = useState("");
   const [motDePasse, setMotDePasse] = useState("");
@@ -44,14 +51,15 @@ export function Connexion(): ReactElement {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
-        <h1 className="mb-6 text-xl font-semibold text-slate-900">
-          Contrôle BL &amp; factures
+    <main className="flex min-h-screen items-center justify-center bg-fond px-4 font-sans text-encre">
+      <div className="w-full max-w-sm rounded-carte border border-bordure bg-surface p-8 shadow-sm">
+        <p className="mb-1 text-xs text-encre-2">Contrôle des livraisons</p>
+        <h1 className="mb-6 font-titre text-2xl font-semibold text-accent">
+          Habitat &amp; Rénovation
         </h1>
         <form onSubmit={soumettre} noValidate>
           <div className="mb-4">
-            <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700">
+            <label htmlFor="email" className={CLASSES_LABEL}>
               Email
             </label>
             <input
@@ -62,14 +70,11 @@ export function Connexion(): ReactElement {
               required
               value={email}
               onChange={(evenement) => setEmail(evenement.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              className={CLASSES_CHAMP}
             />
           </div>
           <div className="mb-6">
-            <label
-              htmlFor="mot-de-passe"
-              className="mb-1 block text-sm font-medium text-slate-700"
-            >
+            <label htmlFor="mot-de-passe" className={CLASSES_LABEL}>
               Mot de passe
             </label>
             <input
@@ -80,12 +85,12 @@ export function Connexion(): ReactElement {
               required
               value={motDePasse}
               onChange={(evenement) => setMotDePasse(evenement.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              className={CLASSES_CHAMP}
             />
           </div>
 
           {connexion.isError && (
-            <p role="alert" className="mb-4 text-sm text-red-700">
+            <p role="alert" className="mb-4 text-sm text-alerte">
               {messageErreur(connexion.error)}
             </p>
           )}
@@ -93,7 +98,7 @@ export function Connexion(): ReactElement {
           <button
             type="submit"
             disabled={connexion.isPending}
-            className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white outline-none hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+            className="min-h-[44px] w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white outline-none hover:bg-accent-fonce focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {connexion.isPending ? "Connexion…" : "Se connecter"}
           </button>

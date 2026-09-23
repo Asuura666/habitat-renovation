@@ -3,12 +3,18 @@ import { useQuery } from "@tanstack/react-query";
 import { Navigate } from "react-router";
 
 import { CLE_MOI, DUREE_CACHE_MOI, recupererMoi } from "../api/moi";
+import { EcranEnConstruction } from "../ui/EcranEnConstruction";
 
 /**
- * Route `/` (décision du contrôleur L3-T9, remplace L2-T7 : l'accueil de
- * l'admin est désormais l'écran « À traiter », L3-D18) : après connexion, un
- * admin va sur `/a-traiter`, un agent sur `/bl`. Toujours monté à
- * l'intérieur de `RouteProtegee`, donc `["moi"]` est déjà en cache.
+ * Route `/` (Task 4, remplace L3-T9 : « Vue d'ensemble », maquette `Main`,
+ * spec §3/§4) : désormais la destination de l'admin elle-même (pas une
+ * redirection ailleurs) — écran en construction ici, une tâche suivante le
+ * remplace. Un agent n'a pas accès à la vue d'ensemble et est renvoyé vers
+ * ses dépôts (`/documents`) ; même protection que `GardeAdmin`, qui a déjà
+ * écarté l'agent avant que ce composant ne soit monté (voir `App.tsx`) —
+ * la revérifier ici coûte peu et évite toute dépendance implicite à l'ordre
+ * des gardes. Toujours monté à l'intérieur de `RouteProtegee`, donc
+ * `["moi"]` est déjà en cache.
  */
 export function RedirectionAccueil(): ReactElement | null {
   const { data: moi } = useQuery({
@@ -20,5 +26,8 @@ export function RedirectionAccueil(): ReactElement | null {
   if (!moi) {
     return null;
   }
-  return <Navigate to={moi.role === "admin" ? "/a-traiter" : "/bl"} replace />;
+  if (moi.role !== "admin") {
+    return <Navigate to="/documents" replace />;
+  }
+  return <EcranEnConstruction titre="Vue d'ensemble" />;
 }
