@@ -573,3 +573,31 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   retirés, chaîne vide -> `None`). Si le nombre de clients grandit ou
   qu'un besoin de recherche/à normaliser apparaît, un référentiel dédié
   serait alors justifié — hors périmètre de cette tâche.
+
+### Liste « Documents » (Task 8, refonte front) — web/src/pages/DocumentsListe.tsx
+
+- **Filtres `?mois=`/`?chantier=` côté client, pas côté serveur.** `GET
+  /api/documents` et `GET /api/factures` n'exposent aucun paramètre de
+  requête pour ces deux filtres (contrairement à `/api/bilan/chantiers`,
+  par exemple) : `DocumentsListe` filtre donc après coup, sur les pages déjà
+  chargées (jusqu'à `LIMITE_DOCUMENTS_DEFAUT`/100 documents, aucune pagination
+  ajoutée). Négligeable au volume actuel (un seul client, quelques dizaines
+  de documents par mois) ; à revoir si le volume grandit (ajouter les
+  paramètres côté serveur, sur le modèle de `bilan.py`).
+- **Filtre `?chantier=` par préfixe de `chantier_brut`, pas par
+  `chantier_id`.** Aucune des deux listes (`DocumentReponse`/
+  `FactureResumeReponse`) ne porte l'identifiant du chantier rattaché — seul
+  `chantier_brut` (texte lu par l'OCR, jamais corrigé) est disponible pour
+  un document, et une facture n'a même pas ce champ (elle regroupe
+  plusieurs chantiers via ses livraisons). `DocumentsListe` compare donc
+  `chantier_brut` (en minuscules) au nom canonique du chantier ciblé par
+  préfixe (`startsWith`, pas une égalité stricte : la quasi-totalité des
+  fixtures démo portent un code entre parenthèses après le nom, ex.
+  « VILLA DES TILLEULS (4521) », constat de la vérification visuelle) — un
+  document dont `chantier_brut` diverge davantage du nom canonique
+  (variante, faute de frappe, ordre des mots inversé) n'apparaît pas
+  lorsque ce filtre est actif, et le filtre ignore toujours les factures
+  (aucune ne sera jamais reliée à un chantier par ce biais). Un filtre fiable
+  demanderait une route serveur dédiée (ex. `chantier_id` sur `GET
+  /api/documents`, résolu comme `chantier_brut`/`AliasChantier` le sont déjà
+  pour la correction d'un document) — hors périmètre de cette tâche.

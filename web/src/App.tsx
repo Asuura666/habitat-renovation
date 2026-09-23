@@ -12,13 +12,11 @@ import {
   BilanFournisseursChantier,
   BilanFournisseursGlobal,
 } from "./pages/BilanFournisseur";
-import { BlDeposes } from "./pages/BlDeposes";
 import { Chantiers } from "./pages/Chantiers";
 import { Connexion } from "./pages/Connexion";
-import { DocumentDetail } from "./pages/DocumentDetail";
-import { FactureDetail } from "./pages/FactureDetail";
-import { FacturesListe } from "./pages/FacturesListe";
+import { DocumentsListe } from "./pages/DocumentsListe";
 import { Journal } from "./pages/Journal";
+import { PageBl } from "./pages/PageBl";
 import { Reglages } from "./pages/Reglages";
 import { GardeAdmin } from "./routes/GardeAdmin";
 import { RedirectionAccueil } from "./routes/RedirectionAccueil";
@@ -127,14 +125,17 @@ export function App(): ReactElement {
             }
           />
 
-          {/* Documents (remplace « Factures »/« BL déposés ») — admin (tous)
-              et agent (ses dépôts, lecture seule) : aucune `GardeAdmin` ici,
-              comme avant Task 4. `documents/:id` et `bl/:id` montent le même
-              écran existant `DocumentDetail` (L3-D19) — la Task 9 remplace
-              la liste, la Task 5 la fiche BL. */}
-          <Route path="documents" element={<BlDeposes />} />
-          <Route path="documents/:id" element={<DocumentDetail />} />
-          <Route path="bl/:id" element={<DocumentDetail />} />
+          {/* Documents (remplace « Factures »/« BL déposés », Task 8) —
+              admin (tous) et agent (ses dépôts, lecture seule) : aucune
+              `GardeAdmin` ici, comme avant Task 4, `DocumentsListe` gère
+              elle-même la vue agent restreinte. `documents/:id` et `bl/:id`
+              montent le même écran `PageBl`, qui tente d'abord un document
+              (BL/enlèvement) puis, sur 404, délègue à `FactureDetail` — un
+              même identifiant peut être celui d'un document ou d'une
+              facture (voir `pages/PageBl.tsx`). */}
+          <Route path="documents" element={<DocumentsListe />} />
+          <Route path="documents/:id" element={<PageBl />} />
+          <Route path="bl/:id" element={<PageBl />} />
 
           <Route
             path="journal"
@@ -153,28 +154,15 @@ export function App(): ReactElement {
             }
           />
 
-          {/* Écrans sans remplacement construit — fix round 1 R1 (« aucune
-              fonctionnalité existante n'est supprimée » l'emporte sur la
-              redirection posée par erreur en Task 4) : restent MONTÉS sur
-              leur ancienne URL, pas de redirection, jusqu'à ce qu'une tâche
-              suivante les migre (Task 9 pour Factures, Task 6 pour
-              Anomalies). */}
-          <Route
-            path="factures"
-            element={
-              <GardeAdmin>
-                <FacturesListe />
-              </GardeAdmin>
-            }
-          />
-          <Route
-            path="factures/:id"
-            element={
-              <GardeAdmin>
-                <FactureDetail />
-              </GardeAdmin>
-            }
-          />
+          {/* Écran sans remplacement construit — fix round 1 R1 (« aucune
+              fonctionnalité existante n'est supprimée » l'emporte sur une
+              redirection posée par erreur en Task 4) : reste MONTÉ sur son
+              ancienne URL, pas de redirection, jusqu'à ce que la Task 6 le
+              migre. Factures (Task 8) : `DocumentsListe` couvre désormais le
+              dépôt et la liste des factures, `PageBl`/`FactureDetail`
+              affichent leur détail sur `/documents/:id` — les deux anciennes
+              routes deviennent de vraies redirections (spec §3), pas des
+              écrans transitoires. */}
           <Route
             path="anomalies"
             element={
@@ -215,6 +203,11 @@ export function App(): ReactElement {
             }
           />
           <Route path="bl" element={<RedirectionAncienneUrl vers={() => "/documents"} />} />
+          <Route path="factures" element={<RedirectionAncienneUrl vers={() => "/documents"} />} />
+          <Route
+            path="factures/:id"
+            element={<RedirectionAncienneUrl vers={(p) => `/documents/${p.id ?? ""}`} />}
+          />
 
           <Route path="*" element={<RedirectionAncienneUrl vers={() => "/"} />} />
         </Route>

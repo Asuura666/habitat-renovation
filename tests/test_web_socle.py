@@ -77,16 +77,15 @@ def test_anciennes_routes_redirigent() -> None:
 
 
 def test_ecrans_sans_remplacement_restent_montes() -> None:
-    """Fix round 1, R1 : Factures et Anomalies n'ont pas encore de
-    remplacement construit — ils restent de vrais écrans, gardés admin, sur
-    leur ancienne URL, plutôt qu'une redirection qui les rendrait
-    inaccessibles."""
+    """Fix round 1, R1 : Anomalies n'a pas encore de remplacement construit —
+    il reste un vrai écran, gardé admin, sur son ancienne URL, plutôt qu'une
+    redirection qui le rendrait inaccessible. Factures (Task 8) : reprise
+    complète par `DocumentsListe`/`PageBl`/`FactureDetail`, voir
+    `test_anciennes_routes_factures_redirigent_vers_documents` dans
+    `tests/test_web_documents.py` — les deux anciennes routes redirigent
+    désormais pour de bon."""
     app = (SRC / "App.tsx").read_text()
-    for chemin, composant in (
-        ('path="factures"', "FacturesListe"),
-        ('path="factures/:id"', "FactureDetail"),
-        ('path="anomalies"', "Anomalies"),
-    ):
+    for chemin, composant in (('path="anomalies"', "Anomalies"),):
         assert chemin in app
         declaration = app.split(chemin, 1)[1].split("path=", 1)[0]
         assert f"<{composant}" in declaration, chemin
