@@ -50,18 +50,56 @@ function estCorpsDoublon(corps: unknown): corps is { original_id: string } {
   );
 }
 
-/** `POST /api/chantiers` : `agence` vide -> `null` (décision du
- * contrôleur, même règle que le service qui la débarrasse des espaces de
- * bord). */
+/** `POST /api/chantiers` : `agence`/`client` vides -> `null` (décision du
+ * contrôleur, même règle que le service qui les débarrasse des espaces de
+ * bord). `client` : ajout hors CDC du 23/09/2026 (`docs/dette.md`, Task 1
+ * de la refonte du front). */
 export async function creerChantier(
   nomCanonique: string,
   agence: string | null,
+  client: string | null = null,
 ): Promise<Chantier> {
   try {
     return await appelerApi<Chantier>("/api/chantiers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nom_canonique: nomCanonique, agence }),
+      body: JSON.stringify({ nom_canonique: nomCanonique, agence, client }),
+    });
+  } catch (erreur) {
+    if (erreur instanceof ErreurApi && erreur.status === 409 && estCorpsDoublon(erreur.corps)) {
+      throw new ChantierEnDoubleErreur(erreur.detail, erreur.corps.original_id);
+    }
+    throw erreur;
+  }
+}
+
+export interface ModificationChantier {
+  nomCanonique: string;
+  agence: string | null;
+  client: string | null;
+  actif: boolean;
+}
+
+/** `PUT /api/chantiers/{id}` (Task 1 de la refonte du front, `docs/dette
+ * .md`) : remplace nom, agence, client et l'état actif. Même traitement du
+ * 409 (doublon de nom) que `creerChantier` ; le 404 (chantier disparu entre
+ * l'ouverture de la fiche et l'enregistrement) est laissé tel quel
+ * (`ErreurApi`, message du serveur affiché par l'appelant). */
+export async function modifierChantier(
+  chantierId: string,
+  modification: ModificationChantier,
+): Promise<Chantier> {
+  try {
+    return await appelerApi<Chantier>("/api/chantiers/{chantier_id}", {
+      url: `/api/chantiers/${chantierId}`,
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        nom_canonique: modification.nomCanonique,
+        agence: modification.agence,
+        client: modification.client,
+        actif: modification.actif,
+      }),
     });
   } catch (erreur) {
     if (erreur instanceof ErreurApi && erreur.status === 409 && estCorpsDoublon(erreur.corps)) {

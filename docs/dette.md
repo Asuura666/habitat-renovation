@@ -671,3 +671,98 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   « Compte utilisateur créé », où l'identifiant est réellement visible. La
   limite elle-même (pas de sélecteur de comptes, cf. entrée ci-dessus) est
   inchangée et reste documentée ici, ce qui suffit.
+
+### Chantiers et fiche chantier (Task 7, refonte du front) — web
+
+- **Pas de « Conforme » par chantier sur la fiche.** La consigne de la
+  Task 7 demandait quatre `Chiffre` sur `FicheChantier.tsx` (Facturé,
+  Conforme, Écart, Sans bon), avec un repli explicite « sinon n'afficher
+  que Facturé / Écart / Sans bon » si le serveur ne fournit pas
+  « conforme ». Vérification faite : aucun endpoint ne fournit ce montant
+  par chantier — `LigneBilanChantierReponse.montants` et
+  `ChantierTableauReponse.montants` (`MontantsBilanReponse`) n'ont que
+  `facture_ht`/`rapproche`/`en_ecart`/`non_justifie`/
+  `nb_anomalies_ouvertes` ; seul `TableauDeBordReponse.totaux.conforme`
+  existe, agrégé sur tous les chantiers du mois, inutilisable pour un seul
+  chantier sans le recalculer côté front (interdit). Le repli s'applique
+  donc toujours : la fiche affiche trois chiffres, jamais quatre. Pour
+  aller plus loin, il faudrait exposer un `conforme` par chantier dans
+  `ChantierTableau`/`MontantsBilan` côté serveur (`ingest/tableau_de_bord
+  .py`/`ingest/bilan.py`).
+- **Pastille d'état de la fiche chantier limitée au mois courant —
+  corrigé (fix round 1, constat 3).** La fiche interrogeait silencieusement
+  `/api/tableau-de-bord` pour le mois courant implicite, jamais indiqué à
+  côté de `Chiffre` pouvant porter sur toute la durée du chantier (deux
+  périodes différentes affichées sans libellé sur le même écran). La fiche
+  lit désormais `?mois` (même représentation `AAAA-MM-01` que
+  `ChantiersListe.tsx`, transmise par ses liens et par l'ancienne
+  redirection `/bilan/:c?mois=…`) : la pastille ne s'affiche plus que si un
+  mois est choisi, et chaque `Chiffre` précise sa période (« — tous les
+  mois » ou « en septembre 2026 »).
+- **Livraisons d'un fournisseur non résolu absentes de la fiche.** La
+  carte « Livraisons » assemble les BL de tous les fournisseurs du
+  chantier via `GET /api/bilan/chantiers/{id}/fournisseurs` puis, pour
+  chacun, `GET /api/bilan/chantiers/{id}/fournisseurs/{fournisseur_id}/bl`
+  — cette seconde route exige un `fournisseur_id` réel (chemin), donc les
+  blocs dont le fournisseur n'a pas pu être résolu (`fournisseur_id`
+  `None` dans `GET .../fournisseurs`) n'ont aucune route pour récupérer
+  leurs lignes de BL et n'apparaissent pas dans la liste. Ils restent
+  visibles depuis « À régler » (règle R14, chantier/fournisseur à
+  rattacher) et depuis « Documents ». Un endpoint qui accepterait
+  `fournisseur_id=null` (ou une route unique « toutes les livraisons du
+  chantier ») lèverait cette limite.
+- **« Exporter pour Excel » de la fiche chantier — complété (fix round 1,
+  constat 4), dette résiduelle inchangée.** La fiche n'offrait que l'export
+  fournisseurs du chantier (`GET /api/bilan/chantiers/{id}
+  /fournisseurs.csv`) sous ce libellé, alors que la carte affichée est
+  « Livraisons » (niveau BL) — mismatch de niveau. La carte « Livraisons »
+  propose désormais, en plus de cet export fournisseurs (gardé), un export
+  CSV par fournisseur résolu au niveau BL (`urlExportBilanBl`, une entrée
+  « Exporter les livraisons <fournisseur> (CSV) » par fournisseur). Il n'y a
+  toujours pas de CSV serveur unique « toutes les livraisons, tous
+  fournisseurs confondus » correspondant exactement à l'assemblage front
+  affiché — un export par fournisseur reste donc nécessaire côté client
+  pour couvrir tout le chantier ; un endpoint dédié lèverait cette limite.
+- **Dépôts par agent (CDC §4, 30 jours) repris dans `ChantiersListe.tsx`,
+  pas dans un écran dédié.** L'ancien écran « Chantiers & fournisseurs »
+  regroupait référentiels, alias, activité (dépôts par agent + chantiers
+  silencieux) ; la refonte disperse ce contenu (alias → « À régler », Task
+  6 ; agences d'un fournisseur → fiche fournisseur, Task 9) sans lui
+  laisser de nouvel écran dédié. Faute d'un tel écran, la Task 7 a ajouté
+  une carte « Dépôts récents (30 jours) » en bas de `ChantiersListe.tsx`
+  pour que cette exigence du CDC reste accessible quelque part — décision
+  du contrôleur/de l'implémenteur à confirmer, un autre emplacement
+  (Réglages ? un écran « Activité » séparé ?) étant tout aussi défendable.
+- **« Dernier bon retrouvé sur une facture » (ex-« Dernière livraison
+  reçue ») recalculée sans filtre de mois — corrigé (fix round 2, constat
+  1), coût réseau résiduel.** Elle portait sur `livraisons`, déjà filtrée
+  par `?mois` : un chantier livré en août et en septembre, la fiche
+  filtrée sur octobre, affichait un « aucun bon retrouvé » erroné.
+  `FicheChantier.tsx` interroge désormais `GET .../fournisseurs` et
+  `GET .../fournisseurs/{f}/bl` une seconde fois, sans `?mois`
+  (`fournisseursTous`/`blTousParFournisseur`) — mêmes clés que les requêtes
+  filtrées quand aucun mois n'est choisi (`@tanstack/react-query` partage
+  alors le cache, pas de requête réseau en double), mais deux requêtes
+  HTTP de plus par fournisseur résolu quand un mois est choisi. Sans
+  incidence perceptible avec le volume de données de démo (un seul
+  fournisseur résolu par chantier) ; à surveiller si un chantier accumule
+  beaucoup de fournisseurs.
+- **« Dernier bon retrouvé sur une facture » ne mesure toujours pas un vrai
+  dépôt — corrections de revue tour 3, constat 2, limite non résolue.**
+  Même après le correctif ci-dessus, cette date ne provient que des blocs
+  d'une facture déjà arrivée (une fois par mois) dont la photo de BL a été
+  retrouvée (`bl_document_id !== null`) — jamais des dépôts Telegram
+  eux-mêmes (quotidiens). Un chantier qui a reçu des bons ce mois-ci mais
+  dont la facture du mois n'est pas encore arrivée affiche donc « Aucun bon
+  retrouvé sur une facture », alors que le bandeau « Chantiers sans bon
+  déposé » (basé sur le vrai `dernier_depot_le`) le montrerait actif. Le
+  libellé dit maintenant explicitement ce qu'il mesure (jamais « reçue »/
+  « déposée » seules) et distingue « aucun bon retrouvé » de « bon
+  retrouvé, date inconnue » (un bon sans `date_bl` affichait auparavant le
+  même message que l'absence totale de bon) — mais l'écart entre les deux
+  notions reste entier. Un vrai « dernier dépôt » par chantier individuel
+  demanderait d'exposer côté serveur le même calcul que
+  `ingest.referentiels_vue.chantiers_sans_depot` (qui l'a déjà, agrégé par
+  chantier via `Document.created_at`), par exemple un champ
+  `dernier_depot_le` sur `ChantierTableauReponse`/`LigneBilanChantierReponse`
+  — hors périmètre Task 7.

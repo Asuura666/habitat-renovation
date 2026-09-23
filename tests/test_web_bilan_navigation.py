@@ -14,20 +14,20 @@ def test_routes_bilan_couvrent_navigation_directe_et_inverse() -> None:
     assert 'path="bilan/fournisseurs"' in app
     assert 'path="bilan/fournisseurs/:fournisseurId"' in app
 
-    # Fix round 1, R2 : le détail des BL d'un couple chantier/fournisseur
-    # (`BilanBl`) doit être RÉELLEMENT monté sur la nouvelle URL — pas
-    # seulement mentionné dans une redirection (`bilan/:chantierId/
-    # :fournisseurId` ci-dessus redirige, mais ne monte plus rien) — sinon
-    # le clic « Voir » depuis la fiche chantier ou la fiche fournisseur mène
-    # à un écran vide.
+    # Task 7 de la refonte du front : `chantiers/:chantierId/:fournisseurId`
+    # (ex-détail des BL d'un couple chantier/fournisseur, `BilanBl`) est
+    # désormais une simple redirection vers la fiche chantier
+    # (`FicheChantier` liste elle-même toutes les livraisons, tous
+    # fournisseurs confondus) — plus un écran séparé par fournisseur.
     assert 'path="chantiers/:chantierId/:fournisseurId"' in app
     declaration = app.split('path="chantiers/:chantierId/:fournisseurId"', 1)[1].split(
         "path=", 1
     )[0]
-    assert "<BilanBl" in declaration
-    assert "GardeAdmin" in declaration
+    assert "RedirectionAncienneUrl" in declaration
+    assert "/chantiers/${p.chantierId" in declaration
 
-    # Les liens de la fiche chantier et de la fiche fournisseur pointent
+    # Les liens de la fiche fournisseur (encore montée sur `fournisseurs/
+    # :fournisseurId`, Task 9 de la refonte du front) pointent
     # directement vers la nouvelle URL (pas via la redirection).
     page = (WEB / "pages" / "BilanFournisseur.tsx").read_text()
     assert "/bilan/${chantierId}/${id}" not in page
@@ -51,7 +51,11 @@ def test_bilan_detail_lie_sources_et_anomalies_du_bloc() -> None:
     assert "bl_document_id" in page
     assert "#bloc-" in page
     assert "blocId=" in page
-    assert "Vue par fournisseur" in (WEB / "pages" / "Bilan.tsx").read_text()
+    # L'ancien lien « Vue par fournisseur » de `Bilan.tsx` (supprimé, Task 7
+    # de la refonte du front) n'est plus nécessaire : « Fournisseurs » est
+    # désormais une entrée de navigation principale à part entière (spec §3,
+    # voir `test_web_socle.py::test_navigation_cinq_entrees_sans_jargon`).
+    assert not (WEB / "pages" / "Bilan.tsx").exists()
 
 
 def test_tableau_bl_affiche_le_nombre_anomalies_ouvertes() -> None:

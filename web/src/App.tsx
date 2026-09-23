@@ -4,11 +4,10 @@ import { Route, Routes } from "react-router";
 import { EcouteAuthentification } from "./components/EcouteAuthentification";
 import { Gabarit } from "./components/Gabarit";
 import { ARegler } from "./pages/ARegler";
-import { Bilan } from "./pages/Bilan";
-import { BilanBl, BilanFournisseursChantier } from "./pages/BilanFournisseur";
-import { Chantiers } from "./pages/Chantiers";
+import { ChantiersListe } from "./pages/ChantiersListe";
 import { Connexion } from "./pages/Connexion";
 import { DocumentsListe } from "./pages/DocumentsListe";
+import { FicheChantier } from "./pages/FicheChantier";
 import { FicheFournisseur } from "./pages/FicheFournisseur";
 import { FournisseursListe } from "./pages/FournisseursListe";
 import { Journal } from "./pages/Journal";
@@ -70,48 +69,46 @@ export function App(): ReactElement {
             }
           />
 
-          {/* Chantiers (remplace « Bilan ») — écrans existants conservés :
-              `Bilan` pour la liste, `BilanFournisseursChantier` (ex.
-              `bilan/:chantierId`) pour la fiche, `BilanBl` (ex.
-              `bilan/:chantierId/:fournisseurId`, fix round 1 R2) pour le
-              détail des BL d'un couple chantier/fournisseur — la Task 7 les
-              remplace. `chantiers/referentiel` (fix round 1 R1) garde
-              accessible l'écran de création de chantier et de validation
-              d'alias (ex-« Chantiers & fournisseurs », L5-T8) tant qu'il
-              n'a pas été repris par la fiche chantier de la Task 7 — lien
-              « Gérer les chantiers » dans la barre latérale (Gabarit.tsx).
-              Route statique déclarée avant `chantiers/:chantierId` pour ne
-              jamais être lue comme un identifiant de chantier. */}
+          {/* Chantiers (remplace « Bilan ») — Task 7 : `ChantiersListe`
+              (liste, filtres, création, bandeau chantiers silencieux) et
+              `FicheChantier` (fiche, toutes les livraisons du chantier,
+              édition, problèmes ouverts) reprennent tout le contenu utile
+              des anciens écrans `Bilan`/`Chantiers`/`BilanFournisseur`
+              (référentiel + validation d'alias : la validation d'alias est
+              reprise par l'écran « À régler », Task 6 ; les agences d'un
+              fournisseur par la fiche fournisseur, Task 9). `chantiers
+              /referentiel` (ex-écran « Chantiers & fournisseurs ») et
+              `chantiers/:chantierId/:fournisseurId` (ex-détail des BL d'un
+              couple chantier/fournisseur, `BilanBl`) sont désormais de
+              simples redirections vers `/chantiers` et `/chantiers/:c` — le
+              lien « Gérer les chantiers » de la barre latérale
+              (Gabarit.tsx) reste valide. Route statique déclarée avant
+              `chantiers/:chantierId` pour ne jamais être lue comme un
+              identifiant de chantier. */}
           <Route
             path="chantiers"
             element={
               <GardeAdmin>
-                <Bilan />
+                <ChantiersListe />
               </GardeAdmin>
             }
           />
           <Route
             path="chantiers/referentiel"
-            element={
-              <GardeAdmin>
-                <Chantiers />
-              </GardeAdmin>
-            }
+            element={<RedirectionAncienneUrl vers={() => "/chantiers"} />}
           />
           <Route
             path="chantiers/:chantierId"
             element={
               <GardeAdmin>
-                <BilanFournisseursChantier />
+                <FicheChantier />
               </GardeAdmin>
             }
           />
           <Route
             path="chantiers/:chantierId/:fournisseurId"
             element={
-              <GardeAdmin>
-                <BilanBl />
-              </GardeAdmin>
+              <RedirectionAncienneUrl vers={(p) => `/chantiers/${p.chantierId ?? ""}`} />
             }
           />
 
