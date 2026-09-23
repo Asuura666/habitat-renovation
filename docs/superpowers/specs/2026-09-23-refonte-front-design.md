@@ -13,7 +13,8 @@ par une personne non technique. Démo client le **samedi 26/09/2026**.
 
 Intention validée avec Ilane :
 
-- utilisateur principal : **le dirigeant, au bureau, sur ordinateur** ;
+- utilisateur principal : **le dirigeant, au bureau sur ordinateur et en
+  déplacement sur téléphone** (précisé par Ilane le 23/09) ;
 - en 5 secondes il doit voir **la santé de chaque chantier (et de son client
   final)** et **l'argent à vérifier** ;
 - **refonte complète** des écrans, pas seulement un habillage ;
@@ -22,8 +23,13 @@ Intention validée avec Ilane :
 
 Hypothèses (non dites par Ilane, à corriger si fausses) : les agents terrain
 continuent de passer par Telegram et n'ont besoin que des écrans « Documents »
-(leurs dépôts) et du détail d'un BL ; le téléphone reste utilisable (cartes
-empilées) mais n'est pas la cible de la démo.
+(leurs dépôts) et du détail d'un BL.
+
+**Téléphone = cible à part entière** : chaque écran a une présentation 375 px
+pensée pour le dirigeant (tuiles en grille 2×3, tableaux transformés en
+cartes empilées, panneau de détail d'« À régler » en page plein écran,
+barre latérale remplacée par une barre de navigation en bas avec les cinq
+entrées). La démo doit pouvoir se faire sur téléphone.
 
 ## 2. Direction visuelle (A — « Registre »)
 
@@ -157,7 +163,8 @@ Stack inchangée (React 18, Vite, React Router, TanStack Query, Tailwind
 hors `@fontsource/*`. Pas de logique métier dans le front. Les tests
 existants (`tests/test_web_*.py`, contrats front) sont mis à jour avec les
 routes. Accessibilité : vrais `<button>`/`<a>`/`<label>`, contraste 4,5:1,
-cibles ≥ 44 px. Largeurs vérifiées : 1440, 1280 et 375 px.
+cibles ≥ 44 px. Largeurs vérifiées : 1440, 1280 et 375 px ; la présentation téléphone fait
+partie de l'acceptation de chaque écran, pas d'une passe finale.
 
 ## 8. Découpage et calendrier (démo samedi 26/09)
 
