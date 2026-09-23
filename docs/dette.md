@@ -573,3 +573,14 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   retirés, chaîne vide -> `None`). Si le nombre de clients grandit ou
   qu'un besoin de recherche/à normaliser apparaît, un référentiel dédié
   serait alors justifié — hors périmètre de cette tâche.
+
+### Task 10, fix round 1 (23/09/2026) — web (filtre auteur du Journal)
+
+- **Le filtre auteur du Journal demande un identifiant, sans liste de
+  comptes où le trouver.** Le libellé et le texte d'aide ne parlent plus
+  d'« UUID » (reformulé en « Auteur » / « identifiant de la personne »,
+  fix round 1 de la revue de la Task 10), mais le champ reste un texte
+  libre à coller — aucune route `GET /api/utilisateurs` (ni équivalent)
+  n'existe pour peupler un sélecteur de comptes. Corriger proprement
+  demande cette route et un composant de sélection, hors périmètre de
+  cette tâche (habillage uniquement, contenu inchangé).

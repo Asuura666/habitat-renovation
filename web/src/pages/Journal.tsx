@@ -3,7 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 
 import { type EntreeJournal, type FiltresJournal, cleJournal, listerJournal } from "../api/journal";
 import { formaterDateHeure, TIRET } from "../lib/formats";
-import { ACTIONS_CONNUES, CIBLES_CONNUES, libelleAction, libelleAuteur, lignesAvantApres } from "../lib/journal";
+import {
+  ACTIONS_CONNUES,
+  CIBLES_CONNUES,
+  libelleAction,
+  libelleAuteur,
+  libelleCible,
+  lignesAvantApres,
+} from "../lib/journal";
 import { Carte, EnTetePage, EtatVide, Filtres } from "../ui";
 
 const CLASSES_CHAMP =
@@ -34,12 +41,12 @@ function DetailAvantApres({
   return (
     <ul className="space-y-1">
       {lignes.map((ligne) => (
-        <li key={ligne.cle}>
-          <span className="font-medium text-encre">{ligne.cle}</span>
+        <li key={ligne.cle} className="[overflow-wrap:anywhere]">
+          <span className="font-medium text-encre">{ligne.libelle}</span>
           {" : "}
-          <span className="font-mono text-xs">{ligne.avant}</span>
+          <span className="font-mono text-xs [overflow-wrap:anywhere]">{ligne.avant}</span>
           {" → "}
-          <span className="font-mono text-xs">{ligne.apres}</span>
+          <span className="font-mono text-xs [overflow-wrap:anywhere]">{ligne.apres}</span>
         </li>
       ))}
     </ul>
@@ -49,21 +56,27 @@ function DetailAvantApres({
 function LigneJournal({ entree }: { entree: EntreeJournal }): ReactElement {
   return (
     <tr>
-      <td className="whitespace-nowrap px-4 py-3 align-top font-mono text-xs text-encre-2">
+      <td className="px-4 py-3 align-top font-mono text-xs text-encre-2 [overflow-wrap:anywhere]">
         {formaterDateHeure(entree.horodatage)}
       </td>
-      <td className="px-4 py-3 align-top font-medium text-encre">{libelleAction(entree.action)}</td>
-      <td className="px-4 py-3 align-top text-encre-2">{libelleAuteur(entree.auteur)}</td>
+      <td className="px-4 py-3 align-top font-medium text-encre [overflow-wrap:anywhere]">
+        {libelleAction(entree.action)}
+      </td>
+      <td className="px-4 py-3 align-top text-encre-2 [overflow-wrap:anywhere]">
+        {libelleAuteur(entree.auteur)}
+      </td>
       <td className="px-4 py-3 align-top text-encre-2">
-        {entree.cible_table ?? TIRET}
+        {entree.cible_table !== null ? libelleCible(entree.cible_table) : TIRET}
         {entree.cible_id !== null && (
           <>
             <br />
-            <span className="font-mono text-xs text-encre-2">{entree.cible_id}</span>
+            <span className="font-mono text-xs text-encre-2 [overflow-wrap:anywhere]">
+              {entree.cible_id}
+            </span>
           </>
         )}
       </td>
-      <td className="px-4 py-3 align-top text-encre-2">
+      <td className="px-4 py-3 align-top text-encre-2 [overflow-wrap:anywhere]">
         <DetailAvantApres avant={entree.avant} apres={entree.apres} />
       </td>
     </tr>
@@ -80,13 +93,13 @@ function CarteJournal({ entree }: { entree: EntreeJournal }): ReactElement {
         <p className="font-medium text-encre">{libelleAction(entree.action)}</p>
         <p className="shrink-0 font-mono text-xs text-encre-2">{formaterDateHeure(entree.horodatage)}</p>
       </div>
-      <p className="mt-1 text-sm text-encre-2">
+      <p className="mt-1 text-sm text-encre-2 [overflow-wrap:anywhere]">
         {libelleAuteur(entree.auteur)}
-        {entree.cible_table !== null && ` · ${entree.cible_table}`}
+        {entree.cible_table !== null && ` · ${libelleCible(entree.cible_table)}`}
         {entree.cible_id !== null && (
           <>
             {" "}
-            <span className="font-mono text-xs">{entree.cible_id}</span>
+            <span className="font-mono text-xs [overflow-wrap:anywhere]">{entree.cible_id}</span>
           </>
         )}
       </p>
@@ -135,7 +148,7 @@ function FormFiltres({ filtres, onChange }: FormFiltresProps): ReactElement {
 
           <div>
             <label htmlFor="filtre-cible-table" className={CLASSES_LABEL}>
-              Table cible
+              Élément concerné
             </label>
             <select
               id="filtre-cible-table"
@@ -148,10 +161,10 @@ function FormFiltres({ filtres, onChange }: FormFiltresProps): ReactElement {
               }
               className={CLASSES_CHAMP}
             >
-              <option value="">Toutes les tables</option>
+              <option value="">Tous les éléments</option>
               {CIBLES_CONNUES.map((cible) => (
                 <option key={cible} value={cible}>
-                  {cible}
+                  {libelleCible(cible)}
                 </option>
               ))}
             </select>
@@ -159,12 +172,12 @@ function FormFiltres({ filtres, onChange }: FormFiltresProps): ReactElement {
 
           <div>
             <label htmlFor="filtre-utilisateur-id" className={CLASSES_LABEL}>
-              Auteur (identifiant)
+              Auteur
             </label>
             <input
               id="filtre-utilisateur-id"
               type="text"
-              placeholder="UUID de l'utilisateur"
+              placeholder="Identifiant de la personne"
               value={filtres.utilisateurId ?? ""}
               onChange={(evenement) =>
                 onChange({
@@ -174,6 +187,9 @@ function FormFiltres({ filtres, onChange }: FormFiltresProps): ReactElement {
               }
               className={CLASSES_CHAMP}
             />
+            <p className="mt-1 text-xs text-encre-2">
+              Identifiant de la personne (pas de liste de comptes ici, voir dette technique).
+            </p>
           </div>
 
           <div>
@@ -207,14 +223,14 @@ function FormFiltres({ filtres, onChange }: FormFiltresProps): ReactElement {
           </div>
         </div>
 
-        <div>
-          <p className={CLASSES_LABEL}>Nombre de résultats</p>
+        <fieldset className="m-0 border-0 p-0">
+          <legend className={CLASSES_LABEL}>Nombre de résultats</legend>
           <Filtres
             options={OPTIONS_FILTRE_LIMITE}
             valeur={String(filtres.limite ?? LIMITE_DEFAUT)}
             onChange={(valeur) => onChange({ ...filtres, limite: Number(valeur) })}
           />
-        </div>
+        </fieldset>
       </form>
     </Carte>
   );
@@ -263,15 +279,24 @@ export function Journal(): ReactElement {
         <>
           {/* Tableau — ordinateur (>= md) */}
           <Carte className="hidden overflow-x-auto md:block">
-            <table className="w-full min-w-[900px] text-sm">
+            {/* `table-fixed` + largeurs de colonnes en pourcentage (plutôt
+             * qu'une largeur minimale fixe) : la colonne Détail contient du
+             * JSON brut (`lib/journal.ts::formaterValeurBrute`) qui peut
+             * être long et sans espace — sans largeur figée, son contenu
+             * minimal forcerait le tableau, la carte, puis la page entière
+             * à déborder horizontalement (constat de la revue, captures
+             * 1440/375 trop larges). Les pourcentages tiennent seuls, sans
+             * dépendre d'un correctif `min-w-0` posé plus haut dans
+             * `Gabarit.tsx`, hors périmètre de cette tâche). */}
+            <table className="w-full table-fixed text-sm">
               <caption className="sr-only">Journal des modifications</caption>
               <thead className="border-b border-bordure text-left text-xs font-medium uppercase tracking-wide text-encre-2">
                 <tr>
-                  <th scope="col" className="px-4 py-3">Horodatage</th>
-                  <th scope="col" className="px-4 py-3">Action</th>
-                  <th scope="col" className="px-4 py-3">Auteur</th>
-                  <th scope="col" className="px-4 py-3">Cible</th>
-                  <th scope="col" className="px-4 py-3">Détail (avant → après)</th>
+                  <th scope="col" className="w-[13%] px-4 py-3">Horodatage</th>
+                  <th scope="col" className="w-[15%] px-4 py-3">Action</th>
+                  <th scope="col" className="w-[13%] px-4 py-3">Auteur</th>
+                  <th scope="col" className="w-[15%] px-4 py-3">Cible</th>
+                  <th scope="col" className="w-[44%] px-4 py-3">Détail (avant → après)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-bordure">

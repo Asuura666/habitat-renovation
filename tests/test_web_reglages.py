@@ -38,6 +38,12 @@ def test_ecran_reglages_a_la_charte() -> None:
     assert "blue-" not in page
 
 
+def test_ecran_reglages_largeur_plafonnee_sur_grand_ecran() -> None:
+    page = (WEB / "pages" / "Reglages.tsx").read_text(encoding="utf-8")
+
+    assert "max-w-4xl" in page
+
+
 def test_client_parametres_lit_et_modifie_les_seuils() -> None:
     client = (WEB / "api" / "parametres.ts").read_text(encoding="utf-8")
 
@@ -50,6 +56,6 @@ def test_journal_connait_les_modifications_de_parametres() -> None:
     journal = (WEB / "lib" / "journal.ts").read_text(encoding="utf-8")
     page = (WEB / "pages" / "Reglages.tsx").read_text(encoding="utf-8")
 
-    assert 'parametre_modifie: "Paramètre modifié"' in journal
+    assert 'parametre_modifie: "Réglage modifié"' in journal
     assert '"parametre"' in journal
     assert "modification.reset()" in page

@@ -98,10 +98,10 @@ export function Reglages(): ReactElement {
   const parametres = useQuery({ queryKey: CLE_PARAMETRES, queryFn: listerParametres });
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-4xl space-y-6">
       <EnTetePage titre="Réglages" />
       <p className="text-sm text-encre-2">
-        Ces seuils s'appliquent aux prochains contrôles et rapprochements. Chaque modification est
+        Ces seuils s'appliquent aux prochains contrôles des factures. Chaque modification est
         conservée dans le journal.
       </p>
 
