@@ -232,9 +232,15 @@ function SectionProblemesOuverts({ anomalies }: { anomalies: Anomalie[] }): Reac
  * chantiers concernés (lien `/chantiers/:id`), problèmes ouverts (lien
  * `/a-regler/:id`), agences connues et export CSV. `mois`/`agence` sont lus
  * dans l'URL (posés par la liste, correction de revue tour 1) et reportés
- * partout où cette fiche interroge le serveur ou renvoie vers la liste —
- * cette page ne montre pas elle-même de sélecteur, la liste garde seule le
- * formulaire de filtres.
+ * aux requêtes que l'API sait filtrer par mois de facture (montants,
+ * chantiers), à leur export et au fil d'Ariane — cette page ne montre pas
+ * elle-même de sélecteur, la liste garde seule le formulaire de filtres.
+ * « Problèmes ouverts » est la seule section qui n'en tient jamais compte :
+ * `GET /api/anomalies` ne filtre que sur `created_at` (date de constat d'un
+ * problème), qui n'a aucun rapport avec le mois de la facture — un filtre
+ * silencieux y contredirait le chiffre « Problèmes » de la liste et de son
+ * export (correction de revue, tour 2). Cette section le dit explicitement
+ * quand un filtre est actif ailleurs sur la page (voir plus bas).
  *
  * Les trois chiffres viennent de la même requête que la liste
  * (`GET /api/bilan/fournisseurs`, filtrée) — pas de route dédiée à un seul
@@ -347,9 +353,17 @@ export function FicheFournisseur(): ReactElement {
           </section>
 
           <section aria-label="Problèmes ouverts" className={CLASSES_CARTE}>
-            <h2 className="mb-4 font-titre text-xl font-medium text-encre">
-              Problèmes ouverts{anomalies.data ? ` · ${anomalies.data.length}` : ""}
-            </h2>
+            <div className="mb-4">
+              <h2 className="font-titre text-xl font-medium text-encre">
+                Problèmes ouverts{anomalies.data ? ` · ${anomalies.data.length}` : ""}
+              </h2>
+              {(filtres.mois || filtres.agence) && (
+                <p className="mt-1 text-sm text-encre-2">
+                  Tous les problèmes encore ouverts chez ce fournisseur, quel que soit le mois ou
+                  l'agence.
+                </p>
+              )}
+            </div>
             {anomalies.isPending && (
               <p role="status" className="text-sm text-encre-2">
                 Chargement…

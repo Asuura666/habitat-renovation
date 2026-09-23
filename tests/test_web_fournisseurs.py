@@ -150,6 +150,32 @@ def test_fiche_fournisseur_filtre_par_mois_et_agence() -> None:
     assert "surtitre" in page
 
 
+def test_fiche_fournisseur_precise_la_portee_des_problemes_ouverts() -> None:
+    """Correction de revue (tour 2, constat 1) : `GET /api/anomalies` ne
+    sait filtrer que sur `created_at` (date de constat d'un problème),
+    jamais sur le mois de la facture — la section « Problèmes ouverts » ne
+    doit donc jamais être elle-même filtrée par mois/agence (ce serait un
+    filtre silencieux, en contradiction avec le chiffre « Problèmes » de la
+    colonne de la liste et avec les trois `Chiffre` de cette même fiche, qui
+    eux sont filtrés). La fiche affiche donc une portée explicite dès qu'un
+    filtre est actif ailleurs sur la page, plutôt que de recalculer ou de
+    masquer silencieusement un chiffre."""
+    page = _page("FicheFournisseur.tsx")
+
+    # La requête « problèmes ouverts » n'est jamais filtrée par mois/agence :
+    # seul `fournisseurId` est transmis à `listerAnomalies`/`cleAnomalies`.
+    assert "listerAnomalies({ fournisseurId })" in page
+    assert "cleAnomalies({ fournisseurId })" in page
+
+    # Portée explicite affichée dès qu'un filtre (mois ou agence) est actif
+    # ailleurs sur la page, pour qu'un non-technicien ne lise jamais deux
+    # chiffres « Problèmes » contradictoires sans explication.
+    assert "filtres.mois || filtres.agence" in page
+    assert "Tous les problèmes encore ouverts chez ce fournisseur," in page
+    assert "quel que soit le mois ou" in page
+    assert "l'agence." in page
+
+
 def test_fournisseurs_sont_montes_sur_leurs_routes() -> None:
     """Cette tâche ne possède que `/fournisseurs` et `/fournisseurs/:id` :
     les routes `/chantiers/...` appartiennent à la Task 7 et ne sont pas
