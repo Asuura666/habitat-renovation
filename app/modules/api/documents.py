@@ -20,6 +20,15 @@ au service.
 `limite` (`1..500`, défaut 100) est une borne de requête HTTP, pas une règle
 métier : elle est validée ici par FastAPI (`Query(ge=..., le=...)`), comme la
 taille maximale du fichier dans `factures.py`.
+
+Task 3 (refonte front) : `telechargement` (`bool`, défaut `False`) sur `GET
+/api/documents/{id}/fichier` — `true` ajoute `Content-Disposition:
+attachment; filename=...` (nom construit par `ingest.lecture
+.nom_telechargement`, jamais ici), `false` (défaut, comportement historique
+inchangé) laisse le fichier s'afficher inline. `GET
+/api/documents/{id}/comparaison` (admin uniquement, comme les factures) :
+compare les lignes d'un BL à celles du bloc de facture qui le cite — voir
+`ingest/comparaison_bl.py` pour tout le calcul.
 """
 
 from __future__ import annotations
@@ -38,11 +47,13 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.modules.api.schemas import (
     ArchivageRequete,
+    ComparaisonBlReponse,
     CorrectionEnteteRequete,
     DocumentDetailReponse,
     DocumentReponse,
     LignesRequete,
 )
+from app.modules.ingest.comparaison_bl import comparer_bl
 from app.modules.ingest.corrections import (
     CorrectionEntete,
     DocumentNonModifiable,
@@ -97,6 +108,7 @@ async def telecharger_document(
     utilisateur: Annotated[Utilisateur, Depends(utilisateur_courant)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
+    telechargement: Annotated[bool, Query()] = False,
 ) -> FileResponse:
     try:
         fichier = await fichier_document(
@@ -110,7 +122,29 @@ async def telecharger_document(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="document introuvable"
         ) from exc
+    if telechargement:
+        return FileResponse(
+            fichier.chemin,
+            media_type=fichier.type_mime,
+            filename=fichier.nom_telechargement,
+            content_disposition_type="attachment",
+        )
     return FileResponse(fichier.chemin, media_type=fichier.type_mime)
+
+
+@router.get("/documents/{document_id}/comparaison", response_model=ComparaisonBlReponse)
+async def comparaison_bl_endpoint(
+    document_id: uuid.UUID,
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ComparaisonBlReponse:
+    try:
+        comparaison = await comparer_bl(session, document_id)
+    except DocumentIntrouvable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="document introuvable"
+        ) from exc
+    return ComparaisonBlReponse.model_validate(comparaison)
 
 
 # --------------------------------------------------------------------------

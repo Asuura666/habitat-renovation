@@ -35,6 +35,7 @@ from app.modules.ingest.lecture import (
     fichier_facture,
     lister_documents,
     lister_factures,
+    nom_telechargement,
 )
 from app.modules.ingest.models import (
     BlocFacture,
@@ -1202,3 +1203,95 @@ async def test_fichier_document_fichier_absent_du_disque_leve_document_introuvab
         await fichier_document(
             db_session, document.id, tmp_path, utilisateur_id=admin.id, role="admin"
         )
+
+
+# --------------------------------------------------------------------------
+# nom_telechargement (Task 3, téléchargement nommé)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("args", "attendu"),
+    [
+        (
+            ("bl", "BLD0005", 12, "Villa des Tilleuls", "jpg"),
+            "BL_BLD0005_Villa-des-Tilleuls.jpg",
+        ),
+        (("bl", None, 12, None, "png"), "BL_12_sans-chantier.png"),
+        (
+            ("facture", "F/2026 09", 3, "Rés. Été", "pdf"),
+            "FACTURE_F-2026-09_Res-Ete.pdf",
+        ),
+    ],
+)
+def test_nom_telechargement_assaini(
+    args: tuple[str, str | None, int, str | None, str], attendu: str
+) -> None:
+    assert nom_telechargement(*args) == attendu
+
+
+# --------------------------------------------------------------------------
+# fichier_facture / fichier_document — nom_telechargement (Task 3)
+# --------------------------------------------------------------------------
+
+
+async def test_fichier_facture_nom_telechargement_sans_chantier(
+    db_session: AsyncSession, tmp_path: Path
+) -> None:
+    chemin = tmp_path / "facture.pdf"
+    chemin.write_bytes(b"%PDF-1.4\ncontenu-invente")
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="FAC-DL-01",
+        fichier_path=str(chemin),
+    )
+
+    fichier = await fichier_facture(db_session, facture.id, tmp_path)
+
+    assert fichier.nom_telechargement == "FACTURE_FAC-DL-01_sans-chantier.pdf"
+
+
+async def test_fichier_document_nom_telechargement_avec_chantier_resolu(
+    db_session: AsyncSession, tmp_path: Path
+) -> None:
+    """`_fichier_ou_404` reçoit le chantier résolu (`Chantier.nom_canonique`
+    via `document.chantier_id`), jamais `chantier_brut` (souvent bruité,
+    OCR)."""
+    chemin = tmp_path / "photo.jpg"
+    chemin.write_bytes(b"contenu-invente")
+    admin = await _creer_utilisateur(db_session, role="admin")
+    chantier = Chantier(nom_canonique="Villa des Tilleuls")
+    db_session.add(chantier)
+    await db_session.flush()
+    document = await _creer_document_bl(
+        db_session, numero="L500", fichier_path=str(chemin)
+    )
+    document.chantier_id = chantier.id
+    await db_session.commit()
+
+    fichier = await fichier_document(
+        db_session, document.id, tmp_path, utilisateur_id=admin.id, role="admin"
+    )
+
+    assert fichier.nom_telechargement == "BL_L500_Villa-des-Tilleuls.jpg"
+
+
+async def test_fichier_document_nom_telechargement_numero_interne_sans_numero(
+    db_session: AsyncSession, tmp_path: Path
+) -> None:
+    chemin = tmp_path / "photo.jpg"
+    chemin.write_bytes(b"contenu-invente")
+    admin = await _creer_utilisateur(db_session, role="admin")
+    document = await _creer_document_bl(
+        db_session, numero=None, fichier_path=str(chemin)
+    )
+
+    fichier = await fichier_document(
+        db_session, document.id, tmp_path, utilisateur_id=admin.id, role="admin"
+    )
+
+    assert (
+        fichier.nom_telechargement == f"BL_{document.numero_interne}_sans-chantier.jpg"
+    )

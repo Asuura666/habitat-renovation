@@ -595,6 +595,39 @@ class ModificationParametreRequete(BaseModel):
     valeur: str = Field(min_length=1, max_length=50)
 
 
+class LigneCompareeReponse(BaseModel):
+    """Une ligne de `GET /api/documents/{id}/comparaison` — mêmes attributs
+    qu'`ingest.comparaison_bl.LigneComparee`. `qte_facturee`/`pu_facture`
+    valent `None` si la ligne n'a jamais été appariée à une ligne de facture
+    (`rapprochement_ligne`)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    ordre: int
+    code: str | None
+    article: str | None
+    qte_livree: Decimal | None
+    qte_facturee: Decimal | None
+    pu_facture: Decimal | None
+    regles_ouvertes: list[str]
+
+
+class ComparaisonBlReponse(BaseModel):
+    """`GET /api/documents/{id}/comparaison` (Task 3, refonte front) —
+    mêmes attributs qu'`ingest.comparaison_bl.ComparaisonBl`.
+    `facture_id`/`numero_facture`/`montant_facture_ht` valent `None` quand
+    aucun bloc de facture ne cite ce BL (`bloc_facture.bl_document_id`,
+    même principe que `LigneBilanBlReponse.bl_document_id`)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    document_id: uuid.UUID
+    facture_id: uuid.UUID | None
+    numero_facture: str | None
+    montant_facture_ht: Decimal | None
+    lignes: list[LigneCompareeReponse]
+
+
 class JournalReponse(BaseModel):
     """Une entrée de journal, telle qu'exposée par `GET /api/journal`
     (L5-T9) — mêmes attributs qu'`ingest.journal.JournalLue`. `avant`/

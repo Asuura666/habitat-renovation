@@ -17,6 +17,8 @@ en codes HTTP.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 import uuid
 from collections import defaultdict
 from collections.abc import Iterable
@@ -33,6 +35,7 @@ from app.modules.extract.verification import motif_depuis_json
 from app.modules.ingest.commun import _mime_pour_extension, logger
 from app.modules.ingest.models import (
     BlocFacture,
+    Chantier,
     Document,
     Fournisseur,
     Journal,
@@ -634,11 +637,58 @@ class DocumentIntrouvable(Exception):
 
 @dataclass(frozen=True)
 class FichierDocument:
-    """Chemin (résolu, garanti à l'intérieur de `docs_dir`) et type MIME d'un
-    fichier de document, prêt pour `fastapi.responses.FileResponse`."""
+    """Chemin (résolu, garanti à l'intérieur de `docs_dir`), type MIME et nom
+    de téléchargement (Task 3, refonte front) d'un fichier de document, prêt
+    pour `fastapi.responses.FileResponse`."""
 
     chemin: Path
     type_mime: str
+    nom_telechargement: str
+
+
+# Caractère de repli pour tout ce qui n'est pas alphanumérique ASCII (Task 3,
+# refonte front) : un tiret, jamais un espace ni un caractère accentué, pour
+# que le nom de fichier reste portable sur tous les systèmes de fichiers et
+# navigateurs cibles, sans jamais avoir besoin d'être percent-encodé.
+_CARACTERE_NON_ALPHANUMERIQUE = re.compile(r"[^A-Za-z0-9]")
+_TIRETS_CONSECUTIFS = re.compile(r"-+")
+
+
+def _assainir_segment(valeur: str) -> str:
+    """Un segment de nom de fichier : accents retirés (décomposition NFKD
+    puis encodage ASCII, qui élimine les marques diacritiques isolées),
+    tout caractère hors `[A-Za-z0-9]` remplacé par un tiret, tirets
+    consécutifs fusionnés, tirets de bord retirés (décision du contrôleur,
+    fiche de tâche T3)."""
+    normalise = (
+        unicodedata.normalize("NFKD", valeur).encode("ascii", "ignore").decode("ascii")
+    )
+    remplace = _CARACTERE_NON_ALPHANUMERIQUE.sub("-", normalise)
+    fusionne = _TIRETS_CONSECUTIFS.sub("-", remplace)
+    return fusionne.strip("-")
+
+
+def nom_telechargement(
+    type: str,
+    numero: str | None,
+    numero_interne: int,
+    chantier: str | None,
+    extension: str,
+) -> str:
+    """Nom de fichier proposé au téléchargement (Task 3, refonte front) :
+    `TYPE_NUMERO_CHANTIER.extension`, type en majuscules, numéro (sinon le
+    numéro interne, toujours numérique donc déjà assaini) et chantier (sinon
+    `sans-chantier`) assainis (`_assainir_segment`). Jamais de règle métier
+    ici au-delà de la mise en forme du nom : le chantier et le numéro sont
+    déjà résolus par l'appelant."""
+    segment_type = _assainir_segment(type).upper()
+    segment_numero = (
+        _assainir_segment(numero) if numero is not None else str(numero_interne)
+    )
+    segment_chantier = (
+        _assainir_segment(chantier) if chantier is not None else "sans-chantier"
+    )
+    return f"{segment_type}_{segment_numero}_{segment_chantier}.{extension}"
 
 
 def _chemin_dans_docs_dir(document: Document, docs_dir: Path) -> Path | None:
@@ -656,7 +706,12 @@ def _chemin_dans_docs_dir(document: Document, docs_dir: Path) -> Path | None:
     return chemin
 
 
-def _fichier_ou_404(document: Document, docs_dir: Path) -> FichierDocument:
+def _fichier_ou_404(
+    document: Document, docs_dir: Path, *, chantier: str | None
+) -> FichierDocument:
+    """`chantier` : nom canonique déjà résolu par l'appelant (Task 3,
+    `_chantier_du_document`) — jamais recalculé ici, cette fonction ne fait
+    aucune requête."""
     chemin = _chemin_dans_docs_dir(document, docs_dir)
     if chemin is None:
         # Décision du contrôleur : jamais le chemin en clair dans le journal.
@@ -665,10 +720,34 @@ def _fichier_ou_404(document: Document, docs_dir: Path) -> FichierDocument:
             document.id,
         )
         raise DocumentIntrouvable(str(document.id))
+    extension = chemin.suffix.lstrip(".").lower()
     return FichierDocument(
         chemin=chemin,
-        type_mime=_mime_pour_extension(chemin.suffix.lstrip(".").lower()),
+        type_mime=_mime_pour_extension(extension),
+        nom_telechargement=nom_telechargement(
+            document.type,
+            document.numero,
+            document.numero_interne,
+            chantier,
+            extension,
+        ),
     )
+
+
+async def _chantier_du_document(
+    session: AsyncSession, document: Document
+) -> str | None:
+    """Nom canonique du chantier du document (`document.chantier_id`), pour
+    `nom_telechargement` (Task 3) — jamais `chantier_brut` (souvent bruité,
+    valeur OCR). `None` si le document n'a pas de chantier résolu, une seule
+    requête supplémentaire par téléchargement."""
+    if document.chantier_id is None:
+        return None
+    return (
+        await session.execute(
+            select(Chantier.nom_canonique).where(Chantier.id == document.chantier_id)
+        )
+    ).scalar_one_or_none()
 
 
 async def fichier_facture(
@@ -681,7 +760,8 @@ async def fichier_facture(
     document = await session.get(Document, facture_id)
     if document is None or document.type != "facture":
         raise DocumentIntrouvable(str(facture_id))
-    return _fichier_ou_404(document, docs_dir)
+    chantier = await _chantier_du_document(session, document)
+    return _fichier_ou_404(document, docs_dir, chantier=chantier)
 
 
 async def fichier_document(
@@ -702,4 +782,5 @@ async def fichier_document(
         raise DocumentIntrouvable(str(document_id))
     if role != "admin" and document.deposant_id != utilisateur_id:
         raise DocumentIntrouvable(str(document_id))
-    return _fichier_ou_404(document, docs_dir)
+    chantier = await _chantier_du_document(session, document)
+    return _fichier_ou_404(document, docs_dir, chantier=chantier)
