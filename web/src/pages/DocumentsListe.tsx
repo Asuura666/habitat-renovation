@@ -79,6 +79,23 @@ function libelleTypeDocument(type: string): string {
   return type === "enlevement" ? "Enlèvement" : "Livraison";
 }
 
+/** Contexte affiché sous le numéro d'un bon (carte et tableau) : la date de
+ * livraison (`date_doc`, la date du bon telle qu'imprimée) quand elle est
+ * connue, suivie du chantier — constat de revue (tour de correction 3) : le
+ * filtre `?mois=` classe un BL sur `date_doc` depuis le tour précédent, mais
+ * cette date n'apparaissait jamais nulle part dans la liste (seule la date
+ * de dépôt, `creeLe`, était affichée) — un BL déposé en septembre mais livré
+ * en août paraissait donc mal classé par le filtre « August 2026 ». Repli
+ * sur le seul chantier quand `date_doc` est inconnue (comportement d'avant
+ * ce tour), jamais un texte vide. */
+function contexteDocument(document: DocumentResume): string | null {
+  if (document.date_doc === null) {
+    return document.chantier_brut;
+  }
+  const livre = `Livré le ${formaterDate(document.date_doc)}`;
+  return document.chantier_brut === null ? livre : `${livre} · ${document.chantier_brut}`;
+}
+
 function depuisDocument(document: DocumentResume): LigneListe {
   return {
     cle: `document-${document.id}`,
@@ -90,7 +107,7 @@ function depuisDocument(document: DocumentResume): LigneListe {
     fournisseur: document.fournisseur,
     chantierBrut: document.chantier_brut,
     chantierId: document.chantier_id,
-    contexte: document.chantier_brut,
+    contexte: contexteDocument(document),
     statut: document.statut,
     creeLe: document.cree_le,
     dateDoc: document.date_doc,
@@ -331,6 +348,14 @@ function LigneTableau({ ligne }: { ligne: LigneListe }): ReactElement {
         )}
         {ligne.deposant !== null && (
           <p className="mt-0.5 text-xs font-normal text-encre-2">Déposé par {ligne.deposant}</p>
+        )}
+        {/* Constat de revue (tour de correction 3) : le montant d'une facture
+            doit rester visible à toute largeur, y compris sous 1440 px où la
+            colonne dédiée (ci-dessous) est masquée — repris ici tel quel du
+            texte déjà affiché par `CarteLigne` sur téléphone, sans aucune
+            classe liée à une largeur d'écran. */}
+        {ligne.origine === "facture" && ligne.totalHt !== null && (
+          <p className="mt-0.5 text-xs font-normal text-encre-2">Total HT : {formaterMontant(ligne.totalHt)}</p>
         )}
       </td>
       <td className="px-4 py-3 text-encre">{ligne.libelleType}</td>

@@ -624,3 +624,18 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   `CHAMPS_OBLIGATOIRES_BL`, et l'un des deux seuls champs que `verifier_bl`
   peut classer illisible plutôt qu'absent, `extract/verification.py`), pas
   observé sur les fixtures démo.
+- **Tri de la liste toujours sur `creeLe` (date de dépôt), pas sur
+  `date_doc` (constat de revue, tour de correction 3).** Le constat notait
+  que `date_doc` classe le filtre `?mois=` mais n'apparaissait jamais à
+  l'écran ; corrigé en affichant « Livré le … » dans le contexte de chaque
+  bon (`contexteDocument`, carte et tableau). Le constat suggérait aussi,
+  en piste secondaire (« envisager »), de trier sur `date_doc` avant
+  `creeLe` : non fait — un document qui vient d'être déposé mais dont
+  l'extraction n'a pas encore lu `date_doc` (donc `null`) serait alors
+  systématiquement relégué en fin de liste malgré son dépôt récent,
+  masquant justement les dépôts qui ont le plus besoin d'attention
+  immédiate (écran « À corriger »). Le tri par date de dépôt (le plus
+  récent en premier, comportement inchangé depuis avant Task 8) reste donc
+  la clé principale ; à revoir si un besoin explicite de tri par date de
+  livraison est exprimé (ex. un tri choisi par l'utilisateur, hors
+  périmètre de ce tour).

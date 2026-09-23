@@ -188,7 +188,16 @@ def test_documents_liste_tableau_tient_a_1280_pixels() -> None:
     revenant ainsi au `min-w-[880px]` d'avant l'ajout de ces deux colonnes.
     Largeur et absence de débordement vérifiées par mesure DOM réelle
     (capture Puppeteer à 1280, hors suite automatisée — voir le compte
-    rendu de correction)."""
+    rendu de correction).
+
+    Constat de revue (tour de correction 3) : masquer la colonne dédiée
+    sous 1440 px avait fait disparaître le Total HT d'une facture sur toute
+    cette plage (768-1439 px, portables compris), une régression par
+    rapport à l'ancien `FacturesListe.tsx` qui l'affichait à toute largeur.
+    Le montant est donc désormais aussi rendu dans la cellule du numéro
+    (toujours présente, comme « Déposé par »), sans aucune classe liée à
+    une largeur d'écran — la colonne dédiée (ci-dessus) peut rester
+    masquée sous 1440 px, le montant restant visible ailleurs."""
     page = (WEB / "pages" / "DocumentsListe.tsx").read_text()
 
     assert "min-w-[880px]" in page
@@ -197,6 +206,14 @@ def test_documents_liste_tableau_tient_a_1280_pixels() -> None:
     assert "hidden" in entete_montant
     assert "min-[1440px]:table-cell" in entete_montant
     assert '<th scope="col" className="px-4 py-3">Déposant</th>' not in page
+
+    fonction_ligne_tableau = page.split("function LigneTableau", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    cellule_numero = fonction_ligne_tableau.split("<td", 2)[1]
+    assert "Total HT : {formaterMontant(ligne.totalHt)}" in cellule_numero
+    assert "hidden" not in cellule_numero
+    assert "min-[1440px]" not in cellule_numero
 
 
 def test_documents_liste_filtre_chantier_par_identifiant() -> None:
@@ -258,6 +275,30 @@ def test_documents_liste_filtre_mois_couvre_aussi_un_bl() -> None:
 
     assert "dateDoc: document.date_doc," in page
     assert "dateDoc: null" not in page
+
+
+def test_documents_liste_affiche_la_date_de_livraison_dun_bl() -> None:
+    """Constat de revue (tour de correction 3) : le filtre `?mois=` classe
+    un BL sur `date_doc` (sa date de livraison, tour de correction 2), mais
+    cette date n'apparaissait nulle part dans la ligne — seule la date de
+    dépôt (`creeLe`, colonne « Déposé le ») était affichée. Un BL déposé un
+    mois mais livré un autre mois paraissait donc mal classé par le filtre.
+    `contexteDocument` affiche désormais « Livré le … » (avec le chantier)
+    dans la cellule déjà utilisée pour le contexte, en carte comme en
+    tableau, dès que `date_doc` est connu."""
+    page = (WEB / "pages" / "DocumentsListe.tsx").read_text()
+
+    assert "function contexteDocument" in page
+    assert "Livré le ${formaterDate(document.date_doc)}" in page
+    assert "contexte: contexteDocument(document)," in page
+
+    # Repli sur le seul chantier (comportement d'avant ce tour) quand
+    # `date_doc` est inconnue — jamais un texte vide.
+    fonction_contexte = page.split("function contexteDocument", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert "document.date_doc === null" in fonction_contexte
+    assert "return document.chantier_brut;" in fonction_contexte
 
 
 def test_routes_documents_montent_pagebl_et_documentsliste() -> None:
