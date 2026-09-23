@@ -92,7 +92,7 @@ export function libelleMotif(motif: Motif): string {
         `(${valeur(motif.detail, "detecte")})`
       );
     case "ocr_echec":
-      return "Échec de la lecture OCR";
+      return "Échec de la lecture automatique";
     case "annotation_illisible":
       return "Annotation illisible";
     case "fournisseur_inconnu":

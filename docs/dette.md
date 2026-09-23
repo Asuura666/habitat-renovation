@@ -611,3 +611,16 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   fournisseurs finissaient par porter un jour le même nom (le référentiel
   ne l'interdit pas explicitement) — hors périmètre de ce tour, aucune
   fixture démo ne présente ce cas.
+- **Filtre `?mois=` corrigé au tour de correction 2** (constat de revue :
+  un BL/enlèvement était toujours classé sur `cree_le`, sa date de dépôt,
+  jamais sa date de livraison, contrairement à une facture déjà classée sur
+  `date_doc`) : `date_doc` a été ajouté à `DocumentReponse`/
+  `ingest.lecture.DocumentResume`, même colonne `Document.date_doc` qu'une
+  facture (déjà sélectionnée par la requête, aucune jointure
+  supplémentaire) — `extract/bl.py` la lit déjà comme « date du bon telle
+  qu'imprimée ». Limite résiduelle, assumée : un BL dont l'extraction n'a
+  jamais pu lire cette date (`date_doc` nul) retombe toujours sur
+  `cree_le` — rare en pratique (`date_doc` est un champ obligatoire du BL,
+  `CHAMPS_OBLIGATOIRES_BL`, et l'un des deux seuls champs que `verifier_bl`
+  peut classer illisible plutôt qu'absent, `extract/verification.py`), pas
+  observé sur les fixtures démo.

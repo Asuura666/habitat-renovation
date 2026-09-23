@@ -72,7 +72,13 @@ class LigneComparee:
     """Une ligne du BL, avec sa ligne de facture appariée (si `rapprochement
     _ligne` en connaît une) -- `qte_facturee`/`pu_facture` valent `None` si
     la ligne n'a jamais été appariée à une ligne de facture (BL non
-    rapproché, ou ligne sans correspondance)."""
+    rapproché, ou ligne sans correspondance).
+
+    `qte_livree` vaut `Ligne.qte_totale` de la ligne BL (tour de correction
+    2, Task 8 -- constat de revue) : `Ligne.qte_livree` est le nombre de
+    conditionnements (souvent nul, L3-D24), pas la quantité comparable à
+    `qte_facturee` -- même convention que R03 (`rules/R03.py`) et le bilan
+    (`ingest.bilan`, `bl_ligne.qte_totale` -> `qte_bl_appariee`)."""
 
     ordre: int
     code: str | None
@@ -224,7 +230,7 @@ async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> Comparai
                 ordre=ligne_bl.ordre,
                 code=ligne_bl.code_brut,
                 article=ligne_bl.article_brut,
-                qte_livree=ligne_bl.qte_livree,
+                qte_livree=ligne_bl.qte_totale,
                 qte_facturee=(
                     ligne_facture.qte_totale if ligne_facture is not None else None
                 ),

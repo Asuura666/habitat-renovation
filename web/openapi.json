@@ -3764,6 +3764,18 @@
       "format": "date-time",
       "title": "Cree Le"
      },
+     "date_doc": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date Doc"
+     },
      "confirme_le": {
       "anyOf": [
        {
@@ -3857,6 +3869,7 @@
      "statut",
      "deposant",
      "cree_le",
+     "date_doc",
      "confirme_le",
      "confirme_par",
      "photo_compressee",
@@ -3866,7 +3879,7 @@
      "chantier_id"
     ],
     "title": "DocumentReponse",
-    "description": "Une ligne de `GET /api/documents` (`confirmation` ajouté au Ruling\nL2-R8, correction de revue L2-T7 : le front ne doit plus dériver\nvérifié/écart à partir de `statut`, qui suit une tout autre logique —\nvoir `ingest/service.py::lister_documents` ; `fournisseur`/\n`chantier_brut` ajoutés en L3-T8a pour un aperçu utile dans la liste ;\n`chantier_id` ajouté au tour de correction 1 de Task 8 — le filtre\n`?chantier=` de la liste « Documents » ne peut comparer un identifiant\nde chantier connu (`?chantier=<id>`, résolu par `GET /api/chantiers`)\nqu'à un identifiant, jamais à un préfixe de texte brut non normalisé\n(`chantier_brut`)."
+    "description": "Une ligne de `GET /api/documents` (`confirmation` ajouté au Ruling\nL2-R8, correction de revue L2-T7 : le front ne doit plus dériver\nvérifié/écart à partir de `statut`, qui suit une tout autre logique —\nvoir `ingest/service.py::lister_documents` ; `fournisseur`/\n`chantier_brut` ajoutés en L3-T8a pour un aperçu utile dans la liste ;\n`chantier_id` ajouté au tour de correction 1 de Task 8 — le filtre\n`?chantier=` de la liste « Documents » ne peut comparer un identifiant\nde chantier connu (`?chantier=<id>`, résolu par `GET /api/chantiers`)\nqu'à un identifiant, jamais à un préfixe de texte brut non normalisé\n(`chantier_brut`) ; `date_doc` ajouté au tour de correction 2 — pour un\nBL/enlèvement, la date du bon telle qu'imprimée (sa date de livraison),\npas sa date de dépôt (`cree_le`) : le filtre `?mois=` de la liste\n« Documents » comparait tout document sur `cree_le`, ce qui excluait un\nBL de son mois de livraison réel quand il est déposé un autre mois."
    },
    "FactureDeposeeReponse": {
     "properties": {

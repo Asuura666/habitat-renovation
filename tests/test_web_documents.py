@@ -155,7 +155,11 @@ def test_documents_liste_reintroduit_les_champs_perdus_par_la_fusion() -> None:
     assert "numeroInterne" in page
     assert "Document n° {ligne.numeroInterne}" in page
     assert "deposant: document.deposant" in page
-    assert "Déposant" in page
+    # Tour de correction 2 : la colonne « Déposant » du tableau a été
+    # repliée sous le numéro (comme « Document n° … », constat de revue
+    # sur la largeur du tableau) — le déposant reste affiché, plus jamais
+    # dans une colonne à part.
+    assert "Déposé par {ligne.deposant}" in page
     assert "confirmation: document.confirmation" in page
     assert "BadgeConfirmation" in page
     assert "totalHt: facture.total_ht" in page
@@ -170,6 +174,29 @@ def test_documents_liste_reintroduit_les_champs_perdus_par_la_fusion() -> None:
     )[0]
     assert 'ligne.origine === "facture"' in fonction_pastille
     assert "TIRET" in fonction_pastille
+
+
+def test_documents_liste_tableau_tient_a_1280_pixels() -> None:
+    """Constat de revue (tour de correction 2) : l'ajout des colonnes
+    Déposant/Montant au tour précédent avait fait passer le tableau de
+    `min-w-[880px]` à `min-w-[1080px]` — à 1280 px (cible ordinateur
+    explicite), la zone de contenu (~968 px, sidebar + `md:px-10` déduits)
+    masquait presque entièrement la colonne Statut. Corrigé en repliant
+    Déposant sous le numéro (voir le test ci-dessus) et en ne montrant
+    Montant qu'à partir de 1440 px (`min-[1440px]:table-cell`, sous les 968
+    px disponibles à 1280 mais au-dessus des ~1128 px disponibles à 1440) —
+    revenant ainsi au `min-w-[880px]` d'avant l'ajout de ces deux colonnes.
+    Largeur et absence de débordement vérifiées par mesure DOM réelle
+    (capture Puppeteer à 1280, hors suite automatisée — voir le compte
+    rendu de correction)."""
+    page = (WEB / "pages" / "DocumentsListe.tsx").read_text()
+
+    assert "min-w-[880px]" in page
+    assert "min-w-[1080px]" not in page
+    entete_montant = page.split(">Montant</th>", 1)[0].rsplit("<th", 1)[1]
+    assert "hidden" in entete_montant
+    assert "min-[1440px]:table-cell" in entete_montant
+    assert '<th scope="col" className="px-4 py-3">Déposant</th>' not in page
 
 
 def test_documents_liste_filtre_chantier_par_identifiant() -> None:
@@ -216,6 +243,21 @@ def test_documents_liste_filtre_mois_convertit_en_heure_de_paris() -> None:
 
     formats = (WEB / "lib" / "formats.ts").read_text()
     assert "export function moisParis" in formats
+
+
+def test_documents_liste_filtre_mois_couvre_aussi_un_bl() -> None:
+    """Constat de revue (tour de correction 2) : `depuisDocument` posait
+    `dateDoc: null` pour tout BL/enlèvement, faisant retomber `moisLigne`
+    sur `cree_le` (date de dépôt) plutôt que sur la date de livraison —
+    un BL déposé un mois mais livré (et lu) un autre mois n'apparaissait
+    jamais dans le filtre `?mois=` de son mois de livraison réel.
+    `DocumentReponse.date_doc` (ajouté côté serveur à ce tour, voir
+    `ingest/lecture.py::DocumentResume`) est désormais lu ici, comme pour
+    une facture."""
+    page = (WEB / "pages" / "DocumentsListe.tsx").read_text()
+
+    assert "dateDoc: document.date_doc," in page
+    assert "dateDoc: null" not in page
 
 
 def test_routes_documents_montent_pagebl_et_documentsliste() -> None:
@@ -311,6 +353,22 @@ def test_documents_liste_sans_jargon_visible() -> None:
 
     for jargon in ("bloc", "alias", "rapprochement", "OCR", "anomalie"):
         assert re.search(rf"\b{jargon}\b", page) is None, jargon
+
+
+def test_motifs_sans_jargon_visible() -> None:
+    """Tour de correction 2 (constat de revue) : `lib/motifs.ts` (rendu par
+    la section de correction de `DocumentDetail.tsx` et par
+    `FactureDetail.tsx`) affichait encore « Échec de la lecture OCR »
+    (`libelleMotif`, code `ocr_echec`) — les tests de jargon des pages ne
+    lisent que le fichier de page, jamais ce libellé partagé qu'elles
+    rendent. Le code API `"ocr_echec"` (minuscule, jamais affiché) reste
+    légitime : la recherche est sensible à la casse, comme pour `bloc`/
+    `BlocFacture` dans `test_facture_detail_habille_en_livraisons_et_garde_
+    lancre_de_bloc`."""
+    fichier = (WEB / "lib" / "motifs.ts").read_text()
+
+    for jargon in ("bloc", "alias", "rapprochement", "OCR", "anomalie"):
+        assert re.search(rf"\b{jargon}\b", fichier) is None, jargon
 
 
 def test_document_detail_reste_la_correction_montee_par_pagebl() -> None:

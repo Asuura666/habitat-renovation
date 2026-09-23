@@ -1235,7 +1235,11 @@ export interface components {
          *     `?chantier=` de la liste « Documents » ne peut comparer un identifiant
          *     de chantier connu (`?chantier=<id>`, résolu par `GET /api/chantiers`)
          *     qu'à un identifiant, jamais à un préfixe de texte brut non normalisé
-         *     (`chantier_brut`).
+         *     (`chantier_brut`) ; `date_doc` ajouté au tour de correction 2 — pour un
+         *     BL/enlèvement, la date du bon telle qu'imprimée (sa date de livraison),
+         *     pas sa date de dépôt (`cree_le`) : le filtre `?mois=` de la liste
+         *     « Documents » comparait tout document sur `cree_le`, ce qui excluait un
+         *     BL de son mois de livraison réel quand il est déposé un autre mois.
          */
         DocumentReponse: {
             /**
@@ -1258,6 +1262,8 @@ export interface components {
              * Format: date-time
              */
             cree_le: string;
+            /** Date Doc */
+            date_doc: string | null;
             /** Confirme Le */
             confirme_le: string | null;
             /** Confirme Par */

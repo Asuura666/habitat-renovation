@@ -184,6 +184,9 @@ async def test_liste_admin_voit_tous_les_documents(
     # Tour de correction 1 de Task 8 : `chantier_id` (identifiant, pas
     # seulement le texte brut `chantier_brut`).
     assert ligne["chantier_id"] is None
+    # Tour de correction 2 de Task 8 : `date_doc` (date du bon telle
+    # qu'imprimée, jamais lue sur ce document minimal).
+    assert ligne["date_doc"] is None
     assert set(ligne.keys()) == {
         "id",
         "numero_interne",
@@ -192,6 +195,7 @@ async def test_liste_admin_voit_tous_les_documents(
         "statut",
         "deposant",
         "cree_le",
+        "date_doc",
         "confirme_le",
         "confirme_par",
         "photo_compressee",

@@ -48,11 +48,13 @@ const OPTIONS_FILTRE: OptionFiltre[] = [
  * (identifiant, ajouté à `DocumentReponse`), `numeroInterne`, `deposant` et
  * `confirmation` avaient disparu de la liste unifiée par rapport à l'ancien
  * `BlDeposes.tsx` ; `dateDoc`/`totalHt`/`confianceReduite` (une facture
- * seulement) par rapport à l'ancien `FacturesListe.tsx`. `chantierId` et
- * `dateDoc` valent `null` pour une facture (respectivement : l'API ne
- * rattache un chantier qu'aux livraisons qui la composent, pas à la facture
- * elle-même — le filtre `?chantier=` exclut donc les factures — et une
- * facture porte sa propre date, jamais une date de dépôt à convertir). */
+ * seulement) par rapport à l'ancien `FacturesListe.tsx`. `chantierId` vaut
+ * `null` pour une facture (l'API ne rattache un chantier qu'aux livraisons
+ * qui la composent, pas à la facture elle-même — le filtre `?chantier=`
+ * exclut donc les factures). `dateDoc` (tour de correction 2 : un BL/
+ * enlèvement l'expose désormais aussi, `DocumentReponse.date_doc` — la
+ * date du bon telle qu'imprimée, sa date de livraison, pas sa date de
+ * dépôt) ne vaut `null` que si l'extraction n'a pas pu la lire. */
 interface LigneListe {
   cle: string;
   lien: string;
@@ -91,7 +93,7 @@ function depuisDocument(document: DocumentResume): LigneListe {
     contexte: document.chantier_brut,
     statut: document.statut,
     creeLe: document.cree_le,
-    dateDoc: null,
+    dateDoc: document.date_doc,
     totalHt: null,
     confianceReduite: false,
     deposant: document.deposant,
@@ -125,13 +127,14 @@ function depuisFacture(facture: FactureResume): LigneListe {
 
 /** Mois d'une ligne, pour le filtre `?mois=` (tour de correction 1) — même
  * convention que le mois retenu pour une facture (L5-D4, `ingest/bilan.py`) :
- * la date de facture (`date_doc`, une simple date « AAAA-MM-JJ », sans
- * fuseau) fait foi pour une facture ; à défaut (un bon n'a pas de
- * `date_doc` dans cette liste — `DocumentReponse` ne l'expose pas), la
- * date de dépôt (`cree_le`, un horodatage UTC) convertie en heure de Paris.
- * Jamais une simple troncature de la chaîne ISO (constat de revue : un
- * dépôt entre minuit et 2 h, heure de Paris, tombait sinon dans le mois
- * suivant). */
+ * la date du document (`date_doc`, une simple date « AAAA-MM-JJ », sans
+ * fuseau — la date de facture pour une facture, la date du bon telle
+ * qu'imprimée, donc sa date de livraison, pour un BL/enlèvement depuis le
+ * tour de correction 2, `DocumentReponse.date_doc`) fait foi quand elle est
+ * connue ; à défaut (extraction n'ayant pas pu la lire), la date de dépôt
+ * (`cree_le`, un horodatage UTC) convertie en heure de Paris. Jamais une
+ * simple troncature de la chaîne ISO (constat de revue : un dépôt entre
+ * minuit et 2 h, heure de Paris, tombait sinon dans le mois suivant). */
 function moisLigne(ligne: LigneListe): string {
   if (ligne.dateDoc !== null) {
     return ligne.dateDoc.slice(0, 7);
@@ -326,12 +329,14 @@ function LigneTableau({ ligne }: { ligne: LigneListe }): ReactElement {
         {ligne.numeroInterne !== null && (
           <p className="mt-0.5 text-xs font-normal text-encre-2">Document n° {ligne.numeroInterne}</p>
         )}
+        {ligne.deposant !== null && (
+          <p className="mt-0.5 text-xs font-normal text-encre-2">Déposé par {ligne.deposant}</p>
+        )}
       </td>
       <td className="px-4 py-3 text-encre">{ligne.libelleType}</td>
       <td className="px-4 py-3 text-encre">{ligne.fournisseur ?? TIRET}</td>
       <td className="px-4 py-3 text-encre">{ligne.contexte ?? TIRET}</td>
-      <td className="px-4 py-3 text-encre">{ligne.deposant ?? TIRET}</td>
-      <td className="px-4 py-3 text-right font-mono text-encre">
+      <td className="hidden px-4 py-3 text-right font-mono text-encre min-[1440px]:table-cell">
         {ligne.origine === "facture" ? formaterMontant(ligne.totalHt) : null}
       </td>
       <td className="px-4 py-3 font-mono text-encre">{formaterDateHeure(ligne.creeLe)}</td>
@@ -361,7 +366,7 @@ function ListeUnifiee({ lignes }: { lignes: LigneListe[] }): ReactElement {
 
       {/* Tableau : ordinateur (>= md) */}
       <div className="hidden overflow-x-auto rounded-lg border border-bordure bg-surface md:block">
-        <table className="w-full min-w-[1080px] divide-y divide-bordure text-sm">
+        <table className="w-full min-w-[880px] divide-y divide-bordure text-sm">
           <caption className="sr-only">Liste des documents (bons de livraison et factures)</caption>
           <thead className="border-b border-bordure text-left text-xs font-medium uppercase tracking-wide text-encre-2">
             <tr>
@@ -369,8 +374,7 @@ function ListeUnifiee({ lignes }: { lignes: LigneListe[] }): ReactElement {
               <th scope="col" className="px-4 py-3">Type</th>
               <th scope="col" className="px-4 py-3">Fournisseur</th>
               <th scope="col" className="px-4 py-3">Chantier / réception</th>
-              <th scope="col" className="px-4 py-3">Déposant</th>
-              <th scope="col" className="px-4 py-3 text-right">Montant</th>
+              <th scope="col" className="hidden px-4 py-3 text-right min-[1440px]:table-cell">Montant</th>
               <th scope="col" className="px-4 py-3">Déposé le</th>
               <th scope="col" className="px-4 py-3">Statut</th>
             </tr>

@@ -199,7 +199,14 @@ async def test_comparer_bl_document_facture_leve_document_introuvable(
 async def test_comparer_bl_scenario_complet(db_session: AsyncSession) -> None:
     """Un BL à 3 lignes, une facture dont le bloc cite ce BL, 2 lignes
     appariées via `rapprochement_ligne`, une R08 ouverte sur une ligne
-    facture — voir le docstring du module pour le détail de chaque champ."""
+    facture — voir le docstring du module pour le détail de chaque champ.
+
+    Les lignes du BL posent volontairement un `qte_livree` (conditionnement,
+    L3-D24) différent de leur `qte_totale` — la ligne 2 n'a même aucun
+    conditionnement (`qte_livree=None`, cas réel le plus courant) — pour
+    que les assertions `qte_livree == …` ci-dessous portent bien sur
+    `Ligne.qte_totale`, jamais sur `Ligne.qte_livree` (tour de correction
+    2, Task 8 — constat de revue)."""
     bl = await _creer_document_bl(db_session, numero="L2000")
     bl_ligne_0 = await _creer_ligne(
         db_session,
@@ -207,7 +214,8 @@ async def test_comparer_bl_scenario_complet(db_session: AsyncSession) -> None:
         ordre=0,
         code_brut="ART-A",
         article_brut="Article A",
-        qte_livree=Decimal("5"),
+        qte_livree=Decimal("1"),
+        qte_totale=Decimal("5"),
     )
     bl_ligne_1 = await _creer_ligne(
         db_session,
@@ -215,7 +223,8 @@ async def test_comparer_bl_scenario_complet(db_session: AsyncSession) -> None:
         ordre=1,
         code_brut="ART-B",
         article_brut="Article B",
-        qte_livree=Decimal("3"),
+        qte_livree=Decimal("1"),
+        qte_totale=Decimal("3"),
     )
     await _creer_ligne(
         db_session,
@@ -223,7 +232,8 @@ async def test_comparer_bl_scenario_complet(db_session: AsyncSession) -> None:
         ordre=2,
         code_brut="ART-C",
         article_brut="Article C",
-        qte_livree=Decimal("7"),
+        qte_livree=None,
+        qte_totale=Decimal("7"),
     )
 
     fournisseur = await _creer_fournisseur(db_session)
@@ -330,6 +340,30 @@ async def test_comparer_bl_anomalie_sur_ligne_bl_directement(
 
     assert comparaison.lignes[0].regles_ouvertes == ["R06"]
     assert comparaison.nb_problemes == 1
+
+
+async def test_comparer_bl_qte_livree_vient_de_qte_totale_jamais_du_conditionnement(
+    db_session: AsyncSession,
+) -> None:
+    """Constat de revue (tour 2, Task 8) : `LigneComparee.qte_livree`
+    affichait `Ligne.qte_livree` (nombre de conditionnements, souvent nul,
+    L3-D24) au lieu de `Ligne.qte_totale` (quantité comparable à
+    `qte_facturee`, celle qu'utilisent R03 et le bilan) — un BL sans
+    conditionnement renseigné affichait « — » au lieu de la quantité
+    livrée. Ici, `qte_livree` est nul (cas réel le plus fréquent,
+    ex. BLD0005) alors que `qte_totale` porte la vraie quantité."""
+    bl = await _creer_document_bl(db_session, numero="L2008")
+    await _creer_ligne(
+        db_session,
+        document=bl,
+        ordre=0,
+        qte_livree=None,
+        qte_totale=Decimal("10"),
+    )
+
+    comparaison = await comparer_bl(db_session, bl.id)
+
+    assert comparaison.lignes[0].qte_livree == Decimal("10")
 
 
 # --------------------------------------------------------------------------
