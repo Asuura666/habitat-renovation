@@ -129,8 +129,8 @@ def test_gabarit_remonte_en_haut_et_signale_l_ecran_actif() -> None:
     page d'un bon allume « Documents » (constat LIENS-8) ; Réglages et
     Journal ont un état actif (constat TELEPHONE-14) ; la colonne de
     contenu peut rétrécir (`min-w-0`, constat COUVERTURE-21) ; la pastille
-    « À régler » dit en toutes lettres qu'elle compte les urgents de tous
-    les mois (constats LIENS-2/ECRAN-6)."""
+    « À régler » dit en toutes lettres qu'elle compte tous les problèmes à
+    régler, tous mois confondus (constats LIENS-2/ECRAN-6)."""
     gabarit = (SRC / "components" / "Gabarit.tsx").read_text()
     assert "window.scrollTo(0, 0)" in gabarit
     assert "}, [pathname]);" in gabarit
@@ -140,7 +140,7 @@ def test_gabarit_remonte_en_haut_et_signale_l_ecran_actif() -> None:
     assert "className={classesLienDiscret}" in gabarit
     assert "className={classesLienEnTete}" in gabarit
     assert "min-w-0 flex-1 flex-col" in gabarit
-    assert "tous mois confondus" in gabarit
+    assert "à régler en tout" in gabarit
 
 
 def test_redirection_preserve_recherche_et_ancre() -> None:

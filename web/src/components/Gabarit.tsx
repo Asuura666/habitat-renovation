@@ -2,7 +2,7 @@ import { type ReactElement, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink, Outlet, useLocation, useMatch, useNavigate } from "react-router";
 
-import { cleAnomalies, listerAnomalies } from "../api/anomalies";
+import { CLE_COMPTE_A_REGLER, obtenirCompteARegler, problemes } from "../api/aTraiter";
 import { appelerApi } from "../api/client";
 import { CLE_MOI, DUREE_CACHE_MOI, recupererMoi } from "../api/moi";
 
@@ -73,9 +73,9 @@ interface EntreeNav {
 /** Cinq entrées de la navigation admin (spec §3) : « Vue d'ensemble » = `/`,
  * « À régler » (remplace « À traiter »/« Anomalies »), « Chantiers »
  * (remplace « Bilan »), « Fournisseurs », « Documents » (remplace
- * « Factures »/« BL déposés »). Pastille du nombre de problèmes urgents
- * ouverts sur « À régler » posée au rendu (voir `PastilleUrgents`
- * ci-dessous), pas dans cette table statique. */
+ * « Factures »/« BL déposés »). Pastille du nombre de problèmes à régler
+ * sur « À régler » posée au rendu (voir `PastilleARegler` ci-dessous), pas
+ * dans cette table statique. */
 const NAV_ADMIN: EntreeNav[] = [
   { vers: "/", libelle: "Vue d'ensemble", libelleCourt: "Accueil", Icone: IconeVueEnsemble },
   { vers: "/a-regler", libelle: "À régler", Icone: IconeARegler },
@@ -109,30 +109,30 @@ function classesLienEnTete({ isActive }: { isActive: boolean }): string {
 }
 
 /** Libellé en toutes lettres de la pastille « À régler » (revue finale,
- * constats LIENS-2, ECRAN-6, TELEPHONE-2) : elle compte les problèmes
- * urgents de **tous les mois** — les mêmes que « N urgents » en tête de
- * l'écran « À régler » —, pas ceux du seul mois affiché par la vue
- * d'ensemble. Le dire (infobulle et lecteur d'écran) évite de lire deux
- * nombres contradictoires sur le même écran. */
-function libellePastilleUrgents(compte: number): string {
-  return `${compte} problème${compte > 1 ? "s" : ""} urgent${compte > 1 ? "s" : ""} à régler, tous mois confondus`;
+ * constats LIENS-2, ECRAN-6, TELEPHONE-2, COUVERTURE-2) : elle compte
+ * **tous** les problèmes à régler, tous mois confondus — le même nombre que
+ * l'en-tête de l'écran « À régler » et que le « … en tout » de la vue
+ * d'ensemble (`GET /api/a-regler/compte`, compte unique calculé par le
+ * serveur). Avant ce correctif, elle comptait les seuls urgents : trois
+ * nombres différents (tuile du mois, pastille, écran « À régler ») se
+ * lisaient sur le même parcours. */
+function libellePastilleARegler(compte: number): string {
+  return `${problemes(compte)} à régler en tout`;
 }
 
-/** Pastille du nombre de problèmes urgents ouverts sur l'entrée « À régler »
- * (Task 6, exception à la règle Gabarit) : à partir d'un appel serveur déjà
- * existant (`GET /api/anomalies?statut=ouverte&gravite=haute`, même route
- * que l'écran « À régler »), jamais un nouveau calcul ni une nouvelle route.
- * Toujours doublée d'un libellé en toutes lettres (spec §2 : jamais la
- * couleur seule). `undefined` (requête pas encore résolue) ou `0` n'affiche
- * rien. */
-function PastilleUrgents({ compte }: { compte: number | undefined }): ReactElement | null {
+/** Pastille du nombre de problèmes à régler sur l'entrée « À régler »
+ * (Task 6, exception à la règle Gabarit ; compte unique depuis la revue
+ * finale). Toujours doublée d'un libellé en toutes lettres (spec §2 :
+ * jamais la couleur seule). `undefined` (requête pas encore résolue) ou `0`
+ * n'affiche rien. */
+function PastilleARegler({ compte }: { compte: number | undefined }): ReactElement | null {
   if (compte === undefined || compte === 0) {
     return null;
   }
   return (
     <span
-      aria-label={libellePastilleUrgents(compte)}
-      title={libellePastilleUrgents(compte)}
+      aria-label={libellePastilleARegler(compte)}
+      title={libellePastilleARegler(compte)}
       className="inline-flex min-w-[20px] shrink-0 items-center justify-center rounded-full bg-alerte px-1.5 py-0.5 text-xs font-semibold text-white"
     >
       {compte}
@@ -210,17 +210,20 @@ export function Gabarit(): ReactElement {
     return ({ isActive }) => classes({ isActive: isActive || (vers === "/documents" && surPageBon) });
   }
 
-  // Pastille « À régler » (Task 6, exception à la règle Gabarit) : appel
-  // serveur déjà existant, jamais chargé pour un agent (qui n'a pas
-  // l'entrée « À régler »). `PastilleUrgents` gère elle-même le cas
-  // `undefined` (requête pas encore résolue) et `0` (rien affiché).
-  const urgents = useQuery({
-    queryKey: cleAnomalies({ statut: "ouverte", gravite: "haute" }),
-    queryFn: () => listerAnomalies({ statut: "ouverte", gravite: "haute" }),
+  // Pastille « À régler » (Task 6, exception à la règle Gabarit) : compte
+  // unique du serveur (revue finale), jamais chargé pour un agent (qui n'a
+  // pas l'entrée « À régler »). Même clé que la vue d'ensemble et l'écran
+  // « À régler » : un seul appel, un seul nombre à l'écran. Invalidé par
+  // toute écriture qui change des problèmes (`invaliderApresChangement
+  // Anomalies`). `PastilleARegler` gère elle-même le cas `undefined`
+  // (requête pas encore résolue) et `0` (rien affiché).
+  const compte = useQuery({
+    queryKey: CLE_COMPTE_A_REGLER,
+    queryFn: obtenirCompteARegler,
     enabled: estAdmin,
     staleTime: 30_000,
   });
-  const compteUrgents = estAdmin ? urgents.data?.length : undefined;
+  const compteARegler = estAdmin ? compte.data?.nb_problemes : undefined;
 
   return (
     <div className="min-h-screen bg-fond font-sans text-encre md:flex">
@@ -249,7 +252,7 @@ export function Gabarit(): ReactElement {
                 >
                   <Icone className="h-4 w-4 shrink-0" />
                   <span className="flex-1">{libelle}</span>
-                  {vers === "/a-regler" && <PastilleUrgents compte={compteUrgents} />}
+                  {vers === "/a-regler" && <PastilleARegler compte={compteARegler} />}
                 </NavLink>
                 {/* Revue finale (constats LIENS-7, ECRAN-17, COUVERTURE-21) :
                     plus de sous-lien « Gérer les chantiers » — la création
@@ -349,13 +352,13 @@ export function Gabarit(): ReactElement {
             >
               <span className="relative">
                 <Icone className="h-5 w-5" />
-                {vers === "/a-regler" && compteUrgents !== undefined && compteUrgents > 0 && (
+                {vers === "/a-regler" && compteARegler !== undefined && compteARegler > 0 && (
                   <span
-                    aria-label={libellePastilleUrgents(compteUrgents)}
-                    title={libellePastilleUrgents(compteUrgents)}
+                    aria-label={libellePastilleARegler(compteARegler)}
+                    title={libellePastilleARegler(compteARegler)}
                     className="absolute -right-1.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-alerte px-1 text-[10px] font-semibold text-white"
                   >
-                    {compteUrgents}
+                    {compteARegler}
                   </span>
                 )}
               </span>

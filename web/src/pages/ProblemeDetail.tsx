@@ -2,12 +2,7 @@ import { type FormEvent, type ReactElement, type ReactNode, useState } from "rea
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 
-import {
-  type AliasEnAttente,
-  type ArticleAValider,
-  CLE_A_TRAITER,
-  type DocumentATraiter,
-} from "../api/aTraiter";
+import { type AliasEnAttente, type ArticleAValider, type DocumentATraiter } from "../api/aTraiter";
 import { type Anomalie, traiterAnomalie } from "../api/anomalies";
 import { ErreurApi } from "../api/client";
 import { invaliderApresChangementAnomalies } from "../api/invalidations";
@@ -510,8 +505,10 @@ function DetailArticle({
         ratio: ratio.trim() === "" ? null : ratio.trim().replace(",", "."),
       }),
     onSuccess: async () => {
+      // Un article validé quitte la liste « À régler » : son compte unique
+      // (pastille, vue d'ensemble) est invalidé avec le reste.
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: CLE_A_TRAITER }),
+        invaliderApresChangementAnomalies(queryClient),
         queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS }),
       ]);
       // Revue finale (constat LIENS-11) : comme un problème traité, un

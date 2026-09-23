@@ -139,15 +139,16 @@ def test_ecran_en_construction_supprime_si_inutilise() -> None:
 
 
 def test_vue_ensemble_ne_promet_pas_un_nombre_que_la_cible_ne_montre_pas() -> None:
-    """Constats LIENS-2, ECRAN-6, TELEPHONE-2, COUVERTURE-17 : la tuile
-    compte les problèmes des factures du mois, l'écran « À régler » tous les
-    problèmes ouverts -- le lien ne porte plus de nombre, le sous-texte de
-    la tuile dit sa période, et le lien a une cible de 44 px."""
+    """Constats LIENS-2, ECRAN-6, TELEPHONE-2, COUVERTURE-2 : la tuile
+    compte les problèmes des factures du mois (et le dit), l'écran « À
+    régler » tous les problèmes -- le lien annonce le compte unique « en
+    tout » du serveur, celui que l'écran cible affiche en tête, jamais le
+    nombre du mois ; le lien a une cible de 44 px."""
     page = (SRC / "pages" / "VueEnsemble.tsx").read_text()
-    assert "Voir les {" not in page
-    assert "Voir tous les problèmes à régler →" in page
-    assert "sur les factures du mois" in page
-    lien = page.split("Voir tous les problèmes à régler →", 1)[0].rsplit("<Link", 1)[1]
+    assert "Voir les {donnees" not in page
+    assert "Voir les ${compte.nb_problemes} problèmes à régler en tout →" in page
+    assert 'libelle="Problèmes à régler ce mois"' in page
+    lien = page.split("{libelleLienARegler(compte)}", 1)[0].rsplit("<Link", 1)[1]
     assert "inline-flex min-h-[44px] items-center" in lien
 
 

@@ -9,6 +9,17 @@ candidats à la propagation d'un alias (`nb_documents`/`exemple_brut` ici,
 propagation dans `ingest.referentiels.valider_alias`) vit dans `referentiels
 .candidats_alias` — décision du contrôleur : ne jamais dupliquer cette
 sélection entre les deux endroits.
+
+`compter_problemes_a_regler` (revue finale de la refonte du front, constats
+LIENS-2, ECRAN-6, TELEPHONE-2, COUVERTURE-2) : **la** définition du nombre
+de problèmes « à régler », tous mois confondus -- exactement les éléments
+de la liste de l'écran « À régler » : anomalies ouvertes, documents « à
+vérifier », chantiers à rattacher (alias en attente) et articles à valider.
+La pastille de navigation, la tuile de la vue d'ensemble (« … en tout ») et
+l'en-tête de l'écran « À régler » affichent ce même nombre ; avant ce
+correctif, trois compteurs de périmètres différents (urgents de tous les
+mois, problèmes du mois, liste complète) se contredisaient sur le même
+écran.
 """
 
 from __future__ import annotations
@@ -22,6 +33,7 @@ from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.modules.ingest.anomalies import compter_anomalies_ouvertes
 from app.modules.ingest.lecture import _CONFIRMATION_PAR_ACTION, MotifLu, motifs_lus
 from app.modules.ingest.models import (
     Article,
@@ -238,6 +250,32 @@ async def _lister_articles_a_valider(session: AsyncSession) -> list[ArticleAVali
 # --------------------------------------------------------------------------
 # lister_a_traiter
 # --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CompteProblemes:
+    """Nombre de problèmes « à régler », tous mois confondus (voir le
+    docstring de module) : `nb_problemes` compte chaque élément de la liste
+    de l'écran « À régler » une fois ; `nb_urgents` les anomalies ouvertes de
+    gravité haute (seuls problèmes « Urgent » de cette liste)."""
+
+    nb_problemes: int
+    nb_urgents: int
+
+
+async def compter_problemes_a_regler(session: AsyncSession) -> CompteProblemes:
+    """Voir le docstring de module : anomalies ouvertes (même périmètre que
+    `lister_anomalies(statut="ouverte")`, sans plafond) plus les trois
+    sections de `lister_a_traiter`, jamais une seconde sélection."""
+    nb_anomalies, nb_urgents = await compter_anomalies_ouvertes(session)
+    a_traiter = await lister_a_traiter(session)
+    return CompteProblemes(
+        nb_problemes=nb_anomalies
+        + len(a_traiter.documents)
+        + len(a_traiter.alias)
+        + len(a_traiter.articles),
+        nb_urgents=nb_urgents,
+    )
 
 
 async def lister_a_traiter(session: AsyncSession) -> ATraiter:

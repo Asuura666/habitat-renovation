@@ -712,6 +712,24 @@
     }
    }
   },
+  "/api/a-regler/compte": {
+   "get": {
+    "summary": "Obtenir Compte A Regler",
+    "operationId": "obtenir_compte_a_regler_api_a_regler_compte_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CompteProblemesReponse"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/chantiers": {
    "get": {
     "summary": "Lister Chantiers Endpoint",
@@ -3430,6 +3448,25 @@
     ],
     "title": "ComparaisonBlReponse",
     "description": "`GET /api/documents/{id}/comparaison` (Task 3, refonte front) —\nmêmes attributs qu'`ingest.comparaison_bl.ComparaisonBl`.\n`facture_id`/`numero_facture`/`montant_facture_ht` valent `None` quand\naucun bloc de facture ne cite ce BL (`bloc_facture.bl_document_id`,\nmême principe que `LigneBilanBlReponse.bl_document_id`).\n\n`nb_problemes` (tour de correction 1, Task 8) : nombre d'anomalies\nouvertes concernant ce BL, au sens large — pas seulement la somme des\n`regles_ouvertes` des `lignes` (voir le docstring de\n`ingest.comparaison_bl.ComparaisonBl`). C'est ce champ, jamais un calcul\nfront, qui doit fonder le nombre de problèmes affiché et déterminer si\nle BL peut être présenté comme « Conforme »."
+   },
+   "CompteProblemesReponse": {
+    "properties": {
+     "nb_problemes": {
+      "type": "integer",
+      "title": "Nb Problemes"
+     },
+     "nb_urgents": {
+      "type": "integer",
+      "title": "Nb Urgents"
+     }
+    },
+    "type": "object",
+    "required": [
+     "nb_problemes",
+     "nb_urgents"
+    ],
+    "title": "CompteProblemesReponse",
+    "description": "`GET /api/a-regler/compte` : nombre de problèmes « à régler », tous\nmois confondus -- mêmes attributs qu'`ingest.a_traiter.CompteProblemes`\n(revue finale de la refonte du front : un seul compte pour la pastille\nde navigation, la vue d'ensemble et l'écran « À régler »)."
    },
    "CorrectionEnteteRequete": {
     "properties": {

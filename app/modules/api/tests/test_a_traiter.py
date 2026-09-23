@@ -153,3 +153,54 @@ async def test_a_traiter_admin_renvoie_le_contenu(
     assert set(corps.keys()) == {"documents", "alias", "articles", "anomalies_hautes"}
     ids_documents = {d["id"] for d in corps["documents"]}
     assert str(document.id) in ids_documents
+
+
+# --------------------------------------------------------------------------
+# `GET /api/a-regler/compte` (revue finale de la refonte du front)
+# --------------------------------------------------------------------------
+
+
+async def test_compte_a_regler_anonyme_renvoie_401(
+    sessions_test: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    app_test = _app_test(sessions_test, tmp_path)
+
+    reponse = await _requete(app_test, "GET", "/api/a-regler/compte", cookie=None)
+
+    assert reponse.status_code == 401
+
+
+async def test_compte_a_regler_agent_renvoie_403(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    agent = await _creer_utilisateur(
+        db_session, email="agent.compte1@example.invalid", role="agent"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=agent.email)
+
+    reponse = await _requete(app_test, "GET", "/api/a-regler/compte", cookie=cookie)
+
+    assert reponse.status_code == 403
+
+
+async def test_compte_a_regler_admin_compte_la_liste_de_l_ecran(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.compte1@example.invalid", role="admin"
+    )
+    await _creer_document(db_session)
+    await _creer_document(db_session, statut="recu")
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(app_test, "GET", "/api/a-regler/compte", cookie=cookie)
+
+    assert reponse.status_code == 200
+    # Un seul document « à vérifier », aucune anomalie : 1 problème, 0 urgent.
+    assert reponse.json() == {"nb_problemes": 1, "nb_urgents": 0}

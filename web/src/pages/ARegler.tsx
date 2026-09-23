@@ -7,8 +7,11 @@ import {
   type ArticleAValider,
   type ATraiter,
   CLE_A_TRAITER,
+  CLE_COMPTE_A_REGLER,
   type DocumentATraiter,
   obtenirATraiter,
+  obtenirCompteARegler,
+  problemes,
 } from "../api/aTraiter";
 import { type Anomalie, cleAnomalies, type FiltresAnomalies, listerAnomalies } from "../api/anomalies";
 import { CLE_CHANTIERS, CLE_FOURNISSEURS, listerChantiers, listerFournisseurs } from "../api/referentiels";
@@ -225,6 +228,16 @@ type Portee =
   | { type: "chantier"; id: string }
   | { type: "fournisseur"; id: string };
 
+/** Périmètre dit dans l'en-tête quand la liste est restreinte (« 2
+ * problèmes ouverts sur ce bon ») : jamais un nombre sans son périmètre à
+ * côté de la pastille de navigation, qui compte tout. */
+const PERIMETRE_EN_TETE: Record<Portee["type"], string> = {
+  document: "sur ce bon",
+  bloc: "sur cette livraison",
+  chantier: "sur ce chantier",
+  fournisseur: "chez ce fournisseur",
+};
+
 function lirePortee(parametres: URLSearchParams): Portee | undefined {
   const document = parametres.get("document");
   if (document) return { type: "document", id: document };
@@ -420,6 +433,30 @@ export function ARegler(): ReactElement {
   const nbOuverts = problemesOuverts.length;
   const nbUrgents = problemesOuverts.filter((p) => urgenceProbleme(p) === "Urgent").length;
 
+  // En-tête (revue finale, constats LIENS-2, ECRAN-6, TELEPHONE-2,
+  // COUVERTURE-2) : sans périmètre, le compte unique du serveur — le même
+  // nombre que la pastille de navigation et que le « … en tout » de la vue
+  // d'ensemble (même clé de requête, un seul appel) ; restreint à un bon, un
+  // chantier ou un fournisseur, le nombre de la liste affichée, dit comme
+  // tel.
+  const compteARegler = useQuery({
+    queryKey: CLE_COMPTE_A_REGLER,
+    queryFn: obtenirCompteARegler,
+    // Même rythme que la liste des documents/chantiers à rattacher
+    // ci-dessus : un dépôt Telegram arrivé entre-temps compte aussitôt.
+    refetchInterval: 30_000,
+    enabled: portee === undefined,
+  });
+  const urgentsAffiches = (nombre: number): string => `${nombre} urgent${nombre > 1 ? "s" : ""}`;
+  const surtitre =
+    portee === undefined
+      ? `${problemes(compteARegler.data?.nb_problemes ?? nbOuverts)} à régler en tout · ${urgentsAffiches(
+          compteARegler.data?.nb_urgents ?? nbUrgents,
+        )}`
+      : `${problemes(nbOuverts)} ouvert${nbOuverts > 1 ? "s" : ""} ${PERIMETRE_EN_TETE[portee.type]} · ${urgentsAffiches(
+          nbUrgents,
+        )}`;
+
   const options: OptionFiltre[] = [
     { valeur: "tous", libelle: "Tous", compte: nbOuverts },
     { valeur: "urgents", libelle: "Urgents", compte: nbUrgents },
@@ -485,9 +522,7 @@ export function ARegler(): ReactElement {
     <div className="space-y-6">
       <div className={modeDetail ? "hidden lg:block" : ""}>
         <EnTetePage
-          surtitre={`${nbOuverts} problème${nbOuverts > 1 ? "s" : ""} ouvert${nbOuverts > 1 ? "s" : ""} · ${nbUrgents} urgent${
-            nbUrgents > 1 ? "s" : ""
-          }`}
+          surtitre={surtitre}
           titre="À régler"
           actions={<Filtres options={options} valeur={filtreActif} onChange={changerFiltre} />}
         />

@@ -2,6 +2,7 @@ import { useEffect, useState, type MouseEvent, type ReactElement } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
+import { CLE_COMPTE_A_REGLER, type CompteARegler, obtenirCompteARegler } from "../api/aTraiter";
 import { urlExportBilanDetail } from "../api/bilan";
 import { CLE_MOI, DUREE_CACHE_MOI, recupererMoi } from "../api/moi";
 import {
@@ -248,7 +249,29 @@ function CartePriorite({ priorite }: { priorite: Priorite }): ReactElement {
   );
 }
 
-function SectionPriorites({ priorites }: { priorites: Priorite[] }): ReactElement {
+/** Lien vers « À régler » : il annonce le nombre que l'écran affichera en
+ * tête (compte unique du serveur, « en tout », tous mois confondus) —
+ * jamais le nombre du seul mois affiché ici. Sans nombre tant que le compte
+ * n'est pas chargé. */
+function libelleLienARegler(compte: CompteARegler | undefined): string {
+  if (compte === undefined) {
+    return "Voir tous les problèmes à régler →";
+  }
+  if (compte.nb_problemes === 0) {
+    return "Aucun problème à régler, tous mois confondus";
+  }
+  return compte.nb_problemes === 1
+    ? "Voir l'unique problème à régler →"
+    : `Voir les ${compte.nb_problemes} problèmes à régler en tout →`;
+}
+
+function SectionPriorites({
+  priorites,
+  compte,
+}: {
+  priorites: Priorite[];
+  compte: CompteARegler | undefined;
+}): ReactElement {
   return (
     <>
       {priorites.length === 0 ? (
@@ -261,19 +284,28 @@ function SectionPriorites({ priorites }: { priorites: Priorite[] }): ReactElemen
         </ul>
       )}
       {/* Revue finale (constats LIENS-2, ECRAN-6, TELEPHONE-2,
-          COUVERTURE-17) : plus de nombre dans ce lien — « Voir les 6
-          problèmes » (ceux du mois) ouvrait une liste de 10 (tous les mois,
-          plus les bons illisibles et les chantiers à rattacher). Toujours
+          COUVERTURE-2) : « Voir les 6 problèmes » (ceux du mois) ouvrait une
+          liste de 10 (tous les mois, plus les bons illisibles et les
+          chantiers à rattacher). Le lien annonce désormais le compte
+          unique « en tout » — le nombre exact que l'écran « À régler »
+          affiche en tête et que porte la pastille de navigation. Toujours
           affiché, même sans problème ce mois-ci : d'autres mois peuvent en
           avoir. */}
       <Link
         to="/a-regler"
         className="mt-3 inline-flex min-h-[44px] items-center text-sm font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
       >
-        Voir tous les problèmes à régler →
+        {libelleLienARegler(compte)}
       </Link>
     </>
   );
+}
+
+/** « dont 4 urgents · 10 en tout, tous mois confondus » — urgents du mois affiché,
+ * puis le compte unique de toute la liste « À régler ». */
+function sousTexteProblemes(nbUrgentsDuMois: number, compte: CompteARegler | undefined): string {
+  const urgents = `dont ${nbUrgentsDuMois} urgent${nbUrgentsDuMois > 1 ? "s" : ""}`;
+  return compte === undefined ? urgents : `${urgents} · ${compte.nb_problemes} en tout, tous mois confondus`;
 }
 
 function sousTexteBonsRecus(nbManquants: number): string {
@@ -301,6 +333,9 @@ export function VueEnsemble(): ReactElement {
     queryKey: cleTableauDeBord(moisPourApi),
     queryFn: () => obtenirTableauDeBord(moisPourApi),
   });
+  // Compte unique « à régler, en tout » (même clé que la pastille de
+  // navigation : un seul appel, un seul nombre à l'écran).
+  const compteARegler = useQuery({ queryKey: CLE_COMPTE_A_REGLER, queryFn: obtenirCompteARegler });
 
   // Brouillon local du sélecteur de mois (correction de revue, tour 1).
   // `mois` ci-dessus est la valeur *effective* (repli sur le mois courant
@@ -402,12 +437,15 @@ export function VueEnsemble(): ReactElement {
               sousTexte="facturé sans bon reçu"
               ton="alerte"
             />
+            {/* Deux périmètres, chacun nommé (revue finale, constats
+                LIENS-2, ECRAN-6, TELEPHONE-2, COUVERTURE-2) : le grand
+                chiffre compte les problèmes des factures du mois affiché ;
+                « … en tout » reprend le compte unique de la pastille et de
+                l'écran « À régler ». */}
             <Chiffre
-              libelle="Problèmes à régler"
+              libelle="Problèmes à régler ce mois"
               valeur={String(donnees.nb_problemes_ouverts)}
-              sousTexte={`dont ${donnees.nb_problemes_urgents} urgent${
-                donnees.nb_problemes_urgents > 1 ? "s" : ""
-              }, sur les factures du mois`}
+              sousTexte={sousTexteProblemes(donnees.nb_problemes_urgents, compteARegler.data)}
             />
             <Chiffre
               libelle="Bons de livraison reçus"
@@ -426,7 +464,7 @@ export function VueEnsemble(): ReactElement {
             </Carte>
 
             <Carte titre="À régler en priorité" className="flex flex-col">
-              <SectionPriorites priorites={donnees.priorites} />
+              <SectionPriorites priorites={donnees.priorites} compte={compteARegler.data} />
             </Carte>
           </div>
         </>

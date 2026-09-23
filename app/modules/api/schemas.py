@@ -421,6 +421,18 @@ class ATraiterReponse(BaseModel):
     anomalies_hautes: list[AnomalieReponse]
 
 
+class CompteProblemesReponse(BaseModel):
+    """`GET /api/a-regler/compte` : nombre de problèmes « à régler », tous
+    mois confondus -- mêmes attributs qu'`ingest.a_traiter.CompteProblemes`
+    (revue finale de la refonte du front : un seul compte pour la pastille
+    de navigation, la vue d'ensemble et l'écran « À régler »)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    nb_problemes: int
+    nb_urgents: int
+
+
 class ChantierReponse(BaseModel):
     """Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest
     .referentiels.ChantierResume`. `client` : ajout hors CDC demandé le

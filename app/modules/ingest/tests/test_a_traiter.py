@@ -14,8 +14,10 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.ingest.a_traiter import lister_a_traiter
+from app.modules.ingest.a_traiter import compter_problemes_a_regler, lister_a_traiter
+from app.modules.ingest.anomalies import lister_anomalies
 from app.modules.ingest.models import (
+    Anomalie,
     Article,
     Chantier,
     ChantierAlias,
@@ -342,3 +344,78 @@ async def test_article_sans_ratio_absent(db_session: AsyncSession) -> None:
     a_traiter = await lister_a_traiter(db_session)
 
     assert article.id not in {a.id for a in a_traiter.articles}
+
+
+# --------------------------------------------------------------------------
+# Compte unique des problèmes « à régler » (revue finale de la refonte du
+# front, constats LIENS-2, ECRAN-6, TELEPHONE-2, COUVERTURE-2)
+# --------------------------------------------------------------------------
+
+
+async def _creer_anomalie(
+    db_session: AsyncSession,
+    *,
+    document: Document,
+    regle: str,
+    gravite: str,
+    statut: str = "ouverte",
+) -> Anomalie:
+    anomalie = Anomalie(
+        regle=regle,
+        gravite=gravite,
+        document_id=document.id,
+        detail={"invente": "oui"},
+        statut=statut,
+    )
+    db_session.add(anomalie)
+    await db_session.commit()
+    await db_session.refresh(anomalie)
+    return anomalie
+
+
+async def test_compte_a_regler_vaut_la_liste_de_l_ecran(
+    db_session: AsyncSession,
+) -> None:
+    """Le compte est exactement le nombre d'éléments de la liste « À
+    régler » : anomalies ouvertes (tous mois) + documents à vérifier +
+    chantiers à rattacher + articles à valider ; les urgents sont les
+    anomalies ouvertes de gravité haute. Une anomalie traitée ou ignorée
+    n'y entre plus."""
+    fournisseur = await _creer_fournisseur(db_session)
+    bon_recu = await _creer_document(db_session, statut="recu", numero="BL-INV-1")
+    autre_bon = await _creer_document(db_session, statut="recu", numero="BL-INV-2")
+    await _creer_anomalie(db_session, document=bon_recu, regle="R11", gravite="haute")
+    await _creer_anomalie(db_session, document=bon_recu, regle="R15", gravite="basse")
+    await _creer_anomalie(
+        db_session, document=autre_bon, regle="R11", gravite="haute", statut="traitee"
+    )
+    await _creer_anomalie(
+        db_session, document=autre_bon, regle="R15", gravite="haute", statut="ignoree"
+    )
+    await _creer_document(db_session, statut="a_verifier", numero="BL-INV-3")
+    await _creer_alias(
+        db_session, fournisseur=fournisseur, libelle_brut="chantier invente"
+    )
+    await _creer_article(db_session, fournisseur=fournisseur, ratio=Decimal("4"))
+
+    compte = await compter_problemes_a_regler(db_session)
+
+    ouvertes = await lister_anomalies(db_session, statut="ouverte", limite=10_000)
+    a_traiter = await lister_a_traiter(db_session)
+    assert compte.nb_problemes == (
+        len(ouvertes)
+        + len(a_traiter.documents)
+        + len(a_traiter.alias)
+        + len(a_traiter.articles)
+    )
+    assert compte.nb_urgents == sum(1 for a in ouvertes if a.gravite == "haute")
+    # Valeurs attendues du scénario (base vidée entre deux tests).
+    assert compte.nb_problemes == 5
+    assert compte.nb_urgents == 1
+
+
+async def test_compte_a_regler_vide(db_session: AsyncSession) -> None:
+    compte = await compter_problemes_a_regler(db_session)
+
+    assert compte.nb_problemes == 0
+    assert compte.nb_urgents == 0

@@ -249,15 +249,17 @@ def test_anciennes_pages_supprimees_une_fois_reprises() -> None:
 
 def test_gabarit_pastille_urgents_et_libelle_court_accueil() -> None:
     """Exception à la règle Gabarit (Task 6, seule tâche autorisée) : (1) la
-    pastille du nombre de problèmes urgents ouverts sur « À régler », à
-    partir d'un appel serveur existant ; (2) « Accueil » dans la barre basse
+    pastille du nombre de problèmes à régler sur « À régler » (compte unique
+    du serveur depuis la revue finale) ; (2) « Accueil » dans la barre basse
     (téléphone), « Vue d'ensemble » conservé dans la barre latérale."""
     gabarit = _lire("components", "Gabarit.tsx")
 
-    # (1) Pastille -- appel serveur existant, jamais un nouveau calcul.
-    assert 'gravite: "haute"' in gabarit
-    assert "listerAnomalies" in gabarit
-    assert 'from "../api/anomalies"' in gabarit
+    # (1) Pastille -- compte unique calculé par le serveur (revue finale,
+    # voir `test_un_seul_compte_de_problemes_a_regler`), jamais un calcul
+    # ni une liste recomptée côté front.
+    assert "queryKey: CLE_COMPTE_A_REGLER" in gabarit
+    assert "queryFn: obtenirCompteARegler" in gabarit
+    assert "listerAnomalies" not in gabarit
 
     # (2) Libellé court de la barre basse, sans perdre celui de la barre
     # latérale.
@@ -574,3 +576,43 @@ def test_chantier_non_rattache_nomme_et_pourcentages_francais() -> None:
     for scorie in ("facturé(s)", "facture(s)", "(${", "BL facturé(s)"):
         assert scorie not in phrases, scorie
     assert "garde(detail, cle, formaterPoints)" in libelles
+
+
+def test_un_seul_compte_de_problemes_a_regler() -> None:
+    """Revue finale (constats LIENS-2, ECRAN-6, TELEPHONE-2, COUVERTURE-2) :
+    la tuile du mois, le lien « Voir les N problèmes », la pastille de
+    navigation et l'en-tête d'« À régler » montraient trois nombres de
+    périmètres différents (6, 5, 10) sans le dire. Désormais : un seul compte
+    « en tout », calculé par le serveur (`GET /api/a-regler/compte`), sous
+    une seule clé de requête partagée par les trois écrans ; le chiffre du
+    mois est nommé comme tel ; chaque nombre dit son périmètre."""
+    api = _lire("api", "aTraiter.ts")
+    assert '"/api/a-regler/compte"' in api
+    assert 'CLE_COMPTE_A_REGLER = ["a-traiter", "compte"] as const' in api
+
+    gabarit = _lire("components", "Gabarit.tsx")
+    assert "compte.data?.nb_problemes" in gabarit
+    assert "à régler en tout" in gabarit
+
+    vue = _lire("pages", "VueEnsemble.tsx")
+    assert "queryKey: CLE_COMPTE_A_REGLER" in vue
+    assert 'libelle="Problèmes à régler ce mois"' in vue
+    assert "en tout, tous mois confondus" in vue
+    assert "problèmes à régler en tout →" in vue
+
+    page = _lire("pages", "ARegler.tsx")
+    assert "queryKey: CLE_COMPTE_A_REGLER" in page
+    assert "à régler en tout" in page
+    # Plus jamais « N problèmes ouverts » sans périmètre en tête de l'écran
+    # complet : restreint (bon, chantier, fournisseur), la liste le dit.
+    assert "portee === undefined" in page.split("const surtitre", 1)[1]
+    assert 'document: "sur ce bon"' in page
+    assert "PERIMETRE_EN_TETE[portee.type]" in page
+
+    # Toute écriture qui change la liste invalide aussi ce compte (préfixe
+    # `CLE_A_TRAITER`), y compris la validation d'un article.
+    invalidations = _lire("api", "invalidations.ts")
+    assert "queryKey: CLE_A_TRAITER" in invalidations
+    detail = _lire("pages", "ProblemeDetail.tsx")
+    article = detail.split("function DetailArticle", 1)[1].split("\nfunction ", 1)[0]
+    assert "invaliderApresChangementAnomalies(queryClient)" in article

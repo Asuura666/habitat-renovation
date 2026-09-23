@@ -290,6 +290,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/a-regler/compte": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Obtenir Compte A Regler */
+        get: operations["obtenir_compte_a_regler_api_a_regler_compte_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chantiers": {
         parameters: {
             query?: never;
@@ -1140,6 +1157,19 @@ export interface components {
             lignes: components["schemas"]["LigneCompareeReponse"][];
             /** Nb Problemes */
             nb_problemes: number;
+        };
+        /**
+         * CompteProblemesReponse
+         * @description `GET /api/a-regler/compte` : nombre de problèmes « à régler », tous
+         *     mois confondus -- mêmes attributs qu'`ingest.a_traiter.CompteProblemes`
+         *     (revue finale de la refonte du front : un seul compte pour la pastille
+         *     de navigation, la vue d'ensemble et l'écran « À régler »).
+         */
+        CompteProblemesReponse: {
+            /** Nb Problemes */
+            nb_problemes: number;
+            /** Nb Urgents */
+            nb_urgents: number;
         };
         /**
          * CorrectionEnteteRequete
@@ -2414,6 +2444,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ATraiterReponse"];
+                };
+            };
+        };
+    };
+    obtenir_compte_a_regler_api_a_regler_compte_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompteProblemesReponse"];
                 };
             };
         };

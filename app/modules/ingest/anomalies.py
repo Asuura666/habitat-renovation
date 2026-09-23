@@ -670,6 +670,26 @@ async def lister_anomalies(
     return [_anomalie_lue(ligne) for ligne in resultat.all()]
 
 
+async def compter_anomalies_ouvertes(session: AsyncSession) -> tuple[int, int]:
+    """`(toutes, de gravité haute)` parmi les anomalies `ouverte`, tous mois
+    confondus -- exactement les lignes que renverrait `lister_anomalies(
+    statut="ouverte")` sans plafond (`_requete_anomalies` n'a que des
+    jointures externes, qui ne retirent ni ne dupliquent aucune anomalie).
+    Sert au compte unique des problèmes « à régler » (`ingest.a_traiter
+    .compter_problemes_a_regler`, revue finale de la refonte du front)."""
+    resultat = (
+        await session.execute(
+            select(
+                func.count(),
+                func.count().filter(Anomalie.gravite == "haute"),
+            )
+            .select_from(Anomalie)
+            .where(Anomalie.statut == "ouverte")
+        )
+    ).one()
+    return int(resultat[0]), int(resultat[1])
+
+
 async def compter_anomalies_hautes_ouvertes(session: AsyncSession) -> int:
     """Nombre d'anomalies `ouverte` de gravité `haute` (section « anomalies
     ouvertes de gravité haute » de l'écran « À traiter », L4-D18)."""
