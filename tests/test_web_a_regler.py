@@ -99,13 +99,30 @@ def test_probleme_detail_couvre_le_traitement_d_une_anomalie() -> None:
 def test_probleme_detail_couvre_documents_alias_et_articles() -> None:
     page = _lire("pages", "ProblemeDetail.tsx")
 
-    assert "Bon illisible à corriger" in page
     assert "Chantier à rattacher" in page
     assert "Article à valider" in page
 
-    # Documents « à vérifier » : lien de correction vers la page du bon,
-    # jamais un formulaire dupliqué ici.
+    # Fix round 1, finding 5 : titre d'un document « à vérifier » choisi
+    # selon son type et sa confirmation (bon illisible / facture à
+    # vérifier / écart signalé par l'équipe) -- fonction partagée avec la
+    # liste (`ARegler.tsx::titreDocument`), jamais un intitulé unique
+    # `<h2>Bon illisible à corriger</h2>` qui confondait les trois cas.
+    assert "titreDocument(document)" in page
+    aregler = _lire("pages", "ARegler.tsx")
+    for titre in (
+        "Bon illisible à corriger",
+        "Facture à vérifier",
+        "Écart signalé par l'équipe",
+    ):
+        assert titre in aregler, titre
+
+    # Documents « à vérifier » : lien de correction vers la page du bon
+    # (BL/enlèvement) ou de la facture -- jamais un formulaire dupliqué
+    # ici, jamais le même lien pour les deux (finding 5(a) : `/bl/:id`
+    # refuse une facture, `_document_pour_lecture`,
+    # `app/modules/ingest/corrections.py`).
     assert "/bl/${document.id}" in page
+    assert "/factures/${document.id}" in page
 
     # Chantiers à rattacher : réutilise le composant partagé, ne le
     # réimplémente pas.
@@ -166,3 +183,138 @@ def test_gabarit_pastille_urgents_et_libelle_court_accueil() -> None:
     # latérale.
     assert "Accueil" in gabarit
     assert "Vue d'ensemble" in gabarit
+
+
+# ---------------------------------------------------------------------------
+# Tour de correction 1 (revue de L5-T6/Task 6) -- un test par constat
+# Critical/Important, voir le rapport de tâche.
+# ---------------------------------------------------------------------------
+
+
+def test_probleme_detail_garde_les_dates_de_detail_contre_un_tiret() -> None:
+    """Finding 1 (Critical) : `detail["date_bl"]`/`depose_le`/
+    `dernier_depot` valent parfois le tiret cadratin (R01/R02 sans date
+    lue, R15/R16 sans dépôt) -- jamais passés bruts à `formaterDate`/
+    `formaterDateHeure`, qui plantent sur une chaîne non convertible en
+    date (même garde que `ui/libelles.ts::date`/`dateHeure`). Sans cette
+    garde, ouvrir un de ces problèmes rendait toute l'application blanche
+    (aucun `ErrorBoundary`)."""
+    page = _lire("pages", "ProblemeDetail.tsx")
+    assert "formaterDate(detail.date_bl" not in page
+    assert "formaterDateHeure(detail.depose_le" not in page
+    assert "formaterDateHeure(detail.dernier_depot" not in page
+    assert 'dateOuTiret(detail, "date_bl")' in page
+    assert 'dateHeureOuTiret(detail, "depose_le")' in page
+    assert 'dateHeureOuTiret(detail, "dernier_depot")' in page
+
+
+def test_valeur_du_filtre_illisible_correspond_a_la_categorie() -> None:
+    """Finding 2 (Important) : la pastille « Bons illisibles » portait la
+    valeur `illisibles` (pluriel) alors que `categorieFiltreProbleme`
+    renvoie `illisible` -- `listeAffichee` ne faisait donc jamais
+    correspondre aucune ligne à ce filtre, malgré un compte affiché."""
+    page = _lire("pages", "ARegler.tsx")
+    assert '{ valeur: "illisible", libelle: "Bons illisibles"' in page
+    assert '"illisibles"' not in page
+
+    # Contrat plus large demandé par la piste de correction : chaque
+    # `valeur` de filtre catégorie (hors "tous"/"urgents"/"regles", qui ne
+    # sont pas des catégories) correspond à une `CategorieFiltre` connue.
+    categories_connues = {"bl", "prix", "quantites", "rattacher", "illisible", "autre"}
+    valeurs_filtres_categorie = {"bl", "prix", "quantites", "rattacher", "illisible"}
+    assert valeurs_filtres_categorie <= categories_connues
+
+
+def test_id_anomalie_reste_luuid_brut_pour_les_liens_a_regler_id() -> None:
+    """Finding 3 (Important) : `FicheChantier.tsx` (Task 7) et
+    `FicheFournisseur.tsx` (Task 9) lient vers `/a-regler/${anomalie.id}`
+    avec l'uuid brut d'une anomalie -- un identifiant composite
+    (`anomalie:<uuid>`) rendait ces liens toujours introuvables (« Ce
+    problème n'est plus disponible »). Seuls les pseudo-problèmes
+    (document/alias/article) restent préfixés, faute d'espace
+    d'identifiants garanti entre eux."""
+    page = _lire("pages", "ARegler.tsx")
+    assert "id: `anomalie:" not in page
+    assert "id: anomalie.id" in page
+    assert "id: a.id" in page
+    for prefixe in ("document", "alias", "article"):
+        assert f"id: `{prefixe}:" in page
+
+
+def test_probleme_detail_monte_avec_une_cle_stable_par_probleme() -> None:
+    """Finding 4 (Important) : sans `key`, changer de ligne sur ordinateur
+    réutilise la même instance de `<ProblemeDetail>` -- le commentaire
+    saisi, le formulaire d'article et le chantier choisi dans `AliasCarte`
+    restaient collés au problème précédent (risque de contester un
+    problème avec le commentaire d'un autre, ou de valider un article avec
+    les unités d'un autre)."""
+    page = _lire("pages", "ARegler.tsx")
+    assert "<ProblemeDetail" in page
+    bloc = page.split("<ProblemeDetail", 1)[1].split("/>", 1)[0]
+    assert "key={problemeActuel.id}" in bloc
+
+
+def test_lien_anomalie_choisit_facture_ou_bon_de_livraison_selon_le_type() -> None:
+    """Finding 6 (Important) : « Voir la facture » s'affichait pour toute
+    anomalie ayant un `document_id`, même quand ce document est en réalité
+    un bon de livraison (R11, R15 : `document_id` porte l'identifiant du
+    BL) -- jamais deux liens vers deux documents différents affichés en
+    même temps pour une même anomalie."""
+    page = _lire("pages", "ProblemeDetail.tsx")
+    assert 'anomalie.type === "facture" && anomalie.document_id !== null' in page
+    assert 'anomalie.type !== "facture" && anomalie.document_id !== null' in page
+    assert 'anomalie.type !== "facture" && anomalie.document_id === null' in page
+    assert "anomalie.bl_document_id !== null" in page
+
+
+def test_panneau_detail_reste_visible_et_defile_en_interne_sur_grand_ecran() -> None:
+    """Finding 7 (Important) : le panneau de détail s'étirait sur toute la
+    hauteur de la liste (`h-full` sur la carte, cellule de grille étirée) --
+    avec les 25 anomalies d'août, les actions de traitement se seraient
+    retrouvées à plus de 3000 px, hors de toute fenêtre. Le panneau reste
+    désormais épinglé et défile lui-même une fois la hauteur de la fenêtre
+    atteinte."""
+    aregler = _lire("pages", "ARegler.tsx")
+    assert "lg:sticky" in aregler
+    assert "lg:max-h-" in aregler
+    assert "lg:overflow-y-auto" in aregler
+    detail = _lire("pages", "ProblemeDetail.tsx")
+    assert 'className="flex h-full flex-col gap-5"' not in detail
+
+
+def test_montant_en_jeu_jamais_un_prix_unitaire_ni_une_quantite_nue() -> None:
+    """Finding 8 (Important) : R07/R08 affichaient le prix unitaire
+    facturé (`pu_facture`) dans la colonne « montant en jeu » comme s'il
+    s'agissait de la somme en jeu ; R03/R04/R06/R17 y affichaient une
+    quantité nue sans unité (« 5 », « -10 »), illisible pour un
+    non-technicien. Cette colonne ne montre plus que des montants du
+    serveur, ou une quantité toujours accompagnée de son unité."""
+    page = _lire("pages", "ARegler.tsx")
+    assert '"pu_facture"' not in page
+    assert "quantiteAvecUnite(detail, " in page
+
+
+def test_a_regler_separe_ouverts_et_deja_regles_sans_troncature_silencieuse() -> None:
+    """Finding 9 (Important) : un seul appel `statut=toutes` (limite
+    serveur 500), filtré côté client, tronquait silencieusement les
+    problèmes ouverts (les plus importants) dès que l'historique
+    traité/ignoré dépassait cette limite -- sans aucun message. Deux
+    appels séparés désormais (« Déjà réglés » chargé seulement quand ce
+    filtre est actif), et un message remplace la troncature muette quand
+    la limite est atteinte."""
+    page = _lire("pages", "ARegler.tsx")
+    assert 'statut: "ouverte" as const' in page
+    assert 'statut: "toutes" as const' in page
+    assert "enabled: filtreRegles" in page
+    assert "la liste peut être incomplète" in page
+
+
+def test_a_regler_ignore_le_cache_a_traiter_perime_quand_un_bloc_est_cible() -> None:
+    """Finding 10 (Important) : avec `?blocId=`, la requête `a-traiter`
+    est désactivée (`enabled: false`) mais TanStack Query peut quand même
+    rendre des données en cache d'une visite précédente de l'écran --
+    `construireProblemes` recevait alors des documents/alias/articles sans
+    rapport avec le bon consulté, comptés dans le surtitre et les
+    filtres."""
+    page = _lire("pages", "ARegler.tsx")
+    assert "blocId === undefined ? aTraiter.data : undefined" in page

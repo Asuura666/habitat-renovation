@@ -13,17 +13,20 @@ import { ErreurApi } from "../api/client";
 import { type Chantier, CLE_CHANTIERS, validerArticle } from "../api/referentiels";
 import { CLE_TABLEAU_DE_BORD } from "../api/tableauDeBord";
 import { AliasCarte } from "../components/AliasCarte";
-import { formaterDate, formaterDateHeure, TIRET } from "../lib/formats";
+import { formaterDateHeure, TIRET } from "../lib/formats";
 import { libelleMotif } from "../lib/motifs";
 import { Bouton, Carte, phraseProbleme, titreRegle, type TonChiffre, urgence } from "../ui";
 import {
   categorieFiltreProbleme,
+  dateHeureOuTiret,
+  dateOuTiret,
   montantOuTiret,
   pointsOuAucun,
   pointsOuTiret,
   type Probleme,
   quantiteOuTiret,
   texteOuTiret,
+  titreDocument,
   type Urgence,
 } from "./ARegler";
 
@@ -82,7 +85,11 @@ function chiffresProbleme(anomalie: Anomalie): ChiffreProbleme[] {
     case "R02":
       return [
         { libelle: "Montant du bon", valeur: montantOuTiret(detail, "montant_ht"), ton: tonPrincipal },
-        { libelle: "Daté du", valeur: formaterDate(detail.date_bl ?? null) },
+        // Fix round 1, finding 1 : `date_bl` vaut le tiret cadratin quand
+        // le bon n'a pas de date lue (`app/modules/rules/rules/R01.py`,
+        // `R02.py`) — jamais passé brut à `formaterDate` (garde
+        // `dateOuTiret`, voir `ARegler.tsx`).
+        { libelle: "Daté du", valeur: dateOuTiret(detail, "date_bl") },
       ];
     case "R03":
     case "R04":
@@ -131,12 +138,16 @@ function chiffresProbleme(anomalie: Anomalie): ChiffreProbleme[] {
       return [{ libelle: "En attente depuis", valeur: `${texteOuTiret(detail, "heures")} heures` }];
     case "R15":
       return [
-        { libelle: "Déposé le", valeur: formaterDateHeure(detail.depose_le ?? null) },
+        // Fix round 1, finding 1 : même garde que R01/R02 ci-dessus,
+        // appliquée à `depose_le` (`app/modules/rules/rules/R15.py`).
+        { libelle: "Déposé le", valeur: dateHeureOuTiret(detail, "depose_le") },
         { libelle: "En attente depuis", valeur: `${texteOuTiret(detail, "heures")} heures` },
       ];
     case "R16":
       return [
-        { libelle: "Dernier dépôt", valeur: formaterDateHeure(detail.dernier_depot ?? null) },
+        // Fix round 1, finding 1 : même garde, appliquée à
+        // `dernier_depot` (`app/modules/rules/rules/R16.py`).
+        { libelle: "Dernier dépôt", valeur: dateHeureOuTiret(detail, "dernier_depot") },
         { libelle: "BL facturés depuis", valeur: texteOuTiret(detail, "bl_factures_depuis") },
       ];
     case "R17":
@@ -304,8 +315,23 @@ function DetailAnomalie({
         </dl>
       </div>
 
+      {/* Fix round 1, finding 6 : « Voir la facture » s'affichait pour
+          toute anomalie avec un `document_id`, sans regarder son type —
+          pour les règles portées par un BL (R11, R15 : `document_id` porte
+          l'identifiant du BL lui-même, `type = "bl"`), le seul lien
+          affiché s'appelait « Voir la facture » et ouvrait pourtant le bon
+          de livraison. `anomalie.type` (le type du document résolu par
+          `document_id`, `app/modules/ingest/anomalies.py::_anomalie_lue`)
+          tranche désormais laquelle des deux étiquettes est correcte,
+          jamais les deux à la fois sur un même document : une facture
+          (`type === "facture"`, ex. R10) vers `/documents/:id` (dépend de
+          la Task 8 tant qu'elle n'est pas fusionnée, `_document_pour_
+          lecture` refuse une facture, `app/modules/ingest/corrections.py`)
+          ; sinon `document_id` est déjà un bon de livraison (R11, R15) et
+          `bl_document_id` (résolu via le bloc, R01/R02/R06…) n'est utilisé
+          qu'en second recours. */}
       <div className="flex flex-wrap gap-3 text-sm">
-        {anomalie.document_id !== null && (
+        {anomalie.type === "facture" && anomalie.document_id !== null && (
           <Link
             to={`/documents/${anomalie.document_id}`}
             className="font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -313,7 +339,15 @@ function DetailAnomalie({
             Voir la facture
           </Link>
         )}
-        {anomalie.bl_document_id !== null && (
+        {anomalie.type !== "facture" && anomalie.document_id !== null && (
+          <Link
+            to={`/bl/${anomalie.document_id}`}
+            className="font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            Voir le bon de livraison
+          </Link>
+        )}
+        {anomalie.type !== "facture" && anomalie.document_id === null && anomalie.bl_document_id !== null && (
           <Link
             to={`/bl/${anomalie.bl_document_id}`}
             className="font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -328,16 +362,61 @@ function DetailAnomalie({
   );
 }
 
+/** `type` d'un document « à vérifier » (BL, enlèvement ou facture) —
+ * présentation uniquement, même principe que `libelleTypeDocument` de
+ * `DocumentDetail.tsx` (dupliqué, décision du contrôleur, même convention
+ * que les autres petits assistants de présentation de ce fichier). Restauré
+ * ici (fix round 1, finding 5) : perdu lors de la migration depuis l'ancien
+ * `ATraiter.tsx::DocumentCarte`, qui l'affichait déjà à côté du n°
+ * interne. */
+function libelleTypeDocument(type: string): string {
+  switch (type) {
+    case "bl":
+      return "Livraison";
+    case "enlevement":
+      return "Enlèvement";
+    case "facture":
+      return "Facture";
+    default:
+      return type;
+  }
+}
+
+/** Lien et libellé de correction d'un document « à vérifier » (fix round
+ * 1, finding 5) : une facture n'a pas de section de correction sur `/bl/:id`
+ * (route réservée au BL/enlèvement, `_document_pour_lecture`,
+ * `app/modules/ingest/corrections.py`) — elle renvoie vers `/factures/:id`
+ * (écran existant, `FactureDetail.tsx`, toujours monté tant que la Task 8
+ * ne l'a pas remplacé par `/documents/:id`, voir le rapport de tâche). */
+function cheminCorrectionDocument(document: DocumentATraiter): string {
+  return document.type === "facture" ? `/factures/${document.id}` : `/bl/${document.id}`;
+}
+
 function DetailDocument({ document }: { document: DocumentATraiter }): ReactElement {
   return (
     <>
       <div className="flex flex-col gap-1">
         <Kicker probleme={{ kind: "document", id: "", document }} />
-        <h2 className="font-titre text-2xl font-medium text-encre">Bon illisible à corriger</h2>
+        <h2 className="font-titre text-2xl font-medium text-encre">{titreDocument(document)}</h2>
+        <p className="text-sm text-encre-2">
+          Document n° {document.numero_interne} · {libelleTypeDocument(document.type)}
+        </p>
         <p className="text-sm text-encre-2">
           {document.chantier_brut ?? TIRET} · {document.fournisseur ?? TIRET} · {document.numero ?? TIRET}
         </p>
       </div>
+
+      {document.confirmation === "ecart" && (
+        // Fix round 1, finding 5(b) : un bon passe `a_verifier` quand
+        // l'équipe clique « Écart constaté » sur Telegram (`ingest/
+        // depot_telegram.py`), souvent sans motif — ce signalement de
+        // l'équipe ne doit jamais disparaître derrière un générique « bon
+        // illisible » (perdu par la migration depuis l'ancien
+        // `ATraiter.tsx::BadgeEcart`).
+        <p className="rounded-lg border border-bordure bg-fond p-3 text-sm text-encre">
+          Écart constaté par l'équipe au dépôt — à vérifier avant traitement.
+        </p>
+      )}
 
       {document.motifs.length > 0 && (
         <div className="flex flex-col gap-2 rounded-lg border border-bordure bg-fond p-4">
@@ -356,7 +435,9 @@ function DetailDocument({ document }: { document: DocumentATraiter }): ReactElem
         Déposé par {document.deposant ?? TIRET} le {formaterDateHeure(document.cree_le)}.
       </p>
 
-      <LienPrincipal to={`/bl/${document.id}`}>Corriger le bon</LienPrincipal>
+      <LienPrincipal to={cheminCorrectionDocument(document)}>
+        {document.type === "facture" ? "Voir la facture" : "Corriger le bon"}
+      </LienPrincipal>
     </>
   );
 }
@@ -482,7 +563,13 @@ export function ProblemeDetail({
   onTraitementReussi: () => void;
 }): ReactElement {
   return (
-    <Carte className="flex h-full flex-col gap-5">
+    // `h-full` retiré (fix round 1, finding 7) : étirait ce panneau à la
+    // hauteur de la cellule de grille (celle de la liste, souvent bien
+    // plus grande), poussant le commentaire et les boutons de traitement
+    // hors de la fenêtre. `ARegler.tsx` rend désormais l'`<aside>` parent
+    // `lg:sticky`/`lg:max-h-*` avec défilement interne — cette carte se
+    // dimensionne à son propre contenu à l'intérieur.
+    <Carte className="flex flex-col gap-5">
       <Link
         to={lienRetour}
         className="text-sm font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden"
