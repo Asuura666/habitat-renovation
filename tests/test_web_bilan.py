@@ -43,5 +43,9 @@ def test_bilan_est_accessible_depuis_la_navigation_admin() -> None:
     app = (RACINE_WEB / "App.tsx").read_text()
     gabarit = (RACINE_WEB / "components" / "Gabarit.tsx").read_text()
 
-    assert 'path="bilan"' in app
-    assert 'to="/bilan"' in gabarit
+    # Écran « Bilan » (Bilan.tsx) désormais monté sur la route « Chantiers »
+    # (Task 4, spec §3) : l'ancienne URL `/bilan` redirige toujours vers
+    # `/chantiers`, mais la navigation admin pointe la nouvelle.
+    assert 'path="chantiers"' in app
+    assert 'path="bilan"' in app  # redirection de l'ancienne URL, conservée
+    assert 'vers: "/chantiers"' in gabarit

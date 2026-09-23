@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { Navigate, Route, Routes } from "react-router";
+import { Route, Routes } from "react-router";
 
 import { EcouteAuthentification } from "./components/EcouteAuthentification";
 import { Gabarit } from "./components/Gabarit";
@@ -22,6 +22,7 @@ import { Journal } from "./pages/Journal";
 import { Reglages } from "./pages/Reglages";
 import { GardeAdmin } from "./routes/GardeAdmin";
 import { RedirectionAccueil } from "./routes/RedirectionAccueil";
+import { RedirectionAncienneUrl } from "./routes/RedirectionAncienneUrl";
 import { RouteProtegee } from "./routes/RouteProtegee";
 
 export function App(): ReactElement {
@@ -38,23 +39,126 @@ export function App(): ReactElement {
             </RouteProtegee>
           }
         >
-          <Route index element={<RedirectionAccueil />} />
+          {/* Vue d'ensemble (admin) — Task 4 y pose `EcranEnConstruction`,
+              une tâche suivante la remplace (voir RedirectionAccueil.tsx).
+              `GardeAdmin` y renvoie déjà l'agent vers `/documents`. */}
           <Route
-            path="a-traiter"
+            index
+            element={
+              <GardeAdmin>
+                <RedirectionAccueil />
+              </GardeAdmin>
+            }
+          />
+
+          {/* À régler (remplace « À traiter »/« Anomalies ») — écran
+              existant `ATraiter` conservé tel quel (habillage seulement, la
+              Task 6 le remplace). */}
+          <Route
+            path="a-regler"
             element={
               <GardeAdmin>
                 <ATraiter />
               </GardeAdmin>
             }
           />
+
+          {/* Chantiers (remplace « Bilan ») — écrans existants conservés :
+              `Bilan` pour la liste, `BilanFournisseursChantier` (ex.
+              `bilan/:chantierId`) pour la fiche, `BilanBl` (ex.
+              `bilan/:chantierId/:fournisseurId`, fix round 1 R2) pour le
+              détail des BL d'un couple chantier/fournisseur — la Task 7 les
+              remplace. `chantiers/referentiel` (fix round 1 R1) garde
+              accessible l'écran de création de chantier et de validation
+              d'alias (ex-« Chantiers & fournisseurs », L5-T8) tant qu'il
+              n'a pas été repris par la fiche chantier de la Task 7 — lien
+              « Gérer les chantiers » dans la barre latérale (Gabarit.tsx).
+              Route statique déclarée avant `chantiers/:chantierId` pour ne
+              jamais être lue comme un identifiant de chantier. */}
           <Route
-            path="anomalies"
+            path="chantiers"
             element={
               <GardeAdmin>
-                <Anomalies />
+                <Bilan />
               </GardeAdmin>
             }
           />
+          <Route
+            path="chantiers/referentiel"
+            element={
+              <GardeAdmin>
+                <Chantiers />
+              </GardeAdmin>
+            }
+          />
+          <Route
+            path="chantiers/:chantierId"
+            element={
+              <GardeAdmin>
+                <BilanFournisseursChantier />
+              </GardeAdmin>
+            }
+          />
+          <Route
+            path="chantiers/:chantierId/:fournisseurId"
+            element={
+              <GardeAdmin>
+                <BilanBl />
+              </GardeAdmin>
+            }
+          />
+
+          {/* Fournisseurs (remplace « Bilan par fournisseur ») — écrans
+              existants conservés, la Task 8 les remplace. */}
+          <Route
+            path="fournisseurs"
+            element={
+              <GardeAdmin>
+                <BilanFournisseursGlobal />
+              </GardeAdmin>
+            }
+          />
+          <Route
+            path="fournisseurs/:fournisseurId"
+            element={
+              <GardeAdmin>
+                <BilanChantiersFournisseur />
+              </GardeAdmin>
+            }
+          />
+
+          {/* Documents (remplace « Factures »/« BL déposés ») — admin (tous)
+              et agent (ses dépôts, lecture seule) : aucune `GardeAdmin` ici,
+              comme avant Task 4. `documents/:id` et `bl/:id` montent le même
+              écran existant `DocumentDetail` (L3-D19) — la Task 9 remplace
+              la liste, la Task 5 la fiche BL. */}
+          <Route path="documents" element={<BlDeposes />} />
+          <Route path="documents/:id" element={<DocumentDetail />} />
+          <Route path="bl/:id" element={<DocumentDetail />} />
+
+          <Route
+            path="journal"
+            element={
+              <GardeAdmin>
+                <Journal />
+              </GardeAdmin>
+            }
+          />
+          <Route
+            path="reglages"
+            element={
+              <GardeAdmin>
+                <Reglages />
+              </GardeAdmin>
+            }
+          />
+
+          {/* Écrans sans remplacement construit — fix round 1 R1 (« aucune
+              fonctionnalité existante n'est supprimée » l'emporte sur la
+              redirection posée par erreur en Task 4) : restent MONTÉS sur
+              leur ancienne URL, pas de redirection, jusqu'à ce qu'une tâche
+              suivante les migre (Task 9 pour Factures, Task 6 pour
+              Anomalies). */}
           <Route
             path="factures"
             element={
@@ -72,59 +176,47 @@ export function App(): ReactElement {
             }
           />
           <Route
-            path="bilan"
+            path="anomalies"
             element={
               <GardeAdmin>
-                <Bilan />
+                <Anomalies />
               </GardeAdmin>
             }
           />
+
+          {/* --------------------------------------------------------------
+              Anciennes URL → nouvelles (spec §3, fix round 1 R1/R2) : un
+              seul composant partagé pour toutes les redirections, qui
+              reporte toujours les paramètres de recherche et l'ancre de
+              l'URL d'origine (voir web/src/routes/).
+              -------------------------------------------------------------- */}
+          <Route path="a-traiter" element={<RedirectionAncienneUrl vers={() => "/a-regler"} />} />
+          <Route path="bilan" element={<RedirectionAncienneUrl vers={() => "/chantiers"} />} />
           <Route
             path="bilan/fournisseurs"
-            element={<GardeAdmin><BilanFournisseursGlobal /></GardeAdmin>}
+            element={<RedirectionAncienneUrl vers={() => "/fournisseurs"} />}
           />
           <Route
             path="bilan/fournisseurs/:fournisseurId"
-            element={<GardeAdmin><BilanChantiersFournisseur /></GardeAdmin>}
+            element={
+              <RedirectionAncienneUrl vers={(p) => `/fournisseurs/${p.fournisseurId ?? ""}`} />
+            }
           />
           <Route
             path="bilan/:chantierId"
-            element={<GardeAdmin><BilanFournisseursChantier /></GardeAdmin>}
+            element={<RedirectionAncienneUrl vers={(p) => `/chantiers/${p.chantierId ?? ""}`} />}
           />
           <Route
             path="bilan/:chantierId/:fournisseurId"
-            element={<GardeAdmin><BilanBl /></GardeAdmin>}
-          />
-          <Route
-            path="chantiers"
             element={
-              <GardeAdmin>
-                <Chantiers />
-              </GardeAdmin>
+              <RedirectionAncienneUrl
+                vers={(p) => `/chantiers/${p.chantierId ?? ""}/${p.fournisseurId ?? ""}`}
+              />
             }
           />
-          <Route
-            path="journal"
-            element={
-              <GardeAdmin>
-                <Journal />
-              </GardeAdmin>
-            }
-          />
-          <Route
-            path="reglages"
-            element={
-              <GardeAdmin>
-                <Reglages />
-              </GardeAdmin>
-            }
-          />
-          <Route path="bl" element={<BlDeposes />} />
-          {/* Admin (tous) et agent (ses dépôts, lecture seule) — L3-D19 :
-              aucune `GardeAdmin` ici, `donnees.modifiable` décide seul de
-              l'affichage des contrôles d'édition (voir DocumentDetail.tsx). */}
-          <Route path="documents/:id" element={<DocumentDetail />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="bl" element={<RedirectionAncienneUrl vers={() => "/documents"} />} />
+
+          <Route path="*" element={<RedirectionAncienneUrl vers={() => "/"} />} />
         </Route>
       </Routes>
     </>

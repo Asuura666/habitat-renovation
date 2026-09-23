@@ -5,6 +5,17 @@ import { BrowserRouter } from "react-router";
 
 import { App } from "./App";
 import { ErreurApi } from "./api/client";
+// Polices auto-hébergées (spec §2) : la CSP (`default-src 'self'`) interdit
+// Google Fonts, d'où `@fontsource/*` plutôt que les liens `<link>` des
+// maquettes. Poids réellement utilisés par la charte seulement (titres
+// Fraunces 500/600, texte IBM Plex Sans 400/500/600, montants et numéros
+// IBM Plex Mono 500 — voir `tailwind.config.cjs`).
+import "@fontsource/fraunces/500.css";
+import "@fontsource/fraunces/600.css";
+import "@fontsource/ibm-plex-sans/400.css";
+import "@fontsource/ibm-plex-sans/500.css";
+import "@fontsource/ibm-plex-sans/600.css";
+import "@fontsource/ibm-plex-mono/500.css";
 import "./index.css";
 
 const queryClient = new QueryClient({
