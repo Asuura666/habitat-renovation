@@ -130,6 +130,7 @@ def test_csv_bilan_chantiers_separateur_point_virgule_et_virgule_decimale() -> N
         chantier_id=uuid.uuid4(),
         nom_canonique="Chantier Invente",
         agence="Agence Invente",
+        client=None,
         montants=_montants(facture_ht=Decimal("1234.50")),
     )
     contenu = csv_bilan_chantiers([ligne])
@@ -150,6 +151,7 @@ def test_csv_bilan_chantiers_montant_plus_de_deux_decimales_arrondi() -> None:
         chantier_id=uuid.uuid4(),
         nom_canonique="Chantier Precision",
         agence=None,
+        client=None,
         montants=_montants(facture_ht=Decimal("12.345")),
     )
     lignes = _lignes_csv(csv_bilan_chantiers([ligne]))
@@ -162,6 +164,7 @@ def test_csv_bilan_chantiers_montant_arrondit_en_dessous_sous_cinq() -> None:
         chantier_id=uuid.uuid4(),
         nom_canonique="Chantier Precision Basse",
         agence=None,
+        client=None,
         montants=_montants(facture_ht=Decimal("12.344")),
     )
     lignes = _lignes_csv(csv_bilan_chantiers([ligne]))
@@ -179,6 +182,7 @@ def test_csv_bilan_chantiers_ligne_non_resolue_cellules_vides() -> None:
         chantier_id=None,
         nom_canonique=None,
         agence=None,
+        client=None,
         montants=_montants(facture_ht=Decimal("42.00")),
     )
     lignes = _lignes_csv(csv_bilan_chantiers([ligne]))
@@ -242,6 +246,7 @@ def test_csv_bilan_chantiers_libelle_avec_point_virgule_echappe() -> None:
         chantier_id=uuid.uuid4(),
         nom_canonique="Chantier; avec point-virgule",
         agence=None,
+        client=None,
         montants=_montants(),
     )
     contenu = csv_bilan_chantiers([ligne])
@@ -284,6 +289,7 @@ def test_csv_bilan_chantiers_libelle_point_virgule_guillemet_et_saut_de_ligne() 
         chantier_id=uuid.uuid4(),
         nom_canonique=valeur,
         agence=None,
+        client=None,
         montants=_montants(),
     )
     lignes = _lignes_csv(csv_bilan_chantiers([ligne]))
@@ -306,12 +312,14 @@ def test_csv_bilan_chantiers_plusieurs_lignes_et_compte_anomalies_entier() -> No
             chantier_id=uuid.uuid4(),
             nom_canonique="Chantier Un",
             agence="Agence Une",
+            client=None,
             montants=_montants(facture_ht=Decimal("10.00"), nb_anomalies_ouvertes=3),
         ),
         LigneBilanChantier(
             chantier_id=uuid.uuid4(),
             nom_canonique="Chantier Deux",
             agence="Agence Une",
+            client=None,
             montants=_montants(facture_ht=Decimal("20.00"), nb_anomalies_ouvertes=0),
         ),
     ]

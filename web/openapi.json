@@ -720,6 +720,56 @@
     }
    }
   },
+  "/api/chantiers/{chantier_id}": {
+   "put": {
+    "summary": "Modifier Chantier Endpoint",
+    "operationId": "modifier_chantier_endpoint_api_chantiers__chantier_id__put",
+    "parameters": [
+     {
+      "name": "chantier_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Chantier Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ChantierModificationRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ChantierReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/fournisseurs": {
    "get": {
     "summary": "Lister Fournisseurs Endpoint",
@@ -2930,6 +2980,18 @@
        }
       ],
       "title": "Agence"
+     },
+     "client": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Client"
      }
     },
     "type": "object",
@@ -2937,7 +2999,52 @@
      "nom_canonique"
     ],
     "title": "ChantierCreationRequete",
-    "description": "Corps de `POST /api/chantiers` : nom obligatoire (1 à 200 caractères,\nblanc refusé), agence optionnelle."
+    "description": "Corps de `POST /api/chantiers` : nom obligatoire (1 à 200 caractères,\nblanc refusé), agence et client optionnels."
+   },
+   "ChantierModificationRequete": {
+    "properties": {
+     "nom_canonique": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Nom Canonique"
+     },
+     "agence": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Agence"
+     },
+     "client": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Client"
+     },
+     "actif": {
+      "type": "boolean",
+      "title": "Actif"
+     }
+    },
+    "type": "object",
+    "required": [
+     "nom_canonique",
+     "actif"
+    ],
+    "title": "ChantierModificationRequete",
+    "description": "Corps de `PUT /api/chantiers/{id}` : remplace nom, agence, client et\nétat actif."
    },
    "ChantierReponse": {
     "properties": {
@@ -2961,6 +3068,17 @@
       ],
       "title": "Agence"
      },
+     "client": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Client"
+     },
      "actif": {
       "type": "boolean",
       "title": "Actif"
@@ -2971,10 +3089,11 @@
      "id",
      "nom_canonique",
      "agence",
+     "client",
      "actif"
     ],
     "title": "ChantierReponse",
-    "description": "Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest\n.referentiels.ChantierResume`."
+    "description": "Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest\n.referentiels.ChantierResume`. `client` : ajout hors CDC demandé le\n23/09/2026 (`docs/dette.md`)."
    },
    "ChantierSilencieuxReponse": {
     "properties": {
@@ -4103,6 +4222,17 @@
       ],
       "title": "Agence"
      },
+     "client": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Client"
+     },
      "montants": {
       "$ref": "#/components/schemas/MontantsBilanReponse"
      }
@@ -4112,6 +4242,7 @@
      "chantier_id",
      "nom_canonique",
      "agence",
+     "client",
      "montants"
     ],
     "title": "LigneBilanChantierReponse",

@@ -561,3 +561,15 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   fixe) ne le garantit ; à corriger (formateur de quantité dédié dans
   `ingest/export.py`, sans toucher `_formater_montant`) si une facture
   réelle porte une quantité à trois décimales.
+
+### Client du chantier (ajout hors CDC du 23/09/2026) — ingest/api
+
+- **Client du chantier = ajout hors CDC du 23/09/2026, texte libre sans
+  référentiel.** `Chantier.client` (migration 0010) est une simple colonne
+  texte optionnelle, remplie à la main sur chaque chantier (`POST`/`PUT
+  /api/chantiers`) — aucune table dédiée, aucun rapprochement avec une
+  quelconque source externe (pas de SIRET, pas de recherche, pas de
+  déduplication). Même normalisation que `agence` (espaces de bord
+  retirés, chaîne vide -> `None`). Si le nombre de clients grandit ou
+  qu'un besoin de recherche/à normaliser apparaît, un référentiel dédié
+  serait alors justifié — hors périmètre de cette tâche.

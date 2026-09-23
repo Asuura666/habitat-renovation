@@ -425,6 +425,7 @@ class ChantierResume:
     id: uuid.UUID
     nom_canonique: str
     agence: str | None
+    client: str | None
     actif: bool
 
 
@@ -488,10 +489,17 @@ async def lister_chantiers(session: AsyncSession) -> list[ChantierResume]:
             id=chantier.id,
             nom_canonique=chantier.nom_canonique,
             agence=chantier.agence,
+            client=chantier.client,
             actif=chantier.actif,
         )
         for chantier in resultat.scalars().all()
     ]
+
+
+def _texte_ou_none(valeur: str | None) -> str | None:
+    if valeur is None:
+        return None
+    return valeur.strip() or None
 
 
 async def creer_chantier(
@@ -499,13 +507,18 @@ async def creer_chantier(
     *,
     nom_canonique: str,
     agence: str | None,
+    client: str | None = None,
     auteur_id: uuid.UUID,
 ) -> ChantierResume:
     """Crée un chantier (décision du contrôleur) : `nom_canonique` débarrassé
-    des espaces de bord, `agence` vide -> `None`, `actif = true`. Refuse un
-    nom déjà porté par un chantier existant (actif ou non) une fois passé
-    par `normaliser_libelle` (`ChantierEnDouble`, `original_id` du chantier
-    déjà existant). Journalise `chantier_cree`.
+    des espaces de bord, `agence`/`client` vides -> `None`, `actif = true`.
+    Refuse un nom déjà porté par un chantier existant (actif ou non) une
+    fois passé par `normaliser_libelle` (`ChantierEnDouble`, `original_id`
+    du chantier déjà existant). Journalise `chantier_cree`.
+
+    `client` (ajout hors CDC demandé le 23/09/2026, `docs/dette.md`) : nom
+    du client final du chantier, texte libre sans référentiel — même
+    normalisation que `agence`.
 
     Le référentiel chantier reste de volume faible (CDC §9) : la comparaison
     de doublon charge tous les chantiers existants et compare en Python,
@@ -521,10 +534,15 @@ async def creer_chantier(
         if normaliser_libelle(existant.nom_canonique) == normalise_cible:
             raise ChantierEnDouble(existant.id)
 
-    agence_normalisee = agence.strip() if agence is not None else None
-    agence_normalisee = agence_normalisee or None
+    agence_normalisee = _texte_ou_none(agence)
+    client_normalise = _texte_ou_none(client)
 
-    chantier = Chantier(nom_canonique=nom, agence=agence_normalisee, actif=True)
+    chantier = Chantier(
+        nom_canonique=nom,
+        agence=agence_normalisee,
+        client=client_normalise,
+        actif=True,
+    )
     session.add(chantier)
     await session.flush()
 
@@ -538,6 +556,7 @@ async def creer_chantier(
             apres={
                 "nom_canonique": nom,
                 "agence": agence_normalisee,
+                "client": client_normalise,
                 "actif": True,
             },
         )
@@ -549,6 +568,69 @@ async def creer_chantier(
         id=chantier.id,
         nom_canonique=chantier.nom_canonique,
         agence=chantier.agence,
+        client=chantier.client,
+        actif=chantier.actif,
+    )
+
+
+async def modifier_chantier(
+    session: AsyncSession,
+    *,
+    chantier_id: uuid.UUID,
+    nom_canonique: str,
+    agence: str | None,
+    client: str | None,
+    actif: bool,
+    auteur_id: uuid.UUID,
+) -> ChantierResume:
+    """Remplace nom, agence, client et état actif d'un chantier. Même règle
+    de doublon que `creer_chantier` (autres chantiers seulement). Journalise
+    `chantier_modifie` avec l'état avant/après."""
+    chantier = await session.get(Chantier, chantier_id)
+    if chantier is None:
+        raise ChantierIntrouvable(str(chantier_id))
+    nom = nom_canonique.strip()
+    cible = normaliser_libelle(nom)
+    for existant in (await session.execute(select(Chantier))).scalars().all():
+        if (
+            existant.id != chantier_id
+            and normaliser_libelle(existant.nom_canonique) == cible
+        ):
+            raise ChantierEnDouble(existant.id)
+    avant = {
+        "nom_canonique": chantier.nom_canonique,
+        "agence": chantier.agence,
+        "client": chantier.client,
+        "actif": chantier.actif,
+    }
+    chantier.nom_canonique = nom
+    chantier.agence = _texte_ou_none(agence)
+    chantier.client = _texte_ou_none(client)
+    chantier.actif = actif
+    chantier.updated_by = auteur_id
+    apres = {
+        "nom_canonique": chantier.nom_canonique,
+        "agence": chantier.agence,
+        "client": chantier.client,
+        "actif": chantier.actif,
+    }
+    session.add(
+        Journal(
+            utilisateur_id=auteur_id,
+            action="chantier_modifie",
+            cible_table="chantier",
+            cible_id=str(chantier.id),
+            avant=avant,
+            apres=apres,
+        )
+    )
+    await session.commit()
+    await session.refresh(chantier)
+    return ChantierResume(
+        id=chantier.id,
+        nom_canonique=chantier.nom_canonique,
+        agence=chantier.agence,
+        client=chantier.client,
         actif=chantier.actif,
     )
 

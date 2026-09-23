@@ -46,6 +46,7 @@ from app.modules.ingest.referentiels import (
     lire_parametre_decimal,
     lister_chantiers,
     lister_fournisseurs,
+    modifier_chantier,
     rattacher_article,
     resoudre_chantier,
     valider_alias,
@@ -566,6 +567,7 @@ async def test_creer_chantier_journalise(
     assert journal.apres == {
         "nom_canonique": "Chantier Créé",
         "agence": "Agence Nord",
+        "client": None,
         "actif": True,
     }
 
@@ -612,6 +614,114 @@ async def test_creer_chantier_doublon_compte_les_inactifs(
         )
 
     assert exc_info.value.original_id == inactif.id
+
+
+async def test_creer_chantier_enregistre_le_client(
+    db_session: AsyncSession, admin: Utilisateur
+) -> None:
+    chantier = await creer_chantier(
+        db_session,
+        nom_canonique="Villa Test",
+        agence="Lyon",
+        client="  M. et Mme Martin  ",
+        auteur_id=admin.id,
+    )
+    assert chantier.client == "M. et Mme Martin"
+
+
+# ---------------------------------------------------------------------------
+# modifier_chantier (client du chantier, ajout hors CDC du 23/09/2026)
+# ---------------------------------------------------------------------------
+
+
+async def test_modifier_chantier_change_tout_et_journalise(
+    db_session: AsyncSession, admin: Utilisateur
+) -> None:
+    cree = await creer_chantier(
+        db_session, nom_canonique="Villa Test", agence=None, auteur_id=admin.id
+    )
+    modifie = await modifier_chantier(
+        db_session,
+        chantier_id=cree.id,
+        nom_canonique="Villa Test B",
+        agence="Villeurbanne",
+        client="SCI Test",
+        actif=False,
+        auteur_id=admin.id,
+    )
+    assert (modifie.nom_canonique, modifie.agence, modifie.client, modifie.actif) == (
+        "Villa Test B",
+        "Villeurbanne",
+        "SCI Test",
+        False,
+    )
+    entree = (
+        await db_session.execute(
+            select(Journal).where(Journal.action == "chantier_modifie")
+        )
+    ).scalar_one()
+    assert entree.avant is not None
+    assert entree.apres is not None
+    assert entree.avant["client"] is None
+    assert entree.apres["client"] == "SCI Test"
+
+
+async def test_modifier_chantier_vide_devient_none(
+    db_session: AsyncSession, admin: Utilisateur
+) -> None:
+    cree = await creer_chantier(
+        db_session,
+        nom_canonique="Villa Test",
+        agence="Lyon",
+        client="X",
+        auteur_id=admin.id,
+    )
+    modifie = await modifier_chantier(
+        db_session,
+        chantier_id=cree.id,
+        nom_canonique="Villa Test",
+        agence="  ",
+        client="",
+        actif=True,
+        auteur_id=admin.id,
+    )
+    assert modifie.agence is None and modifie.client is None
+
+
+async def test_modifier_chantier_refuse_un_doublon(
+    db_session: AsyncSession, admin: Utilisateur
+) -> None:
+    await creer_chantier(
+        db_session, nom_canonique="Maison Alpha", agence=None, auteur_id=admin.id
+    )
+    beta = await creer_chantier(
+        db_session, nom_canonique="Maison Beta", agence=None, auteur_id=admin.id
+    )
+    with pytest.raises(ChantierEnDouble):
+        await modifier_chantier(
+            db_session,
+            chantier_id=beta.id,
+            nom_canonique="maison ALPHA",
+            agence=None,
+            client=None,
+            actif=True,
+            auteur_id=admin.id,
+        )
+
+
+async def test_modifier_chantier_inconnu(
+    db_session: AsyncSession, admin: Utilisateur
+) -> None:
+    with pytest.raises(ChantierIntrouvable):
+        await modifier_chantier(
+            db_session,
+            chantier_id=uuid.uuid4(),
+            nom_canonique="X",
+            agence=None,
+            client=None,
+            actif=True,
+            auteur_id=admin.id,
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -291,6 +291,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chantiers/{chantier_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Modifier Chantier Endpoint */
+        put: operations["modifier_chantier_endpoint_api_chantiers__chantier_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/fournisseurs": {
         parameters: {
             query?: never;
@@ -959,18 +976,36 @@ export interface components {
         /**
          * ChantierCreationRequete
          * @description Corps de `POST /api/chantiers` : nom obligatoire (1 à 200 caractères,
-         *     blanc refusé), agence optionnelle.
+         *     blanc refusé), agence et client optionnels.
          */
         ChantierCreationRequete: {
             /** Nom Canonique */
             nom_canonique: string;
             /** Agence */
             agence?: string | null;
+            /** Client */
+            client?: string | null;
+        };
+        /**
+         * ChantierModificationRequete
+         * @description Corps de `PUT /api/chantiers/{id}` : remplace nom, agence, client et
+         *     état actif.
+         */
+        ChantierModificationRequete: {
+            /** Nom Canonique */
+            nom_canonique: string;
+            /** Agence */
+            agence?: string | null;
+            /** Client */
+            client?: string | null;
+            /** Actif */
+            actif: boolean;
         };
         /**
          * ChantierReponse
          * @description Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest
-         *     .referentiels.ChantierResume`.
+         *     .referentiels.ChantierResume`. `client` : ajout hors CDC demandé le
+         *     23/09/2026 (`docs/dette.md`).
          */
         ChantierReponse: {
             /**
@@ -982,6 +1017,8 @@ export interface components {
             nom_canonique: string;
             /** Agence */
             agence: string | null;
+            /** Client */
+            client: string | null;
             /** Actif */
             actif: boolean;
         };
@@ -1370,6 +1407,8 @@ export interface components {
             nom_canonique: string | null;
             /** Agence */
             agence: string | null;
+            /** Client */
+            client: string | null;
             montants: components["schemas"]["MontantsBilanReponse"];
         };
         /**
@@ -2175,6 +2214,41 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChantierReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    modifier_chantier_endpoint_api_chantiers__chantier_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chantier_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChantierModificationRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

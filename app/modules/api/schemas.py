@@ -403,28 +403,48 @@ class ATraiterReponse(BaseModel):
 
 class ChantierReponse(BaseModel):
     """Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest
-    .referentiels.ChantierResume`."""
+    .referentiels.ChantierResume`. `client` : ajout hors CDC demandé le
+    23/09/2026 (`docs/dette.md`)."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     nom_canonique: str
     agence: str | None
+    client: str | None
     actif: bool
 
 
 class ChantierCreationRequete(BaseModel):
     """Corps de `POST /api/chantiers` : nom obligatoire (1 à 200 caractères,
-    blanc refusé), agence optionnelle."""
+    blanc refusé), agence et client optionnels."""
 
     nom_canonique: str = Field(min_length=1, max_length=200)
     agence: str | None = None
+    client: str | None = Field(default=None, max_length=200)
 
     @field_validator("nom_canonique")
     @classmethod
     def _nom_non_blanc(cls, valeur: str) -> str:
         if not valeur.strip():
             raise ValueError("nom requis")
+        return valeur
+
+
+class ChantierModificationRequete(BaseModel):
+    """Corps de `PUT /api/chantiers/{id}` : remplace nom, agence, client et
+    état actif."""
+
+    nom_canonique: str = Field(min_length=1, max_length=200)
+    agence: str | None = Field(default=None, max_length=200)
+    client: str | None = Field(default=None, max_length=200)
+    actif: bool
+
+    @field_validator("nom_canonique")
+    @classmethod
+    def _nom_non_blanc(cls, valeur: str) -> str:
+        if not valeur.strip():
+            raise ValueError("nom vide")
         return valeur
 
 
@@ -512,6 +532,7 @@ class LigneBilanChantierReponse(BaseModel):
     chantier_id: uuid.UUID | None
     nom_canonique: str | None
     agence: str | None
+    client: str | None
     montants: MontantsBilanReponse
 
 

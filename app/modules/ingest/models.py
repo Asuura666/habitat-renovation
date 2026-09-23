@@ -167,6 +167,7 @@ class Chantier(Base):
     id: Mapped[uuid.UUID] = _id()
     nom_canonique: Mapped[str] = mapped_column(Text, nullable=False)
     agence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    client: Mapped[str | None] = mapped_column(Text, nullable=True)
     actif: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true")
     )

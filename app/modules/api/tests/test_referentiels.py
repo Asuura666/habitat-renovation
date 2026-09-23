@@ -273,6 +273,156 @@ async def test_post_chantiers_nom_blanc_422(
     assert reponse.status_code == 422
 
 
+async def test_get_chantiers_expose_client(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.chantiers5@example.invalid", role="admin"
+    )
+    await _creer_chantier(db_session, nom="Chantier Avec Client Expose")
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(app_test, "GET", "/api/chantiers", cookie=cookie)
+
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert len(corps) > 0
+    assert all("client" in c for c in corps)
+
+
+# --------------------------------------------------------------------------
+# PUT /api/chantiers/{id}
+# --------------------------------------------------------------------------
+
+
+async def test_put_chantier_modifie_et_renvoie_le_client(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.chantiers6@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse_post = await _requete(
+        app_test,
+        "POST",
+        "/api/chantiers",
+        cookie=cookie,
+        json_body={"nom_canonique": "Villa Test"},
+    )
+    assert reponse_post.status_code == 201
+    chantier_id = reponse_post.json()["id"]
+
+    reponse = await _requete(
+        app_test,
+        "PUT",
+        f"/api/chantiers/{chantier_id}",
+        cookie=cookie,
+        json_body={
+            "nom_canonique": "Villa Test",
+            "agence": "Lyon",
+            "client": "SCI Test",
+            "actif": True,
+        },
+    )
+
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert corps["client"] == "SCI Test"
+    assert corps["agence"] == "Lyon"
+
+
+async def test_put_chantier_inconnu_404(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.chantiers7@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test,
+        "PUT",
+        f"/api/chantiers/{uuid.uuid4()}",
+        cookie=cookie,
+        json_body={
+            "nom_canonique": "Chantier Inconnu",
+            "agence": None,
+            "client": None,
+            "actif": True,
+        },
+    )
+
+    assert reponse.status_code == 404
+
+
+async def test_put_chantier_doublon_409(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.chantiers8@example.invalid", role="admin"
+    )
+    await _creer_chantier(db_session, nom="Chantier Alpha Existant")
+    beta = await _creer_chantier(db_session, nom="Chantier Beta A Renommer")
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test,
+        "PUT",
+        f"/api/chantiers/{beta.id}",
+        cookie=cookie,
+        json_body={
+            "nom_canonique": "CHANTIER ALPHA EXISTANT",
+            "agence": None,
+            "client": None,
+            "actif": True,
+        },
+    )
+
+    assert reponse.status_code == 409
+    assert "original_id" in reponse.json()
+
+
+async def test_put_chantier_agent_403(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    agent = await _creer_utilisateur(
+        db_session, email="agent.chantiers2@example.invalid", role="agent"
+    )
+    chantier = await _creer_chantier(db_session, nom="Chantier Pour Agent")
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=agent.email)
+
+    reponse = await _requete(
+        app_test,
+        "PUT",
+        f"/api/chantiers/{chantier.id}",
+        cookie=cookie,
+        json_body={
+            "nom_canonique": "Chantier Pour Agent",
+            "agence": None,
+            "client": None,
+            "actif": True,
+        },
+    )
+
+    assert reponse.status_code == 403
+
+
 # --------------------------------------------------------------------------
 # GET /api/fournisseurs
 # --------------------------------------------------------------------------

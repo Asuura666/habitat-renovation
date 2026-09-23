@@ -62,8 +62,9 @@ async def _creer_chantier(
     *,
     nom: str = "Chantier Testeur",
     agence: str | None = None,
+    client: str | None = None,
 ) -> Chantier:
-    chantier = Chantier(nom_canonique=nom, agence=agence)
+    chantier = Chantier(nom_canonique=nom, agence=agence, client=client)
     db_session.add(chantier)
     await db_session.commit()
     await db_session.refresh(chantier)
@@ -392,6 +393,29 @@ async def test_bilan_bloc_recu_sans_anomalie_compte_en_facture_et_en_rapproche(
         "un bloc reçu sans anomalie doit compter dans facture_ht et rapproche, "
         "jamais dans en_ecart ni non_justifie"
     )
+
+
+async def test_bilan_par_chantier_expose_le_client(db_session: AsyncSession) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    chantier = await _creer_chantier(
+        db_session, nom="Chantier Avec Client", client="SCI Test"
+    )
+    facture = await _creer_facture(db_session, fournisseur=fournisseur, numero="F1")
+    bloc = await _creer_bloc(
+        db_session,
+        facture=facture,
+        chantier_id=chantier.id,
+        statut_rapprochement="recu",
+    )
+    await _creer_ligne(
+        db_session, document=facture, bloc=bloc, montant_ht=Decimal("100.00")
+    )
+
+    lignes = await bilan_par_chantier(db_session, mois=None, agence=None)
+
+    ligne = _ligne_du_chantier(lignes, chantier.id)
+    assert ligne is not None
+    assert ligne.client == "SCI Test"
 
 
 # --------------------------------------------------------------------------

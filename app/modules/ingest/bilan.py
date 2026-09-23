@@ -183,12 +183,14 @@ class MontantsBilan:
 class LigneBilanChantier:
     """Une ligne du bilan au niveau chantier. `chantier_id=None` regroupe
     les blocs dont le chantier n'a pas pu être résolu (décision du
-    contrôleur) : `nom_canonique`/`agence` valent alors `None`, c'est au
-    front de nommer cette ligne (L5-T4/T5, hors de cette tâche)."""
+    contrôleur) : `nom_canonique`/`agence`/`client` valent alors `None`,
+    c'est au front de nommer cette ligne (L5-T4/T5, hors de cette tâche).
+    `client` : ajout hors CDC demandé le 23/09/2026 (`docs/dette.md`)."""
 
     chantier_id: uuid.UUID | None
     nom_canonique: str | None
     agence: str | None
+    client: str | None
     montants: MontantsBilan
 
 
@@ -608,6 +610,7 @@ async def _bilan_par_chantier_interne(
             Chantier.id.label("chantier_id"),
             Chantier.nom_canonique.label("nom_canonique"),
             Chantier.agence.label("agence"),
+            Chantier.client.label("client"),
             montants.facture_ht.label("facture_ht"),
             montants.rapproche.label("rapproche"),
             montants.en_ecart.label("en_ecart"),
@@ -625,6 +628,7 @@ async def _bilan_par_chantier_interne(
             Chantier.id,
             Chantier.nom_canonique,
             Chantier.agence,
+            Chantier.client,
             comptes_anomalies.c.nb_total,
         )
     )
@@ -643,6 +647,7 @@ async def _bilan_par_chantier_interne(
             chantier_id=ligne.chantier_id,
             nom_canonique=ligne.nom_canonique,
             agence=ligne.agence,
+            client=ligne.client,
             montants=_montants_bilan(ligne),
         )
         for ligne in lignes

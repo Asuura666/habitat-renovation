@@ -1,8 +1,9 @@
-"""`GET /api/chantiers`, `POST /api/chantiers`, `GET /api/fournisseurs`,
-`POST /api/alias-chantier/{id}/validation` et `POST /api/articles/{id}
-/validation` (L3-T8b) : référentiels consommés par l'écran « À traiter » et
-ses formulaires de validation — voir `ingest/referentiels.py` pour toute la
-logique métier.
+"""`GET /api/chantiers`, `POST /api/chantiers`, `PUT /api/chantiers/{id}`
+(client du chantier et modification, ajout hors CDC du 23/09/2026,
+`docs/dette.md`), `GET /api/fournisseurs`, `POST /api/alias-chantier/{id}
+/validation` et `POST /api/articles/{id}/validation` (L3-T8b) : référentiels
+consommés par l'écran « À traiter » et ses formulaires de validation — voir
+`ingest/referentiels.py` pour toute la logique métier.
 
 `GET /api/referentiels/depots-par-agent`, `GET /api/referentiels
 /chantiers-silencieux` et `GET /api/referentiels/agences` (L5-T7) : vue des
@@ -30,6 +31,7 @@ from app.core.auth import Utilisateur, admin_requis
 from app.core.db import get_session
 from app.modules.api.schemas import (
     ChantierCreationRequete,
+    ChantierModificationRequete,
     ChantierReponse,
     ChantierSilencieuxReponse,
     DepotAgentReponse,
@@ -47,6 +49,7 @@ from app.modules.ingest.referentiels import (
     creer_chantier,
     lister_chantiers,
     lister_fournisseurs,
+    modifier_chantier,
     valider_alias,
     valider_article,
 )
@@ -90,12 +93,47 @@ async def creer_chantier_endpoint(
             session,
             nom_canonique=requete.nom_canonique,
             agence=requete.agence,
+            client=requete.client,
             auteur_id=utilisateur.id,
         )
     except ChantierEnDouble as exc:
         # Corps construit à la main (comme `NumeroDejaUtilise` dans
         # `api/documents.py`) : `original_id` doit apparaître au même niveau
         # que `detail`, pas imbriqué dessous.
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "detail": "chantier déjà existant.",
+                "original_id": str(exc.original_id),
+            },
+        )
+    return ChantierReponse.model_validate(chantier)
+
+
+@router.put("/chantiers/{chantier_id}", response_model=ChantierReponse)
+async def modifier_chantier_endpoint(
+    chantier_id: uuid.UUID,
+    requete: ChantierModificationRequete,
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ChantierReponse | JSONResponse:
+    try:
+        chantier = await modifier_chantier(
+            session,
+            chantier_id=chantier_id,
+            nom_canonique=requete.nom_canonique,
+            agence=requete.agence,
+            client=requete.client,
+            actif=requete.actif,
+            auteur_id=utilisateur.id,
+        )
+    except ChantierIntrouvable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="chantier introuvable"
+        ) from exc
+    except ChantierEnDouble as exc:
+        # Même corps 409 que `POST /api/chantiers` (`original_id` au même
+        # niveau que `detail`).
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
             content={
