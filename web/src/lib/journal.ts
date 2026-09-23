@@ -16,10 +16,20 @@
  * `rapprochement.py`, `referentiels.py`. Complétée par les deux actions de
  * gestion de compte d'`app/core/auth.py` (`utilisateur_cree`,
  * `utilisateur_desactive`).
+ *
+ * Tour 2 de la revue de la Task 10 (23/09/2026) : le recensement des clés
+ * de détail (`avant`/`apres`) était incomplet (`nb_articles`, `numero`,
+ * `total_ht`, `nb_mis_a_jour`… affichées brutes sur la base de démo) et une
+ * valeur objet ou liste passait par `JSON.stringify` (JSON brut à l'écran
+ * sur un « Problème disparu », les motifs à vérifier, les lignes
+ * corrigées). Recensement complété, chaque forme connue a maintenant sa
+ * propre mise en forme (montant, date, liste, phrase chiffrée) — plus
+ * aucun `JSON.stringify` dans ce fichier, la clé/valeur technique brute
+ * reste le seul repli pour une forme que ce fichier ne connaît pas encore.
  */
 
-import { titreRegle, urgence } from "../ui/libelles";
-import { TIRET } from "./formats";
+import { formaterDate, formaterDateHeure, formaterMontant, TIRET } from "./formats";
+import { type Anomalie, phraseProbleme, titreRegle, urgence } from "../ui/libelles";
 
 const LIBELLES_ACTION: Record<string, string> = {
   extraction_bl: "Lecture du BL",
@@ -94,6 +104,67 @@ export function libelleCible(cible: string): string {
   return LIBELLES_CIBLE[cible] ?? cible;
 }
 
+/** Libellés des réglages administrables (`ingest/parametres.py
+ * ::DEFINITIONS_PARAMETRES`, neuf clés) dupliqués ici en présentation
+ * uniquement (ni borne, ni valeur par défaut) : l'écran Réglages les tient
+ * de l'API elle-même à chaque chargement, mais une entrée « Réglage
+ * modifié » du journal ne porte que la clé technique dans `cible_id`
+ * (`parametres.py::modifier_parametre`) — affichée brute sans cette table
+ * (constat de la revue, tour 2 de la Task 10). Un dixième réglage ajouté
+ * côté serveur sans mise à jour de cette liste retombe sur sa clé
+ * technique (repli défensif, documenté dans `docs/dette.md`). */
+const LIBELLES_PARAMETRE: Record<string, string> = {
+  tolerance_total_ht: "Tolérance sur le total HT",
+  seuil_prix_pct: "Écart de prix",
+  seuil_prix_fort_pct: "Écart de prix important",
+  occurrences_prix_min: "Occurrences minimales pour l'historique",
+  delai_ligne_bl_non_facturee_j: "Délai avant alerte d'une ligne de BL non facturée",
+  delai_alias_non_resolu_h: "Délai avant alerte d'un chantier non reconnu",
+  delai_confirmation_bl_h: "Délai de confirmation d'un BL",
+  delai_chantier_silencieux_j: "Délai d'inactivité d'un chantier",
+  duree_ignorance_j: "Durée d'ignorance d'un problème",
+};
+
+/** Libellé de la cible (`cible_id`) d'une entrée : pour un réglage
+ * (`cible_table === "parametre"`), la clé technique brute n'a aucun sens
+ * pour le dirigeant — remplacée par le nom du réglage. Pour toute autre
+ * table, `cible_id` reste affiché tel quel (un identifiant, jamais un mot
+ * de jargon). */
+export function libelleCibleId(cibleTable: string | null, cibleId: string): string {
+  if (cibleTable === "parametre") {
+    return LIBELLES_PARAMETRE[cibleId] ?? cibleId;
+  }
+  return cibleId;
+}
+
+/** Libellé court d'un code de motif de mise « à vérifier »
+ * (`extract/verification.py::CodeMotif`) : le journal ne porte que la
+ * liste des codes bruts (`extraction_bl.py`/`factures.py`,
+ * `[m.code.value for m in motifs]`), jamais le motif complet avec son
+ * `detail` — contrairement à `lib/motifs.ts::libelleMotif`, qui construit
+ * la phrase chiffrée complète pour l'écran « À traiter ». Un code inconnu
+ * affiche le code brut (défense en profondeur, même principe que le reste
+ * de ce fichier) ; jamais le mot « OCR » dans un libellé (constat de la
+ * revue, tour 2 : `ocr_echec` afficherait « ocr » à l'écran sans cette
+ * table). */
+const LIBELLES_CODE_MOTIF: Record<string, string> = {
+  champ_absent: "Champ manquant",
+  valeur_illisible: "Valeur illisible",
+  confiance_faible: "Confiance insuffisante",
+  somme_incoherente: "Somme incohérente",
+  total_absent: "Total manquant",
+  lignes_absentes: "Aucune ligne détectée",
+  numero_incoherent: "Numéro incohérent",
+  ocr_echec: "Échec de la lecture",
+  annotation_illisible: "Annotation illisible",
+  fournisseur_inconnu: "Fournisseur inconnu du référentiel",
+  numero_en_double: "Numéro en double",
+};
+
+function libelleCodeMotif(code: string): string {
+  return LIBELLES_CODE_MOTIF[code] ?? code;
+}
+
 export const AUTOMATIQUE = "Automatique";
 
 /** Libellé de l'auteur d'une entrée : convention du projet depuis le lot 1,
@@ -105,16 +176,6 @@ export function libelleAuteur(auteur: string | null): string {
 }
 
 const ABSENT = "absent";
-
-function formaterValeurBrute(valeur: unknown): string {
-  if (valeur === null) {
-    return TIRET;
-  }
-  if (typeof valeur === "string") {
-    return valeur;
-  }
-  return JSON.stringify(valeur);
-}
 
 export interface LigneAvantApres {
   cle: string;
@@ -146,6 +207,24 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   // entrée, la clé brute (« nb_demandes_alias ») afficherait le mot
   // interdit « alias » (constat de la revue, fix round 1 de la Task 10).
   nb_demandes_alias: "Noms de chantier fournisseur à confirmer",
+  // Complété au tour 2 (constat de la revue) : mêmes entrées
+  // `facture_deposee` (`factures.py::deposer_facture`) que ci-dessus,
+  // trois clés qui s'affichaient brutes sur les 4 entrées « Facture
+  // déposée » de la base de démo.
+  nb_articles: "Articles",
+  numero: "Numéro",
+  total_ht: "Total HT",
+  total_tva: "Total TVA",
+  total_ttc: "Total TTC",
+  // `document_corrige`/`extraction_relancee`
+  // (`corrections.py::_valeurs_document_pour_journal`, mêmes clés que
+  // `CHAMPS_CORRIGEABLES`) — même libellé que le tableau `CHAMPS_AFFICHES`
+  // de `pages/DocumentDetail.tsx` pour chaque champ partagé.
+  type: "Type",
+  date_doc: "Date",
+  chantier_brut: "Chantier (brut)",
+  numero_commande: "Commande",
+  enleve_par: "Enlevé par",
   nb_lignes: "Lignes",
   lignes: "Lignes",
   motifs: "Points à vérifier",
@@ -172,6 +251,11 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   email: "E-mail",
   role: "Rôle",
   telegram_user_id: "Identifiant Telegram",
+  // `alias_valide` (`referentiels.py::valider_alias`) : nombre de documents
+  // et blocs de facture déjà déposés rattachés au chantier en même temps
+  // que l'alias — s'affichait brut sur les 4 entrées « Nom de chantier
+  // fournisseur reconnu » de la base de démo (constat de la revue, tour 2).
+  nb_mis_a_jour: "Documents mis à jour",
 };
 
 /** Un identifiant (`chantier_id`, `fournisseur_id`…) désigne l'élément
@@ -233,18 +317,24 @@ const LIBELLES_VALEUR_PAR_CLE: Record<string, Record<string, string>> = {
     true: "Oui",
     false: "Non",
   },
+  // Même libellé que `libelleTypeDocument` (`pages/ATraiter.tsx`) et
+  // `libelleType` (`pages/BlDeposes.tsx`) pour `document.type`
+  // (`document_corrige`/`extraction_relancee`, `models.py` : contrainte
+  // `type IN ('bl', 'enlevement', 'facture', 'avoir')`).
+  type: {
+    bl: "Livraison",
+    enlevement: "Enlèvement",
+    facture: "Facture",
+    avoir: "Avoir",
+  },
 };
 
-/** Libellé d'une valeur de détail déjà mise en forme (`formaterValeurBrute`)
- * — `regle`/`gravite` passent par le langage courant déjà utilisé par
- * l'écran « À régler » (`titreRegle`/`urgence`, `ui/libelles.ts`), quelques
- * autres clés connues par une table de correspondance, la valeur brute
- * sinon (jamais un calcul, uniquement de la présentation ; le tiret et
- * « absent » ne sont jamais réinterprétés). */
+/** Libellé d'une valeur déjà mise en forme (chaîne) : `regle`/`gravite`
+ * passent par le langage courant déjà utilisé par l'écran « À régler »
+ * (`titreRegle`/`urgence`, `ui/libelles.ts`), quelques autres clés connues
+ * par une table de correspondance (`LIBELLES_VALEUR_PAR_CLE`), la valeur
+ * telle quelle sinon (jamais un calcul, uniquement de la présentation). */
 function libelleValeurDetail(cle: string, formatee: string): string {
-  if (formatee === TIRET || formatee === ABSENT) {
-    return formatee;
-  }
   if (cle === "regle") {
     return titreRegle(formatee);
   }
@@ -253,10 +343,118 @@ function libelleValeurDetail(cle: string, formatee: string): string {
   }
   const parCle = LIBELLES_VALEUR_PAR_CLE[cle];
   const valeurConnue = parCle?.[formatee];
-  if (valeurConnue !== undefined) {
-    return valeurConnue;
+  return valeurConnue !== undefined ? valeurConnue : formatee;
+}
+
+function estObjet(valeur: unknown): valeur is Record<string, unknown> {
+  return typeof valeur === "object" && valeur !== null && !Array.isArray(valeur);
+}
+
+/** Repli pour une valeur imprévue (ni chaîne, ni l'une des formes de liste
+ * ou d'objet traitées explicitement plus bas) : une liste `clé : valeur` à
+ * plat, jamais du JSON brut (`JSON.stringify` affichait « {"date_bl":… } »
+ * ou « ["confiance_faible",…] » à l'écran — constat de la revue, tour 2).
+ * Aucune forme rencontrée aujourd'hui ne passe par ici ; défense en
+ * profondeur si le serveur journalise un jour une forme que ce fichier ne
+ * connaît pas encore. */
+function formaterObjetGenerique(valeur: Record<string, unknown>): string {
+  const entrees = Object.entries(valeur);
+  if (entrees.length === 0) {
+    return "Aucun détail.";
   }
-  return formatee;
+  return entrees.map(([cle, v]) => `${cle} : ${typeof v === "string" ? v : String(v)}`).join(" · ");
+}
+
+/** Une liste de chaînes (`aliases`, `agences_ajoutees`) — jointe par une
+ * virgule, jamais `JSON.stringify` (qui produirait `["a","b"]`, du JSON
+ * brut à l'écran). */
+function formaterListeChaines(valeurs: unknown[]): string {
+  if (valeurs.length === 0) {
+    return "Aucun.";
+  }
+  return valeurs.map((v) => (typeof v === "string" ? v : String(v))).join(", ");
+}
+
+/** `motifs` (`extraction_bl.py`/`factures.py`) : liste de codes bruts,
+ * traduite code par code (`libelleCodeMotif`) plutôt qu'affichée telle
+ * quelle. */
+function formaterMotifs(codes: unknown[]): string {
+  if (codes.length === 0) {
+    return "Aucun.";
+  }
+  return codes.map((code) => libelleCodeMotif(typeof code === "string" ? code : String(code))).join(", ");
+}
+
+/** `lignes` (`corrections.py::corriger_lignes`, `_ligne_en_chaine`) : un
+ * résumé plutôt que le détail ligne par ligne (code, prix, identifiant
+ * technique de chaque ligne — sans intérêt pour retracer *qui* a corrigé
+ * *quoi*, le détail complet de chaque ligne reste consultable sur l'écran
+ * du document, `pages/DocumentDetail.tsx`). */
+function formaterNombreLignes(lignes: unknown[]): string {
+  if (lignes.length === 0) {
+    return "Aucune ligne.";
+  }
+  return `${lignes.length} ligne${lignes.length > 1 ? "s" : ""}`;
+}
+
+/** `detail` d'un « Problème disparu »
+ * (`anomalies.py::synchroniser_anomalies`, `avant={regle, gravite,
+ * detail}`) : même phrase chiffrée que l'écran « À régler »
+ * (`phraseProbleme`, `ui/libelles.ts`) plutôt que le JSON brut du détail —
+ * a besoin de `regle`, posée à côté de `detail` dans le même instantané
+ * (`contexte`, jamais l'autre côté avant/après ; sans `regle` à côté,
+ * repli générique). `detail` est en réalité `dict[str, str]` côté serveur
+ * (`Anomalie.detail`, `app/modules/ingest/models.py`), jamais vérifié ici
+ * (même défense en profondeur que partout ailleurs dans ce fichier) ; seuls
+ * les deux champs que `phraseProbleme` lit réellement (`regle`, `detail`)
+ * sont renseignés sur l'objet reconstruit pour l'appeler. */
+function formaterDetailAnomalie(detail: Record<string, unknown>, contexte: Record<string, unknown>): string {
+  const regle = contexte.regle;
+  if (typeof regle !== "string") {
+    return formaterObjetGenerique(detail);
+  }
+  const anomalie = { regle, detail: detail as Record<string, string> } as unknown as Anomalie;
+  return phraseProbleme(anomalie);
+}
+
+/** Valeur affichée d'une clé de détail, pour un côté (`avant` ou `apres`)
+ * donné — présentation uniquement, aucun calcul : un montant ou une date
+ * passe par les mêmes formateurs que le reste du front (`lib/formats.ts`,
+ * jamais affiché brut — constat de la revue, tour 2 : `total_ht : 456.30`,
+ * `confirme_le` en ISO), une liste ou un objet connu a sa propre mise en
+ * forme, la valeur brute reste le repli pour tout le reste (même principe
+ * que `libelleCleDetail`). `contexte` est l'instantané complet de ce côté :
+ * nécessaire pour `detail`, qui a besoin de la clé voisine `regle`. */
+function valeurDetail(cle: string, contexte: Record<string, unknown>): string {
+  const brute = contexte[cle];
+  if (brute === null) {
+    return TIRET;
+  }
+  if (cle === "detail" && estObjet(brute)) {
+    return formaterDetailAnomalie(brute, contexte);
+  }
+  if (cle === "motifs" && Array.isArray(brute)) {
+    return formaterMotifs(brute);
+  }
+  if (cle === "lignes" && Array.isArray(brute)) {
+    return formaterNombreLignes(brute);
+  }
+  if (Array.isArray(brute)) {
+    return formaterListeChaines(brute);
+  }
+  if (estObjet(brute)) {
+    return formaterObjetGenerique(brute);
+  }
+  if ((cle === "total_ht" || cle === "total_tva" || cle === "total_ttc") && typeof brute === "string") {
+    return formaterMontant(brute);
+  }
+  if (cle === "date_doc" && typeof brute === "string") {
+    return formaterDate(brute);
+  }
+  if (cle === "confirme_le" && typeof brute === "string") {
+    return formaterDateHeure(brute);
+  }
+  return libelleValeurDetail(cle, typeof brute === "string" ? brute : String(brute));
 }
 
 /** Reconstruit, clé par clé, la comparaison `avant`/`apres` d'une entrée de
@@ -265,7 +463,7 @@ function libelleValeurDetail(cle: string, formatee: string): string {
  * explicitement (`"absent"`), jamais un vide ambigu (décision du
  * contrôleur, L5-T9 : « si une valeur est absente d'un côté, dis-le
  * explicitement »). Aucun calcul d'écart, clés triées pour un affichage
- * stable : `libelle`/`libelleValeurDetail` habillent la clé et la valeur en
+ * stable : `libelle`/`valeurDetail` habillent la clé et la valeur en
  * langage courant quand ce fichier les connaît, sans jamais changer la
  * valeur avant/après elle-même. */
 export function lignesAvantApres(
@@ -276,14 +474,10 @@ export function lignesAvantApres(
     ...(avant !== null ? Object.keys(avant) : []),
     ...(apres !== null ? Object.keys(apres) : []),
   ]);
-  return [...cles].sort().map((cle) => {
-    const valeurAvant = avant !== null && cle in avant ? formaterValeurBrute(avant[cle]) : ABSENT;
-    const valeurApres = apres !== null && cle in apres ? formaterValeurBrute(apres[cle]) : ABSENT;
-    return {
-      cle,
-      libelle: libelleCleDetail(cle),
-      avant: libelleValeurDetail(cle, valeurAvant),
-      apres: libelleValeurDetail(cle, valeurApres),
-    };
-  });
+  return [...cles].sort().map((cle) => ({
+    cle,
+    libelle: libelleCleDetail(cle),
+    avant: avant !== null && cle in avant ? valeurDetail(cle, avant) : ABSENT,
+    apres: apres !== null && cle in apres ? valeurDetail(cle, apres) : ABSENT,
+  }));
 }

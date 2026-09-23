@@ -9,6 +9,7 @@ import {
   libelleAction,
   libelleAuteur,
   libelleCible,
+  libelleCibleId,
   lignesAvantApres,
 } from "../lib/journal";
 import { Carte, EnTetePage, EtatVide, Filtres } from "../ui";
@@ -25,8 +26,11 @@ const OPTIONS_FILTRE_LIMITE = OPTIONS_LIMITE.map((valeur) => ({
 }));
 
 /** Comparaison `avant`/`apres` d'une entrée (décision du contrôleur, L5-T9) :
- * clé par clé, valeurs telles quelles, une clé absente d'un côté marquée
- * explicitement — aucune traduction, aucun calcul (voir `lib/journal.ts`). */
+ * clé par clé, une clé absente d'un côté marquée explicitement — chaque clé
+ * et valeur passe par le langage courant de `lib/journal.ts` quand il la
+ * connaît (montant, date, phrase chiffrée d'un problème…), la valeur brute
+ * reste le repli sinon ; aucun calcul métier, uniquement de la présentation
+ * (voir `lib/journal.ts`). */
 function DetailAvantApres({
   avant,
   apres,
@@ -70,8 +74,14 @@ function LigneJournal({ entree }: { entree: EntreeJournal }): ReactElement {
         {entree.cible_id !== null && (
           <>
             <br />
-            <span className="font-mono text-xs text-encre-2 [overflow-wrap:anywhere]">
-              {entree.cible_id}
+            <span
+              className={
+                entree.cible_table === "parametre"
+                  ? "text-xs text-encre-2 [overflow-wrap:anywhere]"
+                  : "font-mono text-xs text-encre-2 [overflow-wrap:anywhere]"
+              }
+            >
+              {libelleCibleId(entree.cible_table, entree.cible_id)}
             </span>
           </>
         )}
@@ -99,7 +109,15 @@ function CarteJournal({ entree }: { entree: EntreeJournal }): ReactElement {
         {entree.cible_id !== null && (
           <>
             {" "}
-            <span className="font-mono text-xs [overflow-wrap:anywhere]">{entree.cible_id}</span>
+            <span
+              className={
+                entree.cible_table === "parametre"
+                  ? "text-xs [overflow-wrap:anywhere]"
+                  : "font-mono text-xs [overflow-wrap:anywhere]"
+              }
+            >
+              {libelleCibleId(entree.cible_table, entree.cible_id)}
+            </span>
           </>
         )}
       </p>
@@ -188,7 +206,7 @@ function FormFiltres({ filtres, onChange }: FormFiltresProps): ReactElement {
               className={CLASSES_CHAMP}
             />
             <p className="mt-1 text-xs text-encre-2">
-              Identifiant de la personne (pas de liste de comptes ici, voir dette technique).
+              Identifiant du compte, visible dans la colonne Cible d'une entrée « Compte utilisateur créé ».
             </p>
           </div>
 
@@ -244,8 +262,9 @@ function FormFiltres({ filtres, onChange }: FormFiltresProps): ReactElement {
  * lot 5 (mêmes filtres, même pagination) — seul l'habillage change : un
  * tableau sur ordinateur (`>= md`), les mêmes entrées en cartes empilées
  * sur téléphone (`< md`, contrainte « téléphone = cible à part entière »,
- * spec §7). Aucune règle métier ici : `avant`/`apres` sont affichés tels
- * quels, sans interprétation (`lib/journal.ts`). */
+ * spec §7). Aucune règle métier ici : `avant`/`apres` ne sont que mis en
+ * forme et traduits en langage courant par `lib/journal.ts`, jamais
+ * réinterprétés ni recalculés. */
 export function Journal(): ReactElement {
   const [filtres, setFiltres] = useState<FiltresJournal>({ limite: LIMITE_DEFAUT });
 
@@ -280,14 +299,14 @@ export function Journal(): ReactElement {
           {/* Tableau — ordinateur (>= md) */}
           <Carte className="hidden overflow-x-auto md:block">
             {/* `table-fixed` + largeurs de colonnes en pourcentage (plutôt
-             * qu'une largeur minimale fixe) : la colonne Détail contient du
-             * JSON brut (`lib/journal.ts::formaterValeurBrute`) qui peut
-             * être long et sans espace — sans largeur figée, son contenu
-             * minimal forcerait le tableau, la carte, puis la page entière
-             * à déborder horizontalement (constat de la revue, captures
-             * 1440/375 trop larges). Les pourcentages tiennent seuls, sans
-             * dépendre d'un correctif `min-w-0` posé plus haut dans
-             * `Gabarit.tsx`, hors périmètre de cette tâche). */}
+             * qu'une largeur minimale fixe) : la colonne Détail peut porter
+             * des valeurs longues et sans espace (identifiants,
+             * `lib/journal.ts::lignesAvantApres`) — sans largeur figée, son
+             * contenu minimal forcerait le tableau, la carte, puis la page
+             * entière à déborder horizontalement (constat de la revue,
+             * captures 1440/375 trop larges). Les pourcentages tiennent
+             * seuls, sans dépendre d'un correctif `min-w-0` posé plus haut
+             * dans `Gabarit.tsx`, hors périmètre de cette tâche). */}
             <table className="w-full table-fixed text-sm">
               <caption className="sr-only">Journal des modifications</caption>
               <thead className="border-b border-bordure text-left text-xs font-medium uppercase tracking-wide text-encre-2">

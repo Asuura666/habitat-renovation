@@ -184,3 +184,177 @@ def test_ecran_journal_avant_apres_sans_calcul() -> None:
     # reste déléguée à `lib/journal.ts` (mise en forme uniquement).
     assert "lignesAvantApres" in page
     assert "lignesAvantApres" in lib
+
+
+def _cles_table_ts(source: str, nom_table: str) -> set[str]:
+    """Clés (non citées) d'une table `const NOM: Record<string, string> =
+    {...}` de `lib/journal.ts` — même mécanique que `libelleCleDetail` côté
+    TypeScript, pour vérifier ici qu'une clé recensée y a bien une entrée."""
+    match = re.search(
+        rf"const {nom_table}\s*:\s*Record<string, string>\s*=\s*\{{(.*?)\n\}};",
+        source,
+        re.S,
+    )
+    assert match is not None, f"table {nom_table} introuvable dans lib/journal.ts"
+    return set(re.findall(r"^\s*(\w+):\s*\"", match.group(1), re.M))
+
+
+def test_lib_journal_toutes_les_cles_de_detail_ont_un_libelle() -> None:
+    """Recensement exhaustif des clés `avant`/`apres` de premier niveau —
+    lecture de chaque appel `Journal(...)` d'`app/modules/ingest/*.py` et
+    `app/core/auth.py` (tour 2 de la revue de la Task 10, 23/09/2026), y
+    compris celles produites par une compréhension de dict
+    (`corriger_entete`, clés ⊂ `CHAMPS_CORRIGEABLES`) ou par une fonction
+    utilitaire (`_valeurs_document_pour_journal`, `_ligne_en_chaine`) que la
+    simple regex de `test_lib_journal_cles_detail_backend_sans_jargon` ne
+    voit pas. Chacune doit avoir un libellé dans `LIBELLES_CLE_DETAIL`, ou
+    se terminer par `_id` avec un préfixe connu de `PREFIXES_ID` — sinon
+    `libelleCleDetail` retombe sur la clé technique brute, affichée telle
+    quelle à l'écran (constat de la revue : `nb_articles`, `numero`,
+    `total_ht`, `nb_mis_a_jour`… affichées brutes sur `bl_demo_t10`)."""
+    journal_lib = (WEB / "lib" / "journal.ts").read_text(encoding="utf-8")
+    connues = _cles_table_ts(journal_lib, "LIBELLES_CLE_DETAIL")
+    prefixes_id = _cles_table_ts(journal_lib, "PREFIXES_ID")
+
+    cles_recensees = {
+        "regle",
+        "gravite",
+        "detail",
+        "statut",
+        "commentaire",
+        "nb_lignes",
+        "motifs",
+        "fournisseur_id",
+        "methode_fournisseur",
+        "chantier_libelle",
+        "chantier_id",
+        "methode_chantier",
+        "valeur",
+        "numero",
+        "total_ht",
+        "nb_blocs",
+        "nb_demandes_alias",
+        "nb_articles",
+        "nom",
+        "siret",
+        "tva",
+        "aliases",
+        "agences_ajoutees",
+        "nom_canonique",
+        "agence",
+        "client",
+        "actif",
+        "libelle",
+        "methode",
+        "nb_mis_a_jour",
+        "unite_cdt",
+        "unite_fact",
+        "ratio",
+        "valide",
+        "confirme_le",
+        "confirme_par",
+        "email",
+        "role",
+        "telegram_user_id",
+        "nb_blocs_recus",
+        "nb_blocs_pas_de_bon",
+        "nb_lignes_appariees",
+        "nb_anomalies",
+        "type",
+        "date_doc",
+        "chantier_brut",
+        "numero_commande",
+        "enleve_par",
+        "total_tva",
+        "total_ttc",
+        "lignes",
+    }
+
+    manquantes = []
+    for cle in sorted(cles_recensees):
+        if cle in connues:
+            continue
+        if cle.endswith("_id") and cle[: -len("_id")] in prefixes_id:
+            continue
+        manquantes.append(cle)
+
+    assert not manquantes, (
+        "clé(s) de détail sans libellé (ni LIBELLES_CLE_DETAIL ni "
+        f"PREFIXES_ID) : {manquantes} — `libelleCleDetail` afficherait la "
+        "clé brute"
+    )
+
+
+def test_lib_journal_aucune_valeur_json_stringifiee() -> None:
+    """Le repli `JSON.stringify` d'une valeur objet ou liste affichait du
+    JSON brut à l'écran (`{"date_bl":…}` sur un « Problème disparu », un
+    tableau de codes bruts sur `motifs`, les lignes corrigées — constat de
+    la revue, tour 2 de la Task 10) : plus aucun appel à `JSON.stringify`
+    dans `lib/journal.ts`, chaque forme connue a sa propre mise en forme et
+    le repli générique pour une forme non prévue construit volontairement
+    une chaîne sans accolade ni crochet."""
+    journal_lib = (WEB / "lib" / "journal.ts").read_text(encoding="utf-8")
+
+    # `JSON.stringify(` (l'appel, jamais un simple commentaire qui cite le
+    # nom de la fonction pour expliquer pourquoi elle a disparu).
+    assert "JSON.stringify(" not in journal_lib
+
+
+def test_lib_journal_montants_et_dates_formates() -> None:
+    """Un montant ou une date bruts du journal (`total_ht : 456.30`,
+    `confirme_le` en ISO — constat de la revue, tour 2) passent par les
+    mêmes formateurs que le reste du front, jamais affichés bruts."""
+    journal_lib = (WEB / "lib" / "journal.ts").read_text(encoding="utf-8")
+
+    assert "formaterMontant" in journal_lib
+    assert "formaterDate" in journal_lib
+    assert "formaterDateHeure" in journal_lib
+
+
+def test_lib_journal_detail_anomalie_reutilise_phrase_probleme() -> None:
+    """Le détail d'un « Problème disparu » (`detail`) réutilise la même
+    phrase chiffrée que l'écran « À régler » (`phraseProbleme`,
+    `ui/libelles.ts`) plutôt que le JSON brut de son détail (constat de la
+    revue, tour 2)."""
+    journal_lib = (WEB / "lib" / "journal.ts").read_text(encoding="utf-8")
+
+    assert "phraseProbleme" in journal_lib
+
+
+def test_lib_journal_cles_precises_de_la_revue() -> None:
+    """Régression ciblée sur les clés citées par le constat de la revue
+    (tour 2) : observées brutes sur les entrées « Facture déposée » et
+    « Nom de chantier fournisseur reconnu » de `bl_demo_t10`."""
+    journal_lib = (WEB / "lib" / "journal.ts").read_text(encoding="utf-8")
+
+    for cle, libelle in [
+        ("nb_articles", "Articles"),
+        ("numero", "Numéro"),
+        ("total_ht", "Total HT"),
+        ("nb_mis_a_jour", "Documents mis à jour"),
+    ]:
+        assert f'{cle}: "{libelle}"' in journal_lib
+
+
+def test_lib_journal_libelle_cible_id_parametre() -> None:
+    """La colonne Cible d'un « Réglage modifié » affichait la clé technique
+    (`delai_confirmation_bl_h`) plutôt que le libellé du réglage — contraire
+    à la consigne du brief (constat de la revue, tour 2) : `libelleCibleId`
+    traduit `cible_id` pour la table `parametre`, `Journal.tsx` l'appelle
+    des deux côtés (tableau et carte téléphone)."""
+    journal_lib = (WEB / "lib" / "journal.ts").read_text(encoding="utf-8")
+    page = (WEB / "pages" / "Journal.tsx").read_text(encoding="utf-8")
+
+    assert "export function libelleCibleId" in journal_lib
+    assert '"Délai de confirmation d\'un BL"' in journal_lib
+    assert page.count("libelleCibleId(entree.cible_table, entree.cible_id)") == 2
+
+
+def test_ecran_journal_aide_auteur_sans_document_interne() -> None:
+    """L'aide sous le filtre Auteur renvoyait à « la dette technique », un
+    document interne (`docs/dette.md`) inaccessible au dirigeant — jargon de
+    développeur laissé par le fix round 1 (constat de la revue, tour 2). La
+    limite reste documentée dans `docs/dette.md`, ce qui suffit."""
+    page = (WEB / "pages" / "Journal.tsx").read_text(encoding="utf-8")
+
+    assert "dette technique" not in page.lower()
