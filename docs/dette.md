@@ -674,7 +674,11 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
 
 ### Chantiers et fiche chantier (Task 7, refonte du front) — web
 
-- **Pas de « Conforme » par chantier sur la fiche.** La consigne de la
+- **Pas de « Conforme » par chantier sur la fiche — corrigé à la revue
+  finale de la refonte (constats ECRAN-4/COUVERTURE-12) :**
+  `MontantsBilan.conforme` est désormais calculé par `ingest.bilan`, livraison
+  par livraison, et la fiche affiche ses quatre chiffres. Entrée d'origine,
+  gardée pour l'historique : La consigne de la
   Task 7 demandait quatre `Chiffre` sur `FicheChantier.tsx` (Facturé,
   Conforme, Écart, Sans bon), avec un repli explicite « sinon n'afficher
   que Facturé / Écart / Sans bon » si le serveur ne fournit pas
@@ -766,3 +770,69 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   chantier via `Document.created_at`), par exemple un champ
   `dernier_depot_le` sur `ChantierTableauReponse`/`LigneBilanChantierReponse`
   — hors périmètre Task 7.
+
+### Revue finale de la refonte du front (23/09/2026) — ce qui reste volontairement de côté
+
+Constats de `.superpowers/sdd/2026-09-23-refonte-front/constats-finaux.json`
+non corrigés dans la vague de corrections finale (détail et justification
+dans `correction-finale-rapport.md`, même dossier) :
+
+- **Deux périmètres de « problèmes », chacun nommé (définition à valider par
+  Ilane).** Le compte unique « à régler, en tout » (`GET /api/a-regler
+  /compte`, `ingest.a_traiter.compter_problemes_a_regler`) compte chaque
+  élément de la liste « À régler » : anomalies ouvertes de tous les mois,
+  documents « à vérifier », chantiers à rattacher et articles à valider. La
+  pastille de navigation, l'en-tête d'« À régler » et le « … en tout » de la
+  vue d'ensemble l'affichent. La tuile « Problèmes à régler ce mois » garde
+  la portée du bilan (anomalies des factures du mois, sans les documents,
+  chantiers à rattacher ni articles, qui n'ont pas de mois de facture).
+  L'écran « À régler » n'a pas de filtre par mois : ce mois-là ne s'y
+  retrouve pas en un clic.
+- **« Sans bon de livraison » reste un fait, pas une action.** Le montant
+  (`non_justifie`, définition du lot 5 inchangée) ne baisse pas quand le
+  dirigeant conteste ou ignore un « BL jamais reçu »/« Livré sans bon » :
+  « À vérifier », l'état du chantier, « bons à réclamer » et le nombre de
+  problèmes baissent, eux. Sur la démo d'août : 495,40 € sans bon, « aucun
+  bon à réclamer », tous les chantiers conformes ou en quantités. À
+  confirmer par Ilane avec les autres définitions monétaires.
+- **Page d'un bon et fiche chantier ne comptent pas exactement la même
+  chose.** Le « N problèmes » de la page du bon couvre tout ce qui concerne
+  le bon (`condition_anomalies_du_bl` : aussi une quantité non confirmée ou
+  une erreur de calcul portée par le bon lui-même, une ligne livrée jamais
+  facturée) ; la colonne « Problèmes » d'une livraison sur la fiche chantier
+  compte les anomalies portées par la livraison (bilan, `?blocId=`). Les
+  deux ouvrent « À régler » sur exactement leurs propres problèmes, mais un
+  problème porté par le bon seul n'apparaît que du premier côté.
+- **Sixième état `a_voir` et titre R16 hors de la spec.** Le document de
+  conception (§6.2) cite cinq états ; le serveur en a six (`a_voir`, Ruling
+  de la Task 2). Le titre de R16 (§5, « … depuis 7 jours ») est devenu
+  « Chantier sans bon déposé récemment », le délai étant réglable. La spec
+  fait foi : les deux écarts sont à faire valider par Ilane, spec non
+  modifiée.
+- **« Montant en jeu » choisi par règle côté front** (`ARegler.tsx
+  ::valeurEnJeu`, présentation d'une clé de `detail`) : l'écran « À régler »
+  montre aussi un montant pour R10/R11/R12 et un écart de quantité pour
+  R03/R04, que les priorités de l'accueil (`ingest.tableau_de_bord
+  ._montant_en_jeu`, R01/R02/R05/R13) n'affichent pas. Aucun chiffre
+  contradictoire, seulement des cases vides d'un côté.
+- **Filtres de l'ancien écran « Anomalies » non repris** (constats
+  COUVERTURE-16, LIENS-14) : règle précise, période depuis/jusqu'à,
+  « traitées » séparées des « ignorées ». La spec §4 fixe la nouvelle liste
+  de filtres ; l'historique d'un chantier ou d'un fournisseur reste
+  consultable par « Voir l'historique » des deux fiches (`?filtre=regles`).
+- **Retour depuis un problème ouvert par une fiche** (constat LIENS-11) :
+  « ← Retour à la liste » et le passage au problème suivant mènent à la
+  file « À régler », pas à la fiche chantier ou fournisseur d'origine.
+- **Composants partagés incomplets** (constats LIENS-12, COUVERTURE-19) :
+  pas de `Tableau` ni de `Barre latérale` dans `web/src/ui/` (tableaux
+  propres à chaque écran, barre latérale dans `components/Gabarit.tsx`),
+  `chiffresProbleme` et quelques libellés de type de document dupliqués
+  entre écrans.
+- **Exports CSV inchangés** (constat SERVEUR-9) : le client du chantier
+  n'apparaît dans aucun export, et les en-têtes du lot 5 gardent leurs
+  termes (« Rapproché », « Anomalies ouvertes », « Règles concernées » avec
+  les codes de règle). Aucun chantier de la démo n'a de client renseigné.
+- **« Document n° N » reste affiché** sur la page d'un bon (constat
+  ECRAN-13) : c'est le numéro cité par chaque message Telegram, seul moyen
+  de retrouver un dépôt depuis la conversation.
+

@@ -242,3 +242,12 @@ def test_motif_de_lecture_sans_pourcentage_technique() -> None:
     motifs = (SRC / "lib" / "motifs.ts").read_text()
     assert "seuil ${" not in motifs
     assert "Lecture incertaine de « " in motifs
+
+
+def test_fil_ariane_cible_44px() -> None:
+    """Revue finale (constat TELEPHONE-7) : les liens du fil d'Ariane, seul
+    chemin de retour de plusieurs pages de détail au téléphone, ont une
+    cible d'au moins 44 px (spec §7)."""
+    fil = (SRC / "ui" / "FilAriane.tsx").read_text()
+    lien = fil.split("<Link", 1)[1].split(">", 1)[0]
+    assert "min-h-[44px]" in lien

@@ -302,10 +302,12 @@ function SectionPriorites({
 }
 
 /** « dont 4 urgents · 10 en tout, tous mois confondus » — urgents du mois affiché,
- * puis le compte unique de toute la liste « À régler ». */
+ * puis le compte unique de toute la liste « À régler ». Espace insécable
+ * entre le nombre et « en tout » : au téléphone, « 10 » restait seul en
+ * fin de ligne. */
 function sousTexteProblemes(nbUrgentsDuMois: number, compte: CompteARegler | undefined): string {
   const urgents = `dont ${nbUrgentsDuMois} urgent${nbUrgentsDuMois > 1 ? "s" : ""}`;
-  return compte === undefined ? urgents : `${urgents} · ${compte.nb_problemes} en tout, tous mois confondus`;
+  return compte === undefined ? urgents : `${urgents} · ${compte.nb_problemes}\u00a0en tout, tous mois confondus`;
 }
 
 function sousTexteBonsRecus(nbManquants: number): string {

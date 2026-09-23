@@ -19,9 +19,13 @@ export function FilAriane({ elements }: { elements: ElementFilAriane[] }): React
           <li key={`${element.libelle}-${index}`} className="flex items-center gap-2">
             {index > 0 && <span aria-hidden="true">›</span>}
             {element.vers !== undefined ? (
+              // Cible de 44 px (revue finale, constat TELEPHONE-7 : au
+              // téléphone, le fil d'Ariane est souvent le seul chemin de
+              // retour) sans décaler la mise en page : `-my-3` rend à la
+              // ligne la hauteur gagnée par `min-h-[44px]`.
               <Link
                 to={element.vers}
-                className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+                className="-my-3 inline-flex min-h-[44px] items-center font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {element.libelle}
               </Link>

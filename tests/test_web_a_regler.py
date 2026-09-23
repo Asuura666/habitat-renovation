@@ -597,7 +597,7 @@ def test_un_seul_compte_de_problemes_a_regler() -> None:
     vue = _lire("pages", "VueEnsemble.tsx")
     assert "queryKey: CLE_COMPTE_A_REGLER" in vue
     assert 'libelle="Problèmes à régler ce mois"' in vue
-    assert "en tout, tous mois confondus" in vue
+    assert "\\u00a0en tout, tous mois confondus" in vue
     assert "problèmes à régler en tout →" in vue
 
     page = _lire("pages", "ARegler.tsx")
