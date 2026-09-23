@@ -1,45 +1,29 @@
 import type { ReactElement } from "react";
-import { Navigate, Route, Routes, useParams } from "react-router";
+import { Route, Routes } from "react-router";
 
 import { EcouteAuthentification } from "./components/EcouteAuthentification";
 import { Gabarit } from "./components/Gabarit";
+import { Anomalies } from "./pages/Anomalies";
 import { ATraiter } from "./pages/ATraiter";
 import { Bilan } from "./pages/Bilan";
 import {
+  BilanBl,
   BilanChantiersFournisseur,
   BilanFournisseursChantier,
   BilanFournisseursGlobal,
 } from "./pages/BilanFournisseur";
 import { BlDeposes } from "./pages/BlDeposes";
+import { Chantiers } from "./pages/Chantiers";
 import { Connexion } from "./pages/Connexion";
 import { DocumentDetail } from "./pages/DocumentDetail";
+import { FactureDetail } from "./pages/FactureDetail";
+import { FacturesListe } from "./pages/FacturesListe";
 import { Journal } from "./pages/Journal";
 import { Reglages } from "./pages/Reglages";
 import { GardeAdmin } from "./routes/GardeAdmin";
 import { RedirectionAccueil } from "./routes/RedirectionAccueil";
+import { RedirectionAncienneUrl } from "./routes/RedirectionAncienneUrl";
 import { RouteProtegee } from "./routes/RouteProtegee";
-
-// --------------------------------------------------------------------------
-// Anciennes URL (Telegram, favoris) : redirigées vers les nouvelles (Task 4,
-// spec §3). Les trois ci-dessous portent un paramètre qu'il faut reporter
-// dans la nouvelle URL — `<Navigate to="...">` seul ne peut pas lire
-// `useParams`, d'où ces petits composants dédiés.
-// --------------------------------------------------------------------------
-
-function VersChantier(): ReactElement {
-  const { chantierId } = useParams<{ chantierId: string }>();
-  return <Navigate to={`/chantiers/${chantierId ?? ""}`} replace />;
-}
-
-function VersFournisseur(): ReactElement {
-  const { fournisseurId } = useParams<{ fournisseurId: string }>();
-  return <Navigate to={`/fournisseurs/${fournisseurId ?? ""}`} replace />;
-}
-
-function VersDocument(): ReactElement {
-  const { id } = useParams<{ id: string }>();
-  return <Navigate to={`/documents/${id ?? ""}`} replace />;
-}
 
 export function App(): ReactElement {
   return (
@@ -81,7 +65,16 @@ export function App(): ReactElement {
 
           {/* Chantiers (remplace « Bilan ») — écrans existants conservés :
               `Bilan` pour la liste, `BilanFournisseursChantier` (ex.
-              `bilan/:chantierId`) pour la fiche — la Task 7 les remplace. */}
+              `bilan/:chantierId`) pour la fiche, `BilanBl` (ex.
+              `bilan/:chantierId/:fournisseurId`, fix round 1 R2) pour le
+              détail des BL d'un couple chantier/fournisseur — la Task 7 les
+              remplace. `chantiers/referentiel` (fix round 1 R1) garde
+              accessible l'écran de création de chantier et de validation
+              d'alias (ex-« Chantiers & fournisseurs », L5-T8) tant qu'il
+              n'a pas été repris par la fiche chantier de la Task 7 — lien
+              « Gérer les chantiers » dans la barre latérale (Gabarit.tsx).
+              Route statique déclarée avant `chantiers/:chantierId` pour ne
+              jamais être lue comme un identifiant de chantier. */}
           <Route
             path="chantiers"
             element={
@@ -91,10 +84,26 @@ export function App(): ReactElement {
             }
           />
           <Route
+            path="chantiers/referentiel"
+            element={
+              <GardeAdmin>
+                <Chantiers />
+              </GardeAdmin>
+            }
+          />
+          <Route
             path="chantiers/:chantierId"
             element={
               <GardeAdmin>
                 <BilanFournisseursChantier />
+              </GardeAdmin>
+            }
+          />
+          <Route
+            path="chantiers/:chantierId/:fournisseurId"
+            element={
+              <GardeAdmin>
+                <BilanBl />
               </GardeAdmin>
             }
           />
@@ -144,25 +153,70 @@ export function App(): ReactElement {
             }
           />
 
-          {/* --------------------------------------------------------------
-              Anciennes routes → nouvelles (spec §3). Aucune fonctionnalité
-              supprimée : les écrans qu'elles montaient (`Anomalies`,
-              `FacturesListe`, `FactureDetail`, `BilanBl`) restent dans le
-              dépôt, simplement plus montés par aucune route — une tâche
-              suivante les migre ou les retire.
-              -------------------------------------------------------------- */}
-          <Route path="a-traiter" element={<Navigate to="/a-regler" replace />} />
-          <Route path="anomalies" element={<Navigate to="/a-regler" replace />} />
-          <Route path="bilan" element={<Navigate to="/chantiers" replace />} />
-          <Route path="bilan/fournisseurs" element={<Navigate to="/fournisseurs" replace />} />
-          <Route path="bilan/fournisseurs/:fournisseurId" element={<VersFournisseur />} />
-          <Route path="bilan/:chantierId" element={<VersChantier />} />
-          <Route path="bilan/:chantierId/:fournisseurId" element={<VersChantier />} />
-          <Route path="factures" element={<Navigate to="/documents" replace />} />
-          <Route path="factures/:id" element={<VersDocument />} />
-          <Route path="bl" element={<Navigate to="/documents" replace />} />
+          {/* Écrans sans remplacement construit — fix round 1 R1 (« aucune
+              fonctionnalité existante n'est supprimée » l'emporte sur la
+              redirection posée par erreur en Task 4) : restent MONTÉS sur
+              leur ancienne URL, pas de redirection, jusqu'à ce qu'une tâche
+              suivante les migre (Task 9 pour Factures, Task 6 pour
+              Anomalies). */}
+          <Route
+            path="factures"
+            element={
+              <GardeAdmin>
+                <FacturesListe />
+              </GardeAdmin>
+            }
+          />
+          <Route
+            path="factures/:id"
+            element={
+              <GardeAdmin>
+                <FactureDetail />
+              </GardeAdmin>
+            }
+          />
+          <Route
+            path="anomalies"
+            element={
+              <GardeAdmin>
+                <Anomalies />
+              </GardeAdmin>
+            }
+          />
 
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {/* --------------------------------------------------------------
+              Anciennes URL → nouvelles (spec §3, fix round 1 R1/R2) : un
+              seul composant partagé pour toutes les redirections, qui
+              reporte toujours les paramètres de recherche et l'ancre de
+              l'URL d'origine (voir web/src/routes/).
+              -------------------------------------------------------------- */}
+          <Route path="a-traiter" element={<RedirectionAncienneUrl vers={() => "/a-regler"} />} />
+          <Route path="bilan" element={<RedirectionAncienneUrl vers={() => "/chantiers"} />} />
+          <Route
+            path="bilan/fournisseurs"
+            element={<RedirectionAncienneUrl vers={() => "/fournisseurs"} />}
+          />
+          <Route
+            path="bilan/fournisseurs/:fournisseurId"
+            element={
+              <RedirectionAncienneUrl vers={(p) => `/fournisseurs/${p.fournisseurId ?? ""}`} />
+            }
+          />
+          <Route
+            path="bilan/:chantierId"
+            element={<RedirectionAncienneUrl vers={(p) => `/chantiers/${p.chantierId ?? ""}`} />}
+          />
+          <Route
+            path="bilan/:chantierId/:fournisseurId"
+            element={
+              <RedirectionAncienneUrl
+                vers={(p) => `/chantiers/${p.chantierId ?? ""}/${p.fournisseurId ?? ""}`}
+              />
+            }
+          />
+          <Route path="bl" element={<RedirectionAncienneUrl vers={() => "/documents"} />} />
+
+          <Route path="*" element={<RedirectionAncienneUrl vers={() => "/"} />} />
         </Route>
       </Routes>
     </>

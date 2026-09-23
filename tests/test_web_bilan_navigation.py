@@ -14,6 +14,27 @@ def test_routes_bilan_couvrent_navigation_directe_et_inverse() -> None:
     assert 'path="bilan/fournisseurs"' in app
     assert 'path="bilan/fournisseurs/:fournisseurId"' in app
 
+    # Fix round 1, R2 : le détail des BL d'un couple chantier/fournisseur
+    # (`BilanBl`) doit être RÉELLEMENT monté sur la nouvelle URL — pas
+    # seulement mentionné dans une redirection (`bilan/:chantierId/
+    # :fournisseurId` ci-dessus redirige, mais ne monte plus rien) — sinon
+    # le clic « Voir » depuis la fiche chantier ou la fiche fournisseur mène
+    # à un écran vide.
+    assert 'path="chantiers/:chantierId/:fournisseurId"' in app
+    declaration = app.split('path="chantiers/:chantierId/:fournisseurId"', 1)[1].split(
+        "path=", 1
+    )[0]
+    assert "<BilanBl" in declaration
+    assert "GardeAdmin" in declaration
+
+    # Les liens de la fiche chantier et de la fiche fournisseur pointent
+    # directement vers la nouvelle URL (pas via la redirection).
+    page = (WEB / "pages" / "BilanFournisseur.tsx").read_text()
+    assert "/bilan/${chantierId}/${id}" not in page
+    assert "/bilan/${ligne.chantier_id}/${fournisseurId}" not in page
+    assert "/chantiers/${chantierId}/${id}" in page
+    assert "/chantiers/${ligne.chantier_id}/${fournisseurId}" in page
+
 
 def test_client_bilan_couvre_fournisseurs_bl_et_vue_inverse() -> None:
     client = (WEB / "api" / "bilan.ts").read_text()

@@ -216,14 +216,14 @@ export function phraseProbleme(anomalie: Anomalie): string {
     case "R07":
     case "R08":
       return (
-        `${articleAvecCode(detail)} : PU facturé ${montant(detail, "pu_facture")}, médiane ` +
-        `${montant(detail, "mediane")} sur ${valeur(detail, "occurrences")} occurrence(s), ` +
-        `écart ${pointsPourcent(detail, "ecart_pct")}.`
+        `${articleAvecCode(detail)} : facturé ${montant(detail, "pu_facture")} au lieu de ` +
+        `${montant(detail, "mediane")} habituellement (+${pointsPourcent(detail, "ecart_pct")}) — ` +
+        `prix habituel calculé sur ${valeur(detail, "occurrences")} facture(s).`
       );
     case "R09":
       return (
         `${articleAvecCode(detail)} : remise habituelle ${pointsPourcent(detail, "remise_habituelle")} ` +
-        `(${valeur(detail, "occurrences")} occurrence(s)), remise appliquée ` +
+        `(sur ${valeur(detail, "occurrences")} facture(s)), remise appliquée ` +
         `${pointsPourcentOuAucun(detail, "remise_appliquee")}.`
       );
     case "R10":
@@ -234,7 +234,7 @@ export function phraseProbleme(anomalie: Anomalie): string {
       );
     case "R12":
       return (
-        `BL n° ${valeur(detail, "numero_bl")} déjà rapproché par la facture ` +
+        `BL n° ${valeur(detail, "numero_bl")} déjà facturé sur la facture ` +
         `${valeur(detail, "autre_facture")}, revu ici sur la facture ${valeur(detail, "facture")}, ` +
         `montant HT ${montant(detail, "montant_ht")}.`
       );
@@ -245,8 +245,8 @@ export function phraseProbleme(anomalie: Anomalie): string {
       );
     case "R14":
       return (
-        `Libellé « ${valeur(detail, "libelle")} » du fournisseur ${valeur(detail, "fournisseur")}, ` +
-        `non résolu depuis ${valeur(detail, "heures")} heures.`
+        `Chantier pas encore identifié : libellé « ${valeur(detail, "libelle")} » du ` +
+        `fournisseur ${valeur(detail, "fournisseur")}, depuis ${valeur(detail, "heures")} heures.`
       );
     case "R15":
       return (
@@ -261,8 +261,8 @@ export function phraseProbleme(anomalie: Anomalie): string {
       );
     case "R17":
       return (
-        `${articleAvecCode(detail)} : quantité ${quantite(detail, "qte")} ` +
-        `${valeur(detail, "conditionnement")}, ratio ${quantite(detail, "ratio")}.`
+        `${articleAvecCode(detail)} : quantité ${quantite(detail, "qte")} inhabituelle pour ` +
+        `un conditionnement de ${valeur(detail, "conditionnement")}.`
       );
     default:
       return detailBrut(detail);

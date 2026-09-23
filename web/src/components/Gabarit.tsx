@@ -85,10 +85,15 @@ function classesLienBarreLaterale({ isActive }: { isActive: boolean }): string {
   return isActive ? `${base} bg-accent font-medium text-white` : `${base} text-encre hover:bg-fond`;
 }
 
+/** L'entrée active se distingue de plus d'une simple couleur (fix round 1,
+ * revue) : une bordure haute pleine (forme, pas seulement teinte) et un
+ * texte en gras s'ajoutent à la couleur d'accent. */
 function classesLienBarreBasse({ isActive }: { isActive: boolean }): string {
   const base =
-    "flex min-h-[44px] flex-1 flex-col items-center justify-center gap-1 py-2 text-encre-2 outline-none focus-visible:ring-2 focus-visible:ring-accent";
-  return isActive ? `${base} text-accent` : base;
+    "flex min-h-[44px] flex-1 flex-col items-center justify-center gap-1 border-t-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-accent";
+  return isActive
+    ? `${base} border-accent font-semibold text-accent`
+    : `${base} border-transparent text-encre-2`;
 }
 
 /**
@@ -121,11 +126,15 @@ export function Gabarit(): ReactElement {
 
   return (
     <div className="min-h-screen bg-fond font-sans text-encre md:flex">
-      {/* Barre latérale — ordinateur (>= md) */}
+      {/* Barre latérale — ordinateur (>= md). `sticky top-0 h-screen` (fix
+          round 1, revue) : reste visible pendant que le contenu défile
+          (Réglages/Journal/déconnexion toujours atteignables sans remonter
+          toute la page) ; `self-start` l'empêche de s'étirer à la hauteur
+          du contenu, condition pour que `sticky` fonctionne. */}
       {moi && (
         <nav
           aria-label="Navigation principale"
-          className="hidden w-[232px] shrink-0 flex-col gap-7 border-r border-bordure px-5 py-7 md:flex"
+          className="hidden w-[232px] shrink-0 flex-col gap-7 self-start border-r border-bordure px-5 py-7 md:sticky md:top-0 md:flex md:h-screen"
         >
           <div className="flex flex-col gap-0.5 px-1">
             <p className="font-titre text-xl font-semibold text-accent">Habitat &amp; Rénovation</p>
@@ -139,6 +148,18 @@ export function Gabarit(): ReactElement {
                   <Icone className="h-4 w-4 shrink-0" />
                   {libelle}
                 </NavLink>
+                {/* R1 (fix round 1) : la création de chantier et la
+                    validation d'alias (`Chantiers.tsx`) restent
+                    accessibles tant que la Task 7 ne les a pas reprises
+                    dans la fiche chantier. */}
+                {vers === "/chantiers" && (
+                  <NavLink
+                    to="/chantiers/referentiel"
+                    className="ml-7 mt-1 block min-h-[44px] rounded-lg px-2 py-1 text-xs text-encre-2 outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    Gérer les chantiers
+                  </NavLink>
+                )}
               </li>
             ))}
           </ul>
@@ -176,18 +197,42 @@ export function Gabarit(): ReactElement {
       )}
 
       <div className="flex min-h-screen flex-1 flex-col">
-        {/* En-tête compact — téléphone (< md) */}
+        {/* En-tête compact — téléphone (< md). Deuxième rangée avec
+            Réglages/Journal (fix round 1, finding 3) : la barre de
+            navigation basse ne montre que les cinq entrées principales,
+            ces deux écrans doivent rester atteignables au téléphone sans
+            passer par l'ordinateur — vrais liens toujours visibles,
+            jamais un menu qui se déplie (plus simple, pas de gestion de
+            focus supplémentaire). */}
         {moi && (
-          <header className="flex items-center justify-between gap-3 border-b border-bordure bg-surface px-4 py-3 md:hidden">
-            <p className="font-titre text-base font-semibold text-accent">Habitat &amp; Rénovation</p>
-            <button
-              type="button"
-              onClick={() => deconnexion.mutate()}
-              disabled={deconnexion.isPending}
-              className="min-h-[44px] rounded-lg px-3 text-sm font-medium text-encre-2 outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Se déconnecter
-            </button>
+          <header className="border-b border-bordure bg-surface md:hidden">
+            <div className="flex items-center justify-between gap-3 px-4 py-3">
+              <p className="font-titre text-base font-semibold text-accent">Habitat &amp; Rénovation</p>
+              <button
+                type="button"
+                onClick={() => deconnexion.mutate()}
+                disabled={deconnexion.isPending}
+                className="min-h-[44px] rounded-lg px-3 text-sm font-medium text-encre-2 outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Se déconnecter
+              </button>
+            </div>
+            {estAdmin && (
+              <div className="flex items-center gap-4 border-t border-bordure px-4 text-sm text-encre-2">
+                <NavLink
+                  to="/reglages"
+                  className="flex min-h-[44px] items-center outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  Réglages
+                </NavLink>
+                <NavLink
+                  to="/journal"
+                  className="flex min-h-[44px] items-center outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  Journal
+                </NavLink>
+              </div>
+            )}
           </header>
         )}
 
