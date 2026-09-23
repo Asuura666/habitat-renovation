@@ -40,6 +40,12 @@ const LIBELLES_ACTION: Record<string, string> = {
   facture_rapprochee: "Facture rapprochée",
   fournisseur_defini: "Fournisseur défini",
   chantier_cree: "Chantier créé",
+  // Ajoutée par la Task 1 de la refonte du front (`app/modules/ingest/
+  // chantiers.py` ou équivalent) : édition du nom/client/agence/actif
+  // d'un chantier depuis la fiche chantier — trouvée en relisant la
+  // consigne de la Task 10, pas encore recensée par le grep de tête de
+  // fichier au moment où ce libellé a été ajouté.
+  chantier_modifie: "Chantier modifié",
   alias_valide: "Alias de chantier validé",
   article_valide: "Article validé",
   utilisateur_cree: "Compte utilisateur créé",

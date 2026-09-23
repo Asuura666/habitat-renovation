@@ -25,6 +25,19 @@ def test_ecran_reglages_affiche_unite_bornes_et_erreurs() -> None:
     assert "Enregistrer" in page
 
 
+def test_ecran_reglages_a_la_charte() -> None:
+    page = (WEB / "pages" / "Reglages.tsx").read_text(encoding="utf-8")
+
+    assert '"../ui"' in page
+    assert "<EnTetePage" in page
+    assert "<Carte" in page
+    assert "<Bouton" in page
+    # Ancienne palette Tailwind par défaut entièrement remplacée par les
+    # jetons de la charte (habillage complet, pas un correctif partiel).
+    assert "slate-" not in page
+    assert "blue-" not in page
+
+
 def test_client_parametres_lit_et_modifie_les_seuils() -> None:
     client = (WEB / "api" / "parametres.ts").read_text(encoding="utf-8")
 
