@@ -6,7 +6,6 @@ export type { VarianteBouton } from "./Bouton";
 export { Carte } from "./Carte";
 export { Chiffre } from "./Chiffre";
 export type { TonChiffre } from "./Chiffre";
-export { EcranEnConstruction } from "./EcranEnConstruction";
 export { EnTetePage } from "./EnTetePage";
 export { EtatVide } from "./EtatVide";
 export { FilAriane } from "./FilAriane";

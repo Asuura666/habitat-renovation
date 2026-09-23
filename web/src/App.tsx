@@ -34,9 +34,10 @@ export function App(): ReactElement {
             </RouteProtegee>
           }
         >
-          {/* Vue d'ensemble (admin) — Task 4 y pose `EcranEnConstruction`,
-              une tâche suivante la remplace (voir RedirectionAccueil.tsx).
-              `GardeAdmin` y renvoie déjà l'agent vers `/documents`. */}
+          {/* Vue d'ensemble (admin) — Task 5, maquette `Main`, écran monté
+              par `RedirectionAccueil.tsx` (remplace `EcranEnConstruction`
+              posé par la Task 4, supprimé). `GardeAdmin` y renvoie déjà
+              l'agent vers `/documents`. */}
           <Route
             index
             element={
