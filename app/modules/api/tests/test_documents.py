@@ -28,7 +28,13 @@ from app.core.auth import NOM_COOKIE
 from app.core.auth import router as auth_router
 from app.core.config import get_settings
 from app.modules.api import router as api_router
-from app.modules.ingest.models import Document, Journal, Utilisateur
+from app.modules.ingest.models import (
+    BlocFacture,
+    Document,
+    Fournisseur,
+    Journal,
+    Utilisateur,
+)
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
 
@@ -362,3 +368,181 @@ async def test_fichier_son_propre_document_agent_ok(
     )
 
     assert reponse.status_code == 200
+
+
+# --------------------------------------------------------------------------
+# GET /api/documents/{id}/fichier?telechargement=true (Task 3)
+# --------------------------------------------------------------------------
+
+
+async def test_fichier_sans_telechargement_pas_dattachment(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    chemin = tmp_path / "photo-sans-dl.jpg"
+    chemin.write_bytes(b"contenu-invente")
+    admin = await _creer_utilisateur(
+        db_session, email="admin.docsansdl@example.invalid", role="admin"
+    )
+    document = await _creer_document_bl(
+        db_session, numero="L650", fichier_path=str(chemin)
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _get(
+        app_test, f"/api/documents/{document.id}/fichier", cookie=cookie
+    )
+
+    assert reponse.status_code == 200
+    assert "content-disposition" not in reponse.headers
+
+
+async def test_fichier_avec_telechargement_attachment_nomme(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    chemin = tmp_path / "photo-avec-dl.jpg"
+    chemin.write_bytes(b"contenu-invente")
+    admin = await _creer_utilisateur(
+        db_session, email="admin.docavecdl@example.invalid", role="admin"
+    )
+    document = await _creer_document_bl(
+        db_session, numero="L651", fichier_path=str(chemin)
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _get(
+        app_test,
+        f"/api/documents/{document.id}/fichier?telechargement=true",
+        cookie=cookie,
+    )
+
+    assert reponse.status_code == 200
+    content_disposition = reponse.headers["content-disposition"]
+    assert content_disposition.startswith("attachment")
+    assert "BL_L651_sans-chantier.jpg" in content_disposition
+
+
+# --------------------------------------------------------------------------
+# GET /api/documents/{id}/comparaison (Task 3)
+# --------------------------------------------------------------------------
+
+
+async def _creer_fournisseur(
+    db_session: AsyncSession, *, nom: str = "Fournisseur Testeur"
+) -> Fournisseur:
+    fournisseur = Fournisseur(nom=nom)
+    db_session.add(fournisseur)
+    await db_session.commit()
+    await db_session.refresh(fournisseur)
+    return fournisseur
+
+
+async def _creer_facture(
+    db_session: AsyncSession, *, fournisseur: Fournisseur, numero: str = "FAC-CMP-01"
+) -> Document:
+    document = Document(
+        type="facture",
+        source="upload",
+        statut="recu",
+        fichier_path="/var/docs/facture-comparaison-invente.pdf",
+        fournisseur_id=fournisseur.id,
+        numero=numero,
+    )
+    db_session.add(document)
+    await db_session.commit()
+    await db_session.refresh(document)
+    return document
+
+
+async def test_comparaison_anonyme_renvoie_401(
+    sessions_test: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    app_test = _app_test(sessions_test, tmp_path)
+
+    reponse = await _get(
+        app_test,
+        "/api/documents/00000000-0000-0000-0000-000000000000/comparaison",
+        cookie=None,
+    )
+
+    assert reponse.status_code == 401
+
+
+async def test_comparaison_agent_renvoie_403(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    agent = await _creer_utilisateur(
+        db_session, email="agent.doccomparaison@example.invalid", role="agent"
+    )
+    document = await _creer_document_bl(db_session, numero="L700")
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=agent.email)
+
+    reponse = await _get(
+        app_test, f"/api/documents/{document.id}/comparaison", cookie=cookie
+    )
+
+    assert reponse.status_code == 403
+
+
+async def test_comparaison_id_inconnu_renvoie_404(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.doccomparaisonabsent@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _get(
+        app_test,
+        "/api/documents/00000000-0000-0000-0000-000000000000/comparaison",
+        cookie=cookie,
+    )
+
+    assert reponse.status_code == 404
+
+
+async def test_comparaison_admin_renvoie_le_detail(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.doccomparaisonok@example.invalid", role="admin"
+    )
+    document = await _creer_document_bl(db_session, numero="L701")
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    db_session.add(
+        BlocFacture(
+            facture_id=facture.id,
+            ordre=0,
+            numero_bl="L701",
+            bl_document_id=document.id,
+        )
+    )
+    await db_session.commit()
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _get(
+        app_test, f"/api/documents/{document.id}/comparaison", cookie=cookie
+    )
+
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert corps["document_id"] == str(document.id)
+    assert corps["facture_id"] == str(facture.id)
+    assert corps["numero_facture"] == "FAC-CMP-01"
+    assert corps["montant_facture_ht"] == "0"
+    assert corps["lignes"] == []
