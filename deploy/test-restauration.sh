@@ -135,6 +135,19 @@ psql_test "$POSTGRES_DB" "$REQUETE_COMPTES" > "$COMPTES_AVANT_FILE"
 echo "test-restauration.sh : backup.sh…"
 HABITAT_RENO_ENV_FILE="$ENV_FILE" COMPOSE_PROJECT_NAME="$PROJECT_NAME" "$ROOT_DIR/deploy/backup.sh"
 
+echo "test-restauration.sh : récupération de l'identifiant précis du snapshot nocturne…"
+SNAPSHOT_ID="$(
+  docker run --rm \
+    -u "$(id -u):$(id -g)" \
+    -e RESTIC_REPOSITORY \
+    -e RESTIC_PASSWORD \
+    -v "$RESTIC_REPOSITORY:$RESTIC_REPOSITORY" \
+    "$RESTIC_IMAGE" \
+    snapshots --tag nocturne --json --no-cache \
+    | python3 -c 'import json, sys; snapshots = json.load(sys.stdin); assert len(snapshots) == 1, "snapshot nocturne introuvable"; print(snapshots[0]["id"])'
+)"
+echo "test-restauration.sh : snapshot nocturne sélectionné : $SNAPSHOT_ID"
+
 echo "test-restauration.sh : destruction (base + fichiers docs)…"
 docker compose "${COMPOSE_ARGS[@]}" stop api
 docker run --rm \
@@ -146,9 +159,9 @@ docker run --rm \
   -c "CREATE DATABASE \"$POSTGRES_DB\" OWNER \"$POSTGRES_USER\";"
 find "$DOCS_DIR_TEST" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
-echo "test-restauration.sh : restore.sh latest --confirmer…"
+echo "test-restauration.sh : restore.sh $SNAPSHOT_ID --confirmer…"
 HABITAT_RENO_ENV_FILE="$ENV_FILE" COMPOSE_PROJECT_NAME="$PROJECT_NAME" COMPOSE_OVERRIDE_FILE="$OVERRIDE_FILE" \
-  "$ROOT_DIR/deploy/restore.sh" latest --confirmer
+  "$ROOT_DIR/deploy/restore.sh" "$SNAPSHOT_ID" --confirmer
 
 echo "test-restauration.sh : vérifications…"
 COMPTES_APRES_FILE="$WORK_DIR/comptes-apres.txt"

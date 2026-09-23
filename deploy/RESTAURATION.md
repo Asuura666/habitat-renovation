@@ -16,9 +16,11 @@ production).
   dépôt distant (ne commence pas par `/`) : `AWS_ACCESS_KEY_ID`,
   `AWS_SECRET_ACCESS_KEY` (Object Storage OVH, compatible S3).
 - La stack `habitat_reno` tourne déjà (`docker compose ... up -d`), au moins
-  pour le service `postgres` : `backup.sh` et `restore.sh` rejoignent son
-  réseau compose (`<projet>_default`, `habitat_reno_default` par défaut)
-  pour parler au service `postgres` par son nom.
+  pour le service `postgres`. Avant une restauration, le conteneur `api` doit
+  aussi avoir été créé, même s'il est arrêté : `restore.sh` le vérifie avant
+  tout appel à restic, arrêt de service ou modification de la base. Les scripts
+  rejoignent le réseau compose (`<projet>_default`, `habitat_reno_default` par
+  défaut) pour parler au service `postgres` par son nom.
 
 ## `restic init` (une seule fois, à la création du dépôt)
 
@@ -73,13 +75,33 @@ cron séparée n'est nécessaire pour la purge.
 5. Démarrer uniquement `postgres` (pas encore l'API, la base est vide) :
    `docker compose --env-file .env -f deploy/docker-compose.yml up -d postgres`
    et attendre qu'il soit `healthy` (`docker compose ps`).
-6. Construire l'image API sans la démarrer :
+6. Vérifier que l'arbre Git est propre **avant** de changer de SHA, puis
+   replacer le dépôt sur le SHA associé au snapshot choisi. Ne pas masquer des
+   changements avec `reset`, `clean` ou `stash` pendant une reprise : les
+   identifier et les traiter explicitement avant de poursuivre.
+   ```bash
+   test -z "$(git status --porcelain)" || {
+     echo "Arbre Git non propre : restauration refusée" >&2
+     exit 1
+   }
+   git switch --detach <SHA-associé-au-snapshot>
+   test "$(git rev-parse HEAD)" = "<SHA-complet-associé-au-snapshot>"
+   ```
+   Construire ensuite l'image API et **créer son conteneur sans le démarrer** :
    `docker compose --env-file .env -f deploy/docker-compose.yml build api`
-7. Lancer la restauration :
-   `./deploy/restore.sh latest --confirmer`
-   (ou un identifiant de snapshot précis à la place de `latest`, voir
+   puis
+   `docker compose --env-file .env -f deploy/docker-compose.yml create api`.
+   Cette création est obligatoire sur un VPS neuf : `restore.sh` termine par
+   `docker compose start api`, qui ne crée pas un conteneur absent.
+7. Lancer la restauration avec un identifiant de snapshot précis :
+   `./deploy/restore.sh <identifiant-snapshot> --confirmer`.
+   `latest` est refusé par le script : consigner ensemble,
+   avant chaque déploiement, le SHA Git, la révision Alembic et l'identifiant
+   du snapshot créé (voir
    `docker run --rm -e RESTIC_REPOSITORY -e RESTIC_PASSWORD [...]
-   restic/restic:0.19.1 snapshots`). Le script arrête l'API si elle tourne,
+   restic/restic:0.19.1 snapshots`). Le script ne migre pas une sauvegarde
+   ancienne vers un code plus récent : le SHA préparé doit être compatible
+   avec le schéma du snapshot. Il arrête l'API si elle tourne,
    recrée la base, restaure le dump et les originaux, redémarre l'API et
    vérifie `/health`.
    **Les documents existants ne sont jamais supprimés** : le contenu
@@ -98,9 +120,40 @@ cron séparée n'est nécessaire pour la purge.
    coexistent jusqu'à la suppression manuelle du `.avant-restauration-*`) :
    vérifier l'espace disponible avant de lancer une restauration sur un
    volume déjà proche de sa capacité.
-8. Vérifier manuellement `/health` depuis l'extérieur (Traefik/HTTPS) et
-   contrôler que Traefik démarre correctement (ports 80/443 libres sur ce
-   VPS neuf — voir la mise en garde plus bas, propre au VPS de
+8. Effectuer tous les contrôles post-restauration avant de supprimer l'ancien
+   dossier documentaire :
+   - **SHA actif** : `git rev-parse HEAD` doit être exactement le SHA complet
+     associé au snapshot ;
+   - **schéma** : comparer
+     `docker compose --env-file .env -f deploy/docker-compose.yml exec -T api alembic heads`
+     et la révision indiquée par la même commande avec `alembic current` ; la
+     révision courante doit être l'unique tête attendue ;
+   - **comptes de lignes** : les comparer au relevé consigné avec le snapshot.
+     Pour obtenir des comptes exacts sur toutes les tables publiques :
+     ```bash
+     set -a; source .env; set +a
+     docker compose --env-file .env -f deploy/docker-compose.yml exec -T postgres \
+       psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+     SELECT format(
+       'SELECT %L AS table, count(*) AS lignes FROM %I.%I;',
+       schemaname || '.' || tablename, schemaname, tablename
+     )
+     FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename \gexec
+     SQL
+     ```
+   - **documents** : vérifier la présence, l'ouverture et le SHA-256 d'un
+     échantillon consigné avant sinistre (plusieurs formats et fournisseurs),
+     par exemple `sha256sum "$DOCS_HOST_DIR/<chemin-consigné>"` ; ne pas se
+     limiter au nombre de fichiers ;
+   - **recette minimale avec données fictives uniquement** : `/health` interne
+     puis HTTPS doivent répondre, la page de connexion doit être accessible,
+     les connexions admin/agent et leurs permissions doivent être correctes,
+     et les écrans Factures, À traiter, Anomalies, Bilan, Chantiers, Journal et
+     Réglages ainsi qu'un export CSV fictif doivent être vérifiés. Suivre
+     `docs/deploiement-et-tests.md` §7 pour le détail ; les appels Mistral,
+     Telegram ou Drive réels restent des tests externes séparés et autorisés.
+   Contrôler aussi que Traefik démarre correctement (ports 80/443 libres sur
+   ce VPS neuf — voir la mise en garde plus bas, propre au VPS de
    développement).
 9. Reconfigurer la sauvegarde nocturne (cron) sur ce nouveau VPS.
 

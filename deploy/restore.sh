@@ -3,7 +3,7 @@
 # bascule DOCS_HOST_DIR vers le contenu restauré (par renommages, sans
 # jamais supprimer l'existant), puis redémarre l'API et vérifie /health.
 #
-# Usage : deploy/restore.sh <snapshot|latest> --confirmer
+# Usage : deploy/restore.sh <identifiant-snapshot> --confirmer
 #
 # Opération destructive pour la base (recréée) : refuse de s'exécuter sans
 # --confirmer, et dans ce cas ne modifie rien. Les documents existants ne
@@ -31,7 +31,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage : $0 <snapshot|latest> --confirmer" >&2
+  echo "Usage : $0 <identifiant-snapshot> --confirmer" >&2
 }
 
 if [[ $# -eq 0 ]]; then
@@ -54,6 +54,11 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+if [[ "$SNAPSHOT" == "latest" ]]; then
+  echo "restore.sh : identifiant de snapshot précis obligatoire ; 'latest' est refusé. Rien n'a été modifié." >&2
+  exit 1
+fi
 
 if [[ "$CONFIRME" -ne 1 ]]; then
   echo "restore.sh : opération destructive, relancer avec --confirmer. Rien n'a été modifié." >&2
@@ -121,6 +126,11 @@ NETWORK="${PROJECT_NAME}_default"
 COMPOSE_ARGS=(-p "$PROJECT_NAME" --env-file "$ENV_FILE" -f "$ROOT_DIR/deploy/docker-compose.yml")
 if [[ -n "${COMPOSE_OVERRIDE_FILE:-}" ]]; then
   COMPOSE_ARGS+=(-f "$COMPOSE_OVERRIDE_FILE")
+fi
+
+if [[ -z "$(docker compose "${COMPOSE_ARGS[@]}" ps -q api)" ]]; then
+  echo "restore.sh : conteneur api introuvable pour le projet compose '$PROJECT_NAME'. Le créer avant la restauration. Rien n'a été modifié." >&2
+  exit 1
 fi
 
 # Horodatage et noms des dossiers frères utilisés par la bascule de
