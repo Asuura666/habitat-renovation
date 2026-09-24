@@ -48,6 +48,7 @@ web/           front React (lot 2)
 migrations/    alembic
 deploy/        docker-compose.yml, traefik, backup.sh, restore.sh, deploy.sh
 docs/
+infra/         README.md : documentation technique d'ensemble (demande client, architecture, infra et ses choix)
 ```
 
 ## Règles de frontière — non négociables
