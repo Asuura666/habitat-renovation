@@ -68,7 +68,7 @@ un Drive personnel, et le choix de la solution revient à Ilane.
 
 Sources : `docs/cahier-des-charges.md:50-61`,
 `app/modules/ingest/router.py:150-215`, `app/modules/ingest/mistral.py:1-22`,
-`app/modules/jobs/drive.py:1-31`, `infra/README.md:972-985`.
+`infra/README.md:972-985`, `docs/refonte-front-recette.md` §6.
 
 ---
 
@@ -101,8 +101,8 @@ flowchart TB
 
     cli["CLI python -m app.cli - docker compose exec -T api"]
     cron["crontab : sauvegarde 03:00, controles-differes 06:15, drive-sync à la minute 10"]
-    backup["deploy/backup.sh - pg_dump et restic"]
-    dumps[("6 pg_dump manuels - même disque, sans les originaux")]
+    backup["deploy/backup.sh - pg_dump et restic en conteneur, vise le dev par défaut"]
+    dumps[("6 pg_dump manuels : 3 prod, 3 démo - même disque, sans les originaux")]
   end
 
   mistral["API Mistral OCR"]
@@ -126,6 +126,7 @@ flowchart TB
   backup -.-> s3
   cli -.->|"drive-sync"| drive
   pg_prod -.->|"copies manuelles"| dumps
+  pg_demo -.->|"copies manuelles"| dumps
 
   classDef prevu stroke-dasharray: 5 5
   class traefik,cron,backup,s3,drive prevu
@@ -145,18 +146,30 @@ posé.
   de base, reste dans un profil jamais activé sur ce VPS.
 - **Image** : un étage `node:24-alpine` construit le front, puis
   `python:3.11-slim` avec uv. uvicorn sert l'API et `web/dist` sur le port
-  8000, avec l'uid 10001 et `--proxy-headers`. Le port n'est publié que sur
-  la boucle locale.
+  8000, avec l'uid 10001 et `--proxy-headers --forwarded-allow-ips=*`. Le
+  port n'est publié que sur la boucle locale.
+- **Limite de connexion** : slowapi limite `POST /api/auth/login` à 5
+  requêtes par minute et par adresse. L'adresse réelle vient de
+  `X-Forwarded-For`, transmis par nginx.
 - **Pas de worker ni de file d'attente** : les tâches périodiques sont des
-  commandes CLI. Aucune ligne cron n'est posée ; sur l'hôte, ni `crontab`
-  ni `restic` ne sont installés. Aucun dépôt restic n'est initialisé. Les
-  seules copies sont six `pg_dump` manuels sur le même disque.
+  commandes CLI. `crontab` n'est pas installé (paquet `cron` absent), donc
+  aucune ligne cron n'est posée. restic tourne en conteneur
+  (`restic/restic:0.19.1` via `docker run`), mais aucun dépôt ni aucune
+  variable `RESTIC_*` n'est configuré. `backup.sh` vise le développement par
+  défaut (`.env`, projet `habitat_reno`) : pour la production ou la
+  démonstration, il faut lui passer `HABITAT_RENO_ENV_FILE` et
+  `COMPOSE_PROJECT_NAME`. Les seules copies sont six `pg_dump` manuels sur
+  le même disque, trois de la production et trois de la démonstration.
 - **Variables** : sont obligatoires `database_url`, `docs_dir`, les quatre
   variables Telegram, `mistral_api_key` et `cookie_secure`. Sont optionnelles
   les deux variables Drive et trois drapeaux à `false` par défaut :
   `CONTROLE_PRIX_ACTIF`, `CONTROLE_LIVRE_NON_FACTURE_ACTIF` et
   `API_DOCS_ACTIVES`. Il manque une variable obligatoire ? L'API refuse de
-  démarrer.
+  démarrer. Compose exige en plus `POSTGRES_USER`, `POSTGRES_PASSWORD`,
+  `POSTGRES_DB`, `DOCS_HOST_DIR`, `API_HOST_PORT` (surcouche `vps`),
+  `DOMAIN` et `ACME_EMAIL`. Les deux dernières servent à Traefik (label du
+  service `api`, commande du service `traefik`), mais Compose les exige
+  même sur le VPS, où Traefik est désactivé.
 - **Vigilance** : la surcouche de développement publie l'API sur
   127.0.0.1:8450, et le proxy Vite de `npm run dev` vise ce port. Or c'est
   aujourd'hui celui de la production. `deploy/test-restauration.sh` utilise
@@ -165,10 +178,12 @@ posé.
 Sources : `deploy/docker-compose.yml:1-115`,
 `deploy/docker-compose.vps.yml:1-24`, `deploy/docker-compose.dev.yml:1-14`,
 `deploy/nginx/habitat.conf:1-55`, `Dockerfile:1-40`,
-`app/core/config.py:69-83`, `deploy/backup.sh:1-118`,
-`infra/README.md:822-882`, `web/vite.config.mts:4-38`,
-`deploy/test-restauration.sh:2-18`. Constats `docker ps`,
-`docker volume ls`, `crontab -l` et `systemctl list-timers` du 24/09/2026.
+`app/core/config.py:69-83`, `app/core/auth.py:221-227`,
+`deploy/backup.sh:1-118`, `infra/README.md:822-882`,
+`web/vite.config.mts:4-38`, `deploy/test-restauration.sh:2-18`. Constats
+`docker ps`, `docker volume ls`, `crontab -l`, `systemctl list-timers`,
+`dpkg -l cron`, `ls /home/debian/sauvegardes-habitat/` et
+`docker compose config` du 24/09/2026.
 
 ---
 
@@ -234,10 +249,15 @@ Interdits, vérifiés par `tests/test_frontieres.py` (analyse `ast` de
 - `extract`, `normalize` et `rules` n'importent ni `fastapi`, ni `starlette`,
   ni `sqlalchemy`, ni `httpx`, ni `asyncpg`.
 - Hors `ingest`, aucun module de `app.modules` n'en importe un autre ;
-  `api` et `jobs` peuvent importer `ingest`, et rien d'autre.
-- `rules` ne réutilise pas les dataclasses d'`extract` ni de `normalize`
-  (L4-D1). Une règle n'importe que `rules.modeles`, plus une règle sœur pour
-  un helper partagé (R01 importe R02, R04 importe R03, R08 importe R07).
+  `api` et `jobs` peuvent importer `ingest`, et rien d'autre. Cette garde
+  couvre donc aussi L4-D1 : `rules` n'importe ni `extract` ni `normalize`,
+  et ne réutilise pas leurs dataclasses.
+
+Constat au 24/09/2026, que rien ne garde : une règle n'importe que
+`rules.modeles`, plus une règle sœur pour un helper partagé (R01 importe
+R02, R04 importe R03, R08 importe R07). La garde ne regarde pas les imports
+internes à `rules` : un import d'`engine` ou d'une autre règle ne serait pas
+signalé.
 
 Hors garde : `app/core`, `app/main.py` et `app/cli.py` ne sont pas scannés.
 C'est ce qui permet à `core/auth.py` d'importer `ingest.models` (exception
@@ -245,15 +265,20 @@ assumée) et à `cli.py` d'importer `extract` et `messaging` (en pointillé).
 
 Écarts avec l'arborescence de `CLAUDE.md` : `jobs` ne contient que `drive.py`
 et `drive_sync.py`, sans bilan ni rappels ; le bilan est dans
-`ingest/bilan.py`. `extract/facture.py` ne définit que des dataclasses : la
-facture est lue par `extract/unikalo.py` et le BL par `extract/bl.py`. Les
-docstrings de `messaging/base.py` et de `Document.photo_compressee` citent
-encore `ingest/service.py`, découpé à la fin du lot 2.
+`ingest/bilan.py`. `extract/facture.py` ne définit que les types d'une
+facture lue (dataclasses, `TypeLigne`, `FactureIllisible`) : la facture est
+lue par `extract/unikalo.py` et le BL par `extract/bl.py`. Plusieurs
+renvois citent encore `ingest/service.py`, découpé à la fin du lot 2 : les
+docstrings de `messaging/base.py` et d'`api/schemas.py` (lignes 5 et 123),
+et les commentaires de `Document.photo_compressee` et de `BlocFacture.ordre`
+(`ingest/models.py:293` et `:362`).
 
 Sources : `app/main.py:26-89`, `app/modules/api/__init__.py:3-37`,
 `app/modules/ingest/router.py:1-22`, `app/core/auth.py:16-40`,
 `app/cli.py:62-129`, `tests/test_frontieres.py:34-183`,
-`app/modules/rules/__init__.py:1-13`, `app/modules/jobs/drive_sync.py:1-40`.
+`app/modules/rules/__init__.py:1-13`, `app/modules/rules/rules/R01.py:17`,
+`R04.py:24`, `R08.py:25`, `app/modules/extract/facture.py:17-90`,
+`app/modules/api/schemas.py:1-8`, `app/modules/jobs/drive_sync.py:1-40`.
 
 ---
 
@@ -272,9 +297,6 @@ erDiagram
   fournisseur ||--o{ article : "catalogue"
   fournisseur |o--o{ document : "emet"
   agence_fournisseur |o--o{ document : "agence"
-  chantier |o--o{ chantier_alias : "resolu en"
-  chantier |o--o{ document : "chantier du BL"
-  chantier |o--o{ bloc_facture : "chantier du bloc"
   document ||--o{ bloc_facture : "facture decoupee en blocs"
   document |o--o{ bloc_facture : "BL rapproche"
   document ||--o{ ligne : "lignes"
@@ -286,8 +308,11 @@ erDiagram
   bloc_facture |o--o{ anomalie : "portee"
   ligne |o--o{ anomalie : "portee"
   article |o--o{ anomalie : "regle des 90 jours"
-  chantier |o--o{ anomalie : "portee R16"
   chantier_alias |o--o{ anomalie : "portee R14"
+  chantier |o--o{ chantier_alias : "resolu en"
+  chantier |o--o{ document : "chantier du BL"
+  chantier |o--o{ bloc_facture : "chantier du bloc"
+  chantier |o--o{ anomalie : "portee R16"
 
   fournisseur {
     uuid id PK
@@ -340,8 +365,10 @@ erDiagram
     text numero
     date date_doc
     uuid agence_fournisseur_id FK
+    text chantier_brut "libelle lu, BL"
     uuid chantier_id FK
     uuid deposant_id FK
+    bool photo_compressee "ajout 0003"
     uuid confirme_par FK
     timestamp confirme_le
     text fichier_path
@@ -373,7 +400,9 @@ erDiagram
     text type_ligne "article, eco, commentaire"
     text code_brut
     text article_brut
-    numeric qte_livree
+    numeric qte_livree "nb de conditionnements"
+    numeric qte_totale "quantite"
+    text unite_brut
     numeric qte_fact
     numeric pu_ht
     numeric remise_pct
@@ -414,6 +443,15 @@ Une facture (`document` de type `facture`) se découpe en blocs
 en `NULLS NOT DISTINCT` ; c'est la clé de l'upsert décrit au §5.3. Un alias
 de chantier est créé sans `chantier_id` et attend la validation d'un admin.
 Un article est créé non validé à la première ligne qui porte un code.
+
+Le schéma ne montre que les colonnes principales. Il omet notamment, sur
+`document`, `telegram_message_id`, `numero_commande`, `enleve_par`,
+`total_tva`, `total_ttc` et les quatre colonnes `drive_sync_*` de suivi des
+échecs (migration 0009) ; sur `ligne`, `pu_cdt` et `tva` ; sur
+`bloc_facture`, `numero_commande` ; et partout `created_at`, `updated_at` et
+`updated_by`. Sur une ligne, `qte_livree` est le nombre de conditionnements
+(colonne QTÉ LIVRÉE) et `qte_totale` la quantité (QTÉ TOTALE), sur un BL
+comme sur une facture Unikalo (L3-D24).
 
 ### 4.2 Comptes et traçabilité
 
@@ -472,10 +510,12 @@ erDiagram
   }
 ```
 
-Conventions : identifiant UUID généré par la base, sauf `parametre` (`cle`)
-et `telegram_update` (`update_id`). `created_at` est présent partout. Les
-tables modifiables ont en plus `updated_at` et `updated_by` (vers
-`utilisateur`, non dessiné). Les listes fermées sont en `text` avec un
+Conventions : identifiant UUID généré par la base, sauf `parametre` (`cle`),
+`telegram_update` (`update_id`) et `jeton_session` (`token`). `created_at`
+est présent partout. `updated_at` et `updated_by` (vers `utilisateur`, non
+dessiné) figurent sur les tables modifiables, sauf `parametre`, qui a
+`modifie_par` et `modifie_le` ; `journal`, `telegram_update` et
+`jeton_session` n'en ont pas. Les listes fermées sont en `text` avec un
 `CHECK` nommé, sans ENUM, et les montants en `numeric` (lus en `Decimal`).
 Aucune relation ORM, aucune suppression en cascade, aucune suppression
 physique de document. `journal` et `telegram_update` ne reçoivent que des
@@ -535,7 +575,7 @@ sequenceDiagram
     dep->>tg: Accusé du clic, message édité sans les boutons
   else Expéditeur hors liste blanche
     wh-->>tg: 200, signalement au groupe de supervision
-  else Photo d'un agent rattaché et actif
+  else Photo d'un utilisateur actif rattaché (liste blanche)
     wh-->>tg: 200 immédiat, traiter_fichier en BackgroundTasks
     dep->>tg: Téléchargement du fichier
     dep->>fs: Écriture atomique, fichier tmp puis os.replace
@@ -546,18 +586,25 @@ sequenceDiagram
     else Réponse exploitable
       ocr-->>dep: Texte, confiances, annotation bon_de_livraison
       dep->>ext: enregistrer_extraction_bl
-      ext->>ext: analyser_bl, verifier_bl, resoudre_fournisseur, puis chantier et articles
-      ext->>bdd: En-tête, lignes, extraction, motifs, statut, journal extraction_bl, commit
+      alt Annotation illisible
+        ext->>bdd: Statut a_verifier, motif annotation_illisible, numéro détecté s'il existe, journal, commit
+      else Annotation lisible
+        ext->>ext: analyser_bl, verifier_bl, resoudre_fournisseur, puis chantier et articles
+        ext->>bdd: En-tête, lignes, extraction, motifs, statut, journal extraction_bl, commit
+      end
       opt Numéro de BL trouvé
         ext->>rap: rapprocher_factures_du_bl
       end
+      Note over dep,ext: Exception pendant l'extraction : même traitement qu'un échec OCR
     end
     dep->>tg: Ligne de supervision puis Reçu, document n° N, avec deux boutons
   end
 ```
 
 Le webhook répond toujours vite : le téléchargement, l'OCR et l'extraction
-tournent en tâche de fond, dans leur propre session. Le document est
+tournent en tâche de fond, dans leur propre session. La liste blanche
+accepte tout utilisateur actif qui porte ce `telegram_user_id`, quel que
+soit son rôle, admin compris. Le document est
 enregistré au statut `recu` avant l'OCR, donc un échec OCR ne perd jamais
 le dépôt. `extract` et `normalize` travaillent sans base ni réseau. Un
 fournisseur n'est jamais créé à partir de l'OCR. Un libellé de chantier
@@ -645,9 +692,9 @@ sequenceDiagram
   alt Facture absente ou pas au statut recu
     rap-->>dec: FactureIntrouvable, ou rien d'écrit
   else Facture recu
+    rap->>bdd: Charge en une fois les BL et enlèvements candidats : même fournisseur, numéros normalisés, non archivés
     loop Chaque bloc de la facture
-      rap->>bdd: BL ou enlèvement du fournisseur, même numéro normalisé, non archivé
-      rap->>rap: Statut du bloc recu, pas_de_bon ou non_recu
+      rap->>rap: Associe le BL du bloc, statut du bloc recu, pas_de_bon ou non_recu
       rap->>norm: convertir_en_unite_fact puis apparier_lignes
       norm-->>rap: Paires de lignes et lignes BL non appariées
     end
@@ -694,28 +741,38 @@ sequenceDiagram
   admin->>web: Choisit Traité ou Ignoré et écrit un commentaire
   web->>api: POST /api/anomalies/ID/traitement avec statut et commentaire
   Note over api: Contrôle d'origine, puis admin_requis
-  api->>svc: traiter_anomalie
-  svc->>bdd: Lit l'anomalie, filtrée par condition_regles_actives
-  alt Introuvable ou règle désactivée
-    api-->>web: 404
-  else Anomalie déjà traitée ou ignorée
-    api-->>web: 409 transition interdite
-  else Anomalie ouverte
-    svc->>bdd: statut, commentaire, traitee_par, traitee_le
-    svc->>bdd: Journal anomalie_traitee ou anomalie_ignoree, avant et après, commit
-    svc-->>api: AnomalieLue
-    api-->>web: 200
-    web->>web: invaliderApresChangementAnomalies
+  alt Commentaire vide, blanc ou de plus de 500 caractères, ou statut invalide
+    api-->>web: 422
+  else Corps valide
+    api->>svc: traiter_anomalie
+    svc->>bdd: Lit l'anomalie par son id
+    alt Absente, ou sa règle est dans regles_desactivees()
+      api-->>web: 404
+    else Anomalie déjà traitée ou ignorée
+      api-->>web: 409 transition interdite
+    else Anomalie ouverte
+      svc->>bdd: statut, commentaire, traitee_par, traitee_le
+      svc->>bdd: Journal anomalie_traitee ou anomalie_ignoree, avant et après, commit
+      svc-->>api: AnomalieLue
+      api-->>web: 200
+      web->>web: invaliderApresChangementAnomalies
+    end
   end
 ```
 
-Le commentaire est obligatoire, de 1 à 500 caractères. Le traitement est
+Le commentaire est obligatoire, de 1 à 500 caractères, et le schéma
+Pydantic de la requête refuse un commentaire blanc ou un statut autre que
+`traitee` ou `ignoree` (422). Le service ne passe pas par
+`condition_regles_actives` : il lit l'anomalie avec `session.get`, puis
+teste sa règle contre `regles_desactivees()`. L'effet est le même. Le
+traitement est
 définitif : aucune transition ne part de `traitee` ni de `ignoree`. Après
 l'écriture, le front invalide les caches TanStack Query des anomalies, de
 « À régler » et de son compteur, du tableau de bord, du bilan, des factures
 et des documents. Aucun chiffre n'est recalculé côté navigateur.
 
 Sources : `app/modules/api/anomalies.py:152-175`,
+`app/modules/api/schemas.py:393-407`,
 `app/modules/ingest/anomalies.py:752-822`,
 `app/core/origine.py:1-33`, `web/src/pages/ProblemeDetail.tsx:219-225`,
 `web/src/api/invalidations.ts:9-38`.
@@ -728,16 +785,24 @@ Sources : `app/modules/api/anomalies.py:152-175`,
 
 ```mermaid
 stateDiagram-v2
-  [*] --> recu : BL Telegram, enregistré avant l'OCR
-  [*] --> recu : facture déposée sans motif
-  [*] --> a_verifier : facture déposée avec motif
-  recu --> recu : extraction sans motif
-  recu --> a_verifier : extraction avec motif, échec OCR, Écart constaté, correction qui crée un motif
-  a_verifier --> a_verifier : correction, relance d'extraction, BL seulement
-  a_verifier --> recu : validation par l'admin, BL seulement, relance le rapprochement
-  recu --> archive : archivage avec commentaire
-  a_verifier --> archive : archivage avec commentaire
+  [*] --> recu : BL Telegram avant l'OCR, ou facture sans motif
+  [*] --> a_verifier : facture avec motif
+  recu --> a_verifier : motif détecté
+  a_verifier --> recu : validation admin, BL seulement
+  recu --> archive : archivage commenté
+  a_verifier --> archive : archivage commenté
   archive --> [*]
+  note left of recu
+    Reste recu si l'extraction
+    ne trouve aucun motif.
+  end note
+  note right of a_verifier
+    Motif : extraction avec motif, échec OCR,
+    Écart constaté, correction qui crée un motif.
+    Correction ou relance d'extraction (BL) :
+    reste a_verifier. La validation relance
+    le rapprochement.
+  end note
 ```
 
 `document.statut` ne prend que trois valeurs : `recu`, `a_verifier` et
@@ -747,7 +812,8 @@ relancé. Une facture `a_verifier` n'est jamais rapprochée et n'en sort que
 par l'archivage : aucun chemin du code ne la repasse en `recu`. Un document
 archivé ne peut plus être modifié ni confirmé depuis Telegram. Il n'est
 plus candidat au rapprochement. Archiver une facture lève toutes ses
-anomalies ouvertes (balayage à vide). Le bouton « Quantités vérifiées » pose
+anomalies ouvertes de règles de facture, y compris celles des règles
+désactivées (balayage à vide, voir §6.2). Le bouton « Quantités vérifiées » pose
 `confirme_le` sans changer le statut.
 
 Sources : `app/modules/ingest/depot_telegram.py:419-426`,
@@ -770,7 +836,7 @@ stateDiagram-v2
   ouverte --> [*] : plus produite dans la portée, supprimée, journal anomalie_levee
   ouverte --> traitee : admin, commentaire obligatoire
   ouverte --> ignoree : admin, commentaire obligatoire
-  ouverte --> masquee : règle désactivée dans le fichier d'environnement
+  ouverte --> masquee : règle désactivée par .env
   masquee --> ouverte : règle réactivée
   traitee --> [*]
   ignoree --> [*]
@@ -778,6 +844,7 @@ stateDiagram-v2
     Pas un statut en base : la ligne reste ouverte.
     Invisible dans les listes, comptes, bilan et tableau de bord.
     Le traitement renvoie 404.
+    Supprimée si sa facture est archivée.
   end note
 ```
 
@@ -788,12 +855,19 @@ exclut des lectures toute règle désactivée par `CONTROLE_PRIX_ACTIF`
 pour les anomalies traitées ou ignorées de ces règles. Une règle désactivée
 n'est ni évaluée ni balayée ; ses anomalies restent donc en base, telles
 quelles, jusqu'à sa réactivation (modifier `.env` puis recréer le conteneur
-API). Le journal, lui, ne filtre pas.
+API). Seule exception : l'archivage d'une facture lève toutes ses anomalies
+ouvertes de règles de facture, y compris celles des règles désactivées. Son
+balayage à vide porte sur tout `REGLES_FACTURE`, donc sur R07, R08 et R09
+même désactivées : ces anomalies masquées sont supprimées, avec un journal
+`anomalie_levee` (`corrections.py:1063-1068`). Le journal, lui, ne filtre
+pas.
 
 Sources : `app/modules/ingest/models.py:450-541`,
 `app/modules/ingest/anomalies.py:17-132`,
 `app/modules/ingest/anomalies.py:184-190`,
+`app/modules/ingest/anomalies.py:432-452`,
 `app/modules/ingest/anomalies.py:516-526`,
+`app/modules/ingest/corrections.py:1063-1068`,
 `app/modules/ingest/commun.py:60-109`, `app/core/config.py:37-56`.
 
 ---
@@ -833,7 +907,7 @@ flowchart TB
   gabarit -.->|"liens discrets admin"| reglages
   gabarit -.-> journal
   documents --> page_bl
-  anciennes["Anciennes URL : anomalies, a-traiter, bilan, factures, bl"] -.->|"RedirectionAncienneUrl"| gabarit
+  anciennes["Anciennes URL : anomalies, a-traiter, bilan, factures, bl, chantiers/referentiel, chantiers/:c/:f"] -.->|"RedirectionAncienneUrl"| gabarit
 ```
 
 L'admin a cinq entrées : Vue d'ensemble, À régler (avec la pastille du
@@ -852,7 +926,7 @@ Sources : `web/src/App.tsx:21-219`, `web/src/routes/GardeAdmin.tsx:7-32`,
 ### 7.2 Flux de données
 
 ```mermaid
-flowchart LR
+flowchart TB
   page["Pages - VueEnsemble, ARegler, FicheChantier, Documents..."]
   rq["TanStack Query - un seul QueryClient"]
   modules["web/src/api - un module par domaine"]
@@ -902,7 +976,7 @@ Sources : `web/src/main.tsx:1-52`, `web/src/api/client.ts:1-132`,
 ```mermaid
 flowchart TB
   debut["evaluer_facture - facture au statut recu"] --> r10{"R10 : total de la facture incohérent ?"}
-  r10 -->|"oui"| seule["R10 est la seule anomalie renvoyée"]
+  r10 -->|"oui, jamais emprunté aujourd'hui"| seule["R10 est la seule anomalie renvoyée"]
   r10 -->|"non"| bloc["Pour chaque bloc"]
   bloc --> r11["R11 sur le BL rapproché, s'il y en a un"]
   r11 --> regles_bloc["R01 ou R02, puis R12 - toujours"]
@@ -923,6 +997,15 @@ jamais la configuration : `ingest.commun.regles_desactivees()` décide
 seule, et le moteur reçoit l'ensemble des règles actives. Exclusivités :
 R01 ou R02, R03 ou R04, et R07 jusqu'au seuil fort inclus, R08 au-delà.
 
+La branche « oui » de R10 n'est jamais empruntée aujourd'hui. R10 lit
+l'écart dans le seul motif `somme_incoherente` de `document.motifs`. Or ce
+motif, posé au dépôt, met la facture en `a_verifier`, et `rapprocher_facture`
+n'évalue rien tant qu'elle n'est pas `recu`. Aucun chemin ne repasse une
+facture en `recu` : `valider_document` ne traite que les BL et enlèvements.
+Une facture `recu` n'a donc aucun motif, et R10 renvoie toujours `None`
+(voir `docs/dette.md`, « une facture à vérifier ne se corrige pas depuis
+l'application »).
+
 ### 8.2 Catalogue
 
 | Règle | Intitulé | Famille à l'écran | Gravité | État au 24/09/2026 |
@@ -936,7 +1019,7 @@ R01 ou R02, R03 ou R04, et R07 jusqu'au seuil fort inclus, R08 au-delà.
 | R07 | Prix hors historique, écart de plus de 5 % et jusqu'à 15 % | prix | moyenne | désactivée par `CONTROLE_PRIX_ACTIF` |
 | R08 | Prix hors historique fort, plus de 15 % | prix | haute | désactivée par `CONTROLE_PRIX_ACTIF` |
 | R09 | Remise absente | prix | moyenne | désactivée par `CONTROLE_PRIX_ACTIF` |
-| R10 | Incohérence arithmétique de la facture | autre | haute | active |
+| R10 | Incohérence arithmétique de la facture | autre | haute | active dans le code, inatteignable en pratique : une facture incohérente reste à vérifier et n'est jamais rapprochée |
 | R11 | Incohérence arithmétique du BL | autre | moyenne | active |
 | R12 | Doublon de facturation | autre | haute | active |
 | R13 | Avoir sans origine | autre | moyenne | active |
@@ -959,7 +1042,10 @@ Sources : `app/modules/rules/engine.py:1-38`,
 `app/modules/rules/rules/R01.py` à `R17.py` (docstrings),
 `app/modules/ingest/anomalies.py:134-181`,
 `app/modules/ingest/commun.py:19-109`,
-`app/modules/ingest/parametres.py:58-171`.
+`app/modules/ingest/parametres.py:58-171`,
+`app/modules/ingest/rapprochement.py:280-297` et `:591`,
+`app/modules/ingest/factures.py:368`,
+`app/modules/ingest/corrections.py:560-570` et `:977-989`.
 
 ---
 
@@ -967,9 +1053,11 @@ Sources : `app/modules/rules/engine.py:1-38`,
 
 - `infra/README.md` : documentation technique d'ensemble (projet, CDC
   résumé, architecture, infrastructure, services externes, sécurité,
-  exploitation). Deux passages sont périmés : l'avertissement sur la
-  divergence entre `refonte-front` et `main` (les deux pointent sur
-  `be77aa0`) et la liste des dumps manuels (il y en a six, pas deux).
+  exploitation). Quatre passages sont périmés. Deux disent encore que
+  `refonte-front` diverge de `main`, alors que les deux pointent sur
+  `be77aa0` : la ligne 315 (« Mécanisme fusionné dans `refonte-front`, pas
+  dans `main` ») et l'avertissement des lignes 1122-1125. Deux parlent de
+  deux dumps manuels (lignes 828 et 1224), alors qu'il y en a six.
 - `docs/cahier-des-charges.md` : ce qui fait foi.
 - `docs/passation-lot-5.md`, puis les passations précédentes : état,
   décisions, questions ouvertes.
