@@ -1064,12 +1064,10 @@ interne des tâches ne sera donc pas dans le dépôt remis.
   à `None` (`app/main.py`) tant qu'elle n'est pas explicitement à `true` : les
   trois routes renvoient 404 par défaut. Sans effet sur `web/package.json`
   (`api:schema`), qui appelle `app.openapi()` directement en Python plutôt
-  que cette route. **Les deux instances en service n'ont pas ce correctif** :
-  les conteneurs `habitat_prod-api-1` et `habitat_demo-api-1`, créés le
-  23/09/2026, répondent toujours 200 sur `/openapi.json`
-  (`127.0.0.1:8450/openapi.json`, `127.0.0.1:8451/openapi.json`, vérifié par
-  curl le 24/09/2026) — ça restera vrai jusqu'à un déploiement depuis une
-  branche qui contient ce correctif (§9).
+  que cette route. **Déployé sur les deux instances le 24/09/2026** :
+  `https://habitat.ellumena.fr` et `https://demo.habitat.ellumena.fr`
+  répondent 404 sur `/docs`, `/redoc` et `/openapi.json`, 200 sur `/health`
+  et 401 sur `/api/moi` sans session (vérifié par curl après déploiement).
 - Les jetons de session expirés ne sont jamais purgés et sont stockés tels
   quels : qui lirait la base pourrait réutiliser une session de moins de 12 h.
 - Le compteur slowapi est en mémoire, propre au processus, remis à zéro à
