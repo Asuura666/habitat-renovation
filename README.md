@@ -20,6 +20,8 @@ fait foi. La documentation technique d'ensemble (demande du client,
 architecture, infrastructure, sécurité, exploitation, limites) est
 [`infra/README.md`](infra/README.md) : ce fichier-ci en est un résumé.
 
+Schémas de l'architecture : [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
 ## Stack
 
 | Domaine | Choix |
@@ -260,6 +262,7 @@ deux heures et la remise du dépôt taggé par jalon.
 | Où | Contenu |
 | --- | --- |
 | [`infra/README.md`](infra/README.md) | Documentation technique d'ensemble : demande du client, architecture, infrastructure et ses choix, sécurité, exploitation, limites |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Schémas de l'architecture : conteneurs, modules et frontières, modèle de données, flux, cycles de vie, front, règles de contrôle |
 | [`docs/cahier-des-charges.md`](docs/cahier-des-charges.md) | Cahier des charges, **fait foi** |
 | [`docs/deploiement-et-tests.md`](docs/deploiement-et-tests.md) | Guide opérationnel : tests, déploiement, mise à jour, tâches planifiées, retour arrière |
 | `docs/plan-lot-1.md` à `docs/plan-lot-5.md` | Plans de lot : décisions numérotées, questions, tâches |

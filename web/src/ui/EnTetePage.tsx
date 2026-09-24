@@ -2,7 +2,7 @@ import type { ReactElement, ReactNode } from "react";
 
 /**
  * En-tête d'écran (spec §2) : surtitre discret optionnel (ex. « Bonjour
- * Charly · mis à jour ce matin à 7 h 05 »), titre en Fraunces, actions
+ * Claire · mis à jour ce matin à 7 h 05 »), titre en Fraunces, actions
  * alignées à droite (boutons, filtres).
  */
 export function EnTetePage({
