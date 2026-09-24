@@ -361,13 +361,35 @@ def test_libelle_ecart_bascule_sur_controle_prix_actif() -> None:
 
 def test_tuiles_ecart_utilisent_libelle_ecart_partage() -> None:
     """Vue d'ensemble, fiche chantier et fiche fournisseur : les trois
-    tuiles « Écart … » appellent `libelleEcart`, jamais le texte figé
-    « Écart prix ou quantité » recopié à la main (constat de la tâche : un
-    seul point de traduction, `ui/libelles.ts`)."""
+    tuiles « Écart … » appellent `libelleEcart` et `sousTexteEcart`, jamais
+    le texte figé « Écart prix ou quantité » recopié à la main (constat de
+    la tâche : un seul point de traduction, `ui/libelles.ts`) -- et jamais
+    non plus un sous-texte muet sur la nature de l'écart (constat « Tuile »
+    de la revue des contrôles de prix)."""
     for chemin in ("VueEnsemble.tsx", "FicheChantier.tsx", "FicheFournisseur.tsx"):
         page = (SRC / "pages" / chemin).read_text()
-        assert "libelleEcart(compteARegler.data?.controle_prix_actif ?? true)" in page
-        assert '"Écart prix ou quantité"' not in page
+        assert "libelleEcart(controlePrixActif)" in page, chemin
+        assert "sousTexteEcart(controlePrixActif)" in page, chemin
+        assert '"Écart prix ou quantité"' not in page, chemin
+
+
+def test_controle_prix_actif_repli_est_toujours_faux() -> None:
+    """Constat mineur 2 de la revue des contrôles de prix : le repli de
+    `controle_prix_actif` (le temps qu'une requête réponde) est toujours
+    `false` -- même valeur que le défaut serveur (`CONTROLE_PRIX_ACTIF`
+    absente -> désactivé), jamais `true`, qui ferait flasher le libellé
+    « Écart prix ou quantité », la puce « Prix » ou le filtre « Prix » avant
+    la réponse de `GET /api/a-regler/compte`."""
+    for chemin in (
+        "ARegler.tsx",
+        "Reglages.tsx",
+        "VueEnsemble.tsx",
+        "FicheChantier.tsx",
+        "FicheFournisseur.tsx",
+    ):
+        page = (SRC / "pages" / chemin).read_text()
+        assert "controle_prix_actif ?? false" in page, chemin
+        assert "controle_prix_actif ?? true" not in page, chemin
 
 
 def test_a_regler_masque_le_filtre_prix_quand_controle_prix_inactif() -> None:
@@ -377,7 +399,7 @@ def test_a_regler_masque_le_filtre_prix_quand_controle_prix_inactif() -> None:
     aucun sens."""
     a_regler = (SRC / "pages" / "ARegler.tsx").read_text()
     assert (
-        "const controlePrixActif = compteARegler.data?.controle_prix_actif ?? true;"
+        "const controlePrixActif = compteARegler.data?.controle_prix_actif ?? false;"
         in a_regler
     )
     options = a_regler.split("const options: OptionFiltre[] = [", 1)[1].split("];", 1)[
@@ -385,6 +407,25 @@ def test_a_regler_masque_le_filtre_prix_quand_controle_prix_inactif() -> None:
     ]
     assert "...(controlePrixActif" in options
     assert '{ valeur: "prix", libelle: "Prix"' in options
+
+
+def test_a_regler_ancien_lien_filtre_prix_revient_a_tous() -> None:
+    """Constat mineur 6 de la revue des contrôles de prix : un ancien lien
+    `/a-regler?filtre=prix` (partagé avant la désactivation) revient au
+    filtre « tous » tant que le contrôle de prix reste désactivé -- calculé
+    une seule fois (`filtreEffectif`), réutilisé à la fois par la liste
+    affichée et par la pastille active des filtres (`Filtres`), jamais deux
+    lectures divergentes de la même règle."""
+    a_regler = (SRC / "pages" / "ARegler.tsx").read_text()
+    assert (
+        'const filtreEffectif = filtreActif === "prix" && !controlePrixActif '
+        '? "tous" : filtreActif;' in a_regler
+    )
+    assert "valeur={filtreEffectif}" in a_regler
+    bloc_liste = a_regler.split("const listeAffichee = useMemo(() => {", 1)[1].split(
+        "}, [filtreEffectif", 1
+    )[0]
+    assert "filtreEffectif ===" in bloc_liste
 
 
 def test_reglages_seuils_de_prix_signales_desactives() -> None:

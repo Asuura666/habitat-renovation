@@ -460,13 +460,12 @@ export function ARegler(): ReactElement {
           nbUrgents,
         )}`;
 
-  // Décision d'Ilane du 24/09/2026 (`docs/dette.md`) : contrôles de prix
-  // désactivés -- aucune anomalie R07/R08/R09 ne peut plus être ouverte
-  // (masquées côté serveur), le filtre « Prix » n'a donc plus de sens tant
-  // que `controle_prix_actif` (seule source, `GET /api/a-regler/compte`)
-  // reste faux. `?? true` le temps que la requête réponde : pas de flash
-  // "filtre qui disparaît" au premier rendu.
-  const controlePrixActif = compteARegler.data?.controle_prix_actif ?? true;
+  // Constat mineur 2 de la revue des contrôles de prix : le repli est
+  // `false`, même valeur que le défaut serveur (`CONTROLE_PRIX_ACTIF`
+  // absente -> désactivé) -- jamais l'inverse, qui ferait flasher le
+  // filtre « Prix » et la puce « Prix » d'une anomalie (`ProblemeDetail`)
+  // le temps que la requête réponde.
+  const controlePrixActif = compteARegler.data?.controle_prix_actif ?? false;
   const options: OptionFiltre[] = [
     { valeur: "tous", libelle: "Tous", compte: nbOuverts },
     { valeur: "urgents", libelle: "Urgents", compte: nbUrgents },
@@ -480,12 +479,21 @@ export function ARegler(): ReactElement {
     { valeur: "regles", libelle: "Déjà réglés" },
   ];
 
+  // Constat mineur 6 de la revue des contrôles de prix : un ancien lien
+  // `?filtre=prix` (partagé avant la désactivation, ou simplement tapé)
+  // revient au filtre « tous » tant que le contrôle de prix reste
+  // désactivé -- le filtre lui-même n'apparaît plus dans `options`
+  // ci-dessus, mais sans ce repli la liste resterait filtrée sur une
+  // catégorie qu'aucune anomalie ouverte ne peut plus porter, une liste
+  // vide sans explication plutôt qu'un retour silencieux à « tous ».
+  const filtreEffectif = filtreActif === "prix" && !controlePrixActif ? "tous" : filtreActif;
+
   const listeAffichee = useMemo(() => {
-    if (filtreActif === "regles") return problemesRegles;
-    if (filtreActif === "urgents") return problemesOuverts.filter((p) => urgenceProbleme(p) === "Urgent");
-    if (filtreActif === "tous") return problemesOuverts;
-    return problemesOuverts.filter((p) => categorieFiltreProbleme(p) === (filtreActif as CategorieFiltre));
-  }, [filtreActif, problemesOuverts, problemesRegles]);
+    if (filtreEffectif === "regles") return problemesRegles;
+    if (filtreEffectif === "urgents") return problemesOuverts.filter((p) => urgenceProbleme(p) === "Urgent");
+    if (filtreEffectif === "tous") return problemesOuverts;
+    return problemesOuverts.filter((p) => categorieFiltreProbleme(p) === (filtreEffectif as CategorieFiltre));
+  }, [filtreEffectif, problemesOuverts, problemesRegles]);
 
   const indexActuel = id !== undefined ? listeAffichee.findIndex((p) => p.id === id) : -1;
   const problemeActuel = indexActuel >= 0 ? listeAffichee[indexActuel] : undefined;
@@ -536,7 +544,7 @@ export function ARegler(): ReactElement {
         <EnTetePage
           surtitre={surtitre}
           titre="À régler"
-          actions={<Filtres options={options} valeur={filtreActif} onChange={changerFiltre} />}
+          actions={<Filtres options={options} valeur={filtreEffectif} onChange={changerFiltre} />}
         />
       </div>
 

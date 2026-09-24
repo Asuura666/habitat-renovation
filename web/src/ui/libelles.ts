@@ -101,6 +101,19 @@ export function libelleEcart(controlePrixActif: boolean): string {
   return controlePrixActif ? "Écart prix ou quantité" : "Écart de quantité";
 }
 
+/** Sous-texte de la tuile « Écart … » (Vue d'ensemble, fiche chantier,
+ * fiche fournisseur) : même bascule que `libelleEcart`, avec le même
+ * drapeau -- décrit ce que le montant contient plutôt qu'un mot vague
+ * (« un écart »), pour rester clair pour un non-technicien même quand les
+ * contrôles de prix sont désactivés (Vue d'ensemble affichait « livraisons
+ * concernées par un écart », muet sur la nature de l'écart alors que le
+ * libellé de la tuile dit déjà « quantité »). */
+export function sousTexteEcart(controlePrixActif: boolean): string {
+  return controlePrixActif
+    ? "livraisons concernées par un écart de prix ou de quantité"
+    : "livraisons avec un écart de quantité";
+}
+
 // ---------------------------------------------------------------------------
 // Gardes de mise en forme d'une valeur de `detail` : une clé absente affiche
 // « ? », le tiret cadratin (valeur manquante posée par les règles pures) est

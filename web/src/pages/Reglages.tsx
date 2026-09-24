@@ -125,7 +125,12 @@ export function Reglages(): ReactElement {
   // 24/09/2026, `docs/dette.md`) : seul endroit qui porte `controle_prix_
   // actif`, lu ici pour la mention des seuils de prix ci-dessous.
   const compteARegler = useQuery({ queryKey: CLE_COMPTE_A_REGLER, queryFn: obtenirCompteARegler });
-  const controlePrixActif = compteARegler.data?.controle_prix_actif ?? true;
+  // Constat mineur 2 de la revue des contrôles de prix : le repli est
+  // `false`, même valeur que le défaut serveur (`CONTROLE_PRIX_ACTIF`
+  // absente -> désactivé) -- jamais l'inverse, qui afficherait un instant
+  // la mention « Contrôle des prix désactivé pour le moment » comme fausse
+  // avant la réponse de la requête.
+  const controlePrixActif = compteARegler.data?.controle_prix_actif ?? false;
 
   return (
     <div className="max-w-4xl space-y-6">
