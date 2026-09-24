@@ -163,15 +163,30 @@ export function libelleCibleId(cibleTable: string | null, cibleId: string): stri
  * identifiant ne désigne aucune fiche dédiée (aucune route ne prend un
  * identifiant d'article ; l'alias d'un nom de chantier fournisseur n'est
  * pas l'identifiant du chantier auquel il a été rattaché), la destination
- * reste donc la liste plutôt qu'un lien qui ne mène nulle part. Si
- * l'élément visé n'existe plus (ex. une anomalie de prix, masquée depuis
- * la désactivation des contrôles de prix), la page cible affiche déjà son
- * propre état « introuvable » — ce fichier n'a pas à le savoir à l'avance.
- * Compte utilisateur et toute table que ce fichier ne connaît pas encore :
- * aucun lien (repli défensif, même principe que le reste de ce fichier). */
+ * reste donc la liste plutôt qu'un lien qui ne mène nulle part. Compte
+ * utilisateur et toute table que ce fichier ne connaît pas encore : aucun
+ * lien (repli défensif, même principe que le reste de ce fichier).
+ *
+ * Cas `anomalie` (constat de revue, 24/09/2026) : le journal n'enregistre
+ * une entrée sur une anomalie que quand elle vient d'être réglée, ignorée
+ * ou levée (`ingest/anomalies.py`) — jamais pendant qu'elle est encore
+ * ouverte. L'écran « À régler » ne liste par défaut que les problèmes
+ * ouverts (`ARegler.tsx::listeAffichee`) ; sans le filtre « Déjà réglés »
+ * (`?filtre=regles`), `/a-regler/<id>` retombe donc systématiquement sur
+ * son état « ce problème n'est plus dans la liste », y compris pour une
+ * anomalie réglée ou ignorée qui existe bien. `action` lève cette
+ * ambiguïté : pour `anomalie_levee`, l'anomalie est supprimée en base au
+ * moment même où l'entrée est écrite (`anomalies.py::synchroniser_
+ * anomalies`, `session.delete` juste après le `Journal`) — jamais
+ * consultable, donc aucun lien plutôt qu'un lien mort. Pour `anomalie_
+ * traitee`/`anomalie_ignoree`, l'anomalie existe toujours avec son
+ * nouveau statut : le lien pointe vers elle avec `?filtre=regles`, la
+ * page cible affichant déjà son état « introuvable » si elle a entre-temps
+ * disparu (ex. masquée par la désactivation d'un contrôle). */
 export function lienCible(
   cibleTable: string | null,
   cibleId: string | null,
+  action?: string,
 ): { href: string; libelle: string } | null {
   if (cibleTable === null || cibleId === null) {
     return null;
@@ -180,7 +195,10 @@ export function lienCible(
     case "document":
       return { href: `/documents/${cibleId}`, libelle: "Voir le document" };
     case "anomalie":
-      return { href: `/a-regler/${cibleId}`, libelle: "Voir le problème" };
+      if (action === "anomalie_levee") {
+        return null;
+      }
+      return { href: `/a-regler/${cibleId}?filtre=regles`, libelle: "Voir le problème" };
     case "chantier":
       return { href: `/chantiers/${cibleId}`, libelle: "Voir le chantier" };
     case "fournisseur":

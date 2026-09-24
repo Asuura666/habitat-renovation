@@ -435,14 +435,22 @@ def test_journal_lien_direct_vers_chaque_element_consultable() -> None:
     `/fournisseurs/:fournisseurId`, `/reglages`,
     `/a-regler?filtre=rattacher`, `/a-regler`). `utilisateur` et toute
     table inconnue n'ont pas de fiche dédiée : aucun `case` pour elles,
-    repli `default: return null`."""
+    repli `default: return null`.
+
+    Constat de revue (24/09/2026) : le journal n'enregistre une anomalie
+    que déjà réglée, ignorée ou levée -- jamais ouverte -- donc le lien
+    `anomalie` doit porter `?filtre=regles` (sinon `/a-regler/<id>` retombe
+    toujours sur « ce problème n'est plus dans la liste », même pour un
+    problème réglé ou ignoré qui existe bien) et ne doit apparaître ni pour
+    `anomalie_levee` (anomalie supprimée en base au moment de l'écriture du
+    journal, `anomalies.py::synchroniser_anomalies`) ni sans `action`."""
     journal_lib = (SRC / "lib" / "journal.ts").read_text()
     fonction = journal_lib.split("export function lienCible(", 1)[1].split("\n}\n", 1)[
         0
     ]
     for table, destination, libelle in (
         ("document", "`/documents/${cibleId}`", "Voir le document"),
-        ("anomalie", "`/a-regler/${cibleId}`", "Voir le problème"),
+        ("anomalie", "`/a-regler/${cibleId}?filtre=regles`", "Voir le problème"),
         ("chantier", "`/chantiers/${cibleId}`", "Voir le chantier"),
         ("fournisseur", "`/fournisseurs/${cibleId}`", "Voir le fournisseur"),
         ("parametre", '"/reglages"', "Voir les réglages"),
@@ -456,11 +464,18 @@ def test_journal_lien_direct_vers_chaque_element_consultable() -> None:
         bloc = fonction.split(f'case "{table}":', 1)[1].split("case ", 1)[0]
         assert destination in bloc, table
         assert libelle in bloc, table
+    bloc_anomalie = fonction.split('case "anomalie":', 1)[1].split("case ", 1)[0]
+    assert 'action === "anomalie_levee"' in bloc_anomalie
     assert '"utilisateur"' not in fonction
     assert "default:\n      return null;" in fonction
 
     journal_page = (SRC / "pages" / "Journal.tsx").read_text()
-    assert "lienCible(" in journal_page
+    assert (
+        journal_page.count(
+            "lienCible(entree.cible_table, entree.cible_id, entree.action)"
+        )
+        == 2
+    )
     # Cible tactile d'au moins 44 px (spec §7), même convention que les
     # autres liens de l'application (`FicheChantier.tsx::CLASSES_LIEN`).
     lien = journal_page.split("CLASSES_LIEN_CIBLE =", 1)[1].split("\n", 2)[1]
