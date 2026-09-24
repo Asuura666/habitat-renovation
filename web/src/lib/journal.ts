@@ -182,11 +182,28 @@ export function libelleCibleId(cibleTable: string | null, cibleId: string): stri
  * traitee`/`anomalie_ignoree`, l'anomalie existe toujours avec son
  * nouveau statut : le lien pointe vers elle avec `?filtre=regles`, la
  * page cible affichant déjà son état « introuvable » si elle a entre-temps
- * disparu (ex. masquée par la désactivation d'un contrôle). */
+ * disparu (ex. masquée par la désactivation d'un contrôle).
+ *
+ * Cas `chantier_alias` (constat de revue, 24/09/2026) : la seule entrée
+ * journalisée sur cette cible est `alias_valide`
+ * (`referentiels.py::valider_alias`), au moment même où l'alias est
+ * rattaché à un chantier -- son `apres` porte alors `chantier_id` (chaîne,
+ * contrat garanti côté serveur par `test_referentiels.py::test_valider_
+ * alias_journalise_chantier_id_dans_apres`, lu par cette fonction jamais
+ * par une requête séparée). Le lien pointe donc vers ce chantier plutôt
+ * que vers la liste : plus utile pour un rattachement qui vient d'avoir
+ * lieu. `chantier_id` absent ou non-chaîne (repli défensif, même principe
+ * que le reste de ce fichier, y compris pour une future entrée sur cette
+ * cible que ce fichier ne connaît pas encore) : lien vers la liste, comme
+ * avant ce constat. Aucun outil de test front dans la stack (L2-D17) :
+ * cette fonction et son appel (`pages/Journal.tsx`) sont gardés par
+ * `tests/test_web_socle.py::test_journal_lien_direct_vers_chaque_
+ * element_consultable`, qui lit ce fichier comme du texte. */
 export function lienCible(
   cibleTable: string | null,
   cibleId: string | null,
   action?: string,
+  apres?: Record<string, unknown> | null,
 ): { href: string; libelle: string } | null {
   if (cibleTable === null || cibleId === null) {
     return null;
@@ -205,8 +222,13 @@ export function lienCible(
       return { href: `/fournisseurs/${cibleId}`, libelle: "Voir le fournisseur" };
     case "parametre":
       return { href: "/reglages", libelle: "Voir les réglages" };
-    case "chantier_alias":
+    case "chantier_alias": {
+      const chantierId = apres?.chantier_id;
+      if (typeof chantierId === "string") {
+        return { href: `/chantiers/${chantierId}`, libelle: "Voir le chantier" };
+      }
       return { href: LIEN_CHANTIERS_A_RATTACHER, libelle: "Voir les chantiers à rattacher" };
+    }
     case "article":
       return { href: "/a-regler", libelle: "Voir les articles à valider" };
     default:

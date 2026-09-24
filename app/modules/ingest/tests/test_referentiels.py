@@ -994,6 +994,36 @@ async def test_valider_alias_propage_documents_et_blocs(
     }
 
 
+async def test_valider_alias_journalise_chantier_id_dans_apres(
+    db_session: AsyncSession, admin: Utilisateur
+) -> None:
+    """Contrat gardé côté serveur pour `web/src/lib/journal.ts::lienCible` :
+    une entrée `alias_valide` porte toujours `chantier_id` (chaîne) dans
+    `apres`, jamais absent ni d'un autre type -- c'est ce que ce champ lit
+    pour lier une entrée `chantier_alias` du journal vers la fiche du
+    chantier plutôt que vers la liste des chantiers à rattacher. Aucun
+    outil de test front dans la stack (L2-D17) : ce contrat est gardé ici,
+    pas par un test TypeScript."""
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur Contrat")
+    chantier = await _creer_chantier(db_session, nom="Chantier Contrat")
+    alias = await _creer_alias(db_session, fournisseur=fournisseur)
+
+    await valider_alias(
+        db_session, alias.id, chantier_id=chantier.id, auteur_id=admin.id
+    )
+
+    journal = (
+        await db_session.execute(
+            select(Journal).where(
+                Journal.cible_id == str(alias.id), Journal.action == "alias_valide"
+            )
+        )
+    ).scalar_one()
+    assert isinstance(journal.apres, dict)
+    assert journal.apres["chantier_id"] == str(chantier.id)
+    assert isinstance(journal.apres["chantier_id"], str)
+
+
 # ---------------------------------------------------------------------------
 # valider_article (L3-T8b)
 # ---------------------------------------------------------------------------

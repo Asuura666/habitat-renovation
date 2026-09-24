@@ -70,7 +70,7 @@ function LigneJournal({ entree }: { entree: EntreeJournal }): ReactElement {
   // (nom d'un réglage, identifiant d'un compte pour le filtre « Auteur ») —
   // jamais un UUID brut sous chaque ligne (revue finale, COUVERTURE-10).
   const idCible = entree.cible_id !== null ? libelleCibleId(entree.cible_table, entree.cible_id) : null;
-  const lien = lienCible(entree.cible_table, entree.cible_id, entree.action);
+  const lien = lienCible(entree.cible_table, entree.cible_id, entree.action, entree.apres);
   return (
     <tr>
       <td className="px-4 py-3 align-top font-mono text-xs text-encre-2 [overflow-wrap:anywhere]">
@@ -119,7 +119,7 @@ function LigneJournal({ entree }: { entree: EntreeJournal }): ReactElement {
  * 375 px (contrainte téléphone = cible à part entière, spec §7). */
 function CarteJournal({ entree }: { entree: EntreeJournal }): ReactElement {
   const idCible = entree.cible_id !== null ? libelleCibleId(entree.cible_table, entree.cible_id) : null;
-  const lien = lienCible(entree.cible_table, entree.cible_id, entree.action);
+  const lien = lienCible(entree.cible_table, entree.cible_id, entree.action, entree.apres);
   return (
     <Carte>
       <div className="flex items-baseline justify-between gap-3">

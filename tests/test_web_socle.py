@@ -443,7 +443,15 @@ def test_journal_lien_direct_vers_chaque_element_consultable() -> None:
     toujours sur « ce problème n'est plus dans la liste », même pour un
     problème réglé ou ignoré qui existe bien) et ne doit apparaître ni pour
     `anomalie_levee` (anomalie supprimée en base au moment de l'écriture du
-    journal, `anomalies.py::synchroniser_anomalies`) ni sans `action`."""
+    journal, `anomalies.py::synchroniser_anomalies`) ni sans `action`.
+
+    Second constat de revue (24/09/2026) : une entrée `chantier_alias`
+    (toujours `alias_valide`, `referentiels.py::valider_alias`) porte
+    `chantier_id` dans son `apres` (contrat gardé côté serveur par
+    `app/modules/ingest/tests/test_referentiels.py::test_valider_alias_
+    journalise_chantier_id_dans_apres`) -- le lien pointe donc vers ce
+    chantier plutôt que vers la liste des chantiers à rattacher, repli
+    défensif si `chantier_id` est absent ou n'est pas une chaîne."""
     journal_lib = (SRC / "lib" / "journal.ts").read_text()
     fonction = journal_lib.split("export function lienCible(", 1)[1].split("\n}\n", 1)[
         0
@@ -466,16 +474,20 @@ def test_journal_lien_direct_vers_chaque_element_consultable() -> None:
         assert libelle in bloc, table
     bloc_anomalie = fonction.split('case "anomalie":', 1)[1].split("case ", 1)[0]
     assert 'action === "anomalie_levee"' in bloc_anomalie
+    bloc_chantier_alias = fonction.split('case "chantier_alias":', 1)[1].split(
+        "case ", 1
+    )[0]
+    assert "apres?.chantier_id" in bloc_chantier_alias
+    assert 'typeof chantierId === "string"' in bloc_chantier_alias
+    assert "`/chantiers/${chantierId}`" in bloc_chantier_alias
     assert '"utilisateur"' not in fonction
     assert "default:\n      return null;" in fonction
 
     journal_page = (SRC / "pages" / "Journal.tsx").read_text()
-    assert (
-        journal_page.count(
-            "lienCible(entree.cible_table, entree.cible_id, entree.action)"
-        )
-        == 2
+    appel_lien_cible = (
+        "lienCible(entree.cible_table, entree.cible_id, entree.action, entree.apres)"
     )
+    assert journal_page.count(appel_lien_cible) == 2
     # Cible tactile d'au moins 44 px (spec §7), même convention que les
     # autres liens de l'application (`FicheChantier.tsx::CLASSES_LIEN`).
     lien = journal_page.split("CLASSES_LIEN_CIBLE =", 1)[1].split("\n", 2)[1]
