@@ -208,6 +208,26 @@ seuils concernés comme sans effet pour l'instant. Réactivation par un
 administrateur serveur (`.env` + redémarrage) quand l'historique couvre
 plusieurs mois, sans interrupteur à l'écran.
 
+**Second addendum du 24/09/2026 — décision (déjà prise, pas à valider) : R06
+« Livré mais pas facturé » désactivée.** Même jour, seconde décision
+d'Ilane : aucune preuve encore constatée que ce cas se produise. Même
+mécanisme que ci-dessus (`CONTROLE_LIVRE_NON_FACTURE_ACTIF`, optionnelle,
+défaut `false`, même fonction `ingest.commun.regles_desactivees`), mais R06
+est une règle de **suivi** (contrôle différé, `ingest.suivi
+.controles_differes`, commande `controles-differes`) : désactivée, elle
+n'est plus évaluée du tout, plutôt que seulement masquée après coup. Ses
+anomalies existantes restent masquées de tous les écrans, jamais fermées ni
+supprimées par un passage des contrôles différés (voir `docs/dette.md`, qui
+signale aussi une lacune préexistante et sans lien avec cette décision :
+contrairement aux contrôles de prix, l'archivage de la facture porteuse ne
+les retire pas). Aucune adaptation front : R06 était déjà rangée dans la
+catégorie « Quantités » (`ingest.anomalies.CATEGORIES_REGLE`), jamais un
+libellé ou un filtre qui lui soit propre — la tuile « Écart de quantité »
+et son sous-texte (« livraisons avec un écart de quantité ») restent
+corrects sans changement, R02 (« Livré sans bon », preuve dans la facture)
+reste active. Réactivation identique (`.env` + redémarrage), sans
+interrupteur à l'écran.
+
 ## 4. Contrôles finaux (sur `eeb93a4`)
 
 ```

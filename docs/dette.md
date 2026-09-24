@@ -856,14 +856,51 @@ dans `correction-finale-rapport.md`, même dossier) :
   optionnelle, défaut `false` ; `ingest.commun.regles_desactivees`, seule
   source de vérité). Leurs anomalies existantes sont masquées de chaque
   écran (À régler, compte, tableau de bord, bilan, export, comparaison BL,
-  fiches), jamais fermées ni supprimées : `rapprocher_facture` ne les passe
-  plus à `synchroniser_anomalies` comme « recalculées », elles restent donc
-  ouvertes en base, prêtes à réapparaître. Aucun interrupteur à l'écran ; le
-  front adapte deux libellés (tuile « Écart prix ou quantité » -> « Écart de
-  quantité », filtre « Prix » masqué dans « À régler ») et signale les trois
-  seuils concernés (`seuil_prix_pct`, `seuil_prix_fort_pct`,
-  `occurrences_prix_min` — pas de seuil propre à la remise en plus de ce
-  dernier) dans Réglages, qui restent modifiables. Réactiver avec
-  `CONTROLE_PRIX_ACTIF=true` (puis redémarrer l'API) quand l'historique
-  couvre plusieurs mois.
+  fiches), **jamais fermées ni supprimées par un rapprochement rejoué**
+  (`rapprocher_facture` ne les passe plus à `synchroniser_anomalies` comme
+  « recalculées », elles restent donc ouvertes en base, prêtes à
+  réapparaître) **ni par un passage des contrôles différés** (`R06`
+  ci-dessous partage exactement ce mécanisme, aucune des deux catégories de
+  règle désactivée n'est jamais considérée comme « recalculée » par le
+  balayage de suppression, Ruling R8 d'`ingest/anomalies.py`) ; en revanche
+  **l'archivage du document les retire, comme les autres anomalies** de sa
+  portée (`corrections.archiver_document` sur une facture appelle
+  `synchroniser_anomalies(anomalies=(), portee_regles=REGLES_FACTURE)`, qui
+  couvre R07/R08/R09 sans condition — Ruling R25 du lot 4). Aucun
+  interrupteur à l'écran ; le front adapte deux libellés (tuile « Écart prix
+  ou quantité » -> « Écart de quantité », filtre « Prix » masqué dans « À
+  régler ») et signale les trois seuils concernés (`seuil_prix_pct`,
+  `seuil_prix_fort_pct`, `occurrences_prix_min` — pas de seuil propre à la
+  remise en plus de ce dernier) dans Réglages, qui restent modifiables.
+  Réactiver avec `CONTROLE_PRIX_ACTIF=true` (puis redémarrer l'API) quand
+  l'historique couvre plusieurs mois.
+- **R06 (« Livré mais pas facturé ») désactivée le 24/09/2026, seconde
+  décision d'Ilane le même jour** : aucune preuve encore constatée que ce
+  cas se produise. Même mécanisme que les contrôles de prix ci-dessus
+  (`CONTROLE_LIVRE_NON_FACTURE_ACTIF`, optionnelle, défaut `false` ;
+  `ingest.commun.regles_desactivees` combine les deux drapeaux). R06 est une
+  règle de **suivi** (contrôle différé, `ingest.suivi.controles_differes`,
+  déclenchée par `python -m app.cli controles-differes`, jamais par
+  `rapprocher_facture`) : désactivée, elle n'est plus évaluée
+  (`rules.engine.evaluer_suivi` saute son appel), ses anomalies existantes
+  restent masquées de toutes les lectures (même point unique,
+  `condition_regles_actives`) et **ne sont jamais fermées ni supprimées par
+  un passage des contrôles différés** tant que le drapeau reste désactivé
+  (`controles_differes` passe `regles_actives`/`portee_regles = REGLES_SUIVI
+  - regles_desactivees()`, R06 exclue des deux). **Contrairement aux
+  contrôles de prix, l'archivage de la facture porteuse ne les retire pas** :
+  `corrections.archiver_document` ne balaie que `REGLES_FACTURE` pour une
+  facture (Ruling R25 ci-dessus), R06 (`REGLES_SUIVI`) n'en fait pas partie
+  — une R06 déjà ouverte sur une facture ensuite archivée reste donc ouverte
+  en base indéfiniment, y compris après réactivation, jusqu'à ce qu'un futur
+  passage des contrôles différés recalcule cette ligne (matière non exclue
+  par le filtre `facture_doc.statut != "archive"` d'`ingest.suivi
+  ._lignes_bl_non_facturees`, qui *exclut* justement les blocs d'une facture
+  archivée de la production de nouvelles anomalies R06 — donc plus jamais
+  recalculée, ni fermée ni relevée). Constat de dette pré-existant, non
+  introduit par cette désactivation (même lacune que si R06 était restée
+  active) — à corriger un jour si observé en pratique. R02 (« Livré sans
+  bon ») reste active (décision d'Ilane : la preuve est dans la facture).
+  Réactiver avec `CONTROLE_LIVRE_NON_FACTURE_ACTIF=true` (puis redémarrer
+  l'API) si le cas est un jour constaté.
 
