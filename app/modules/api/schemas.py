@@ -432,17 +432,16 @@ class CompteProblemesReponse(BaseModel):
     quantité ») et masque le filtre « Prix » de l'écran « À régler » quand
     ce drapeau est faux -- voir `ingest.a_traiter.CompteProblemes`.
 
-    `controle_livre_non_facture_actif` (même décision, seconde demande du
-    jour) : l'écran Réglages signale sans effet le seuil propre à R06
-    (`delai_ligne_bl_non_facturee_j`) quand ce second drapeau, indépendant
-    du premier, est faux -- voir `ingest.a_traiter.CompteProblemes`."""
+    `controle_livre_non_facture_actif` n'est plus un attribut de cette
+    réponse : depuis que `ingest.parametres._cle_masquee` masque
+    `delai_ligne_bl_non_facturee_j` côté serveur, plus aucun écran ne lit
+    ce second drapeau -- voir `ingest.a_traiter.CompteProblemes`."""
 
     model_config = ConfigDict(from_attributes=True)
 
     nb_problemes: int
     nb_urgents: int
     controle_prix_actif: bool
-    controle_livre_non_facture_actif: bool
 
 
 class ChantierReponse(BaseModel):

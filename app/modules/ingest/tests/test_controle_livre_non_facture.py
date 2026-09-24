@@ -32,7 +32,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ingest import commun
-from app.modules.ingest.a_traiter import compter_problemes_a_regler
 from app.modules.ingest.anomalies import compter_anomalies_ouvertes, lister_anomalies
 from app.modules.ingest.models import (
     Anomalie,
@@ -319,31 +318,3 @@ async def test_r06_masquee_du_compte_quand_desactive(
 
     assert nb_ouvertes == 0
     assert nb_hautes == 0
-
-
-# --------------------------------------------------------------------------
-# `CompteProblemes.controle_livre_non_facture_actif` -- constat 1 de la
-# relecture de l'évolution « R06 désactivée » : exposé pour que l'écran
-# Réglages puisse signaler sans effet le seuil propre à R06, même mécanisme
-# que `controle_prix_actif` (`test_controle_prix.py`).
-# --------------------------------------------------------------------------
-
-
-async def test_compte_reflete_controle_livre_non_facture_actif_quand_faux(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _regler_controle_livre_non_facture(monkeypatch, actif=False)
-
-    compte = await compter_problemes_a_regler(db_session)
-
-    assert compte.controle_livre_non_facture_actif is False
-
-
-async def test_compte_reflete_controle_livre_non_facture_actif_quand_vrai(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _regler_controle_livre_non_facture(monkeypatch, actif=True)
-
-    compte = await compter_problemes_a_regler(db_session)
-
-    assert compte.controle_livre_non_facture_actif is True
