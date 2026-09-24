@@ -33,26 +33,30 @@ def anyio_backend() -> str:
 
 
 class _SettingsControlePrix:
-    """Substitut minimal de `app.core.config.Settings` : seul
-    `controle_prix_actif` est jamais lu, par `ingest.commun
-    .controle_prix_actif` (voir `_controle_prix_actif_par_defaut`
-    ci-dessous)."""
+    """Substitut minimal de `app.core.config.Settings` : seuls
+    `controle_prix_actif` et `controle_livre_non_facture_actif` sont jamais
+    lus, par `ingest.commun.controle_prix_actif`/`controle_livre_non_
+    facture_actif` (voir `_controle_prix_actif_par_defaut` ci-dessous)."""
 
-    def __init__(self, controle_prix_actif: bool) -> None:
+    def __init__(
+        self, controle_prix_actif: bool, controle_livre_non_facture_actif: bool = True
+    ) -> None:
         self.controle_prix_actif = controle_prix_actif
+        self.controle_livre_non_facture_actif = controle_livre_non_facture_actif
 
 
 @pytest.fixture(autouse=True)
 def _controle_prix_actif_par_defaut(monkeypatch: pytest.MonkeyPatch) -> None:
     """Décision d'Ilane du 24/09/2026 (`docs/dette.md`) : le défaut réel de
-    l'application (`CONTROLE_PRIX_ACTIF` absente ->
-    `Settings.controle_prix_actif = False`) masquerait silencieusement
-    toutes les anomalies R07/R08/R09 que les tests d'`ingest` antérieurs à
-    cette décision créent en s'attendant à les voir (bilan, tableau de bord,
-    comparaison BL, rapprochement…). Cette fixture réenclenche donc le
-    drapeau par défaut pour tous les tests de ce paquet ; les tests dédiés au
-    masquage (`test_controle_prix.py`) l'écrasent localement avec le même
-    idiome pour tester le drapeau désactivé."""
+    l'application (`CONTROLE_PRIX_ACTIF`/`CONTROLE_LIVRE_NON_FACTURE_ACTIF`
+    absentes -> toutes deux `False`) masquerait silencieusement toutes les
+    anomalies R07/R08/R09 et R06 que les tests d'`ingest` antérieurs à cette
+    décision créent en s'attendant à les voir (bilan, tableau de bord,
+    comparaison BL, rapprochement, contrôles différés…). Cette fixture
+    réenclenche donc les deux drapeaux par défaut pour tous les tests de ce
+    paquet ; les tests dédiés au masquage (`test_controle_prix.py`,
+    `test_controle_livre_non_facture.py`) l'écrasent localement avec le même
+    idiome pour tester le drapeau concerné désactivé."""
     monkeypatch.setattr(commun, "get_settings", lambda: _SettingsControlePrix(True))
 
 

@@ -35,7 +35,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ingest import commun
 from app.modules.ingest.a_traiter import compter_problemes_a_regler
-from app.modules.ingest.anomalies import compter_anomalies_ouvertes, lister_anomalies
+from app.modules.ingest.anomalies import (
+    AnomalieIntrouvable,
+    compter_anomalies_ouvertes,
+    lister_anomalies,
+    regles_de_categorie,
+    traiter_anomalie,
+)
 from app.modules.ingest.bilan import bilan_detail, bilan_par_chantier
 from app.modules.ingest.comparaison_bl import comparer_bl
 from app.modules.ingest.export import csv_bilan_detail
@@ -44,8 +50,10 @@ from app.modules.ingest.models import (
     BlocFacture,
     Document,
     Fournisseur,
+    Journal,
     Ligne,
     RapprochementLigne,
+    Utilisateur,
 )
 from app.modules.ingest.rapprochement import rapprocher_facture
 from app.modules.ingest.tableau_de_bord import tableau_de_bord
@@ -58,10 +66,13 @@ def _regler_controle_prix(monkeypatch: pytest.MonkeyPatch, *, actif: bool) -> No
     """Écrase, pour le test courant, la fixture autouse
     `_controle_prix_actif_par_defaut` (`conftest.py`) -- même idiome (seule
     `ingest.commun.get_settings` est monkeypatchée, jamais une seconde
-    lecture de `Settings` ailleurs)."""
+    lecture de `Settings` ailleurs). `controle_livre_non_facture_actif` reste
+    à `True` (R06 active, hors périmètre de ce fichier) -- même défaut que
+    la fixture autouse, jamais affecté par ce fichier dédié aux prix."""
 
     class _SettingsInventee:
         controle_prix_actif = actif
+        controle_livre_non_facture_actif = True
 
     monkeypatch.setattr(commun, "get_settings", lambda: _SettingsInventee())
 
@@ -85,6 +96,17 @@ def test_regles_desactivees_prix_quand_inactif(monkeypatch: pytest.MonkeyPatch) 
     assert commun.regles_desactivees() == frozenset({"R07", "R08", "R09"})
 
 
+def test_regles_prix_egale_regles_de_categorie_prix() -> None:
+    """Constat mineur 4 de la revue des contrôles de prix : `REGLES_PRIX`
+    (`ingest.commun`, ce que `regles_desactivees` masque) et
+    `regles_de_categorie("prix")` (`ingest.anomalies.CATEGORIES_REGLE`, ce
+    que le filtre « Prix » de l'écran « À régler » affiche) sont deux listes
+    écrites à la main dans deux modules différents -- ce test échoue dès
+    qu'elles divergent, plutôt que de laisser un filtre montrer une règle
+    que le masquage ne masque plus, ou l'inverse."""
+    assert regles_de_categorie("prix") == commun.REGLES_PRIX
+
+
 def test_regles_desactivees_ne_touche_aucune_autre_regle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -103,6 +125,23 @@ def test_regles_desactivees_ne_touche_aucune_autre_regle(
 # Aides de construction (données inventées) -- même forme que
 # `test_rapprochement.py`/`test_comparaison_bl.py`.
 # --------------------------------------------------------------------------
+
+
+async def _creer_admin(db_session: AsyncSession) -> Utilisateur:
+    """Seulement pour les tests de `traiter_anomalie` ci-dessous (`traitee_
+    par`/`Journal.utilisateur_id` portent une clé étrangère vers
+    `utilisateur.id`, contrairement à `auteur_id` du chemin refusé avant
+    toute écriture)."""
+    utilisateur = Utilisateur(
+        email=f"admin.prix.{uuid.uuid4()}@example.invalid",
+        role="admin",
+        nom="Admin Testeur Prix",
+        is_active=True,
+    )
+    db_session.add(utilisateur)
+    await db_session.commit()
+    await db_session.refresh(utilisateur)
+    return utilisateur
 
 
 async def _creer_fournisseur(
@@ -300,6 +339,69 @@ async def test_r08_reapparait_dans_lister_anomalies_quand_reactive(
     anomalies = await lister_anomalies(db_session, statut="ouverte")
 
     assert any(a.regle == "R08" for a in anomalies)
+
+
+async def test_r08_traiter_anomalie_refuse_avant_modification_quand_desactive(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    scenario_r08: tuple[Document, BlocFacture, Ligne, Anomalie],
+) -> None:
+    """Constat mineur 1 de la revue des contrôles de prix : une anomalie
+    d'une règle désactivée est masquée de toute lecture, donc traitée comme
+    introuvable ici aussi -- `AnomalieIntrouvable` (404), sans toucher à son
+    statut ni écrire au journal (refus **avant** toute modification, jamais
+    une transition puis un 404 sur la relecture). `auteur_id` inventé,
+    jamais un vrai utilisateur : ce chemin ne doit jamais écrire (sinon la
+    contrainte de clé étrangère `traitee_par`/`Journal.utilisateur_id`
+    lèverait avant même l'assertion)."""
+    _regler_controle_prix(monkeypatch, actif=False)
+    _facture, _bloc, _ligne, anomalie = scenario_r08
+
+    with pytest.raises(AnomalieIntrouvable):
+        await traiter_anomalie(
+            db_session,
+            anomalie.id,
+            statut="traitee",
+            commentaire="Tentative alors que R08 est désactivée.",
+            auteur_id=uuid.uuid4(),
+        )
+
+    inchangee = await db_session.get(Anomalie, anomalie.id)
+    assert inchangee is not None
+    assert inchangee.statut == "ouverte"
+    assert inchangee.commentaire is None
+    journal = (
+        (
+            await db_session.execute(
+                select(Journal).where(Journal.cible_id == str(anomalie.id))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert journal == []
+
+
+async def test_r08_traiter_anomalie_fonctionne_quand_reactive(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    scenario_r08: tuple[Document, BlocFacture, Ligne, Anomalie],
+) -> None:
+    """Contre-épreuve : une fois R08 réactivée, `traiter_anomalie`
+    fonctionne normalement sur la même anomalie."""
+    _regler_controle_prix(monkeypatch, actif=True)
+    _facture, _bloc, _ligne, anomalie = scenario_r08
+    admin = await _creer_admin(db_session)
+
+    resultat = await traiter_anomalie(
+        db_session,
+        anomalie.id,
+        statut="ignoree",
+        commentaire="Prix négocié, à ignorer.",
+        auteur_id=admin.id,
+    )
+
+    assert resultat.statut == "ignoree"
 
 
 async def test_r08_masquee_du_compte_quand_desactive(

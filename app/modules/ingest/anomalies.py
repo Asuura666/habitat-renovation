@@ -81,17 +81,22 @@ Décisions du contrôleur (L4-T8) :
   explicitement posée par la règle prime sur toute déduction depuis le bloc
   ou le document.
 - `condition_regles_actives` (décision d'Ilane du 24/09/2026, `docs/dette
-  .md` : contrôles de prix désactivés) : masque toute anomalie dont la
-  règle est dans `ingest.commun.regles_desactivees()` (R07/R08/R09 tant que
-  `CONTROLE_PRIX_ACTIF` n'est pas actif) — jamais détruite ni fermée
-  (`rapprochement.rapprocher_facture` ne les passe plus à `synchroniser_
-  anomalies` comme « recalculées », voir son docstring), seulement absente
-  de chaque lecture. Point unique, réutilisé par `_requete_anomalies`,
-  `compter_anomalies_ouvertes`, `compter_anomalies_hautes_ouvertes` ainsi
-  que `ingest.bilan._sous_requete_anomalies`/`_anomalies_par_ligne_et_bloc`
-  et `ingest.comparaison_bl.comparer_bl` — jamais un filtre dupliqué par
-  écran (`bilan`, tableau de bord, export CSV et compte « À régler » en
-  héritent tous, puisqu'ils réutilisent ces mêmes fonctions). Le journal
+  .md` : contrôles de prix puis R06 désactivés) : masque toute anomalie dont
+  la règle est dans `ingest.commun.regles_desactivees()` (R07/R08/R09 tant
+  que `CONTROLE_PRIX_ACTIF` n'est pas actif, R06 tant que `CONTROLE_LIVRE_
+  NON_FACTURE_ACTIF` n'est pas actif) — jamais détruite ni fermée
+  (`rapprochement.rapprocher_facture`/`ingest.suivi.controles_differes` ne
+  les passent plus à `synchroniser_anomalies` comme « recalculées », voir
+  leurs docstrings), seulement absente de chaque lecture. Point unique,
+  réutilisé par `_requete_anomalies`, `compter_anomalies_ouvertes`,
+  `compter_anomalies_hautes_ouvertes` ainsi que `ingest.bilan._sous_requete_
+  anomalies`/`_anomalies_par_ligne_et_bloc` et `ingest.comparaison_bl
+  .comparer_bl` — jamais un filtre dupliqué par écran (`bilan`, tableau de
+  bord, export CSV et compte « À régler » en héritent tous, puisqu'ils
+  réutilisent ces mêmes fonctions). `traiter_anomalie` applique la même
+  règle avant toute modification (constat mineur 1 de la revue des
+  contrôles de prix) : une anomalie masquée est `AnomalieIntrouvable`
+  (404), jamais un statut changé ni une ligne de journal. Le journal
   (`ingest/journal.py`) ne filtre jamais sur ce critère : il garde
   l'historique tel quel, décision explicite de la tâche.
 """
@@ -764,6 +769,13 @@ async def traiter_anomalie(
     le contrat est déjà garanti côté route par le schéma Pydantic
     (L4-T9), jamais fait confiance aveuglément ici (même principe que
     `corrections.corriger_entete`).
+
+    Anomalie d'une règle désactivée (constat mineur 1 de la revue des
+    contrôles de prix, décision d'Ilane du 24/09/2026) : elle est masquée
+    de toute lecture (`condition_regles_actives`, voir le docstring de
+    module), donc traitée comme introuvable ici aussi -- `AnomalieIntrouvable`
+    (404), **avant** toute modification, jamais un statut changé ni une
+    ligne de journal pour une anomalie que l'écran ne montre plus.
     """
     if statut not in _STATUTS_TRANSITION:
         raise ValueError(f"statut invalide : {statut!r}")
@@ -777,7 +789,7 @@ async def traiter_anomalie(
         raise ValueError("commentaire obligatoire (1 à 500 caractères)")
 
     anomalie = await session.get(Anomalie, anomalie_id)
-    if anomalie is None:
+    if anomalie is None or anomalie.regle in regles_desactivees():
         raise AnomalieIntrouvable(str(anomalie_id))
     if anomalie.statut != "ouverte":
         raise TransitionInterdite(str(anomalie_id))

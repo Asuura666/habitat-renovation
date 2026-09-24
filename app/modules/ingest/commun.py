@@ -30,6 +30,19 @@ directement pour cette décision. `rules` reste pur : c'est cette fonction,
 côté `ingest` (l'orchestrateur), qui lit la configuration et la traduit en
 un ensemble de codes de règle, un type que `rules.engine.evaluer_facture`
 accepte sans jamais importer `app.core`.
+
+`controle_livre_non_facture_actif` (même décision, seconde demande d'Ilane
+le 24/09/2026) : R06 (« Livré mais pas facturé », contrôle différé de
+`ingest.suivi`) est désactivée par le même mécanisme, tant que
+`Settings.controle_livre_non_facture_actif` n'est pas explicitement à
+`true` — aucune preuve encore constatée que ce cas se produise. Même point
+unique : `regles_desactivees` combine les deux drapeaux (`REGLES_PRIX` et/ou
+`REGLES_LIVRE_NON_FACTURE`, indépendamment) ; `ingest.suivi.controles_
+differes` lit `regles_desactivees` exactement comme `rapprochement.py`, pour
+que R06 ne soit ni évaluée ni considérée comme « recalculée » par le
+balayage de suppression (`synchroniser_anomalies`, Ruling R8) quand elle est
+désactivée — ses anomalies déjà ouvertes restent en base (masquées, jamais
+fermées ni supprimées) jusqu'à réactivation.
 """
 
 from __future__ import annotations
@@ -49,6 +62,11 @@ logger = logging.getLogger("app.modules.ingest.service")
 # ._evaluer_prix`), jamais une autre catégorie.
 REGLES_PRIX: frozenset[str] = frozenset({"R07", "R08", "R09"})
 
+# Seconde demande d'Ilane, même jour (`docs/dette.md`) : R06 (« Livré mais
+# pas facturé », contrôle différé de `ingest.suivi`), jamais une autre règle
+# de suivi (R14/R15/R16 restent actives).
+REGLES_LIVRE_NON_FACTURE: frozenset[str] = frozenset({"R06"})
+
 
 def controle_prix_actif() -> bool:
     """Reflet direct de `Settings.controle_prix_actif` -- voir le docstring
@@ -59,13 +77,28 @@ def controle_prix_actif() -> bool:
     return get_settings().controle_prix_actif
 
 
+def controle_livre_non_facture_actif() -> bool:
+    """Reflet direct de `Settings.controle_livre_non_facture_actif` -- voir
+    le docstring de module. Aucun front n'a besoin de ce drapeau pour
+    l'instant (R06 est déjà rangée dans la catégorie « quantites »,
+    `ingest.anomalies.CATEGORIES_REGLE`, jamais un libellé ou un filtre
+    dédié) : exposée quand même, séparément de `regles_desactivees`, par
+    symétrie avec `controle_prix_actif` plutôt que par besoin déjà connu."""
+    return get_settings().controle_livre_non_facture_actif
+
+
 def regles_desactivees() -> frozenset[str]:
-    """`REGLES_PRIX` si les contrôles de prix sont désactivés, `frozenset()`
-    sinon -- la seule fonction qui décide quelles règles sont désactivées
-    dans toute l'application (voir le docstring de module)."""
-    if controle_prix_actif():
-        return frozenset()
-    return REGLES_PRIX
+    """Union des règles désactivées par chacun des deux drapeaux
+    indépendants (voir le docstring de module) -- la seule fonction qui
+    décide quelles règles sont désactivées dans toute l'application.
+    `REGLES_PRIX` et `REGLES_LIVRE_NON_FACTURE` ne se recouvrent jamais,
+    chaque drapeau se lit et s'active indépendamment de l'autre."""
+    desactivees: frozenset[str] = frozenset()
+    if not controle_prix_actif():
+        desactivees |= REGLES_PRIX
+    if not controle_livre_non_facture_actif():
+        desactivees |= REGLES_LIVRE_NON_FACTURE
+    return desactivees
 
 
 def _journaliser_echec(etape: str, update_id: int, exc: Exception) -> None:

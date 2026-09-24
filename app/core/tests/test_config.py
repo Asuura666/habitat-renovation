@@ -210,6 +210,47 @@ def test_controle_prix_actif_peut_etre_active(
     assert settings.controle_prix_actif is True
 
 
+def test_controle_livre_non_facture_actif_absent_vaut_faux(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Décision d'Ilane du 24/09/2026, seconde demande du jour (`docs/dette
+    .md`) : `CONTROLE_LIVRE_NON_FACTURE_ACTIF` est optionnelle (son absence
+    ne lève jamais de `ValidationError`) et vaut `False` par défaut -- R06
+    reste désactivée tant qu'elle n'est pas explicitement mise à `true`."""
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+    monkeypatch.delenv("CONTROLE_LIVRE_NON_FACTURE_ACTIF", raising=False)
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.controle_livre_non_facture_actif is False
+
+
+def test_controle_livre_non_facture_actif_peut_etre_active(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+    monkeypatch.setenv("CONTROLE_LIVRE_NON_FACTURE_ACTIF", "true")
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.controle_livre_non_facture_actif is True
+
+
+def test_controle_prix_et_controle_livre_non_facture_sont_independants(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Les deux drapeaux se lisent et s'activent indépendamment l'un de
+    l'autre -- jamais un seul interrupteur qui gouvernerait les deux."""
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+    monkeypatch.setenv("CONTROLE_PRIX_ACTIF", "true")
+    monkeypatch.delenv("CONTROLE_LIVRE_NON_FACTURE_ACTIF", raising=False)
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.controle_prix_actif is True
+    assert settings.controle_livre_non_facture_actif is False
+
+
 def test_drive_reste_optionnel_et_son_secret_est_masque(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

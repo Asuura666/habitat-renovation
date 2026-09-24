@@ -46,6 +46,14 @@ class Settings(BaseSettings):
     redémarrage). `ingest.commun.regles_desactivees` est la seule fonction
     qui la lit pour en dériver l'ensemble des règles à masquer — jamais une
     seconde lecture de ce drapeau ailleurs dans le code.
+
+    `controle_livre_non_facture_actif` (même décision, 24/09/2026, seconde
+    demande d'Ilane le même jour) : aucune preuve encore constatée que R06
+    (« Livré mais pas facturé », contrôle différé, `app.modules.ingest
+    .suivi`) se produise réellement — désactivée côté serveur par le même
+    mécanisme que `controle_prix_actif` (optionnelle, défaut `False`,
+    réactivable par le même geste d'administrateur), lue par la même seule
+    fonction `ingest.commun.regles_desactivees`.
     """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -61,6 +69,7 @@ class Settings(BaseSettings):
     google_drive_folder_id: str | None = None
     cookie_secure: bool
     controle_prix_actif: bool = False
+    controle_livre_non_facture_actif: bool = False
 
 
 @cache

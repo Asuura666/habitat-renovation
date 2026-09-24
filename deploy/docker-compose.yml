@@ -47,6 +47,10 @@ services:
       # docs/dette.md) : contrôles de prix R07/R08/R09 désactivés tant
       # qu'elle n'est pas explicitement à "true".
       CONTROLE_PRIX_ACTIF: "${CONTROLE_PRIX_ACTIF:-false}"
+      # Optionnelle, défaut false (décision d'Ilane du 24/09/2026,
+      # docs/dette.md) : R06 désactivée tant qu'elle n'est pas explicitement
+      # à "true".
+      CONTROLE_LIVRE_NON_FACTURE_ACTIF: "${CONTROLE_LIVRE_NON_FACTURE_ACTIF:-false}"
     depends_on:
       postgres:
         condition: service_healthy

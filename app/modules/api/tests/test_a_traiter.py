@@ -26,6 +26,7 @@ from app.core.auth import NOM_COOKIE
 from app.core.auth import router as auth_router
 from app.core.config import get_settings
 from app.modules.api import router as api_router
+from app.modules.ingest import commun
 from app.modules.ingest.models import Document, Utilisateur
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
@@ -186,11 +187,38 @@ async def test_compte_a_regler_agent_renvoie_403(
     assert reponse.status_code == 403
 
 
+def _regler_drapeaux(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    prix_actif: bool,
+    livre_non_facture_actif: bool = True,
+) -> None:
+    """Constat mineur 5 de la revue des contrôles de prix : `GET /api/
+    a-regler/compte` traverse `ingest.commun.controle_prix_actif` (jamais la
+    dépendance FastAPI de `get_settings`, court-circuitée pour ce module,
+    voir son docstring) -- monkeypatcher `commun.get_settings` rend
+    l'assertion déterministe, plutôt que de dépendre de l'absence de
+    `CONTROLE_PRIX_ACTIF`/`CONTROLE_LIVRE_NON_FACTURE_ACTIF` dans le `.env`
+    de test (qui pourrait changer sans casser ce test au bon endroit). Noms
+    de paramètres différents des attributs posés (même idiome que
+    `test_controle_prix._regler_controle_prix`) : un corps de classe qui
+    réassigne un nom déjà lié dans la portée englobante le rendrait local à
+    la classe avant même la lecture du membre de droite."""
+
+    class _SettingsInventee:
+        controle_prix_actif = prix_actif
+        controle_livre_non_facture_actif = livre_non_facture_actif
+
+    monkeypatch.setattr(commun, "get_settings", lambda: _SettingsInventee())
+
+
 async def test_compte_a_regler_admin_compte_la_liste_de_l_ecran(
     db_session: AsyncSession,
     sessions_test: async_sessionmaker[AsyncSession],
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _regler_drapeaux(monkeypatch, prix_actif=False)
     admin = await _creer_utilisateur(
         db_session, email="admin.compte1@example.invalid", role="admin"
     )
@@ -203,10 +231,30 @@ async def test_compte_a_regler_admin_compte_la_liste_de_l_ecran(
 
     assert reponse.status_code == 200
     # Un seul document « à vérifier », aucune anomalie : 1 problème, 0 urgent.
-    # `controle_prix_actif` : false par défaut (`CONTROLE_PRIX_ACTIF` absente
-    # du `.env` de test, décision d'Ilane du 24/09/2026, `docs/dette.md`).
     assert reponse.json() == {
         "nb_problemes": 1,
         "nb_urgents": 0,
         "controle_prix_actif": False,
     }
+
+
+async def test_compte_a_regler_reflete_controle_prix_actif_quand_vrai(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Contre-épreuve du test ci-dessus : les deux valeurs du drapeau sont
+    couvertes, aucune des deux par la seule absence d'une variable du
+    `.env` de test."""
+    _regler_drapeaux(monkeypatch, prix_actif=True)
+    admin = await _creer_utilisateur(
+        db_session, email="admin.compte2@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(app_test, "GET", "/api/a-regler/compte", cookie=cookie)
+
+    assert reponse.status_code == 200
+    assert reponse.json()["controle_prix_actif"] is True

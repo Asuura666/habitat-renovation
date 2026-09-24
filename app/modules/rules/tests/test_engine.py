@@ -739,6 +739,44 @@ def test_evaluer_facture_regles_actives_ne_touche_pas_les_autres_regles() -> Non
     assert [a.regle for a in anomalies] == ["R01"]
 
 
+def test_evaluer_facture_regles_actives_filtre_regle_sans_garde_dediee() -> None:
+    """Constat mineur 3 de la revue des contrôles de prix : `_filtrees`
+    retire de la sortie toute règle absente de `regles_actives`, même sans
+    garde individuelle dédiée (contrairement à R07/R08/R09) -- ici R01, qui
+    n'observe jamais `regles_actives` avant d'être appelée. Sans cette
+    dernière passe, la portée passée à `synchroniser_anomalies` (calculée à
+    partir du même `regles_actives`) et la sortie du moteur divergeraient
+    dès qu'une règle sans garde individuelle est retirée."""
+    document = _document(coherent=True)
+    bloc = _bloc(bl=None)  # aucun BL rapproché -> R01, seule anomalie
+
+    anomalies = evaluer_facture(
+        _facture(document, (bloc,)), Parametres(), REGLES_FACTURE - {"R01"}
+    )
+
+    assert anomalies == ()
+
+
+def test_evaluer_facture_regles_actives_filtre_r10_sur_retour_anticipe() -> None:
+    """Même constat, sur le retour anticipé de R10 (Ruling R2) : ce chemin
+    court-circuite le reste de la fonction avant même que `regles_actives`
+    ne soit résolu en `actives` -- `_filtrees` s'applique aussi à ce
+    `return`, jamais seulement au chemin normal."""
+    document = _document(coherent=False)
+    facture = FactureControlee(
+        document=document,
+        fournisseur="FOURNISSEUR INVENTE",
+        blocs=(),
+        articles={},
+        historiques={},
+        lignes_negatives_sans_origine=(),
+    )
+
+    anomalies = evaluer_facture(facture, Parametres(), REGLES_FACTURE - {"R10"})
+
+    assert anomalies == ()
+
+
 def test_evaluer_facture_ajoute_r13_apres_les_blocs_dans_lordre() -> None:
     """R13 (L4-T5) : une fois par facture, après les blocs, dans l'ordre de
     `lignes_negatives_sans_origine` (décision du contrôleur)."""
@@ -898,6 +936,88 @@ def test_evaluer_suivi_chantiers_et_alias_portent_des_identites_distinctes() -> 
     assert anomalie_chantier_1.chantier_id == chantier_1.id
     assert anomalie_chantier_2.chantier_id == chantier_2.id
     assert anomalie_chantier_1.chantier_id != anomalie_chantier_2.chantier_id
+
+
+# --------------------------------------------------------------------------
+# `regles_actives` d'`evaluer_suivi` (décision d'Ilane du 24/09/2026,
+# `docs/dette.md`, seconde demande du jour) : R06 désactivable sans toucher
+# aux autres règles de suivi.
+# --------------------------------------------------------------------------
+
+
+def _contexte_suivi_complet() -> ContexteSuivi:
+    """Même scénario que `test_evaluer_suivi_enchaine_r06_r14_r15_r16_dans_
+    lordre`, réutilisé ici pour isoler l'effet de `regles_actives`."""
+    return ContexteSuivi(
+        aujourdhui=datetime(2026, 8, 1),
+        lignes_bl_non_facturees=((_bloc(date_bl=date(2026, 6, 1)), _ligne()),),
+        alias_en_attente=(
+            AliasEnAttenteControle(
+                id=uuid.uuid4(),
+                libelle="ALIAS INVENTE",
+                fournisseur="FOURNISSEUR INVENTE",
+                cree_le=datetime(2026, 7, 1),
+            ),
+        ),
+        bl_sans_confirmation=(
+            _document(
+                coherent=True,
+                depose_le=datetime(2026, 7, 1),
+                deposant="Agent Un",
+                confirme_le=None,
+            ),
+        ),
+        chantiers=(
+            ChantierSuiviControle(
+                id=uuid.uuid4(),
+                nom="Chantier Inventé",
+                dernier_depot=datetime(2026, 7, 1),
+                nb_bl_factures_depuis=3,
+            ),
+        ),
+    )
+
+
+def test_evaluer_suivi_regles_actives_none_evalue_r06_comme_avant() -> None:
+    """`regles_actives=None` (défaut) : comportement inchangé -- non
+    régression du paramètre ajouté par la décision d'Ilane."""
+    anomalies = evaluer_suivi(_contexte_suivi_complet(), Parametres())
+
+    assert [a.regle for a in anomalies] == ["R06", "R14", "R15", "R16"]
+
+
+def test_evaluer_suivi_regles_actives_sans_r06_ne_l_evalue_pas() -> None:
+    """Retirer R06 de `regles_actives` : aucune anomalie R06, même avec une
+    ligne de BL non facturée hors délai -- R06 n'est pas seulement filtrée
+    en sortie, elle n'est plus appelée du tout (même principe que R07/R08/
+    R09 dans `evaluer_facture`). R14/R15/R16 restent inchangées."""
+    anomalies = evaluer_suivi(
+        _contexte_suivi_complet(), Parametres(), REGLES_SUIVI - {"R06"}
+    )
+
+    assert [a.regle for a in anomalies] == ["R14", "R15", "R16"]
+
+
+def test_evaluer_suivi_regles_actives_avec_r06_les_evalue() -> None:
+    """`regles_actives` incluant explicitement R06 : comportement identique
+    à `None` -- réactivation de `CONTROLE_LIVRE_NON_FACTURE_ACTIF`."""
+    anomalies = evaluer_suivi(_contexte_suivi_complet(), Parametres(), REGLES_SUIVI)
+
+    assert [a.regle for a in anomalies] == ["R06", "R14", "R15", "R16"]
+
+
+def test_evaluer_suivi_regles_actives_filtre_regle_sans_garde_dediee() -> None:
+    """Même constat mineur 3 que pour `evaluer_facture` : `_filtrees`
+    retire aussi de `evaluer_suivi` une règle sans garde individuelle
+    dédiée (R14 ici, jamais gardée par `regles_actives` avant d'être
+    appelée) -- la portée passée à `synchroniser_anomalies` et la sortie du
+    moteur ne peuvent donc jamais diverger, quelle que soit la règle de
+    suivi désactivée un jour."""
+    anomalies = evaluer_suivi(
+        _contexte_suivi_complet(), Parametres(), REGLES_SUIVI - {"R14"}
+    )
+
+    assert [a.regle for a in anomalies] == ["R06", "R15", "R16"]
 
 
 def test_regles_facture_et_suivi_sont_disjointes_et_couvrent_r01_a_r17() -> None:
