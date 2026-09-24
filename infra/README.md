@@ -148,8 +148,8 @@ modifiables par l'admin. Deux moments d'évaluation :
 | R03 | Quantité facturée supérieure au BL | Haute | Facturé plus que livré | Rapprochement | Active |
 | R04 | Quantité facturée inférieure au BL | Moyenne | Facturé moins que livré | Rapprochement | Active |
 | R05 | Ligne facturée absente du BL | Haute | Facturé mais absent du bon | Rapprochement | Active |
-| R06 | Ligne de BL non facturée après 45 jours | Basse | Livré mais pas facturé | Contrôle différé | Désactivation décidée le 24/09/2026, mais non couverte par l'implémentation en cours (voir encadré). Tâche planifiée non posée. |
-| R07 | Prix à plus de 5 % de la médiane sur 6 mois | Moyenne | Prix un peu plus cher | Rapprochement | Désactivation décidée le 24/09/2026 (voir encadré). Jamais exercée sur plus d'un mois de données. |
+| R06 | Ligne de BL non facturée après 45 jours | Basse | Livré mais pas facturé | Contrôle différé | Désactivée le 24/09/2026 (`CONTROLE_LIVRE_NON_FACTURE_ACTIF`, voir encadré). Tâche planifiée non posée. |
+| R07 | Prix à plus de 5 % de la médiane sur 6 mois | Moyenne | Prix un peu plus cher | Rapprochement | Désactivée le 24/09/2026 (`CONTROLE_PRIX_ACTIF`, voir encadré). Jamais exercée sur plus d'un mois de données. |
 | R08 | Même écart, au-delà de 15 % | Haute | Prix plus cher que d'habitude | Rapprochement | Idem R07 |
 | R09 | Remise habituelle absente | Moyenne | Remise habituelle oubliée | Rapprochement | Idem R07 |
 | R10 | Incohérence arithmétique de la facture | Haute | Erreur de calcul sur la facture | Rapprochement | Active |
@@ -162,23 +162,24 @@ modifiables par l'admin. Deux moments d'évaluation :
 | R17 | Conditionnement inhabituel | Moyenne | Quantité inhabituelle pour le conditionnement | Rapprochement | Active |
 | (R18) | Livraison par semi-remorque, à confirmer par un admin | Haute | — | — | **Non construite** : le client n'a défini aucun déclencheur. |
 
-> **Décision d'Ilane du 24/09/2026, pas encore livrée** (réponse donnée en
-> session de travail ; au commit `a085948`, aucun autre document versionné ne
-> la consigne). Les contrôles de prix R07, R08 et R09 et la règle R06 sont
-> désactivés côté serveur. On ne peut les réactiver que par une variable
-> d'environnement, `CONTROLE_PRIX_ACTIF`, sans interrupteur à l'écran. R02 est
+> **Décision d'Ilane du 24/09/2026** (réponse donnée en session de travail ;
+> aucun autre document versionné ne la consigne). Les contrôles de prix R07,
+> R08 et R09 et la règle R06 sont désactivés côté serveur par défaut. R02 est
 > gardée, sans fusion avec R01. Les autres règles restent actives.
 > Motifs : il n'y a qu'un mois de factures, donc le « prix habituel » ne
 > repose sur rien ; rien ne prouve que le cas R06 existe. Le but est de ne
 > montrer en démonstration que ce qu'on peut prouver.
-> **Au commit `a085948`, cette variable n'existe pas encore dans le code** et
-> les deux instances déployées évaluent toujours R06 à R09.
-> **Implémentation en cours, non fusionnée** (commit `45014b8` et suivants,
-> branche `worktree-wf_25e46009-38e-1`) : le drapeau, optionnel et à `false`
-> par défaut, ne désactive que R07, R08 et R09 (`REGLES_PRIX`). R06, ligne de
-> BL non facturée, n'est pas une règle de prix et n'est pas couverte. Trancher
-> le sort de R06 (autre mécanisme, ou ajout au drapeau) avant la fusion, puis
-> mettre à jour ce tableau, le §5.6 et le §8.
+> **Mécanisme fusionné dans `main`** (`45014b8` pour R07-R09, complété par
+> `a1735e0` pour R06, fusion finale `0bcd5cd`) : deux variables
+> d'environnement indépendantes, optionnelles, défaut `false` —
+> `CONTROLE_PRIX_ACTIF` (R07-R09) et `CONTROLE_LIVRE_NON_FACTURE_ACTIF`
+> (R06), sans interrupteur à l'écran (`ingest.commun.regles_desactivees`,
+> seule source de vérité, lue par le rapprochement et par les contrôles
+> différés). Réactivation : geste d'administrateur serveur — variable dans
+> le fichier d'environnement de l'instance puis **recréation** du conteneur
+> API (`docker compose … up -d api`, un simple `restart` ne relit pas les
+> variables, §5.6, §9), détaillée dans `docs/evolutions-proposees.md` §b et
+> §c.
 
 **Seuils modifiables** (écran Réglages, chaque modification est journalisée) :
 
@@ -284,7 +285,7 @@ L5-D3 est gardée par Ilane ; elle reste à confirmer avec le client.
 | 23/09/2026 | La démonstration se fait sur le VPS actuel, derrière nginx (écart au CDC §7 et §12, voir §5). |
 | 23/09/2026 | Mistral passe en paiement à l'usage (§6.1). |
 | 23/09/2026 | Fournisseur d'authentification : fastapi-users reste en place. Clerk et Better Auth ont été évoqués ; la décision est en attente (§7). |
-| 24/09/2026 | R07, R08, R09 et R06 désactivées côté serveur, réactivables par `CONTROLE_PRIX_ACTIF` ; R02 gardée. Pas encore livré ; l'implémentation en cours ne couvre que R07 à R09 (§2.5). |
+| 24/09/2026 | R07, R08, R09 et R06 désactivées côté serveur, réactivables respectivement par `CONTROLE_PRIX_ACTIF` et `CONTROLE_LIVRE_NON_FACTURE_ACTIF` ; R02 gardée. Mécanisme fusionné dans `main` (§2.5). |
 
 **Écarts de réalisation** par rapport au CDC :
 
@@ -542,7 +543,7 @@ lecture.
 
 | Domaine | Routes | Droits |
 | --- | --- | --- |
-| Hors `/api` | `POST /tg/webhook` (secret Telegram), `GET /health` ; `GET /docs`, `GET /redoc`, `GET /openapi.json` (schéma complet de l'API lisible sans compte, §7.6 ; ces trois routes sont exclues du schéma, donc du compte des 46 opérations) | public |
+| Hors `/api` | `POST /tg/webhook` (secret Telegram), `GET /health` ; `GET /docs`, `GET /redoc`, `GET /openapi.json` (schéma complet de l'API, désactivées par défaut depuis la correction du 24/09/2026 — `API_DOCS_ACTIVES`, §7.6 ; ces trois routes sont exclues du schéma, donc du compte des 46 opérations) | public si `API_DOCS_ACTIVES=true`, sinon 404 |
 | Authentification | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/moi` | tous |
 | Documents | `GET /api/documents`, `GET /api/documents/{id}`, `GET /api/documents/{id}/fichier` | admin et agent (agent : ses dépôts) |
 | Documents, correction | `GET …/comparaison`, `PATCH /api/documents/{id}`, `PUT …/lignes`, `POST …/validation`, `…/archivage`, `…/extraction` | admin |
@@ -598,7 +599,7 @@ Lancées dans le conteneur `api` : `python -m app.cli <commande>`.
 | `utilisateur-desactiver --email` | Désactive un compte ; l'accès est coupé dès la requête suivante |
 | `fournisseur-definir --nom [--siret] [--tva] [--alias …] [--agence …]` | Crée ou met à jour un fournisseur. Un fournisseur n'est jamais créé à partir du texte OCR d'un BL. Exception : le dépôt d'une facture crée le fournisseur « Unikalo » (nom exact écrit dans le code, `ingest/factures.py`) s'il est absent. Il faut donc le définir sous ce nom exact, sinon le premier dépôt de facture crée un second fournisseur. |
 | `rapprocher --facture <uuid>` ou `--tout` | Rejoue le rapprochement. `--tout` : toutes les factures au statut « reçu », de la plus ancienne à la plus récente (les factures « à vérifier » sont ignorées), une transaction chacune ; code 1 si au moins un échec. `--facture` : code 2 si la facture est introuvable. |
-| `controles-differes` | Évalue R06, R14, R15, R16 ; idempotente, prévue chaque jour |
+| `controles-differes` | Évalue R14, R15, R16, et R06 seulement si `CONTROLE_LIVRE_NON_FACTURE_ACTIF` est vraie ; idempotente, prévue chaque jour |
 | `drive-sync [--limite 1..1000]` | Copie vers le Drive les documents en attente (100 par défaut) ; sortie 0, 1 (au moins un échec) ou 2 (configuration Drive absente ou invalide) |
 | `bl-non-recus <facture.pdf>` | Liste les BL d'une facture avec l'indicateur « photo reçue », sans écriture en base, mais avec un appel payant à Mistral OCR sur le PDF (le document part chez ce tiers). Le fichier doit être lisible depuis le conteneur : seul `/srv/docs` y est monté. |
 | `rapport-ocr <dossier> --sortie <md> [--seuil] [--appeler-ocr]` | Mesure le taux d'erreur OCR sur des photos annotées (`docs/protocole-mesure-ocr.md`) |
@@ -749,7 +750,9 @@ commit, un journal ou un ticket.
 | `RESTIC_REPOSITORY`, `RESTIC_PASSWORD` | Obligatoires pour les scripts de sauvegarde | `deploy/backup.sh`, `deploy/restore.sh` | Dépôt restic et son mot de passe. **Absentes de `.env.prod` et `.env.demo`.** |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Seulement pour un dépôt restic distant | Scripts de sauvegarde | Accès au stockage objet |
 | `TEST_DATABASE_URL` | Tests seulement | `tests/conftest.py` | Base de test |
-| `CONTROLE_PRIX_ACTIF` | Optionnelle (défaut `false`), **pas encore fusionnée** : absente du code au commit `a085948` | Application (`Settings`), transmise par Compose (`${CONTROLE_PRIX_ACTIF:-false}`) sur la branche en cours | Réactive R07, R08 et R09. R06 n'est pas couverte (§2.5). |
+| `CONTROLE_PRIX_ACTIF` | Optionnelle (défaut `false`) | Application (`Settings`), transmise par Compose (`${CONTROLE_PRIX_ACTIF:-false}`) | Réactive R07, R08 et R09 (§2.5) |
+| `CONTROLE_LIVRE_NON_FACTURE_ACTIF` | Optionnelle (défaut `false`) | Application (`Settings`), transmise par Compose (`${CONTROLE_LIVRE_NON_FACTURE_ACTIF:-false}`) | Réactive R06 (§2.5) |
+| `API_DOCS_ACTIVES` | Optionnelle (défaut `false`) | Application (`Settings`), transmise par Compose (`${API_DOCS_ACTIVES:-false}`) | Sert `/docs`, `/redoc` et `/openapi.json` (§7.6) |
 
 Les paramètres des scripts de `deploy/` se passent à l'appel, pas dans le
 fichier : `HABITAT_RENO_ENV_FILE` (fichier d'environnement, `.env` par défaut),
@@ -839,7 +842,7 @@ pourrait rien envoyer, par une alerte `logger` raccordée à la supervision.
 | Tâche | Horaire prévu | Ce qu'elle fait | État |
 | --- | --- | --- | --- |
 | Sauvegarde | `0 3 * * *` | `deploy/backup.sh` | **Non posée** (restic non configuré) |
-| Contrôles différés | `15 6 * * *` | `controles-differes` : R06, R14, R15, R16 | **Non posée** : ces règles ne tournent pas automatiquement |
+| Contrôles différés | `15 6 * * *` | `controles-differes` : R14, R15, R16, et R06 si `CONTROLE_LIVRE_NON_FACTURE_ACTIF` | **Non posée** : ces règles ne tournent pas automatiquement |
 | Synchronisation Drive | `10 * * * *` | `drive-sync --limite 100`, sous `flock -n`, alerte syslog en cas d'échec | **Non posée**, et à ne pas poser avant d'avoir débloqué Drive |
 
 Les lignes cron de `docs/deploiement-et-tests.md` §9 visent l'environnement
@@ -1035,12 +1038,17 @@ interne des tâches ne sera donc pas dans le dépôt remis.
 
 ### 7.6 Points de vigilance
 
-- `/openapi.json` est public (200) : le schéma de l'API est lisible sans
-  compte, les routes restent protégées. `/docs` et `/redoc` répondent aussi
-  200, mais leur interface se charge depuis `cdn.jsdelivr.net`, que la CSP
-  `default-src 'self'` bloque : elle ne s'affiche pas dans un navigateur. Si
-  l'exposition du schéma n'est pas voulue, passer `docs_url`, `redoc_url` et
-  `openapi_url` à `None` en production.
+- **Corrigé : désactivé par défaut (`API_DOCS_ACTIVES`)**. `/openapi.json`
+  était public (200) : le schéma complet de l'API était lisible sans compte
+  (les routes elles-mêmes restaient protégées). `/docs` et `/redoc`
+  répondaient aussi 200, mais leur interface, chargée depuis
+  `cdn.jsdelivr.net`, était bloquée par la CSP `default-src 'self'` — elle
+  ne s'affichait donc pas dans un navigateur. `API_DOCS_ACTIVES` (optionnelle,
+  défaut `false`, §5.6) passe désormais `docs_url`/`redoc_url`/`openapi_url`
+  à `None` (`app/main.py`) tant qu'elle n'est pas explicitement à `true` : les
+  trois routes renvoient 404 par défaut. Sans effet sur `web/package.json`
+  (`api:schema`), qui appelle `app.openapi()` directement en Python plutôt
+  que cette route.
 - Les jetons de session expirés ne sont jamais purgés et sont stockés tels
   quels : qui lirait la base pourrait réutiliser une session de moins de 12 h.
 - Le compteur slowapi est en mémoire, propre au processus, remis à zéro à
@@ -1072,7 +1080,7 @@ interne des tâches ne sera donc pas dans le dépôt remis.
 | **Front servi par l'API**, même origine, sans CORS ni JWT | Un seul conteneur ; cookie `httpOnly` et contrôle d'origine suffisent contre le CSRF. | Serveur front séparé avec CORS, jetons dans le navigateur (interdits) | Déployer l'API, c'est déployer le front. Les types TypeScript sont générés depuis l'OpenAPI et commités. |
 | **Polices auto-hébergées** (`@fontsource`) | La CSP `default-src 'self'` interdit Google Fonts. | Google Fonts par CDN | Seule dépendance d'interface ajoutée par la refonte ; un test de contrat le vérifie. |
 | **restic vers un stockage objet**, via des images Docker épinglées | Chiffrement au repos pour quelques euros par mois ; les originaux font partie des données à restituer ; restauration testable ; rien à installer sur l'hôte. | Sauvegarde de la base seule, restic installé sur l'hôte | Scripts et procédure prêts, testés en local le 17/09/2026, à rejouer (scripts modifiés le 23/09/2026), **et aucun dépôt configuré** pour les instances en service. |
-| **Contrôles de prix désactivés par variable d'environnement** (`CONTROLE_PRIX_ACTIF`, décision du 24/09/2026) | Un seul mois de factures : le « prix habituel » ne repose sur rien. Ne montrer que ce qu'on peut prouver. | Interrupteur à l'écran ; garder les règles actives | Réactivation par l'administrateur du serveur seulement. **Pas encore livrée** au commit `a085948` ; l'implémentation en cours (commit `45014b8`, non fusionné) ne couvre que R07 à R09, pas R06 (§2.5). |
+| **Contrôles de prix et R06 désactivés par variable d'environnement** (`CONTROLE_PRIX_ACTIF`, `CONTROLE_LIVRE_NON_FACTURE_ACTIF`, décision du 24/09/2026) | Un seul mois de factures : le « prix habituel » ne repose sur rien ; rien ne prouve que le cas R06 existe. Ne montrer que ce qu'on peut prouver. | Interrupteur à l'écran ; garder les règles actives | Réactivation par l'administrateur du serveur seulement (variable puis recréation du conteneur API, §5.6, §9) ; procédure détaillée dans `docs/evolutions-proposees.md` §b et §c (§2.5). |
 
 ---
 
@@ -1240,9 +1248,11 @@ Autres procédures, à ne pas recopier ici (mêmes options à remplacer) :
 - Registre RGPD et information des salariés non faits ; durées de
   conservation non appliquées, export et anonymisation par personne absents
   (§7.5).
-- `/openapi.json` public sur la production ; `DATABASE_URL` hors `SecretStr` ;
-  tests des modules copiés dans l'image ; hook `interdit-env` limité à `.env`
-  (§4.9, §5.5, §5.6, §7.6).
+- `DATABASE_URL` hors `SecretStr` ; tests des modules copiés dans l'image ;
+  hook `interdit-env` limité à `.env` (§4.9, §5.5, §5.6). `/openapi.json`
+  public sur la production : **corrigé**, désactivé par défaut
+  (`API_DOCS_ACTIVES`, §7.6) — à vérifier sur les deux instances après leur
+  prochain déploiement (§9).
 
 **Hébergement**
 
@@ -1276,9 +1286,9 @@ Autres procédures, à ne pas recopier ici (mêmes options à remplacer) :
 | Avant toute donnée réelle supplémentaire | Configurer restic (dépôt distant, variables `RESTIC_*` / `AWS_*` dans chaque fichier d'instance), corriger les droits du parent des documents de production, exécuter une sauvegarde et une restauration de test (en root, §9), poser la sauvegarde nocturne (timer systemd ou `cron` à installer) |
 | Juste après la démonstration | Faire tourner la clé Mistral, le jeton du bot et la clé du compte de service ; vérifier le webhook des deux instances (`getWebhookInfo`) |
 | Dès que possible | Poser `controles-differes` par instance ; configurer une sonde externe `GET /health` ; consigner en recette le dépôt Telegram du 23/09/2026 et les décisions d'Ilane |
-| Décision d'Ilane | Mode Drive (Drive partagé ou OAuth) ; fournisseur d'authentification ; livraison de `CONTROLE_PRIX_ACTIF` et sort de R06 (non couverte par l'implémentation en cours) |
+| Décision d'Ilane | Mode Drive (Drive partagé ou OAuth) ; fournisseur d'authentification ; réactivation des contrôles de prix et de R06 quand les conditions posées dans `docs/evolutions-proposees.md` §b et §c seront réunies |
 | Avec le client | Revue du classement d'août et des quatre montants ; acceptation des écrans de la refonte à la place de ceux du CDC §4.6 ; 30 photos de BL réelles envoyées en fichier ; factures Point.P et de septembre ; liste des chantiers ; déclencheur semi-remorque ; accès Drive ; registre RGPD |
-| Évolutions à proposer (hors CDC) | Import des chantiers en masse depuis Excel (nom, agence, client). Réactivation des contrôles de prix quand plusieurs mois de factures donneront un historique réel. |
+| Évolutions à proposer (hors CDC) | Voir `docs/evolutions-proposees.md` : import des chantiers en masse depuis Excel (nom, agence, client), réactivation des contrôles de prix et de R06, connexion Drive par OAuth, client du chantier dans les exports CSV. |
 | Lot 6 | Recette sur deux mois, corrections, documentation d'exploitation, guides, formation de 2 h, remise du dépôt taggé, idéalement sur un VPS au nom du client |
 
 ---
@@ -1295,6 +1305,7 @@ Autres procédures, à ne pas recopier ici (mêmes options à remplacer) :
 | `docs/refonte-front-recette.md` | Recette de la refonte du front et du déploiement du 23/09/2026 |
 | `docs/superpowers/specs/2026-09-23-refonte-front-design.md`, `docs/superpowers/plans/2026-09-23-refonte-front.md` | Conception et plan de la refonte du front |
 | `docs/dette.md` | Dette technique, tâche par tâche : ce qui est volontairement laissé de côté |
+| `docs/evolutions-proposees.md` | Propositions hors CDC à présenter au client : import des chantiers en masse, réactivation des contrôles de prix et de R06, connexion Drive par OAuth, client du chantier |
 | `docs/deploiement-et-tests.md` | Guide opérationnel : tests, déploiement, mise à jour, cron, retour arrière |
 | `docs/exploitation-lot-4.md` | Contrôles différés et rejeu du rapprochement |
 | `docs/exploitation-lot-5.md` | Synchronisation Google Drive (compléter avec le §6.3 de ce document) |
