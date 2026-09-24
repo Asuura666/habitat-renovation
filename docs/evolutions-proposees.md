@@ -81,8 +81,8 @@ réapparues peut prendre plus longtemps selon leur nombre.
 
 **Prérequis.** Plusieurs mois de factures effectivement déposées et
 rapprochées (le nombre minimal de références est un réglage,
-`occurrences_prix_min`, modifiable dans Réglages) ; décision d'Ilane sur le
-moment.
+`occurrences_prix_min`, visible et modifiable dans Réglages une fois le
+contrôle réactivé) ; décision d'Ilane sur le moment.
 
 ## c. Réactivation de « Livré mais pas facturé » (R06)
 
@@ -179,3 +179,51 @@ mesurée avant de commencer).
 seulement un partage de dossier Drive) ou OAuth (ce changement) — et, pour
 OAuth, un compte Google que l'administrateur accepte d'utiliser pour cette
 autorisation.
+
+## À faire après la démo (décidé par Ilane le 24/09/2026)
+
+Les trois évolutions suivantes, contrairement aux précédentes, ne sont pas
+de simples propositions : Ilane a décidé le 24/09/2026 qu'elles seraient
+construites, mais après la démo, pas avant. Rien n'est commencé.
+
+### f. Gestion des fournisseurs à l'écran
+
+**Besoin.** Aujourd'hui, un fournisseur (nom, SIRET, n° de TVA, autres noms
+écrits sur les documents, agences) ne se crée ni ne se modifie qu'en ligne
+de commande sur le serveur, via `python -m app.cli fournisseur-definir`
+(seul point d'écriture du référentiel fournisseur, `ingest.referentiels
+.definir_fournisseur`, L3-D8) — aucun écran ne l'expose.
+
+**Proposition.** Un écran « Nouveau fournisseur » / « Modifier » (proche de
+la fiche Chantier) : nom, SIRET, n° de TVA, autres noms écrits sur les
+documents (alias), agences — même validation et même journalisation
+(`fournisseur_defini`) que la CLI, appelée depuis un routeur `api` plutôt
+que depuis `app/cli.py`.
+
+### g. Identification du fournisseur d'une facture par SIRET/TVA
+
+**Besoin.** `ingest/factures.py` range aujourd'hui toute facture déposée
+sous « Unikalo » (nom codé en dur, `_fournisseur_unikalo`) : aucune lecture
+du SIRET ou du n° de TVA sur le document lui-même n'identifie le
+fournisseur qui l'a émise.
+
+**Proposition.** Faire lire le fournisseur par le SIRET/TVA extrait de la
+facture (résolution par `normalize.fournisseur.resoudre_fournisseur`, déjà
+utilisée pour les BL) plutôt que par un nom codé en dur — prérequis à (h)
+ci-dessous, qui a besoin de savoir quel fournisseur a émis une facture
+avant de choisir comment la lire.
+
+### h. Factures des autres fournisseurs (Point.P…)
+
+**Besoin.** Seul le lecteur Unikalo existe (`extract/unikalo.py`) : le
+dépôt d'une facture d'un autre fournisseur est aujourd'hui refusé
+(`FormatNonPrisEnCharge`, « Format de facture non pris en charge »), même
+si le document est parfaitement lisible.
+
+**Proposition.** Options à trancher après la démo : une lecture générique
+par l'API Mistral OCR, comme pour les bons de livraison (`extract/bl.py`,
+aucun parseur dédié) ; ou un lecteur propre à chaque fournisseur, comme
+`unikalo.py` aujourd'hui (un parseur par fournisseur, cahier des charges).
+Bloqué en pratique par l'absence de tout document Point.P (`docs/dette.md`,
+lot 3) tant qu'aucun exemplaire réel n'est reçu, quelle que soit l'option
+choisie.

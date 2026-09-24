@@ -221,8 +221,9 @@ reste faux) n'apparaît plus du tout sur l'écran Réglages : masqué côté
 serveur, seul point de décision (`ingest/parametres.py::_cle_masquee`,
 `GET /api/parametres`), une tentative de modification étant refusée comme
 une clé inconnue. Rien n'est perdu en base ; la valeur réapparaît telle
-quelle dès la réactivation du drapeau concerné (redémarrage du conteneur
-API avec la variable à `true`, voir l'encadré ci-dessus).
+quelle dès la réactivation du drapeau concerné (variable à `true` puis
+recréation du conteneur API, `docker compose … up -d api`, voir l'encadré
+ci-dessus).
 
 **Cycle de vie d'une anomalie** : ouverte → traitée ou ignorée, avec un
 commentaire obligatoire. Une anomalie ouverte dont la cause disparaît est
@@ -1326,6 +1327,7 @@ Autres procédures, à ne pas recopier ici (mêmes options à remplacer) :
 | Décision d'Ilane | Mode Drive (Drive partagé ou OAuth) ; fournisseur d'authentification ; réactivation des contrôles de prix et de R06 quand les conditions posées dans `docs/evolutions-proposees.md` §b et §c seront réunies |
 | Avec le client | Revue du classement d'août et des quatre montants ; acceptation des écrans de la refonte à la place de ceux du CDC §4.6 ; 30 photos de BL réelles envoyées en fichier ; factures Point.P et de septembre ; liste des chantiers ; déclencheur semi-remorque ; accès Drive ; registre RGPD |
 | Évolutions à proposer (hors CDC) | Voir `docs/evolutions-proposees.md` : import des chantiers en masse depuis Excel (nom, agence, client), réactivation des contrôles de prix et de R06, connexion Drive par OAuth, client du chantier dans les exports CSV. |
+| Décidé par Ilane (24/09/2026), après la démo | Gestion des fournisseurs à l'écran, identification du fournisseur d'une facture par SIRET/TVA, lecture des factures d'autres fournisseurs comme Point.P — voir `docs/evolutions-proposees.md` §f à §h. |
 | Lot 6 | Recette sur deux mois, corrections, documentation d'exploitation, guides, formation de 2 h, remise du dépôt taggé, idéalement sur un VPS au nom du client |
 
 ---

@@ -230,16 +230,24 @@ désormais sans effet le seuil propre à R06, « Délai avant alerte d'une
 ligne de BL non facturée » (`delai_ligne_bl_non_facturee_j`), même
 mécanisme que les trois seuils de prix mais drapeau distinct
 (`CompteProblemesReponse.controle_livre_non_facture_actif`, exposé par
-`GET /api/a-regler/compte` aux côtés de `controle_prix_actif`). Les écrans
-d'anomalies, eux, ne changent pas : R06 était déjà rangée dans la catégorie
-« Quantités » (`ingest.anomalies.CATEGORIES_REGLE`), jamais un libellé ou un
-filtre qui lui soit propre sur ces écrans-là — la tuile « Écart de
-quantité » et son sous-texte (« livraisons avec un écart de quantité »)
-restent corrects sans changement, R02 (« Livré sans bon », preuve dans la
-facture) reste active. Réactivation : variable dans le fichier
-d'environnement de l'instance (`.env.prod` / `.env.demo`) puis recréation
-du conteneur API (`up -d api`), voir `docs/evolutions-proposees.md` §c,
-sans interrupteur à l'écran.
+`GET /api/a-regler/compte` aux côtés de `controle_prix_actif`).
+
+> **Remplacé depuis** : ce signalement « sans effet » côté front est
+> remplacé par un masquage côté serveur (`ingest.parametres._cle_masquee`,
+> `GET /api/parametres` ne renvoie plus ce seuil tant que R06 est
+> désactivée, `PUT` le refuse comme une clé inconnue) —
+> `CompteProblemesReponse.controle_livre_non_facture_actif`, décrit
+> ci-dessus, n'existe plus, voir `infra/README.md` §2.5.
+
+Les écrans d'anomalies, eux, ne changent pas : R06 était déjà rangée dans
+la catégorie « Quantités » (`ingest.anomalies.CATEGORIES_REGLE`), jamais un
+libellé ou un filtre qui lui soit propre sur ces écrans-là — la tuile
+« Écart de quantité » et son sous-texte (« livraisons avec un écart de
+quantité ») restent corrects sans changement, R02 (« Livré sans bon »,
+preuve dans la facture) reste active. Réactivation : variable dans le
+fichier d'environnement de l'instance (`.env.prod` / `.env.demo`) puis
+recréation du conteneur API (`up -d api`), voir
+`docs/evolutions-proposees.md` §c, sans interrupteur à l'écran.
 
 ## 4. Contrôles finaux (sur `eeb93a4`)
 
