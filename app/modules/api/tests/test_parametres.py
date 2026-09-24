@@ -67,6 +67,32 @@ async def _login(app: FastAPI, email: str) -> str:
     return cookie
 
 
+# ---------------------------------------------------------------------------
+# Fixe les deux drapeaux de contrôle plutôt que de dépendre de ceux du
+# `.env` de test (même décision que `app/modules/ingest/tests/test_
+# parametres.py`, ici à travers les routes HTTP) : `commun.get_settings`
+# est monkeypatchée, jamais la dépendance FastAPI de `get_settings`
+# (court-circuitée pour ce drapeau, voir `ingest.commun`) -- même idiome
+# que `test_a_traiter.py::_regler_drapeaux`. Utilisée par tout le fichier,
+# y compris `test_put_parametre_admin_modifie_et_journalise` ci-dessous,
+# pour que le nombre de réglages exposés ne dépende jamais de l'état réel
+# du `.env` local.
+# ---------------------------------------------------------------------------
+
+
+def _regler_controles(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    prix_actif: bool,
+    livre_non_facture_actif: bool,
+) -> None:
+    class _SettingsInventee:
+        controle_prix_actif = prix_actif
+        controle_livre_non_facture_actif = livre_non_facture_actif
+
+    monkeypatch.setattr(commun, "get_settings", lambda: _SettingsInventee())
+
+
 async def test_get_parametres_est_reserve_a_admin(
     db_session: AsyncSession,
     sessions_test: async_sessionmaker[AsyncSession],
@@ -92,7 +118,12 @@ async def test_put_parametre_admin_modifie_et_journalise(
     db_session: AsyncSession,
     sessions_test: async_sessionmaker[AsyncSession],
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Les deux drapeaux sont fixés explicitement (`_regler_controles`),
+    # jamais laissés à l'état du `.env` de test : le nombre de réglages
+    # exposés ci-dessous ne doit dépendre que de ce que ce test règle.
+    _regler_controles(monkeypatch, prix_actif=False, livre_non_facture_actif=False)
     admin = await _creer_utilisateur(
         db_session, email="admin.parametres@example.test", role="admin"
     )
@@ -109,17 +140,15 @@ async def test_put_parametre_admin_modifie_et_journalise(
         # `tolerance_total_ht` : le seul des neuf réglages qui n'appartient
         # à aucun des deux contrôles désactivables (voir les tests de
         # masquage plus bas dans ce fichier) -- jamais masqué, quel que
-        # soit l'état des drapeaux du `.env` de test.
+        # soit l'état des deux drapeaux.
         modification = await client.put(
             "/api/parametres/tolerance_total_ht", json={"valeur": "6.5"}
         )
 
     assert liste.status_code == 200
-    # Défaut réel de l'application (`CONTROLE_PRIX_ACTIF`/`CONTROLE_LIVRE_
-    # NON_FACTURE_ACTIF` absentes du `.env` de test -> toutes deux `False`,
-    # `app.core.config.Settings`) : quatre des neuf réglages sont masqués
-    # -- voir les tests de masquage plus bas dans ce fichier pour les deux
-    # drapeaux couverts indépendamment.
+    # Les deux contrôles étant désactivés ci-dessus, quatre des neuf
+    # réglages sont masqués -- voir les tests de masquage plus bas dans ce
+    # fichier pour les deux drapeaux couverts indépendamment.
     assert len(liste.json()) == 5
     assert modification.status_code == 200
     assert modification.json()["valeur"] == "6.5"
@@ -153,29 +182,6 @@ async def test_put_parametre_invalide_renvoie_422(
 
     assert reponse.status_code == 422
     assert "Paramètre inconnu" in reponse.json()["detail"]
-
-
-# ---------------------------------------------------------------------------
-# Masquage des réglages d'un contrôle désactivé côté serveur (même décision
-# que `app/modules/ingest/tests/test_parametres.py`, ici à travers les
-# routes HTTP) : `commun.get_settings` est monkeypatchée, jamais la
-# dépendance FastAPI de `get_settings` (court-circuitée pour ce drapeau,
-# voir `ingest.commun`) -- même idiome que `test_a_traiter.py::_regler_
-# drapeaux`.
-# ---------------------------------------------------------------------------
-
-
-def _regler_controles(
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    prix_actif: bool,
-    livre_non_facture_actif: bool,
-) -> None:
-    class _SettingsInventee:
-        controle_prix_actif = prix_actif
-        controle_livre_non_facture_actif = livre_non_facture_actif
-
-    monkeypatch.setattr(commun, "get_settings", lambda: _SettingsInventee())
 
 
 async def test_get_parametres_masque_les_seuils_de_prix_quand_desactives(
@@ -248,6 +254,59 @@ async def test_put_parametre_masque_renvoie_422_comme_une_cle_inconnue(
     ) as client:
         reponse = await client.put(
             "/api/parametres/seuil_prix_pct", json={"valeur": "9"}
+        )
+
+    assert reponse.status_code == 422
+    assert "Paramètre inconnu" in reponse.json()["detail"]
+
+
+async def test_get_parametres_masque_le_seuil_r06_quand_desactive(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _regler_controles(monkeypatch, prix_actif=True, livre_non_facture_actif=False)
+    admin = await _creer_utilisateur(
+        db_session, email="admin.parametres.masque-r06@example.test", role="admin"
+    )
+    app = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app, admin.email)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        reponse = await client.get("/api/parametres")
+
+    cles = {p["cle"] for p in reponse.json()}
+    assert "delai_ligne_bl_non_facturee_j" not in cles
+    assert "seuil_prix_pct" in cles
+    assert "seuil_prix_fort_pct" in cles
+    assert "occurrences_prix_min" in cles
+
+
+async def test_put_delai_r06_masque_renvoie_422_comme_une_cle_inconnue(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _regler_controles(monkeypatch, prix_actif=True, livre_non_facture_actif=False)
+    admin = await _creer_utilisateur(
+        db_session, email="admin.parametres.put-masque-r06@example.test", role="admin"
+    )
+    app = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app, admin.email)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        reponse = await client.put(
+            "/api/parametres/delai_ligne_bl_non_facturee_j", json={"valeur": "30"}
         )
 
     assert reponse.status_code == 422
