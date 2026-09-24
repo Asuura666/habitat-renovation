@@ -1164,12 +1164,19 @@ export interface components {
          *     mois confondus -- mêmes attributs qu'`ingest.a_traiter.CompteProblemes`
          *     (revue finale de la refonte du front : un seul compte pour la pastille
          *     de navigation, la vue d'ensemble et l'écran « À régler »).
+         *
+         *     `controle_prix_actif` (décision d'Ilane du 24/09/2026, `docs/dette.md`) :
+         *     le front adapte ses libellés (« Écart prix ou quantité » -> « Écart de
+         *     quantité ») et masque le filtre « Prix » de l'écran « À régler » quand
+         *     ce drapeau est faux -- voir `ingest.a_traiter.CompteProblemes`.
          */
         CompteProblemesReponse: {
             /** Nb Problemes */
             nb_problemes: number;
             /** Nb Urgents */
             nb_urgents: number;
+            /** Controle Prix Actif */
+            controle_prix_actif: boolean;
         };
         /**
          * CorrectionEnteteRequete

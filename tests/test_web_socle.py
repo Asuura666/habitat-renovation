@@ -336,3 +336,70 @@ def test_fil_ariane_cible_44px() -> None:
     fil = (SRC / "ui" / "FilAriane.tsx").read_text()
     lien = fil.split("<Link", 1)[1].split(">", 1)[0]
     assert "min-h-[44px]" in lien
+
+
+# ---------------------------------------------------------------------------
+# Contrôles de prix désactivés (décision d'Ilane du 24/09/2026,
+# `docs/dette.md`) : aucun calcul métier côté front, seulement des libellés
+# et un filtre adaptés à `CompteProblemesReponse.controle_prix_actif`
+# (`GET /api/a-regler/compte`, seule source du drapeau).
+# ---------------------------------------------------------------------------
+
+
+def test_libelle_ecart_bascule_sur_controle_prix_actif() -> None:
+    """`libelleEcart` (une seule fonction, reprise par les trois tuiles
+    ci-dessous) : « Écart prix ou quantité » quand le drapeau est vrai,
+    « Écart de quantité » sinon — jamais un calcul, une correspondance
+    texte."""
+    libelles = (SRC / "ui" / "libelles.ts").read_text()
+    fonction = libelles.split("export function libelleEcart(", 1)[1].split("\n}\n", 1)[
+        0
+    ]
+    assert '"Écart prix ou quantité"' in fonction
+    assert '"Écart de quantité"' in fonction
+
+
+def test_tuiles_ecart_utilisent_libelle_ecart_partage() -> None:
+    """Vue d'ensemble, fiche chantier et fiche fournisseur : les trois
+    tuiles « Écart … » appellent `libelleEcart`, jamais le texte figé
+    « Écart prix ou quantité » recopié à la main (constat de la tâche : un
+    seul point de traduction, `ui/libelles.ts`)."""
+    for chemin in ("VueEnsemble.tsx", "FicheChantier.tsx", "FicheFournisseur.tsx"):
+        page = (SRC / "pages" / chemin).read_text()
+        assert "libelleEcart(compteARegler.data?.controle_prix_actif ?? true)" in page
+        assert '"Écart prix ou quantité"' not in page
+
+
+def test_a_regler_masque_le_filtre_prix_quand_controle_prix_inactif() -> None:
+    """Le filtre « Prix » de l'écran « À régler » n'est construit que si
+    `controlePrixActif` est vrai — sinon aucune anomalie R07/R08/R09 ne
+    peut plus être ouverte (masquées côté serveur), un filtre vide n'aurait
+    aucun sens."""
+    a_regler = (SRC / "pages" / "ARegler.tsx").read_text()
+    assert (
+        "const controlePrixActif = compteARegler.data?.controle_prix_actif ?? true;"
+        in a_regler
+    )
+    options = a_regler.split("const options: OptionFiltre[] = [", 1)[1].split("];", 1)[
+        0
+    ]
+    assert "...(controlePrixActif" in options
+    assert '{ valeur: "prix", libelle: "Prix"' in options
+
+
+def test_reglages_seuils_de_prix_signales_desactives() -> None:
+    """Écran Réglages : les trois seuils que lisent R07/R08/R09
+    (`seuil_prix_pct`, `seuil_prix_fort_pct`, `occurrences_prix_min` —
+    aucun seuil propre à la remise à part `occurrences_prix_min`, déjà
+    listé) portent la mention « Contrôle des prix désactivé pour le
+    moment » quand le drapeau est faux ; ils restent modifiables (choix
+    assumé pour rester simple : `<input>` ne référence ni le drapeau ni
+    `seuilDePrix`, donc jamais désactivé par cette décision)."""
+    reglages = (SRC / "pages" / "Reglages.tsx").read_text()
+    assert '"seuil_prix_pct"' in reglages
+    assert '"seuil_prix_fort_pct"' in reglages
+    assert '"occurrences_prix_min"' in reglages
+    assert "Contrôle des prix désactivé pour le moment." in reglages
+    balise_input = reglages.split("<input", 1)[1].split("/>", 1)[0]
+    assert "seuilDePrix" not in balise_input
+    assert "controlePrixActif" not in balise_input

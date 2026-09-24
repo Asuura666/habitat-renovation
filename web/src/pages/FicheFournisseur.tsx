@@ -11,6 +11,7 @@ import {
   urlExportBilanChantiersFournisseur,
 } from "../api/bilan";
 import { type Anomalie, cleAnomalies, listerAnomalies } from "../api/anomalies";
+import { CLE_COMPTE_A_REGLER, obtenirCompteARegler } from "../api/aTraiter";
 import { CLE_FOURNISSEURS, listerFournisseurs } from "../api/referentiels";
 import { estMontantNul, formaterMontant, libelleMois, lireMois, moisApi } from "../lib/formats";
 import { lienChantier } from "../lib/liens";
@@ -19,6 +20,7 @@ import {
   EnTetePage,
   EtatVide,
   FilAriane,
+  libelleEcart,
   PastilleUrgence,
   phraseProbleme,
   titreRegle,
@@ -272,6 +274,11 @@ export function FicheFournisseur(): ReactElement {
     queryFn: () => listerAnomalies({ fournisseurId, limite: 500 }),
     enabled: fournisseurId !== undefined,
   });
+  // Même clé que `Gabarit`/`VueEnsemble`/`ARegler` (décision d'Ilane du
+  // 24/09/2026, `docs/dette.md`) : seul endroit qui porte `controle_prix_
+  // actif`, lu ici pour la tuile « Écart … » ci-dessous — `@tanstack/
+  // react-query` partage le cache par clé, jamais un second appel réseau.
+  const compteARegler = useQuery({ queryKey: CLE_COMPTE_A_REGLER, queryFn: obtenirCompteARegler });
 
   const fournisseur = fournisseurs.data?.find((f) => f.id === fournisseurId);
   const ligneMontants = bilanGlobal.data?.find((l) => l.fournisseur_id === fournisseurId);
@@ -321,7 +328,7 @@ export function FicheFournisseur(): ReactElement {
                 ton={estMontantNul(ligneMontants.montants.conforme) ? "neutre" : "conforme"}
               />
               <Chiffre
-                libelle="Écart prix ou quantité"
+                libelle={libelleEcart(compteARegler.data?.controle_prix_actif ?? true)}
                 valeur={formaterMontant(ligneMontants.montants.en_ecart)}
                 ton={estMontantNul(ligneMontants.montants.en_ecart) ? "neutre" : "ecart"}
               />

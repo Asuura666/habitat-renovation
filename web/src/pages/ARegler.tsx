@@ -444,8 +444,11 @@ export function ARegler(): ReactElement {
     queryFn: obtenirCompteARegler,
     // Même rythme que la liste des documents/chantiers à rattacher
     // ci-dessus : un dépôt Telegram arrivé entre-temps compte aussitôt.
+    // Toujours actif (fix round 1, décision d'Ilane du 24/09/2026,
+    // `docs/dette.md`) : même restreint à un périmètre, le filtre « Prix »
+    // ci-dessous a besoin de `controle_prix_actif` — même clé que `Gabarit`,
+    // donc jamais un second appel réseau pour l'écran non restreint.
     refetchInterval: 30_000,
-    enabled: portee === undefined,
   });
   const urgentsAffiches = (nombre: number): string => `${nombre} urgent${nombre > 1 ? "s" : ""}`;
   const surtitre =
@@ -457,11 +460,20 @@ export function ARegler(): ReactElement {
           nbUrgents,
         )}`;
 
+  // Décision d'Ilane du 24/09/2026 (`docs/dette.md`) : contrôles de prix
+  // désactivés -- aucune anomalie R07/R08/R09 ne peut plus être ouverte
+  // (masquées côté serveur), le filtre « Prix » n'a donc plus de sens tant
+  // que `controle_prix_actif` (seule source, `GET /api/a-regler/compte`)
+  // reste faux. `?? true` le temps que la requête réponde : pas de flash
+  // "filtre qui disparaît" au premier rendu.
+  const controlePrixActif = compteARegler.data?.controle_prix_actif ?? true;
   const options: OptionFiltre[] = [
     { valeur: "tous", libelle: "Tous", compte: nbOuverts },
     { valeur: "urgents", libelle: "Urgents", compte: nbUrgents },
     { valeur: "bl", libelle: "BL manquants", compte: compterCategorie(problemesOuverts, "bl") },
-    { valeur: "prix", libelle: "Prix", compte: compterCategorie(problemesOuverts, "prix") },
+    ...(controlePrixActif
+      ? [{ valeur: "prix", libelle: "Prix", compte: compterCategorie(problemesOuverts, "prix") }]
+      : []),
     { valeur: "quantites", libelle: "Quantités", compte: compterCategorie(problemesOuverts, "quantites") },
     { valeur: "rattacher", libelle: "À rattacher", compte: compterCategorie(problemesOuverts, "rattacher") },
     { valeur: "illisible", libelle: "Bons illisibles", compte: compterCategorie(problemesOuverts, "illisible") },

@@ -10,7 +10,16 @@ import {
   type TableauDeBord,
   obtenirTableauDeBord,
 } from "../api/tableauDeBord";
-import { Carte, Chiffre, EnTetePage, EtatVide, PastilleEtat, phraseProbleme, titreRegle } from "../ui";
+import {
+  Carte,
+  Chiffre,
+  EnTetePage,
+  EtatVide,
+  libelleEcart,
+  PastilleEtat,
+  phraseProbleme,
+  titreRegle,
+} from "../ui";
 import { formaterMontant, libelleMois, lireMois, moisApi, TIRET } from "../lib/formats";
 import { lienChantier } from "../lib/liens";
 
@@ -428,7 +437,7 @@ export function VueEnsemble(): ReactElement {
               ton="conforme"
             />
             <Chiffre
-              libelle="Écart prix ou quantité"
+              libelle={libelleEcart(compteARegler.data?.controle_prix_actif ?? true)}
               valeur={formaterMontant(donnees.totaux.en_ecart)}
               sousTexte="livraisons concernées par un écart"
               ton="ecart"

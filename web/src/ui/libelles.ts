@@ -88,6 +88,19 @@ export function categorieProbleme(anomalie: Anomalie): CategorieRegle {
   return anomalie.categorie;
 }
 
+/** Libellé de la tuile « Écart prix ou quantité » (Vue d'ensemble, fiche
+ * chantier, fiche fournisseur) : décision d'Ilane du 24/09/2026 (`docs/
+ * dette.md`), contrôles de prix désactivés côté serveur — le montant qui
+ * alimente cette tuile (`MontantsBilan.en_ecart`) ne peut plus contenir
+ * d'écart de prix tant que `controlePrixActif` est faux, le libellé ne
+ * doit donc plus l'évoquer. `controlePrixActif` vient de
+ * `CompteProblemesReponse.controle_prix_actif` (`GET /api/a-regler/compte`,
+ * seul endroit qui porte ce drapeau) ; aucun calcul ici, une simple
+ * correspondance texte. */
+export function libelleEcart(controlePrixActif: boolean): string {
+  return controlePrixActif ? "Écart prix ou quantité" : "Écart de quantité";
+}
+
 // ---------------------------------------------------------------------------
 // Gardes de mise en forme d'une valeur de `detail` : une clé absente affiche
 // « ? », le tiret cadratin (valeur manquante posée par les règles pures) est
