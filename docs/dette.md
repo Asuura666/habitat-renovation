@@ -917,3 +917,37 @@ dans `correction-finale-rapport.md`, même dossier) :
   Réactiver avec `CONTROLE_LIVRE_NON_FACTURE_ACTIF=true` (puis redémarrer
   l'API) si le cas est un jour constaté.
 
+## Sécurité : `/docs`, `/redoc` et `/openapi.json` publics (corrigé le 24/09/2026)
+
+**Constat.** `FastAPI(...)` enregistre par défaut `/docs` (Swagger UI),
+`/redoc` et `/openapi.json` sans aucune authentification (`app/main.py`) :
+en production, `/openapi.json` renvoyait 200 avec le schéma complet de
+l'API (toutes les routes, formes de requêtes et de réponses), lisible par
+quiconque connaît le domaine sans avoir de compte. Les routes elles-mêmes
+restaient protégées (`admin_requis`, cookie de session) ; seul le schéma
+était exposé. `/docs` et `/redoc` répondaient aussi 200, mais leur
+interface, chargée depuis `cdn.jsdelivr.net`, est bloquée par la CSP
+`default-src 'self'` posée par nginx (`infra/README.md` §7.2) : elle ne
+s'affichait donc pas dans un navigateur, seul `/openapi.json` était
+réellement exploitable tel quel.
+
+**Correction.** Nouvelle variable optionnelle `API_DOCS_ACTIVES` (défaut
+`false`, même mécanisme que `CONTROLE_PRIX_ACTIF` et `CONTROLE_LIVRE_NON_
+FACTURE_ACTIF` : `app.core.config.Settings`, transmise par Compose).
+`app/main.py` passe `docs_url`/`redoc_url`/`openapi_url` à `None` quand
+elle est fausse : les trois routes renvoient alors 404 (`app/core/front.py`
+les bloque de toute façon via `_PREFIXES_RESERVES`, que le front soit monté
+ou non). Testé (`app/core/tests/test_docs.py`, sous-processus isolé comme
+`test_demarrage.py`, `app.main.app` étant un singleton construit à
+l'import) : absente ou explicitement fausse → 404 sur les trois routes ;
+`API_DOCS_ACTIVES=true` → 200 sur les trois.
+
+**Sans effet sur la génération des types front** : `web/package.json`
+(script `api:schema`) appelle `app.openapi()` directement en Python
+(`from app.main import app; app.openapi()`), jamais cette route HTTP — la
+méthode reste disponible que `openapi_url` soit `None` ou non.
+
+**Reste à faire** : activer `API_DOCS_ACTIVES=true` sur une instance
+seulement si un besoin ponctuel le justifie (revue d'API par un tiers,
+par exemple), jamais en permanence sur la production.
+

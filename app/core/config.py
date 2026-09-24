@@ -54,6 +54,16 @@ class Settings(BaseSettings):
     mécanisme que `controle_prix_actif` (optionnelle, défaut `False`,
     réactivable par le même geste d'administrateur), lue par la même seule
     fonction `ingest.commun.regles_desactivees`.
+
+    `api_docs_actives` (constat sécurité du 24/09/2026) : `/docs`, `/redoc`
+    et `/openapi.json` exposent en production le schéma complet de l'API
+    (routes, formes de requêtes/réponses) sans aucune authentification —
+    lisible par quiconque connaît le domaine. **Optionnelle, défaut
+    `False`** : ces trois routes sont désactivées tant que cette variable
+    n'est pas explicitement mise à `true` (`app.main` passe
+    `docs_url`/`redoc_url`/`openapi_url` à `None` dans ce cas). Ne change
+    rien à `web/package.json` (`api:schema`), qui appelle `app.openapi()`
+    directement en Python plutôt que de lire l'URL HTTP.
     """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -70,6 +80,7 @@ class Settings(BaseSettings):
     cookie_secure: bool
     controle_prix_actif: bool = False
     controle_livre_non_facture_actif: bool = False
+    api_docs_actives: bool = False
 
 
 @cache

@@ -51,6 +51,11 @@ services:
       # docs/dette.md) : R06 désactivée tant qu'elle n'est pas explicitement
       # à "true".
       CONTROLE_LIVRE_NON_FACTURE_ACTIF: "${CONTROLE_LIVRE_NON_FACTURE_ACTIF:-false}"
+      # Optionnelle, défaut false (constat sécurité du 24/09/2026) : /docs,
+      # /redoc et /openapi.json exposent le schéma complet de l'API sans
+      # authentification, désactivés tant que cette variable n'est pas
+      # explicitement à "true".
+      API_DOCS_ACTIVES: "${API_DOCS_ACTIVES:-false}"
     depends_on:
       postgres:
         condition: service_healthy

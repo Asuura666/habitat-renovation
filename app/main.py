@@ -44,7 +44,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await engine.dispose()
 
 
-app = FastAPI(lifespan=lifespan)
+# `/docs`/`/redoc`/`/openapi.json` exposent le schéma complet de l'API sans
+# authentification : désactivés par défaut (`api_docs_actives`, optionnelle,
+# défaut `False` -- voir `app.core.config.Settings`), à activer
+# explicitement (`API_DOCS_ACTIVES=true`) si un besoin le justifie. Ne
+# change rien à `web/package.json` (`api:schema`), qui appelle
+# `app.openapi()` directement en Python plutôt que cette URL.
+_docs_actives = settings.api_docs_actives
+app = FastAPI(
+    lifespan=lifespan,
+    docs_url="/docs" if _docs_actives else None,
+    redoc_url="/redoc" if _docs_actives else None,
+    openapi_url="/openapi.json" if _docs_actives else None,
+)
 # Point 2 (vague finale du lot 2) : défense en profondeur CSRF sur `/api/*`
 # (voir `app/core/origine.py`) — `/tg/webhook` n'est pas concerné.
 app.add_middleware(ControleOrigineMiddleware)
@@ -66,8 +78,12 @@ async def health(request: Request) -> JSONResponse:
 # Montage du front (L2-D16) : seulement si le build existe déjà (`web/dist`,
 # copié par le Dockerfile multi-étage) — la suite de tests tourne sans lui.
 # Placé après toutes les routes ci-dessus (et les routes `/docs`/`/redoc`/
-# `/openapi.json` posées par `FastAPI(...)` plus haut) : le fallback
-# `GET /{chemin:path}` de `monter_front` ne doit jamais leur être prioritaire.
+# `/openapi.json` posées par `FastAPI(...)` plus haut, quand `api_docs_actives`
+# les active) : le fallback `GET /{chemin:path}` de `monter_front` ne doit
+# jamais leur être prioritaire. Quand elles sont désactivées, ces trois
+# chemins restent bloqués : `_PREFIXES_RESERVES` d'`app.core.front` les
+# renvoie en 404 plutôt que de laisser le fallback les servir comme l'app
+# React.
 _DOSSIER_FRONT = Path(__file__).resolve().parent.parent / "web" / "dist"
 if _DOSSIER_FRONT.exists():
     monter_front(app, _DOSSIER_FRONT)
