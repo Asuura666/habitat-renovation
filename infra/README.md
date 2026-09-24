@@ -6,8 +6,9 @@ prestataire du client) et à Ilane, le développeur.
 
 - **État décrit** : 24/09/2026. Lots 1 à 5 et refonte du front fusionnés
   dans `main` (`a085948`). Les désactivations R07-R09/R06 décrites
-  ci-dessous sont introduites par le commit `0bcd5cd`, `API_DOCS_ACTIVES`
-  par le commit `5034ca7` (§2.5, §7.6, §9) ; avant tout build de
+  ci-dessous sont présentes à partir de la fusion `0bcd5cd`,
+  `API_DOCS_ACTIVES` par le commit `5034ca7` (§2.5, §7.6, §9) ; avant tout
+  build de
   production, vérifier que la branche construite contient les deux
   (`git merge-base --is-ancestor 0bcd5cd <branche>` et `git merge-base
   --is-ancestor 5034ca7 <branche>`) plutôt que de supposer qu'une branche
@@ -1052,7 +1053,8 @@ interne des tâches ne sera donc pas dans le dépôt remis.
 
 ### 7.6 Points de vigilance
 
-- **Corrigé dans le code, pas encore déployé (`API_DOCS_ACTIVES`)**.
+- **Corrigé : `/docs`, `/redoc` et `/openapi.json` désactivés par défaut
+  (`API_DOCS_ACTIVES`), déployé le 24/09/2026.**
   `/openapi.json` était public (200) : le schéma complet de l'API était
   lisible sans compte (les routes elles-mêmes restaient protégées). `/docs`
   et `/redoc` répondaient aussi 200, mais leur interface, chargée depuis

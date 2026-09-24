@@ -879,9 +879,11 @@ dans `correction-finale-rapport.md`, même dossier) :
   deploy/docker-compose.yml -f deploy/docker-compose.vps.yml up -d api` ; un
   simple `restart` ne relit pas les variables d'environnement) quand
   l'historique couvre plusieurs mois. Pour recalculer aussi les anomalies
-  sur les factures déjà reçues, rejeu facultatif de
-  `python -m app.cli rapprocher --tout`. Procédure détaillée :
-  `docs/evolutions-proposees.md` §b.
+  sur les factures déjà reçues, rejeu facultatif de `rapprocher --tout`,
+  sur le VPS : `docker compose -p habitat_<instance> --env-file
+  .env.<instance> -f deploy/docker-compose.yml -f
+  deploy/docker-compose.vps.yml exec -T api python -m app.cli rapprocher
+  --tout`. Procédure détaillée : `docs/evolutions-proposees.md` §b.
 - **R06 (« Livré mais pas facturé ») désactivée le 24/09/2026, seconde
   décision d'Ilane le même jour** : aucune preuve encore constatée que ce
   cas se produise. Même mécanisme que les contrôles de prix ci-dessus

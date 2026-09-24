@@ -204,9 +204,11 @@ masquées de tous les écrans (jamais fermées ni supprimées — voir
 `docs/dette.md`). Deux adaptations front, sans nouveau calcul : la tuile
 « Écart prix ou quantité » devient « Écart de quantité », le filtre « Prix »
 de l'écran « À régler » disparaît ; l'écran Réglages signale les trois
-seuils concernés comme sans effet pour l'instant. Réactivation par un
-administrateur serveur (`.env` + redémarrage) quand l'historique couvre
-plusieurs mois, sans interrupteur à l'écran.
+seuils concernés comme sans effet pour l'instant. Réactivation : variable
+dans le fichier d'environnement de l'instance (`.env.prod` / `.env.demo`)
+puis recréation du conteneur API (`up -d api`), voir
+`docs/evolutions-proposees.md` §b, quand l'historique couvre plusieurs
+mois, sans interrupteur à l'écran.
 
 **Second addendum du 24/09/2026 — décision (déjà prise, pas à valider) : R06
 « Livré mais pas facturé » désactivée.** Même jour, seconde décision
@@ -234,8 +236,10 @@ d'anomalies, eux, ne changent pas : R06 était déjà rangée dans la catégorie
 filtre qui lui soit propre sur ces écrans-là — la tuile « Écart de
 quantité » et son sous-texte (« livraisons avec un écart de quantité »)
 restent corrects sans changement, R02 (« Livré sans bon », preuve dans la
-facture) reste active. Réactivation identique (`.env` + redémarrage), sans
-interrupteur à l'écran.
+facture) reste active. Réactivation : variable dans le fichier
+d'environnement de l'instance (`.env.prod` / `.env.demo`) puis recréation
+du conteneur API (`up -d api`), voir `docs/evolutions-proposees.md` §c,
+sans interrupteur à l'écran.
 
 ## 4. Contrôles finaux (sur `eeb93a4`)
 
