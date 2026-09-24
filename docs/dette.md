@@ -872,8 +872,16 @@ dans `correction-finale-rapport.md`, même dossier) :
   régler ») et signale les trois seuils concernés (`seuil_prix_pct`,
   `seuil_prix_fort_pct`, `occurrences_prix_min` — pas de seuil propre à la
   remise en plus de ce dernier) dans Réglages, qui restent modifiables.
-  Réactiver avec `CONTROLE_PRIX_ACTIF=true` (puis redémarrer l'API) quand
-  l'historique couvre plusieurs mois.
+  Réactivation : geste d'administrateur serveur, pas un redémarrage —
+  `CONTROLE_PRIX_ACTIF=true` dans le fichier d'environnement de l'instance
+  (`.env.prod` ou `.env.demo`), puis recréation du conteneur API
+  (`docker compose -p habitat_<instance> --env-file .env.<instance> -f
+  deploy/docker-compose.yml -f deploy/docker-compose.vps.yml up -d api` ; un
+  simple `restart` ne relit pas les variables d'environnement) quand
+  l'historique couvre plusieurs mois. Pour recalculer aussi les anomalies
+  sur les factures déjà reçues, rejeu facultatif de
+  `python -m app.cli rapprocher --tout`. Procédure détaillée :
+  `docs/evolutions-proposees.md` §b.
 - **R06 (« Livré mais pas facturé ») désactivée le 24/09/2026, seconde
   décision d'Ilane le même jour** : aucune preuve encore constatée que ce
   cas se produise. Même mécanisme que les contrôles de prix ci-dessus
@@ -914,8 +922,11 @@ dans `correction-finale-rapport.md`, même dossier) :
   `CompteProblemesReponse.controle_livre_non_facture_actif`, corrigé après
   relecture -- voir `docs/refonte-front-recette.md`). R02 (« Livré sans
   bon ») reste active (décision d'Ilane : la preuve est dans la facture).
-  Réactiver avec `CONTROLE_LIVRE_NON_FACTURE_ACTIF=true` (puis redémarrer
-  l'API) si le cas est un jour constaté.
+  Réactivation : même geste d'administrateur serveur que les contrôles de
+  prix ci-dessus — `CONTROLE_LIVRE_NON_FACTURE_ACTIF=true` dans le fichier
+  d'environnement de l'instance, puis recréation du conteneur API (pas un
+  `restart`, même commande que ci-dessus) si le cas est un jour constaté.
+  Procédure détaillée : `docs/evolutions-proposees.md` §c.
 
 ## Sécurité : `/docs`, `/redoc` et `/openapi.json` publics (corrigé le 24/09/2026)
 

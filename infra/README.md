@@ -4,8 +4,13 @@ Document technique de référence du projet réalisé pour Habitat & Rénovation
 Il s'adresse à un lecteur technique qui découvre le projet (futur mainteneur,
 prestataire du client) et à Ilane, le développeur.
 
-- **État décrit** : 24/09/2026, commit `a085948` de `main`. Les deux instances
-  en service ont été déployées le 23/09/2026.
+- **État décrit** : 24/09/2026. Lots 1 à 5 et refonte du front fusionnés
+  dans `main` (`a085948`) ; les désactivations R07-R09/R06 et
+  `API_DOCS_ACTIVES` décrites ci-dessous sont fusionnées dans
+  `refonte-front` (`0bcd5cd`) pour les premières, sur une branche à part pour
+  la seconde — **pas dans `main`** (§2.5, §7.6, §9). Les deux instances en
+  service ont été déployées le 23/09/2026, avant ces commits : elles
+  évaluent encore R06 à R09 et servent encore `/openapi.json` publiquement.
 - **Ce qui fait foi** : le cahier des charges, `docs/cahier-des-charges.md`
   (CDC). Ce document le résume, puis décrit ce qui a été construit, comment
   c'est hébergé et pourquoi.
@@ -162,24 +167,30 @@ modifiables par l'admin. Deux moments d'évaluation :
 | R17 | Conditionnement inhabituel | Moyenne | Quantité inhabituelle pour le conditionnement | Rapprochement | Active |
 | (R18) | Livraison par semi-remorque, à confirmer par un admin | Haute | — | — | **Non construite** : le client n'a défini aucun déclencheur. |
 
-> **Décision d'Ilane du 24/09/2026** (réponse donnée en session de travail ;
-> aucun autre document versionné ne la consigne). Les contrôles de prix R07,
+> **Décision d'Ilane du 24/09/2026** (réponse donnée en session de travail,
+> au commit `a085948` ; consignée depuis dans `docs/dette.md`,
+> `docs/evolutions-proposees.md`, `.env.example` et
+> `deploy/docker-compose.yml`). Les contrôles de prix R07,
 > R08 et R09 et la règle R06 sont désactivés côté serveur par défaut. R02 est
 > gardée, sans fusion avec R01. Les autres règles restent actives.
 > Motifs : il n'y a qu'un mois de factures, donc le « prix habituel » ne
 > repose sur rien ; rien ne prouve que le cas R06 existe. Le but est de ne
 > montrer en démonstration que ce qu'on peut prouver.
-> **Mécanisme fusionné dans `main`** (`45014b8` pour R07-R09, complété par
-> `a1735e0` pour R06, fusion finale `0bcd5cd`) : deux variables
-> d'environnement indépendantes, optionnelles, défaut `false` —
+> **Mécanisme fusionné dans `refonte-front`** (`45014b8` pour R07-R09,
+> complété par `a1735e0` pour R06, fusion finale `0bcd5cd`), **pas encore
+> dans `main`** (`a085948`, §9) : deux variables d'environnement
+> indépendantes, optionnelles, défaut `false` —
 > `CONTROLE_PRIX_ACTIF` (R07-R09) et `CONTROLE_LIVRE_NON_FACTURE_ACTIF`
 > (R06), sans interrupteur à l'écran (`ingest.commun.regles_desactivees`,
 > seule source de vérité, lue par le rapprochement et par les contrôles
-> différés). Réactivation : geste d'administrateur serveur — variable dans
-> le fichier d'environnement de l'instance puis **recréation** du conteneur
-> API (`docker compose … up -d api`, un simple `restart` ne relit pas les
-> variables, §5.6, §9), détaillée dans `docs/evolutions-proposees.md` §b et
-> §c.
+> différés). **Les deux instances déployées le 23/09/2026, avant ce
+> mécanisme, évaluent toujours R06 à R09** et continueront tant qu'un
+> déploiement n'aura pas reconstruit l'image depuis une branche qui le
+> contient (§9). Réactivation, une fois déployé : geste d'administrateur
+> serveur — variable dans le fichier d'environnement de l'instance puis
+> **recréation** du conteneur API (`docker compose … up -d api`, un simple
+> `restart` ne relit pas les variables, §5.6, §9), détaillée dans
+> `docs/evolutions-proposees.md` §b et §c.
 
 **Seuils modifiables** (écran Réglages, chaque modification est journalisée) :
 
@@ -285,7 +296,7 @@ L5-D3 est gardée par Ilane ; elle reste à confirmer avec le client.
 | 23/09/2026 | La démonstration se fait sur le VPS actuel, derrière nginx (écart au CDC §7 et §12, voir §5). |
 | 23/09/2026 | Mistral passe en paiement à l'usage (§6.1). |
 | 23/09/2026 | Fournisseur d'authentification : fastapi-users reste en place. Clerk et Better Auth ont été évoqués ; la décision est en attente (§7). |
-| 24/09/2026 | R07, R08, R09 et R06 désactivées côté serveur, réactivables respectivement par `CONTROLE_PRIX_ACTIF` et `CONTROLE_LIVRE_NON_FACTURE_ACTIF` ; R02 gardée. Mécanisme fusionné dans `main` (§2.5). |
+| 24/09/2026 | R07, R08, R09 et R06 désactivées côté serveur, réactivables respectivement par `CONTROLE_PRIX_ACTIF` et `CONTROLE_LIVRE_NON_FACTURE_ACTIF` ; R02 gardée. Mécanisme fusionné dans `refonte-front`, pas dans `main` (§2.5). |
 
 **Écarts de réalisation** par rapport au CDC :
 
@@ -1038,17 +1049,22 @@ interne des tâches ne sera donc pas dans le dépôt remis.
 
 ### 7.6 Points de vigilance
 
-- **Corrigé : désactivé par défaut (`API_DOCS_ACTIVES`)**. `/openapi.json`
-  était public (200) : le schéma complet de l'API était lisible sans compte
-  (les routes elles-mêmes restaient protégées). `/docs` et `/redoc`
-  répondaient aussi 200, mais leur interface, chargée depuis
+- **Corrigé dans le code, pas encore déployé (`API_DOCS_ACTIVES`)**.
+  `/openapi.json` était public (200) : le schéma complet de l'API était
+  lisible sans compte (les routes elles-mêmes restaient protégées). `/docs`
+  et `/redoc` répondaient aussi 200, mais leur interface, chargée depuis
   `cdn.jsdelivr.net`, était bloquée par la CSP `default-src 'self'` — elle
   ne s'affichait donc pas dans un navigateur. `API_DOCS_ACTIVES` (optionnelle,
   défaut `false`, §5.6) passe désormais `docs_url`/`redoc_url`/`openapi_url`
   à `None` (`app/main.py`) tant qu'elle n'est pas explicitement à `true` : les
   trois routes renvoient 404 par défaut. Sans effet sur `web/package.json`
   (`api:schema`), qui appelle `app.openapi()` directement en Python plutôt
-  que cette route.
+  que cette route. **Les deux instances en service n'ont pas ce correctif** :
+  les conteneurs `habitat_prod-api-1` et `habitat_demo-api-1`, créés le
+  23/09/2026, répondent toujours 200 sur `/openapi.json`
+  (`127.0.0.1:8450/openapi.json`, `127.0.0.1:8451/openapi.json`, vérifié par
+  curl le 24/09/2026) — ça restera vrai jusqu'à un déploiement depuis une
+  branche qui contient ce correctif (§9).
 - Les jetons de session expirés ne sont jamais purgés et sont stockés tels
   quels : qui lirait la base pourrait réutiliser une session de moins de 12 h.
 - Le compteur slowapi est en mémoire, propre au processus, remis à zéro à
@@ -1088,10 +1104,15 @@ interne des tâches ne sera donc pas dans le dépôt remis.
 
 Toutes les commandes se lancent depuis `/home/debian/habitat_reno`. Avant un
 `build`, vérifier la branche et que l'arbre de travail est propre : l'image
-est construite depuis cet arbre. Au 24/09/2026, cet arbre est sur la branche
-`refonte-front`, égale à `main` en `a085948` ; faire `git switch main` avant
-tout build de production, sinon un build lancé après divergence prendrait
-`refonte-front`.
+est construite depuis cet arbre. Au 24/09/2026, `refonte-front` a divergé de
+`main` (`a085948`) : elle contient depuis `0bcd5cd` la désactivation de
+R06-R09 (§2.5) que `main` n'a pas — **ne pas faire `git switch main` avant
+un build de production**, ça déploierait sans cette désactivation.
+`API_DOCS_ACTIVES` (§7.6) est postérieur et n'est encore fusionné ni dans
+`main` ni dans `refonte-front`. Avant tout build de production, vérifier que
+la branche construite contient les deux (`git merge-base --is-ancestor
+0bcd5cd <branche>` et l'équivalent pour le commit `API_DOCS_ACTIVES`) plutôt
+que de supposer qu'une branche particulière les a.
 
 ```bash
 cd /home/debian/habitat_reno
@@ -1250,9 +1271,11 @@ Autres procédures, à ne pas recopier ici (mêmes options à remplacer) :
   (§7.5).
 - `DATABASE_URL` hors `SecretStr` ; tests des modules copiés dans l'image ;
   hook `interdit-env` limité à `.env` (§4.9, §5.5, §5.6). `/openapi.json`
-  public sur la production : **corrigé**, désactivé par défaut
-  (`API_DOCS_ACTIVES`, §7.6) — à vérifier sur les deux instances après leur
-  prochain déploiement (§9).
+  public sur la production : corrigé dans le code, désactivé par défaut
+  (`API_DOCS_ACTIVES`, §7.6), mais pas déployé — les deux instances, créées
+  le 23/09/2026, servent toujours `/openapi.json` en 200 (vérifié par curl
+  le 24/09/2026) et évaluent toujours R06 à R09 (§2.5), jusqu'à leur
+  prochain déploiement depuis une branche qui contient ces correctifs (§9).
 
 **Hébergement**
 
