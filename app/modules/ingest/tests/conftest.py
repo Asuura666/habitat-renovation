@@ -23,12 +23,37 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 from app.core.db import Base, creer_sessionmaker
+from app.modules.ingest import commun
 from tests.conftest import lire_test_database_url, preparer_base
 
 
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
+
+
+class _SettingsControlePrix:
+    """Substitut minimal de `app.core.config.Settings` : seul
+    `controle_prix_actif` est jamais lu, par `ingest.commun
+    .controle_prix_actif` (voir `_controle_prix_actif_par_defaut`
+    ci-dessous)."""
+
+    def __init__(self, controle_prix_actif: bool) -> None:
+        self.controle_prix_actif = controle_prix_actif
+
+
+@pytest.fixture(autouse=True)
+def _controle_prix_actif_par_defaut(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Décision d'Ilane du 24/09/2026 (`docs/dette.md`) : le défaut réel de
+    l'application (`CONTROLE_PRIX_ACTIF` absente ->
+    `Settings.controle_prix_actif = False`) masquerait silencieusement
+    toutes les anomalies R07/R08/R09 que les tests d'`ingest` antérieurs à
+    cette décision créent en s'attendant à les voir (bilan, tableau de bord,
+    comparaison BL, rapprochement…). Cette fixture réenclenche donc le
+    drapeau par défaut pour tous les tests de ce paquet ; les tests dédiés au
+    masquage (`test_controle_prix.py`) l'écrasent localement avec le même
+    idiome pour tester le drapeau désactivé."""
+    monkeypatch.setattr(commun, "get_settings", lambda: _SettingsControlePrix(True))
 
 
 @pytest.fixture(scope="session")

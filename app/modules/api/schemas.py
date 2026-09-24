@@ -425,12 +425,18 @@ class CompteProblemesReponse(BaseModel):
     """`GET /api/a-regler/compte` : nombre de problèmes « à régler », tous
     mois confondus -- mêmes attributs qu'`ingest.a_traiter.CompteProblemes`
     (revue finale de la refonte du front : un seul compte pour la pastille
-    de navigation, la vue d'ensemble et l'écran « À régler »)."""
+    de navigation, la vue d'ensemble et l'écran « À régler »).
+
+    `controle_prix_actif` (décision d'Ilane du 24/09/2026, `docs/dette.md`) :
+    le front adapte ses libellés (« Écart prix ou quantité » -> « Écart de
+    quantité ») et masque le filtre « Prix » de l'écran « À régler » quand
+    ce drapeau est faux -- voir `ingest.a_traiter.CompteProblemes`."""
 
     model_config = ConfigDict(from_attributes=True)
 
     nb_problemes: int
     nb_urgents: int
+    controle_prix_actif: bool
 
 
 class ChantierReponse(BaseModel):

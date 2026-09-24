@@ -84,7 +84,10 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.ingest.anomalies import condition_anomalies_du_bl
+from app.modules.ingest.anomalies import (
+    condition_anomalies_du_bl,
+    condition_regles_actives,
+)
 from app.modules.ingest.lecture import TYPES_BL, DocumentIntrouvable
 from app.modules.ingest.models import (
     Anomalie,
@@ -256,7 +259,11 @@ async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> Comparai
 
     resultat_anomalies = await session.execute(
         select(Anomalie.id, Anomalie.ligne_id, Anomalie.regle)
-        .where(Anomalie.statut == "ouverte", condition_anomalies_du_bl(document_id))
+        .where(
+            condition_regles_actives(),
+            Anomalie.statut == "ouverte",
+            condition_anomalies_du_bl(document_id),
+        )
         .order_by(Anomalie.regle.asc())
     )
     anomalies_par_ligne: dict[uuid.UUID, list[str]] = {}

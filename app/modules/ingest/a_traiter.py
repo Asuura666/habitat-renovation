@@ -20,7 +20,15 @@ l'en-tête de l'écran « À régler » affichent ce même nombre ; avant ce
 correctif, trois compteurs de périmètres différents (urgents de tous les
 mois, problèmes du mois, liste complète) se contredisaient sur le même
 écran.
-"""
+
+`CompteProblemes.controle_prix_actif` (décision d'Ilane du 24/09/2026,
+`docs/dette.md`) : reflet de `ingest.commun.controle_prix_actif()`, exposé
+ici -- un seul endroit -- car `GET /api/a-regler/compte` est déjà rechargé
+par toutes les pages (barre de navigation, vue d'ensemble, écran « À
+régler », `CLE_COMPTE_A_REGLER` côté front) : aucun autre point d'API n'a
+besoin de porter ce même drapeau. Aucun calcul métier n'en découle ici, le
+front ne fait qu'adapter des libellés (« Écart prix ou quantité » ->
+« Écart de quantité », filtre « Prix » masqué) à partir de ce booléen."""
 
 from __future__ import annotations
 
@@ -34,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.modules.ingest.anomalies import compter_anomalies_ouvertes
+from app.modules.ingest.commun import controle_prix_actif
 from app.modules.ingest.lecture import _CONFIRMATION_PAR_ACTION, MotifLu, motifs_lus
 from app.modules.ingest.models import (
     Article,
@@ -261,6 +270,7 @@ class CompteProblemes:
 
     nb_problemes: int
     nb_urgents: int
+    controle_prix_actif: bool
 
 
 async def compter_problemes_a_regler(session: AsyncSession) -> CompteProblemes:
@@ -275,6 +285,7 @@ async def compter_problemes_a_regler(session: AsyncSession) -> CompteProblemes:
         + len(a_traiter.alias)
         + len(a_traiter.articles),
         nb_urgents=nb_urgents,
+        controle_prix_actif=controle_prix_actif(),
     )
 
 

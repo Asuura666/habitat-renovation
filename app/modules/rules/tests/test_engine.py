@@ -652,6 +652,93 @@ def test_evaluer_facture_prix_sans_historique_connu_ne_produit_rien() -> None:
     assert anomalies == ()
 
 
+# --------------------------------------------------------------------------
+# `regles_actives` (décision d'Ilane du 24/09/2026, `docs/dette.md`) :
+# R07/R08/R09 désactivables sans toucher aux autres règles.
+# --------------------------------------------------------------------------
+
+
+def _facture_prix_et_remise_hors_norme() -> FactureControlee:
+    """Même scénario que `test_evaluer_facture_r17_puis_r07_et_r09_meme_ligne_
+    dans_lordre` (sans le ratio qui produit R17, pour isoler R07/R09) : une
+    ligne dont le prix s'écarte de la médiane (R07) et dont la remise
+    habituelle est absente (R09)."""
+    document = _document(coherent=True)
+    article_id = uuid.uuid4()
+    article = _article(id=article_id, ratio=None)
+    ligne_bl = _ligne(article_id=article_id, qte_fact=Decimal("20"))
+    ligne_facture = _ligne(
+        article_id=article_id,
+        qte_fact=Decimal("20"),
+        pu_ht=Decimal("110.00"),
+        remise_pct=None,
+    )
+    rapprochee = LigneRapprochee(facture=ligne_facture, bl=ligne_bl, methode="code")
+    bloc = _bloc(bl=_document(coherent=True, statut="recu"), lignes=(rapprochee,))
+    historique = _historique(
+        article_id=article_id,
+        mediane_pu=Decimal("100.00"),
+        occurrences=3,
+        remise_habituelle=Decimal("10.00"),
+        occurrences_remise=3,
+    )
+    return _facture(
+        document,
+        (bloc,),
+        articles={article_id: article},
+        historiques={article_id: historique},
+    )
+
+
+def test_evaluer_facture_regles_actives_none_evalue_r07_et_r09_comme_avant() -> None:
+    """`regles_actives=None` (défaut) : comportement inchangé, toutes les
+    règles de `REGLES_FACTURE` s'évaluent -- non-régression du paramètre
+    ajouté par la décision d'Ilane du 24/09/2026."""
+    anomalies = evaluer_facture(_facture_prix_et_remise_hors_norme(), Parametres())
+
+    assert [a.regle for a in anomalies] == ["R07", "R09"]
+
+
+def test_evaluer_facture_regles_actives_sans_r07_r08_r09_ne_les_evalue_pas() -> None:
+    """Retirer R07/R08/R09 de `regles_actives` : aucune anomalie de prix ou
+    de remise, même avec un écart et une remise habituelle hors norme --
+    les règles ne sont pas seulement filtrées en sortie, elles ne sont plus
+    appelées du tout (voir le docstring de module)."""
+    regles_sans_prix = REGLES_FACTURE - {"R07", "R08", "R09"}
+
+    anomalies = evaluer_facture(
+        _facture_prix_et_remise_hors_norme(), Parametres(), regles_sans_prix
+    )
+
+    assert anomalies == ()
+
+
+def test_evaluer_facture_regles_actives_avec_r07_r08_r09_les_evalue() -> None:
+    """`regles_actives` incluant explicitement R07/R08/R09 : comportement
+    identique à `None` -- réactivation du drapeau `CONTROLE_PRIX_ACTIF`."""
+    anomalies = evaluer_facture(
+        _facture_prix_et_remise_hors_norme(), Parametres(), REGLES_FACTURE
+    )
+
+    assert [a.regle for a in anomalies] == ["R07", "R09"]
+
+
+def test_evaluer_facture_regles_actives_ne_touche_pas_les_autres_regles() -> None:
+    """Retirer R07/R08/R09 de `regles_actives` n'affecte aucune autre règle
+    (R01/R02/R12 de bloc ici) : le paramètre ne restreint que la passe de
+    prix (`_evaluer_prix`)."""
+    document = _document(coherent=True)
+    bloc = _bloc(bl=None)  # aucun BL rapproché -> R01
+
+    anomalies = evaluer_facture(
+        _facture(document, (bloc,)),
+        Parametres(),
+        REGLES_FACTURE - {"R07", "R08", "R09"},
+    )
+
+    assert [a.regle for a in anomalies] == ["R01"]
+
+
 def test_evaluer_facture_ajoute_r13_apres_les_blocs_dans_lordre() -> None:
     """R13 (L4-T5) : une fois par facture, après les blocs, dans l'ordre de
     `lignes_negatives_sans_origine` (décision du contrôleur)."""

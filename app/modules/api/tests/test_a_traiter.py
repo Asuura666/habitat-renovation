@@ -203,4 +203,10 @@ async def test_compte_a_regler_admin_compte_la_liste_de_l_ecran(
 
     assert reponse.status_code == 200
     # Un seul document « à vérifier », aucune anomalie : 1 problème, 0 urgent.
-    assert reponse.json() == {"nb_problemes": 1, "nb_urgents": 0}
+    # `controle_prix_actif` : false par défaut (`CONTROLE_PRIX_ACTIF` absente
+    # du `.env` de test, décision d'Ilane du 24/09/2026, `docs/dette.md`).
+    assert reponse.json() == {
+        "nb_problemes": 1,
+        "nb_urgents": 0,
+        "controle_prix_actif": False,
+    }

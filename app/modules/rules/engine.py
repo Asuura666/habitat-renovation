@@ -66,7 +66,19 @@ paramètre obligatoire `portee_regles` plutôt que de retyper la liste des
 règles à chaque appel. `test_engine.py` vérifie qu'ils sont disjoints et
 que leur union couvre exactement R01 à R17 — une règle ajoutée plus tard
 sans mise à jour de l'un des deux ensembles fait donc échouer la suite.
-"""
+
+`regles_actives` d'`evaluer_facture` (décision d'Ilane du 24/09/2026,
+`docs/dette.md` : contrôles de prix désactivés tant que l'historique ne
+couvre qu'un seul mois) : paramètre optionnel, `None` par défaut (=
+comportement inchangé, toutes les règles de `REGLES_FACTURE` s'évaluent).
+`rules` reste pur (n'importe rien de `app.core`) : c'est `ingest`, seul
+orchestrateur, qui lit la configuration
+(`ingest.commun.regles_desactivees`) et passe explicitement l'ensemble des
+règles actives. Seules R07/R08/R09 (les règles de *prix*, `_evaluer_prix`)
+observent ce paramètre pour l'instant : le retirer de `regles_actives` fait
+sauter l'appel à la règle correspondante (elle n'est plus *évaluée*, pas
+seulement filtrée en sortie) ; toute autre règle continue de s'évaluer
+quel que soit son contenu."""
 
 from __future__ import annotations
 
@@ -127,12 +139,19 @@ REGLES_SUIVI: frozenset[str] = frozenset({"R06", "R14", "R15", "R16"})
 
 
 def evaluer_facture(
-    facture: FactureControlee, parametres: Parametres
+    facture: FactureControlee,
+    parametres: Parametres,
+    regles_actives: frozenset[str] | None = None,
 ) -> tuple[Anomalie, ...]:
-    """Point d'entrée du moteur pour une facture (niveau document)."""
+    """Point d'entrée du moteur pour une facture (niveau document).
+
+    `regles_actives` : voir le docstring de module. `None` (défaut) évalue
+    toutes les règles de `REGLES_FACTURE`, comme avant ce paramètre."""
     anomalie_r10 = R10(facture.document, parametres)
     if anomalie_r10 is not None:
         return (anomalie_r10,)
+
+    actives = regles_actives if regles_actives is not None else REGLES_FACTURE
 
     anomalies: list[Anomalie] = []
     for bloc in facture.blocs:
@@ -143,6 +162,7 @@ def evaluer_facture(
                 facture.document.numero,
                 facture.articles,
                 facture.historiques,
+                actives,
             )
         )
     for ligne, chantier in facture.lignes_negatives_sans_origine:
@@ -192,6 +212,7 @@ def _evaluer_bloc(
     facture_numero: str | None,
     articles: Mapping[UUID, ArticleControle],
     historiques: Mapping[UUID, HistoriqueArticle],
+    regles_actives: frozenset[str],
 ) -> tuple[Anomalie, ...]:
     """Règles de niveau bloc (L4-T2), dans l'ordre : R11 (si un BL est
     rapproché), puis R01, R02 et R12, **toujours** évaluées (Ruling R2).
@@ -220,7 +241,9 @@ def _evaluer_bloc(
 
     for rapprochee in bloc.lignes:
         anomalies.extend(
-            _evaluer_prix(rapprochee.facture, articles, historiques, parametres)
+            _evaluer_prix(
+                rapprochee.facture, articles, historiques, parametres, regles_actives
+            )
         )
 
     return tuple(anomalies)
@@ -267,6 +290,7 @@ def _evaluer_prix(
     articles: Mapping[UUID, ArticleControle],
     historiques: Mapping[UUID, HistoriqueArticle],
     parametres: Parametres,
+    regles_actives: frozenset[str],
 ) -> tuple[Anomalie, ...]:
     """R07 ou R08 (exclusives, écart de prix), puis R09 (remise absente) —
     L4-T4. Ne dépendent ni du BL rapproché ni de `conversion_impossible`
@@ -274,7 +298,12 @@ def _evaluer_prix(
     fournisseur comptent. `()` si la ligne n'a pas d'article résolu
     (`article_id` absent ou inconnu de `articles`) ou pas d'historique
     connu pour cet article (jamais mesuré — pas une erreur, simplement rien
-    à comparer)."""
+    à comparer).
+
+    Chaque règle n'est **appelée** que si son code figure dans
+    `regles_actives` (décision d'Ilane du 24/09/2026, voir le docstring de
+    module) : une règle retirée de `regles_actives` n'est pas évaluée,
+    jamais seulement filtrée après coup."""
     if ligne.article_id is None:
         return ()
     article = articles.get(ligne.article_id)
@@ -285,14 +314,17 @@ def _evaluer_prix(
         return ()
 
     anomalies: list[Anomalie] = []
-    anomalie_prix = R07(ligne, article, historique, parametres) or R08(
-        ligne, article, historique, parametres
-    )
+    anomalie_prix = None
+    if "R07" in regles_actives:
+        anomalie_prix = R07(ligne, article, historique, parametres)
+    if anomalie_prix is None and "R08" in regles_actives:
+        anomalie_prix = R08(ligne, article, historique, parametres)
     if anomalie_prix is not None:
         anomalies.append(anomalie_prix)
 
-    anomalie_r09 = R09(ligne, article, historique, parametres)
-    if anomalie_r09 is not None:
-        anomalies.append(anomalie_r09)
+    if "R09" in regles_actives:
+        anomalie_r09 = R09(ligne, article, historique, parametres)
+        if anomalie_r09 is not None:
+            anomalies.append(anomalie_r09)
 
     return tuple(anomalies)

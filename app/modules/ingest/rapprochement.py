@@ -85,7 +85,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ingest.anomalies import synchroniser_anomalies
-from app.modules.ingest.commun import logger
+from app.modules.ingest.commun import logger, regles_desactivees
 from app.modules.ingest.lecture import (
     FactureIntrouvable,
     MotifLu,
@@ -910,7 +910,17 @@ async def rapprocher_facture(
     )
 
     parametres = await _charger_parametres(session)
-    anomalies = evaluer_facture(facture_controlee, parametres)
+    # Décision d'Ilane du 24/09/2026 (`docs/dette.md`) : R07/R08/R09 ne sont
+    # évaluées que si elles ne figurent pas dans `regles_desactivees()`
+    # (`ingest.commun`, seule source de vérité) -- `regles_actives` est
+    # exactement l'ensemble des règles que ce rapprochement recalcule
+    # réellement, donc aussi celui passé à `synchroniser_anomalies` plus bas
+    # (Ruling R8, `ingest/anomalies.py`) : une règle désactivée n'est jamais
+    # considérée comme « recalculée », ses anomalies existantes restent donc
+    # ouvertes (masquées à l'affichage, jamais levées) le temps qu'elle soit
+    # réactivée.
+    regles_actives = REGLES_FACTURE - regles_desactivees()
+    anomalies = evaluer_facture(facture_controlee, parametres, regles_actives)
 
     await session.execute(
         delete(RapprochementLigne).where(
@@ -960,10 +970,14 @@ async def rapprocher_facture(
         session,
         anomalies=anomalies,
         portee_document_id=facture_id,
-        # `synchroniser_anomalies` attend une `Sequence` ; `REGLES_FACTURE`
-        # (source de vérité, `rules.engine`) est un `frozenset` — converti en
-        # tuple ici, jamais retypé à la main (Ruling R8, `ingest/anomalies.py`).
-        portee_regles=tuple(REGLES_FACTURE),
+        # `synchroniser_anomalies` attend une `Sequence` ; `regles_actives`
+        # (calculé ci-dessus, `REGLES_FACTURE` moins les règles désactivées)
+        # est un `frozenset` — converti en tuple ici, jamais retypé à la main
+        # (Ruling R8, `ingest/anomalies.py`). Volontairement **pas**
+        # `REGLES_FACTURE` : une règle désactivée n'a pas été recalculée par
+        # cet appel, son balayage de suppression ne doit donc jamais la
+        # considérer (décision d'Ilane du 24/09/2026, voir ci-dessus).
+        portee_regles=tuple(regles_actives),
     )
 
     nb_blocs_recus = sum(1 for bloc in blocs_db if bloc.statut_rapprochement == "recu")

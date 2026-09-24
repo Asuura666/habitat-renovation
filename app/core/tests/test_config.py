@@ -183,6 +183,33 @@ def test_extra_est_ignoree(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
     assert not hasattr(settings, "postgres_password")
 
 
+def test_controle_prix_actif_absent_vaut_faux(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Décision d'Ilane du 24/09/2026 (`docs/dette.md`) : `CONTROLE_PRIX_ACTIF`
+    est optionnelle (contrairement aux variables ci-dessus, son absence ne
+    lève jamais de `ValidationError`) et vaut `False` par défaut -- les
+    contrôles de prix R07/R08/R09 restent désactivés tant qu'elle n'est pas
+    explicitement mise à `true`."""
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+    monkeypatch.delenv("CONTROLE_PRIX_ACTIF", raising=False)
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.controle_prix_actif is False
+
+
+def test_controle_prix_actif_peut_etre_active(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+    monkeypatch.setenv("CONTROLE_PRIX_ACTIF", "true")
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.controle_prix_actif is True
+
+
 def test_drive_reste_optionnel_et_son_secret_est_masque(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

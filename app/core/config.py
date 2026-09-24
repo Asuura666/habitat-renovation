@@ -33,6 +33,19 @@ class Settings(BaseSettings):
     ordinaires — le webhook (`app/modules/ingest/router.py`) n'écrit rien
     pour tout `chat_id` différent du premier (L2-D6), et les notifications de
     supervision (L2-D7, L2-D8) partent vers le second.
+
+    `controle_prix_actif` (décision d'Ilane du 24/09/2026, `docs/dette.md`) :
+    un seul mois de factures ne permet de fonder aucun « prix habituel » —
+    les contrôles de prix (R07 « Prix un peu plus cher », R08 « Prix plus
+    cher que d'habitude », R09 « Remise habituelle oubliée »,
+    `app.modules.rules.engine`) sont désactivés côté serveur tant que cette
+    variable n'est pas explicitement mise à `true`. **Optionnelle**, défaut
+    `False` : contrairement aux variables ci-dessus, son absence ne bloque
+    jamais le démarrage (aucun interrupteur n'est prévu à l'écran, la
+    réactivation est un geste d'administrateur serveur, `.env` puis
+    redémarrage). `ingest.commun.regles_desactivees` est la seule fonction
+    qui la lit pour en dériver l'ensemble des règles à masquer — jamais une
+    seconde lecture de ce drapeau ailleurs dans le code.
     """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -47,6 +60,7 @@ class Settings(BaseSettings):
     google_drive_service_account_json: SecretStr | None = None
     google_drive_folder_id: str | None = None
     cookie_secure: bool
+    controle_prix_actif: bool = False
 
 
 @cache

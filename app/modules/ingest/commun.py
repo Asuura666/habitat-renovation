@@ -15,6 +15,21 @@ filtrent les journaux avec
 `caplog.at_level(..., logger="app.modules.ingest.service")` n'ont donc pas
 besoin d'être modifiés par ce découpage (règle de la tâche : seuls les
 imports changent).
+
+`controle_prix_actif`/`regles_desactivees` (décision d'Ilane du 24/09/2026,
+`docs/dette.md`) : un seul mois de factures ne fonde aucun « prix habituel »,
+les contrôles de prix (R07, R08, R09) sont désactivés côté serveur tant que
+`app.core.config.Settings.controle_prix_actif` n'est pas explicitement à
+`true`. Ce module est le **seul** endroit d'`ingest` qui lit ce drapeau
+(`controle_prix_actif`) et en dérive l'ensemble des règles à masquer
+(`regles_desactivees`) — aucune autre source de vérité : `rapprochement.py`
+(calcul), `anomalies.py`/`bilan.py`/`comparaison_bl.py` (masquage de chaque
+lecture) et `a_traiter.py` (exposition au front) importent `regles_
+desactivees`/`controle_prix_actif` d'ici, jamais `get_settings()`
+directement pour cette décision. `rules` reste pur : c'est cette fonction,
+côté `ingest` (l'orchestrateur), qui lit la configuration et la traduit en
+un ensemble de codes de règle, un type que `rules.engine.evaluer_facture`
+accepte sans jamais importer `app.core`.
 """
 
 from __future__ import annotations
@@ -25,7 +40,32 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.core.config import get_settings
+
 logger = logging.getLogger("app.modules.ingest.service")
+
+# Les seules règles que la décision d'Ilane du 24/09/2026 désactive
+# (`docs/dette.md`) : les trois règles de *prix* du moteur (`rules.engine
+# ._evaluer_prix`), jamais une autre catégorie.
+REGLES_PRIX: frozenset[str] = frozenset({"R07", "R08", "R09"})
+
+
+def controle_prix_actif() -> bool:
+    """Reflet direct de `Settings.controle_prix_actif` -- voir le docstring
+    de module. Exposée séparément de `regles_desactivees` pour que le front
+    puisse afficher le drapeau lui-même (`ingest.a_traiter.CompteProblemes
+    .controle_prix_actif`) sans avoir à déduire un booléen d'un ensemble de
+    règles."""
+    return get_settings().controle_prix_actif
+
+
+def regles_desactivees() -> frozenset[str]:
+    """`REGLES_PRIX` si les contrôles de prix sont désactivés, `frozenset()`
+    sinon -- la seule fonction qui décide quelles règles sont désactivées
+    dans toute l'application (voir le docstring de module)."""
+    if controle_prix_actif():
+        return frozenset()
+    return REGLES_PRIX
 
 
 def _journaliser_echec(etape: str, update_id: int, exc: Exception) -> None:

@@ -80,6 +80,20 @@ Décisions du contrôleur (L4-T8) :
   de suivi sans chantier à l'écran et invisibles du filtre. La portée
   explicitement posée par la règle prime sur toute déduction depuis le bloc
   ou le document.
+- `condition_regles_actives` (décision d'Ilane du 24/09/2026, `docs/dette
+  .md` : contrôles de prix désactivés) : masque toute anomalie dont la
+  règle est dans `ingest.commun.regles_desactivees()` (R07/R08/R09 tant que
+  `CONTROLE_PRIX_ACTIF` n'est pas actif) — jamais détruite ni fermée
+  (`rapprochement.rapprocher_facture` ne les passe plus à `synchroniser_
+  anomalies` comme « recalculées », voir son docstring), seulement absente
+  de chaque lecture. Point unique, réutilisé par `_requete_anomalies`,
+  `compter_anomalies_ouvertes`, `compter_anomalies_hautes_ouvertes` ainsi
+  que `ingest.bilan._sous_requete_anomalies`/`_anomalies_par_ligne_et_bloc`
+  et `ingest.comparaison_bl.comparer_bl` — jamais un filtre dupliqué par
+  écran (`bilan`, tableau de bord, export CSV et compte « À régler » en
+  héritent tous, puisqu'ils réutilisent ces mêmes fonctions). Le journal
+  (`ingest/journal.py`) ne filtre jamais sur ce critère : il garde
+  l'historique tel quel, décision explicite de la tâche.
 """
 
 from __future__ import annotations
@@ -91,10 +105,11 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 
-from sqlalchemy import ColumnElement, Select, case, func, or_, select
+from sqlalchemy import ColumnElement, Select, case, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.modules.ingest.commun import regles_desactivees
 from app.modules.ingest.models import (
     Anomalie,
     BlocFacture,
@@ -493,12 +508,26 @@ class TransitionInterdite(Exception):
     """L'anomalie est déjà `traitee` ou `ignoree` (transition refusée)."""
 
 
+def condition_regles_actives() -> ColumnElement[bool]:
+    """Masque les anomalies dont la règle est désactivée côté serveur --
+    voir le docstring de module (décision d'Ilane du 24/09/2026). `true()`
+    (jamais de filtre `IN` avec une liste vide, dont la portabilité SQL
+    n'est pas garantie) quand `regles_desactivees()` est vide, c'est-à-dire
+    la quasi-totalité du temps une fois le drapeau réactivé."""
+    exclues = regles_desactivees()
+    if not exclues:
+        return true()
+    return Anomalie.regle.not_in(tuple(exclues))
+
+
 def _requete_anomalies(*conditions: Any) -> Select[Any]:
     """Requête commune à `lister_anomalies` et à la relecture d'une
     anomalie après `traiter_anomalie` (décision du contrôleur : jamais
     dupliquer les jointures). Chantier résolu par `CHANTIER_ID_RESOLU`
     (Ruling R19, fix round 2 de L4-T7) : `Anomalie.chantier_id` d'abord,
-    sinon le bloc, sinon le document lui-même."""
+    sinon le bloc, sinon le document lui-même. `condition_regles_actives()`
+    masque les anomalies des règles désactivées (voir son docstring) --
+    point unique pour tous les appelants de cette requête."""
     traitee_par_alias = aliased(Utilisateur)
     return (
         select(
@@ -519,7 +548,7 @@ def _requete_anomalies(*conditions: Any) -> Select[Any]:
         .outerjoin(Chantier, Chantier.id == CHANTIER_ID_RESOLU)
         .outerjoin(Fournisseur, Fournisseur.id == Document.fournisseur_id)
         .outerjoin(traitee_par_alias, traitee_par_alias.id == Anomalie.traitee_par)
-        .where(*conditions)
+        .where(condition_regles_actives(), *conditions)
     )
 
 
@@ -676,7 +705,9 @@ async def compter_anomalies_ouvertes(session: AsyncSession) -> tuple[int, int]:
     statut="ouverte")` sans plafond (`_requete_anomalies` n'a que des
     jointures externes, qui ne retirent ni ne dupliquent aucune anomalie).
     Sert au compte unique des problèmes « à régler » (`ingest.a_traiter
-    .compter_problemes_a_regler`, revue finale de la refonte du front)."""
+    .compter_problemes_a_regler`, revue finale de la refonte du front).
+    `condition_regles_actives()` masque les règles désactivées, même
+    principe que `_requete_anomalies`."""
     resultat = (
         await session.execute(
             select(
@@ -684,7 +715,7 @@ async def compter_anomalies_ouvertes(session: AsyncSession) -> tuple[int, int]:
                 func.count().filter(Anomalie.gravite == "haute"),
             )
             .select_from(Anomalie)
-            .where(Anomalie.statut == "ouverte")
+            .where(condition_regles_actives(), Anomalie.statut == "ouverte")
         )
     ).one()
     return int(resultat[0]), int(resultat[1])
@@ -692,12 +723,18 @@ async def compter_anomalies_ouvertes(session: AsyncSession) -> tuple[int, int]:
 
 async def compter_anomalies_hautes_ouvertes(session: AsyncSession) -> int:
     """Nombre d'anomalies `ouverte` de gravité `haute` (section « anomalies
-    ouvertes de gravité haute » de l'écran « À traiter », L4-D18)."""
+    ouvertes de gravité haute » de l'écran « À traiter », L4-D18).
+    `condition_regles_actives()` masque les règles désactivées, même
+    principe que `_requete_anomalies`."""
     return (
         await session.execute(
             select(func.count())
             .select_from(Anomalie)
-            .where(Anomalie.statut == "ouverte", Anomalie.gravite == "haute")
+            .where(
+                condition_regles_actives(),
+                Anomalie.statut == "ouverte",
+                Anomalie.gravite == "haute",
+            )
         )
     ).scalar_one()
 
