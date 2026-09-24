@@ -849,4 +849,21 @@ dans `correction-finale-rapport.md`, même dossier) :
 - **« Document n° N » reste affiché** sur la page d'un bon (constat
   ECRAN-13) : c'est le numéro cité par chaque message Telegram, seul moyen
   de retrouver un dépôt depuis la conversation.
+- **Contrôles de prix désactivés le 24/09/2026, décision d'Ilane** : un seul
+  mois de factures ne fonde aucun « prix habituel », R07 (« Prix un peu plus
+  cher »), R08 (« Prix plus cher que d'habitude ») et R09 (« Remise
+  habituelle oubliée ») sont désactivées côté serveur (`CONTROLE_PRIX_ACTIF`,
+  optionnelle, défaut `false` ; `ingest.commun.regles_desactivees`, seule
+  source de vérité). Leurs anomalies existantes sont masquées de chaque
+  écran (À régler, compte, tableau de bord, bilan, export, comparaison BL,
+  fiches), jamais fermées ni supprimées : `rapprocher_facture` ne les passe
+  plus à `synchroniser_anomalies` comme « recalculées », elles restent donc
+  ouvertes en base, prêtes à réapparaître. Aucun interrupteur à l'écran ; le
+  front adapte deux libellés (tuile « Écart prix ou quantité » -> « Écart de
+  quantité », filtre « Prix » masqué dans « À régler ») et signale les trois
+  seuils concernés (`seuil_prix_pct`, `seuil_prix_fort_pct`,
+  `occurrences_prix_min` — pas de seuil propre à la remise en plus de ce
+  dernier) dans Réglages, qui restent modifiables. Réactiver avec
+  `CONTROLE_PRIX_ACTIF=true` (puis redémarrer l'API) quand l'historique
+  couvre plusieurs mois.
 

@@ -195,6 +195,19 @@ qui vérifie la règle exacte (dernier commit, `eeb93a4`).
 Aucune de ces décisions n'est irréversible ; toutes se corrigent sans
 migration de données autre qu'un ajustement de code et de tests.
 
+**Addendum du 24/09/2026 — décision (déjà prise, pas à valider) : contrôles
+de prix désactivés.** Un seul mois de factures ne fonde aucun « prix
+habituel » ; R07/R08/R09 sont désactivées côté serveur
+(`CONTROLE_PRIX_ACTIF`, optionnelle, défaut `false`,
+`ingest.commun.regles_desactivees`) et leurs anomalies existantes sont
+masquées de tous les écrans (jamais fermées ni supprimées — voir
+`docs/dette.md`). Deux adaptations front, sans nouveau calcul : la tuile
+« Écart prix ou quantité » devient « Écart de quantité », le filtre « Prix »
+de l'écran « À régler » disparaît ; l'écran Réglages signale les trois
+seuils concernés comme sans effet pour l'instant. Réactivation par un
+administrateur serveur (`.env` + redémarrage) quand l'historique couvre
+plusieurs mois, sans interrupteur à l'écran.
+
 ## 4. Contrôles finaux (sur `eeb93a4`)
 
 ```
