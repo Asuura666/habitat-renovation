@@ -32,7 +32,7 @@ Celles des lots 1 et 2 (`docs/plan-lot-1.md` §1, `docs/plan-lot-2.md` §1, `CLA
 - Aucun envoi de document client à un service extérieur pendant le développement. Les appels réels à Mistral ne se font qu'avec des documents **inventés**.
 - Interface en français. Pas de tests unitaires front (L2-D17) : `typecheck` + `build` + parcours manuel.
 
-## 2. Constats (état au début du lot 3, `main` @ `59a2880`)
+## 2. Constats (état au début du lot 3, `main` @ `379d5bc`)
 
 1. **Aucune photo de BL ni aucun document Point.P n'est sur le disque** (`tests/fixtures/` ne contient que la facture Unikalo d'août, sa réponse OCR et sa référence). Les 4 photos du lot 1 n'ont jamais été déposées. Le livrable du lot (taux d'erreur sur 30 BL réels) et le parseur Point.P ne peuvent donc pas être faits ni mesurés dans ce lot : on construit tout ce qui n'en dépend pas, dont l'outil de mesure, et on consigne le blocage.
 2. Sur une photo, seul le numéro de BL est lu aujourd'hui (`extract/ocr.py::detecter_numero_bl`, motifs « LIVRAISON N°L… » Unikalo et « Bon d'enlèvement N° … » Point.P). On ne connaît rien d'autre de la mise en page des BL des deux fournisseurs.

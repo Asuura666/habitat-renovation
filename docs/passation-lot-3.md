@@ -10,41 +10,41 @@ foi), `docs/passation-lots-1-2.md` (lots précédents), `docs/lot-3-recette.md`
 ## 1. État au 17/09/2026, fin de journée
 
 - **Branche `lot-3-extraction`** (dépôt `/home/debian/habitat_reno`), créée
-  depuis `main` @ `59a2880` (« docs: passation des lots 1 et 2 »), tête
-  `8cbbb4c` après la vague finale de clôture. **Non fusionnée dans `main`**
+  depuis `main` @ `379d5bc` (« docs: passation des lots 1 et 2 »), tête
+  `07d3a73` après la vague finale de clôture. **Non fusionnée dans `main`**
   au moment de la rédaction de cette mise à jour. Aucun remote, rien de
   déployé.
 - **Revue de branche refermée.** La tâche L3-T10 (`web: détail et
-  correction d'un document`, commit `b572623`) avait reçu un verdict
+  correction d'un document`, commit `0edaf2c`) avait reçu un verdict
   « Needs fixes » (1 Important : l'état d'édition du détail document ne se
   réinitialisait pas après une écriture réussie — risque de réinsertion de
   lignes à un second enregistrement, trace de la valeur OCR d'un champ
   corrigé invisible jusqu'au rechargement). Deux tours de correction l'ont
   refermée :
-  - **Fix round 1** (`ecf25c6`, « web: état d'édition réinitialisé après
+  - **Fix round 1** (`81b0d85`, « web: état d'édition réinitialisé après
     enregistrement ») referme tout le mode édition et reconstruit
     `FormulaireEntete`/`TableauLignesEdition` depuis le détail renvoyé par
     l'API après un PATCH/PUT réussi — corrige le risque de réinsertion et
     la trace OCR invisible. La re-revue de ce tour a relevé une régression
     qu'il introduisait : enregistrer une section referme aussi le mode
     édition (et efface le brouillon non enregistré) de l'autre section.
-  - **Fix round 2** (`b2e817a`, « web: édition indépendante de l'en-tête et
+  - **Fix round 2** (`4a50e02`, « web: édition indépendante de l'en-tête et
     des lignes », Ruling R16) : deux drapeaux d'édition indépendants
     (en-tête / lignes), chacun avec son propre bouton « Modifier »/
     « Annuler », refermé seulement par sa propre écriture réussie —
     conserve le bénéfice du tour 1 sans toucher au brouillon voisin.
   Les deux tours sont re-revus **clean** (`.superpowers/sdd/plan-lot-3/
   progress.md`, entrées « L3-T10: fix round 1/5 » et « fix round 2/5 »).
-  La revue finale de branche (`59a2880..8cbbb4c`, 28 commits) n'a plus
+  La revue finale de branche (`379d5bc..07d3a73`, 28 commits) n'a plus
   relevé qu'un point de documentation — `CLAUDE.md`, cette passation et
   `docs/lot-3-recette.md` affirmaient à tort que L3-T10 restait ouvert
   alors qu'il était déjà corrigé — refermé par la présente mise à jour.
   **Le lot 3 est clos côté code**, prêt à être fusionné dans `main`.
 - **Répertoire de cette tâche (L3-T12)** : `/home/debian/habitat_reno-wt-l3`,
   branche `lot-3-pur`, recréée au dernier commit de `lot-3-extraction`
-  (`9fe112e`) — ce document, `docs/lot-3-recette.md` et les mises à jour de
+  (`6ec0ab4`) — ce document, `docs/lot-3-recette.md` et les mises à jour de
   `docs/dette.md`/`CLAUDE.md` ont d'abord été commités là (`24c860c`), puis
-  intégrés (cherry-pick) dans `lot-3-extraction` en `8cbbb4c`, une fois
+  intégrés (cherry-pick) dans `lot-3-extraction` en `07d3a73`, une fois
   L3-T10 refermé. Cette mise à jour de clôture (vague finale : docstring
   `get_ocr_facture`, `--seuil nan`, noms accessibles des boutons « Modifier »/
   « Annuler », et la présente correction documentaire) est commitée
@@ -91,7 +91,7 @@ Détail commit par commit et revue par revue dans `docs/lot-3-recette.md`
 | L3-T8a | `ingest/corrections.py` + routes `api/documents.py` : détail, correction, validation, archivage, relance d'un document |
 | L3-T8b | `ingest/a_traiter.py` + `ingest/referentiels.py` (complété) + routes `api/a_traiter.py`/`api/referentiels.py` : écran « À traiter », chantiers/fournisseurs/alias/articles |
 | L3-T9 | Front : écran « À traiter », navigation, badges factures |
-| L3-T10 | Front : détail et correction d'un document, revue refermée après deux tours de correction (`ecf25c6`, `b2e817a` — voir §1) |
+| L3-T10 | Front : détail et correction d'un document, revue refermée après deux tours de correction (`81b0d85`, `4a50e02` — voir §1) |
 | L3-T11 | `ingest/rapport_ocr.py` + CLI `rapport-ocr` : outil de mesure du taux d'erreur OCR, `docs/protocole-mesure-ocr.md` |
 | L3-T12 | Cette passation, `docs/lot-3-recette.md`, `docs/dette.md`, `CLAUDE.md` |
 

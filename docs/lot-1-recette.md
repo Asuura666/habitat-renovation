@@ -31,15 +31,15 @@ montant, nom) dans ce document : les résultats sont donnés en comptes et en
 
 | Tâche | Commit(s) | Contenu |
 | --- | --- | --- |
-| T1 | 911ad55 | Outillage : `pyproject.toml` (uv), ruff, mypy strict, pytest, pre-commit, `tests/test_frontieres.py` (garde des règles d'import). |
-| T2 | f8993c0 | `deploy/docker-compose.yml` (traefik/api/postgres 18), `docker-compose.dev.yml`, `Dockerfile`, `.env.example`. |
-| T3 | 6b501ff | Config fail-fast (`pydantic-settings`), `app/core/db.py`, 14 tables (`ingest/models.py`), migration Alembic `0001`. |
-| T4 | 4a9f0cb + 1876e03 | `GET /health` (vérifie la base, timeout prouvé), healthcheck compose. |
-| T5 | b988efa | **Parseur de facture Unikalo** (`extract/unikalo.py`) sur réponse OCR Mistral (voir §2 — écart R16). |
-| T6 | d0c8e80 | Webhook Telegram (`POST /tg/webhook`), dédoublonnage des updates, stockage des documents sur disque. |
-| T6b | 1e825c9 + ae63c37 | Détection du numéro de BL sur photo (OCR Mistral minimal), branchée dans `traiter_fichier`. |
-| T7 | 8db6485 | **Livrable du lot** : `python -m app.cli bl-non-recus <facture.pdf>` — liste les blocs BL d'une facture avec « photo reçue : oui/non ». |
-| T8 | cc343e0 | Sauvegarde (`pg_dump` + restic) et restauration, testées en aller-retour local. |
+| T1 | d80fffc | Outillage : `pyproject.toml` (uv), ruff, mypy strict, pytest, pre-commit, `tests/test_frontieres.py` (garde des règles d'import). |
+| T2 | fbc5285 | `deploy/docker-compose.yml` (traefik/api/postgres 18), `docker-compose.dev.yml`, `Dockerfile`, `.env.example`. |
+| T3 | 692352b | Config fail-fast (`pydantic-settings`), `app/core/db.py`, 14 tables (`ingest/models.py`), migration Alembic `0001`. |
+| T4 | 2c500f3 + ce565d0 | `GET /health` (vérifie la base, timeout prouvé), healthcheck compose. |
+| T5 | bb86259 | **Parseur de facture Unikalo** (`extract/unikalo.py`) sur réponse OCR Mistral (voir §2 — écart R16). |
+| T6 | e2cfe14 | Webhook Telegram (`POST /tg/webhook`), dédoublonnage des updates, stockage des documents sur disque. |
+| T6b | 3f34fbe + 41ab6d8 | Détection du numéro de BL sur photo (OCR Mistral minimal), branchée dans `traiter_fichier`. |
+| T7 | e5c3717 | **Livrable du lot** : `python -m app.cli bl-non-recus <facture.pdf>` — liste les blocs BL d'une facture avec « photo reçue : oui/non ». |
+| T8 | fee9b77 | Sauvegarde (`pg_dump` + restic) et restauration, testées en aller-retour local. |
 | T9 | (ce commit) | Cette recette. |
 
 **Résultat mesuré sur la facture d'août** (`tests/fixtures/unikalo/facture_2026-08.pdf`, 9 pages scannées) :

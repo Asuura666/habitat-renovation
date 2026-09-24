@@ -1,11 +1,11 @@
 # Recette du lot 5 (Restitution) — Contrôle BL & factures
 
-Branche `lot-5-restitution`, créée depuis `main` à `c9f51a5`. Les tâches
-techniques L5-T1 à L5-T11 sont commitées jusqu'à `d770654`; L5-T12 est
+Branche `lot-5-restitution`, créée depuis `main` à `c536f5b`. Les tâches
+techniques L5-T1 à L5-T11 sont commitées jusqu'à `f1b82c4`; L5-T12 est
 constituée par la présente livraison documentaire. Le lot
 est **techniquement terminé sur la branche**. La revue finale de l'ensemble
 `main..lot-5-restitution` a relevé cinq constats moyens, corrigés dans le
-le commit correctif `e599fda` puis re-relus avec un verdict `passed=true`.
+le commit correctif `a550e8f` puis re-relus avec un verdict `passed=true`.
 La branche a été fusionnée localement dans `main` par avance rapide. Aucun push
 ni déploiement n'a été fait.
 
@@ -21,9 +21,9 @@ données inventées.
   journal consultable, réglage des neuf seuils et synchronisation Google Drive
   par commande planifiable. Détail tâche par tâche en §1.
 - **État Git** : avant le commit documentaire de L5-T12,
-  `lot-5-restitution` pointe sur `d770654`, soit 26 commits au-dessus de
-  `main` (`c9f51a5`). L5-T12 a ensuite été commitée sous `f879114`. Rien n'est
-  poussé ni déployé. Après le correctif `e599fda` et sa relecture verte, `main`
+  `lot-5-restitution` pointe sur `f1b82c4`, soit 26 commits au-dessus de
+  `main` (`c536f5b`). L5-T12 a ensuite été commitée sous `91f2808`. Rien n'est
+  poussé ni déployé. Après le correctif `a550e8f` et sa relecture verte, `main`
   a été avancée rapidement jusqu'à ce commit.
 - **Bilan réel d'août** : seuls les comptes déjà établis au lot 4 sont repris
   en §4. Le classement n'est toujours pas confirmé par Ilane. Aucun montant
@@ -46,18 +46,18 @@ données inventées.
 
 | Tâche | Commit(s) de la branche | Résultat et revue |
 | --- | --- | --- |
-| L5-T1 | `d697fb5`, corrections `d56cdc0`, `04c8ce1`, `327720c`; ajustement de plan `8bb1323`; corrections de revue globale `c1a6fb7`, `b3edd51` | Agrégats du bilan par chantier, quatre montants de L5-D3, compte de toutes les anomalies ouvertes, mois parisien, tri déterministe. Deux tours de correction ont ajouté le bloc d'origine aux anomalies de ligne et la migration de données 0008 pour préserver l'identité des anomalies déjà enregistrées. La revue globale a ensuite corrigé l'audit des agrégats/exports et borné les comptes d'anomalies. Re-revues fermées. |
-| L5-T2 | `1baffd1` | Niveaux fournisseur et BL, vue inverse fournisseur → chantiers, expressions d'agrégat partagées et chantier non résolu conservé. Revue de tâche fermée sans commit correctif distinct. |
-| L5-T3 | `157d33c`, ajustement de plan `188f29b`, correction `a50ce4b` | Quatre routes JSON admin, filtres mois/agence, décimaux sérialisés en chaînes, identifiants inconnus rendus en listes vides. La revue a demandé la couverture du mois calendaire et des filtres/identifiants; tests ajoutés. Une seule route d'agences est conservée, côté référentiels. |
-| L5-T4 | `0c6bca5`, correction `37f8fe7`; corrections de revue globale `c1a6fb7`, `b3edd51` | Exports CSV serveur aux mêmes niveaux et filtres que le JSON, BOM UTF-8, séparateur `;`, décimale française et noms de fichiers explicites. Revue complétée par le cas d'échappement combinant séparateur, guillemet et retour à la ligne; la revue globale a corrigé l'audit et les bornes partagés avec le bilan. |
-| L5-T5 | `1360783` | Écran Bilan par chantier, filtres dans l'URL, tableau ordinateur, cartes téléphone, avertissement que les montants ne s'additionnent pas et export à partir de `md`. Revue fermée; captures fictives à 375 px et 1280 px. |
-| L5-T6 | `5ed9e2a` | Niveaux fournisseur et BL, fil d'Ariane, liens document/facture/anomalies et vue inverse. Revue fermée; parcours complet et trois niveaux vérifiés sur données fictives aux deux largeurs. |
-| L5-T7 | `8e82ce9`, corrections `9bea4ed`, `38bd039` | Dépôts sur 30 jours, chantiers silencieux et agences connues, routes admin. La revue a corrigé un dépôt administrateur qui pouvait disparaître de la vue, rendu le rôle du déposant explicite, resserré le test de frontière de jour parisien et stabilisé le tri. Re-revue fermée. |
-| L5-T8 | `96fbaa1`, corrections `300c42a`, `a4fd383`, `4286ffc` | Écran Chantiers & fournisseurs, création de chantier, agences des fournisseurs, alias en attente, activité et chantiers silencieux. Trois tours ont supprimé une note technique de l'interface en exposant réellement les agences, puis corrigé les invalidations de cache après création, validation d'alias, correction ou ré-extraction d'un document. Parcours navigateur fictifs validés. |
-| L5-T9 | `4f539c7` | Lecture paginée et filtrée du journal, route et écran admin; auteur automatique rendu explicitement, valeurs avant/après affichées sans logique métier. Revue de tâche fermée sans commit correctif distinct. |
-| L5-T10 | `3103e6f` | Lecture et modification des neuf seuils connus, bornes validées dans `ingest`, journalisation avant/après, écran Réglages. Revue fermée; captures fictives à 375 px et 1280 px. |
-| L5-T11 | `d770654`, correction de revue finale `e599fda` | Migration 0009, protocole et client Google Drive, synchronisation idempotente, petits et gros fichiers, état d'échec/réessai, alerte de supervision au plus une fois, CLI et exploitation. La correction remet le chemin et le nom visibles au format exact du CDC, avec identité technique dans les `appProperties`; collisions normalisées et rejeu sont couverts par le faux client. Google réel non testé faute d'accès. |
-| L5-T12 | `f879114` | Présente recette, `docs/passation-lot-5.md`, section Lot 5 de `docs/dette.md` et mise à jour de l'état du projet dans `CLAUDE.md`. Aucun code applicatif n'est modifié et aucun push ou merge n'est effectué dans cette tâche. |
+| L5-T1 | `00d9cd0`, corrections `52ed7bd`, `99b43c1`, `135843d`; ajustement de plan `870f959`; corrections de revue globale `0e394f4`, `6d5298b` | Agrégats du bilan par chantier, quatre montants de L5-D3, compte de toutes les anomalies ouvertes, mois parisien, tri déterministe. Deux tours de correction ont ajouté le bloc d'origine aux anomalies de ligne et la migration de données 0008 pour préserver l'identité des anomalies déjà enregistrées. La revue globale a ensuite corrigé l'audit des agrégats/exports et borné les comptes d'anomalies. Re-revues fermées. |
+| L5-T2 | `b8f0099` | Niveaux fournisseur et BL, vue inverse fournisseur → chantiers, expressions d'agrégat partagées et chantier non résolu conservé. Revue de tâche fermée sans commit correctif distinct. |
+| L5-T3 | `7628b78`, ajustement de plan `67eb772`, correction `06bd976` | Quatre routes JSON admin, filtres mois/agence, décimaux sérialisés en chaînes, identifiants inconnus rendus en listes vides. La revue a demandé la couverture du mois calendaire et des filtres/identifiants; tests ajoutés. Une seule route d'agences est conservée, côté référentiels. |
+| L5-T4 | `d4cddee`, correction `cc49d52`; corrections de revue globale `0e394f4`, `6d5298b` | Exports CSV serveur aux mêmes niveaux et filtres que le JSON, BOM UTF-8, séparateur `;`, décimale française et noms de fichiers explicites. Revue complétée par le cas d'échappement combinant séparateur, guillemet et retour à la ligne; la revue globale a corrigé l'audit et les bornes partagés avec le bilan. |
+| L5-T5 | `0fde16a` | Écran Bilan par chantier, filtres dans l'URL, tableau ordinateur, cartes téléphone, avertissement que les montants ne s'additionnent pas et export à partir de `md`. Revue fermée; captures fictives à 375 px et 1280 px. |
+| L5-T6 | `da06095` | Niveaux fournisseur et BL, fil d'Ariane, liens document/facture/anomalies et vue inverse. Revue fermée; parcours complet et trois niveaux vérifiés sur données fictives aux deux largeurs. |
+| L5-T7 | `6d3f761`, corrections `2e31622`, `66bcad5` | Dépôts sur 30 jours, chantiers silencieux et agences connues, routes admin. La revue a corrigé un dépôt administrateur qui pouvait disparaître de la vue, rendu le rôle du déposant explicite, resserré le test de frontière de jour parisien et stabilisé le tri. Re-revue fermée. |
+| L5-T8 | `a6a2f76`, corrections `569f952`, `e5b7041`, `83a19d3` | Écran Chantiers & fournisseurs, création de chantier, agences des fournisseurs, alias en attente, activité et chantiers silencieux. Trois tours ont supprimé une note technique de l'interface en exposant réellement les agences, puis corrigé les invalidations de cache après création, validation d'alias, correction ou ré-extraction d'un document. Parcours navigateur fictifs validés. |
+| L5-T9 | `000057e` | Lecture paginée et filtrée du journal, route et écran admin; auteur automatique rendu explicitement, valeurs avant/après affichées sans logique métier. Revue de tâche fermée sans commit correctif distinct. |
+| L5-T10 | `f4b4b09` | Lecture et modification des neuf seuils connus, bornes validées dans `ingest`, journalisation avant/après, écran Réglages. Revue fermée; captures fictives à 375 px et 1280 px. |
+| L5-T11 | `f1b82c4`, correction de revue finale `a550e8f` | Migration 0009, protocole et client Google Drive, synchronisation idempotente, petits et gros fichiers, état d'échec/réessai, alerte de supervision au plus une fois, CLI et exploitation. La correction remet le chemin et le nom visibles au format exact du CDC, avec identité technique dans les `appProperties`; collisions normalisées et rejeu sont couverts par le faux client. Google réel non testé faute d'accès. |
+| L5-T12 | `91f2808` | Présente recette, `docs/passation-lot-5.md`, section Lot 5 de `docs/dette.md` et mise à jour de l'état du projet dans `CLAUDE.md`. Aucun code applicatif n'est modifié et aucun push ou merge n'est effectué dans cette tâche. |
 
 ### 1.1 Revues et corrections transverses
 

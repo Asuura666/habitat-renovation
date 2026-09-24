@@ -1,7 +1,7 @@
 # Recette de la refonte du front — Contrôle BL & factures
 
-Branche `refonte-front`, créée depuis `main` à `dbce305`, 48 commits jusqu'à
-`eeb93a4`, le tout le 23/09/2026 (08h12–22h10). Objectif : remplacer les 14
+Branche `refonte-front`, créée depuis `main` à `83a8bd4`, 48 commits jusqu'à
+`f1404bc`, le tout le 23/09/2026 (08h12–22h10). Objectif : remplacer les 14
 écrans techniques par une interface « Registre » lisible par un dirigeant non
 technique, sur ordinateur et sur téléphone, pour la démo du samedi 26/09/2026.
 Spec : `docs/superpowers/specs/2026-09-23-refonte-front-design.md` (maquettes
@@ -181,7 +181,7 @@ pendant la vérification de la démo (position de défilement au retour sur
 « À régler », couleur de la pastille) : jugés visibles sur l'écran vedette
 de la démo, ils ont été corrigés avant la fusion plutôt que reportés, avec
 une seconde vérification chiffrée du comportement de défilement et un test
-qui vérifie la règle exacte (dernier commit, `eeb93a4`).
+qui vérifie la règle exacte (dernier commit, `f1404bc`).
 
 ## 3. Décisions et écarts à valider par Ilane
 
@@ -249,7 +249,7 @@ fichier d'environnement de l'instance (`.env.prod` / `.env.demo`) puis
 recréation du conteneur API (`up -d api`), voir
 `docs/evolutions-proposees.md` §c, sans interrupteur à l'écran.
 
-## 4. Contrôles finaux (sur `eeb93a4`)
+## 4. Contrôles finaux (sur `f1404bc`)
 
 ```
 uv run pytest -q            → 1610 passed in 441.13s

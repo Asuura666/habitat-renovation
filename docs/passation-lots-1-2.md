@@ -6,7 +6,7 @@ Document de reprise pour la session suivante, qui continuera les lots dans le m�
 
 ## 1. État au 17/09/2026, 08 h UTC
 
-- **Branche `main`** @ `080e792` : lots 1 et 2 fusionnés en avance rapide depuis `lot-2-collecte`. Les branches et worktrees de travail sont supprimés. Aucun remote, rien de déployé.
+- **Branche `main`** @ `88080a8` : lots 1 et 2 fusionnés en avance rapide depuis `lot-2-collecte`. Les branches et worktrees de travail sont supprimés. Aucun remote, rien de déployé.
 - **Vérifié sur `main` après fusion** : `uv run pytest -q` → 359 passés ; `ruff check`, `mypy` strict (66 fichiers), `npm --prefix web run typecheck` et `build`, `docker compose --env-file .env.example -f deploy/docker-compose.yml config` : tous verts.
 - **Environnement de dev sur ce VPS** (machine partagée avec d'autres projets) :
   - Postgres de dev : conteneur `habitat_reno-postgres-1`, `127.0.0.1:5450` ; base `bl` migrée à `head` (0004), vide. Les bases `bl_test` et `bl_test_migrations` sont recréées automatiquement par `tests/conftest.py`.
@@ -26,32 +26,32 @@ Document de reprise pour la session suivante, qui continuera les lots dans le m�
 
 | Tâche | Commits | Contenu |
 | --- | --- | --- |
-| T1 | `911ad55` | Outillage uv, ruff, mypy strict, pytest (`--import-mode=importlib`), pre-commit, `CLAUDE.md`, garde de frontières d'import `tests/test_frontieres.py` (analyse `ast`) |
-| T2 | `f8993c0` | Compose : `traefik:v3.6`, `api`, `postgres:18` ; `Dockerfile` non-root ; `.env.example` ; override de dev (5450/8450) |
-| T3 | `6b501ff` | Config fail-fast (pydantic-settings), `core/db.py`, Alembic, migration 0001 : les 14 tables du CDC §6, avec CHECK et `NULLS NOT DISTINCT` |
-| T4 | `4a9f0cb`, `1876e03` | `GET /health` (base joignable, délai borné, testé sur connexion qui pend) |
-| T5 | `b988efa` | Parseur de facture Unikalo **sur réponse OCR** (`extract/facture.py`, `ocr.py`, `unikalo.py`) ; 28/28 blocs conformes à la référence |
-| T6 | `d0c8e80` | Webhook Telegram `POST /tg/webhook` : secret, dédoublonnage `update_id`, téléchargement, stockage `<uuid>.<ext>`, réponse |
-| T6b | `1e825c9`, `ae63c37` | Détection du n° de BL sur photo par OCR Mistral (`ingest/mistral.py`, `extract/ocr.py::detecter_numero_bl`) |
-| T7 | `8db6485` | CLI `python -m app.cli bl-non-recus <facture.pdf>` (livrable du lot) |
-| T8 | `cc343e0` | `deploy/backup.sh` (pg_dump + restic), `restore.sh`, `test-restauration.sh`, `RESTAURATION.md` |
-| T9 | `1105137` | Recette du lot 1 |
-| Vague finale | `3e94b8b`, `9254ffe` | Nommage des contraintes uniques composites ; script de restauration réparé et rejoué ; test CLI isolé sur `bl_test` ; garde anti-résidu de `restore.sh` |
+| T1 | `d80fffc` | Outillage uv, ruff, mypy strict, pytest (`--import-mode=importlib`), pre-commit, `CLAUDE.md`, garde de frontières d'import `tests/test_frontieres.py` (analyse `ast`) |
+| T2 | `fbc5285` | Compose : `traefik:v3.6`, `api`, `postgres:18` ; `Dockerfile` non-root ; `.env.example` ; override de dev (5450/8450) |
+| T3 | `692352b` | Config fail-fast (pydantic-settings), `core/db.py`, Alembic, migration 0001 : les 14 tables du CDC §6, avec CHECK et `NULLS NOT DISTINCT` |
+| T4 | `2c500f3`, `ce565d0` | `GET /health` (base joignable, délai borné, testé sur connexion qui pend) |
+| T5 | `bb86259` | Parseur de facture Unikalo **sur réponse OCR** (`extract/facture.py`, `ocr.py`, `unikalo.py`) ; 28/28 blocs conformes à la référence |
+| T6 | `e2cfe14` | Webhook Telegram `POST /tg/webhook` : secret, dédoublonnage `update_id`, téléchargement, stockage `<uuid>.<ext>`, réponse |
+| T6b | `3f34fbe`, `41ab6d8` | Détection du n° de BL sur photo par OCR Mistral (`ingest/mistral.py`, `extract/ocr.py::detecter_numero_bl`) |
+| T7 | `e5c3717` | CLI `python -m app.cli bl-non-recus <facture.pdf>` (livrable du lot) |
+| T8 | `fee9b77` | `deploy/backup.sh` (pg_dump + restic), `restore.sh`, `test-restauration.sh`, `RESTAURATION.md` |
+| T9 | `66dd624` | Recette du lot 1 |
+| Vague finale | `9cfaac5`, `768bf66` | Nommage des contraintes uniques composites ; script de restauration réparé et rejoué ; test CLI isolé sur `bl_test` ; garde anti-résidu de `restore.sh` |
 
 ### Lot 2 — Collecte (plan : `docs/plan-lot-2.md`, recette : `docs/lot-2-recette.md`)
 
 | Tâche | Commits | Contenu |
 | --- | --- | --- |
-| L2-T1 | `c7808ca` | Auth fastapi-users : cookie `bl_session`, sessions en base (`jeton_session`, migration 0002), expiration glissante de 12 h, slowapi 5/min sur le login, `GET /api/moi` |
-| L2-T1b | `83e4e1d`, `de92252` | CLI `utilisateur-creer` / `utilisateur-desactiver` (argon2id, e-mail insensible à la casse) |
-| L2-T2 | `3baa083` | Liste blanche Telegram, filtre du groupe BL, supervision (ligne par dépôt, expéditeur inconnu, échecs) ; migration 0003 (`numero_interne`, `photo_compressee`, `total_ht`) |
-| L2-T3 | `92ecf47`, `a097ac6` | Réponse « Reçu — document n° N » + boutons « Quantités vérifiées » / « Écart constaté » ; premier clic atomique ; journal ; validation stricte de `callback_data` ; documents archivés protégés |
-| L2-T4 | `5ab195b`, `4bb3d56` | `POST /api/factures` (admin) : OCR + parseur, doublon 409, transaction unique, écriture disque protégée |
-| L2-T5 | `8a438c8` | `GET /api/factures`, `/api/factures/{id}`, `/fichier`, `GET /api/documents`, `/api/documents/{id}/fichier` ; droits dans le service ; migration 0004 (`bloc_facture.ordre`) |
-| L2-T6 | `8741881` | Socle React 18 (Vite, React Router 7, TanStack Query 5, Tailwind 3), connexion, service statique par l'API, Dockerfile multi-étage |
-| L2-T7 | `e352a98`, `2e06aa8`, `44ba9d7` | Écran Factures (liste, dépôt, détail) et onglet BL déposés ; champ `confirmation` explicite exposé par l'API |
-| L2-T8 | `543580a` | Recette du lot 2 |
-| Vague finale | `9973b02`, `97f740d`, `6298a9d`, `080e792` | `ingest/service.py` découpé en `commun.py`, `depot_telegram.py`, `factures.py`, `lecture.py` ; contrôle d'origine anti-CSRF + `Cache-Control` sur `index.html` ; en-têtes de sécurité Traefik ; correspondance des numéros de BL insensible aux espaces insécables |
+| L2-T1 | `d850bdb` | Auth fastapi-users : cookie `bl_session`, sessions en base (`jeton_session`, migration 0002), expiration glissante de 12 h, slowapi 5/min sur le login, `GET /api/moi` |
+| L2-T1b | `f1b672e`, `170f905` | CLI `utilisateur-creer` / `utilisateur-desactiver` (argon2id, e-mail insensible à la casse) |
+| L2-T2 | `3ae3d11` | Liste blanche Telegram, filtre du groupe BL, supervision (ligne par dépôt, expéditeur inconnu, échecs) ; migration 0003 (`numero_interne`, `photo_compressee`, `total_ht`) |
+| L2-T3 | `4dc290f`, `0da4928` | Réponse « Reçu — document n° N » + boutons « Quantités vérifiées » / « Écart constaté » ; premier clic atomique ; journal ; validation stricte de `callback_data` ; documents archivés protégés |
+| L2-T4 | `66458fb`, `c273084` | `POST /api/factures` (admin) : OCR + parseur, doublon 409, transaction unique, écriture disque protégée |
+| L2-T5 | `ffe94b6` | `GET /api/factures`, `/api/factures/{id}`, `/fichier`, `GET /api/documents`, `/api/documents/{id}/fichier` ; droits dans le service ; migration 0004 (`bloc_facture.ordre`) |
+| L2-T6 | `7a24c67` | Socle React 18 (Vite, React Router 7, TanStack Query 5, Tailwind 3), connexion, service statique par l'API, Dockerfile multi-étage |
+| L2-T7 | `e76eeac`, `b0cc8e6`, `f4f3b11` | Écran Factures (liste, dépôt, détail) et onglet BL déposés ; champ `confirmation` explicite exposé par l'API |
+| L2-T8 | `1b17f8d` | Recette du lot 2 |
+| Vague finale | `acaf86a`, `ead7605`, `fc689f8`, `88080a8` | `ingest/service.py` découpé en `commun.py`, `depot_telegram.py`, `factures.py`, `lecture.py` ; contrôle d'origine anti-CSRF + `Cache-Control` sur `index.html` ; en-têtes de sécurité Traefik ; correspondance des numéros de BL insensible aux espaces insécables |
 
 ---
 

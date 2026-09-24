@@ -33,7 +33,7 @@ Celles des lots 1 à 4 (`docs/plan-lot-4.md` §1, `CLAUDE.md`) s'appliquent tout
 - Interface en français. **Les écrans Bilan et Anomalies sont conçus pour téléphone d'abord** ; Factures et Chantiers & fournisseurs restent lisibles sur téléphone avec défilement horizontal des tableaux (CDC §4.6).
 - Un seul processus pytest à la fois par base de test (`bl_test`, `bl_test_wt` pour un second arbre de travail).
 
-## 2. Constats (état au début du lot 5, `main` @ `c9f51a5`)
+## 2. Constats (état au début du lot 5, `main` @ `c536f5b`)
 
 1. **Le rapprochement est persisté.** `bloc_facture.bl_document_id` et `bloc_facture.statut_rapprochement` (`recu` / `non_recu` / `pas_de_bon`) sont écrits par `ingest/rapprochement.py` (L4-D4). La navigation chantier → fournisseur → BL peut s'appuyer dessus sans rien recalculer.
 2. **Le chantier vit à deux endroits** : `document.chantier_id` (BL et enlèvements, migration 0005) et `bloc_facture.chantier_id` (blocs de facture). Un bilan par chantier doit lire les deux, jamais un seul.

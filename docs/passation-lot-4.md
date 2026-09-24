@@ -10,8 +10,8 @@ foi), `docs/passation-lot-3.md` (lot précédent), `docs/lot-4-recette.md`
 ## 1. État au 18/09/2026
 
 - **Branche `lot-4-rapprochement`** (dépôt `/home/debian/habitat_reno`),
-  créée depuis `main` (plan écrit en `bf910d2`), **fusionnée dans `main` le
-  18/09/2026** en avance rapide, tête `9151d68`, puis supprimée avec les
+  créée depuis `main` (plan écrit en `a0e19b1`), **fusionnée dans `main` le
+  18/09/2026** en avance rapide, tête `70e503e`, puis supprimée avec les
   arbres de travail. Aucun remote, rien de déployé.
 - **Les 11 tâches techniques (L4-T1 à L4-T11) sont faites et relues.**
   Chaque revue de tâche s'est refermée sans point ouvert, y compris après

@@ -5,13 +5,13 @@ Il s'adresse à un lecteur technique qui découvre le projet (futur mainteneur,
 prestataire du client) et à Ilane, le développeur.
 
 - **État décrit** : 24/09/2026. Lots 1 à 5 et refonte du front fusionnés
-  dans `main` (`a085948`). Les désactivations R07-R09/R06 décrites
-  ci-dessous sont présentes à partir de la fusion `0bcd5cd`,
-  `API_DOCS_ACTIVES` par le commit `5034ca7` (§2.5, §7.6, §9) ; avant tout
+  dans `main` (`46219a5`). Les désactivations R07-R09/R06 décrites
+  ci-dessous sont présentes à partir de la fusion `04f1077`,
+  `API_DOCS_ACTIVES` par le commit `f431b27` (§2.5, §7.6, §9) ; avant tout
   build de
   production, vérifier que la branche construite contient les deux
-  (`git merge-base --is-ancestor 0bcd5cd <branche>` et `git merge-base
-  --is-ancestor 5034ca7 <branche>`) plutôt que de supposer qu'une branche
+  (`git merge-base --is-ancestor 04f1077 <branche>` et `git merge-base
+  --is-ancestor f431b27 <branche>`) plutôt que de supposer qu'une branche
   particulière les a. Les deux instances en service ont été déployées le
   23/09/2026, avant ces commits : elles évaluent encore R06 à R09 et
   servent encore `/openapi.json` publiquement.
@@ -64,7 +64,7 @@ prestataire du client) et à Ilane, le développeur.
 | Lot 5 Restitution | Fusionné le 20/09/2026 : bilan, exports CSV, référentiels, journal, réglages, synchronisation Drive. |
 | Refonte du front | 23/09/2026 : les 14 écrans techniques sont remplacés par 5 écrans lisibles par un dirigeant non technique. Fusionnée dans `main`. |
 | Déploiement | 23/09/2026 : production (https://habitat.ellumena.fr, données réelles) et démonstration (https://demo.habitat.ellumena.fr, données fictives), schéma à la migration `0010`. |
-| Qualité | Derniers contrôles consignés (sur `eeb93a4`, `docs/refonte-front-recette.md` §4) : 1 610 tests, ruff, mypy strict, typecheck et build du front, tous verts. |
+| Qualité | Derniers contrôles consignés (sur `f1404bc`, `docs/refonte-front-recette.md` §4) : 1 610 tests, ruff, mypy strict, typecheck et build du front, tous verts. |
 | Lot 6 Livraison | Non commencé : recette sur deux mois, documentation d'exploitation, formation, remise du dépôt. |
 | Validation client | Aucune. Les verdicts d'août, les montants du Bilan et les parcours n'ont pas été confirmés par un utilisateur réel. |
 
@@ -172,7 +172,7 @@ modifiables par l'admin. Deux moments d'évaluation :
 | (R18) | Livraison par semi-remorque, à confirmer par un admin | Haute | — | — | **Non construite** : le client n'a défini aucun déclencheur. |
 
 > **Décision d'Ilane du 24/09/2026** (réponse donnée en session de travail,
-> au commit `a085948` ; consignée depuis dans `docs/dette.md`,
+> au commit `46219a5` ; consignée depuis dans `docs/dette.md`,
 > `docs/evolutions-proposees.md`, `.env.example` et
 > `deploy/docker-compose.yml`). Les contrôles de prix R07,
 > R08 et R09 et la règle R06 sont désactivés côté serveur par défaut. R02 est
@@ -180,9 +180,9 @@ modifiables par l'admin. Deux moments d'évaluation :
 > Motifs : il n'y a qu'un mois de factures, donc le « prix habituel » ne
 > repose sur rien ; rien ne prouve que le cas R06 existe. Le but est de ne
 > montrer en démonstration que ce qu'on peut prouver.
-> **Mécanisme fusionné dans `refonte-front`** (`45014b8` pour R07-R09,
-> complété par `a1735e0` pour R06, fusion finale `0bcd5cd`), **pas encore
-> dans `main`** (`a085948`, §9) : deux variables d'environnement
+> **Mécanisme fusionné dans `refonte-front`** (`1b9c5b0` pour R07-R09,
+> complété par `5896daa` pour R06, fusion finale `04f1077`), **pas encore
+> dans `main`** (`46219a5`, §9) : deux variables d'environnement
 > indépendantes, optionnelles, défaut `false` —
 > `CONTROLE_PRIX_ACTIF` (R07-R09) et `CONTROLE_LIVRE_NON_FACTURE_ACTIF`
 > (R06), sans interrupteur à l'écran (`ingest.commun.regles_desactivees`,
@@ -294,7 +294,7 @@ OCR, catalogue des règles, registre des traitements pré-rempli.
 | 23/09/2026 | Export CSV détaillé, ligne par ligne de facture, sur toute la période (`GET /api/bilan/detail.csv`), en plus de l'export du niveau affiché. | `docs/dette.md` |
 
 **Décisions d'Ilane**, tirées de ses réponses orales et écrites du 23 et du
-24/09/2026 pendant les sessions de travail. Au commit `a085948`, aucun autre
+24/09/2026 pendant les sessions de travail. Au commit `46219a5`, aucun autre
 document versionné ne les consigne : ce tableau en tient lieu. Les faits
 marqués « constaté en session » plus bas (§6.1, §6.2, §7.1) ont la même
 origine et ne sont pas non plus consignés dans `docs/`.
@@ -814,7 +814,7 @@ un journal de cette valeur exposerait ce mot de passe (dette à noter).
   `.avant-restauration-<horodatage>`), redémarre l'API et attend `/health`.
 - `deploy/test-restauration.sh` fait un aller-retour complet sur un projet
   isolé avec un dépôt restic jetable. Aller-retour réussi le 17/09/2026 sur
-  la version `cc343e0`/`9254ffe` des scripts. La version actuelle (`3fae414`,
+  la version `fee9b77`/`768bf66` des scripts. La version actuelle (`1cf403b`,
   23/09/2026 : refus de `latest`, contrôle du conteneur `api`, ciblage du
   snapshot créé) n'a pas été rejouée ; seul `tests/test_restore_script.py` la
   couvre.
@@ -1120,13 +1120,13 @@ interne des tâches ne sera donc pas dans le dépôt remis.
 Toutes les commandes se lancent depuis `/home/debian/habitat_reno`. Avant un
 `build`, vérifier la branche et que l'arbre de travail est propre : l'image
 est construite depuis cet arbre. `refonte-front` a divergé de `main`
-(`a085948`) ; elle contient depuis `0bcd5cd` la désactivation de R06-R09
+(`46219a5`) ; elle contient depuis `04f1077` la désactivation de R06-R09
 (§2.5) que `main` n'a pas — **ne pas faire `git switch main` avant un build
 de production**, ça déploierait sans cette désactivation.
-`API_DOCS_ACTIVES` (§7.6) est introduit par le commit `5034ca7`. Avant tout
+`API_DOCS_ACTIVES` (§7.6) est introduit par le commit `f431b27`. Avant tout
 build de production, vérifier que la branche construite contient les deux
-(`git merge-base --is-ancestor 0bcd5cd <branche>` et `git merge-base
---is-ancestor 5034ca7 <branche>`) plutôt que de supposer qu'une branche
+(`git merge-base --is-ancestor 04f1077 <branche>` et `git merge-base
+--is-ancestor f431b27 <branche>`) plutôt que de supposer qu'une branche
 particulière les a.
 
 ```bash

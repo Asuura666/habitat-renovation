@@ -6,7 +6,7 @@ quelques lignes d'explication et de ses sources (`fichier:ligne`). Il ne
 remplace ni le cahier des charges (`docs/cahier-des-charges.md`, qui fait
 foi) ni la documentation technique détaillée (`infra/README.md`).
 
-- **État décrit** : branche `refonte-front` au commit `be77aa0`, constats
+- **État décrit** : branche `refonte-front` au commit `ee28162`, constats
   sur le VPS du 24/09/2026.
 - **Principe directeur** : l'IA (OCR Mistral) extrait et normalise, elle ne
   décide jamais. Les anomalies (« problèmes » à l'écran) viennent de règles
@@ -1055,7 +1055,7 @@ Sources : `app/modules/rules/engine.py:1-38`,
   résumé, architecture, infrastructure, services externes, sécurité,
   exploitation). Quatre passages sont périmés. Deux disent encore que
   `refonte-front` diverge de `main`, alors que les deux pointent sur
-  `be77aa0` : la ligne 315 (« Mécanisme fusionné dans `refonte-front`, pas
+  `ee28162` : la ligne 315 (« Mécanisme fusionné dans `refonte-front`, pas
   dans `main` ») et l'avertissement des lignes 1122-1125. Deux parlent de
   deux dumps manuels (lignes 828 et 1224), alors qu'il y en a six.
 - `docs/cahier-des-charges.md` : ce qui fait foi.

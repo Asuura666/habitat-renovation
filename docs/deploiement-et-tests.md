@@ -221,7 +221,7 @@ npm --prefix web run build
 Il n'existe pas de script `npm test` dans `web/package.json`. Les contrats du
 frontend sont couverts par pytest, le typage TypeScript et le build Vite.
 
-État de référence du 20/09/2026 au commit `a92d558` de `main` :
+État de référence du 20/09/2026 au commit `d5e47df` de `main` :
 
 - 1 362 tests réussis ;
 - Ruff réussi ;

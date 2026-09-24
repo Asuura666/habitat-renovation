@@ -30,7 +30,7 @@ Celles des lots 1 à 3 (`docs/plan-lot-3.md` §1, `CLAUDE.md`) s'appliquent tout
 - Données client : aucune valeur réelle dans le code, les tests, les commits, les logs ou les messages. Les fixtures réelles restent dans `tests/fixtures/` (ignoré par git) ; un test qui les lit fait `pytest.skip` si absentes et n'affirme que des booléens calculés d'avance (Ruling R7 du lot 3).
 - Interface en français, écran Anomalies utilisable sur téléphone **et** sur ordinateur (CDC §4.6).
 
-## 2. Constats (état au début du lot 4, `main` @ `4fe41e9`)
+## 2. Constats (état au début du lot 4, `main` @ `7f22bcc`)
 
 1. Le rapprochement « BL reçu / non reçu » existe déjà **en lecture seule** : `ingest/lecture.py` calcule `bl_recu` par bloc à l'affichage d'une facture (L2-D12) ; `bloc_facture.bl_document_id` et `bloc_facture.statut_rapprochement` ne sont **jamais écrits**. `ingest/factures.py::blocs_avec_reception` fait la même correspondance pour la CLI `bl-non-recus`.
 2. Les tables `rapprochement_ligne`, `anomalie` et `parametre` existent (migration 0001) et sont **vides d'usage** : aucun code ne les écrit. `anomalie` porte `regle`, `gravite` (haute/moyenne/basse), `document_id`, `bloc_id`, `ligne_id`, `detail` (jsonb non vide), `statut` (ouverte/traitee/ignoree), `traitee_par`, `traitee_le`, `commentaire`. Aucune contrainte d'unicité.

@@ -204,12 +204,12 @@ chaque déploiement le SHA déployé et la révision Alembic.
 
 | Étape | Commit de jalon | État |
 | --- | --- | --- |
-| Lot 1 : Socle | `9254ffe` | Fait côté code ; sauvegarde et restauration prouvées en local seulement, sans restic réel ni supervision |
-| Lot 2 : Collecte | `59a2880` | Fait, fusionné dans `main` avec le lot 1 le 17/09/2026 |
-| Lot 3 : Extraction | `4fe41e9` | Fait, sauf le parseur de facture Point.P et la mesure OCR sur 30 photos |
-| Lot 4 : Rapprochement | `c9f51a5` | Fait (règles R01 à R17), fusionné le 18/09/2026 |
-| Lot 5 : Restitution | `a92d558` | Fait (bilan, CSV, référentiels, journal, réglages ; Drive codé mais bloqué en réel), fusionné le 20/09/2026 |
-| Refonte du front | `a085948` | Cinq écrans pour un dirigeant non technique, fusionnée et déployée le 23/09/2026 |
+| Lot 1 : Socle | `768bf66` | Fait côté code ; sauvegarde et restauration prouvées en local seulement, sans restic réel ni supervision |
+| Lot 2 : Collecte | `379d5bc` | Fait, fusionné dans `main` avec le lot 1 le 17/09/2026 |
+| Lot 3 : Extraction | `7f22bcc` | Fait, sauf le parseur de facture Point.P et la mesure OCR sur 30 photos |
+| Lot 4 : Rapprochement | `c536f5b` | Fait (règles R01 à R17), fusionné le 18/09/2026 |
+| Lot 5 : Restitution | `d5e47df` | Fait (bilan, CSV, référentiels, journal, réglages ; Drive codé mais bloqué en réel), fusionné le 20/09/2026 |
+| Refonte du front | `46219a5` | Cinq écrans pour un dirigeant non technique, fusionnée et déployée le 23/09/2026 |
 | Lot 6 : Livraison | — | Non commencé |
 
 **Désactivé par défaut côté serveur depuis le 24/09/2026** : R07, R08 et R09

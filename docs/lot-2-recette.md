@@ -2,7 +2,7 @@
 
 Branche `lot-2-collecte` (worktree `/home/debian/habitat_reno-wt-l2`), tâches
 L2-T1 à L2-T8, suivies de la vague de correction finale issue de la revue
-complète de la branche (`9254ffe..44ba9d7`, voir §6). Aucune donnée réelle
+complète de la branche (`768bf66..f4f3b11`, voir §6). Aucune donnée réelle
 (numéro, chantier, montant, nom, identifiant Telegram réel, secret) dans ce
 document : comptes et écarts uniquement, comme `docs/lot-1-recette.md`.
 **Rien n'est fusionné ni poussé** — cette recette reste sur la branche du
@@ -11,15 +11,15 @@ worktree.
 ## À lire d'abord (Ilane)
 
 - **Revue finale de branche close** (§6) : 6 points relevés par la revue
-  complète (`9254ffe..44ba9d7`), tous corrigés en 4 commits
-  (`9973b02`, `97f740d`, `6298a9d`, et ce commit). `uv run pytest -q` → **359
+  complète (`768bf66..f4f3b11`), tous corrigés en 4 commits
+  (`acaf86a`, `ead7605`, `fc689f8`, et ce commit). `uv run pytest -q` → **359
   passed** (341 avant la vague finale, +18 par les corrections qui ajoutent
   un comportement testé — découpage sans changement de comportement, cf.
   §6). Le lot 2 reste fonctionnellement complet côté code, sous réserve des
   vérifications encore manuelles listées en §4 (Telegram réel, rendu
   visuel, dépôt avec OCR réel), inchangées par cette vague.
 - **Revue de L2-T7 close** (mise à jour après ce document) : 1 Important
-  relevé (Ruling L2-R8 — voir §2) et corrigé en `2e06aa8`
+  relevé (Ruling L2-R8 — voir §2) et corrigé en `b0cc8e6`
   (`api: confirmation explicite des BL déposés`). **Approved** après
   correction.
 - **Testé réellement ce soir (2026-09-17)** : `uv run pytest -q` → **341
@@ -54,14 +54,14 @@ worktree.
 
 | Tâche | Commit(s) | Résultat de revue (`progress.md`) |
 | --- | --- | --- |
-| L2-T1 | c7808ca | `auth: connexion par cookie, sessions en base, limitation du login`. Revue → spec ✅, **Approved**, 3 minor (deferred). Complete. |
-| L2-T1b | 83e4e1d + correction de92252 | `auth: commandes de gestion des utilisateurs`. Revue → 1 Important (unicité e-mail sensible à la casse vs login insensible, corrigé en de92252), 2 Minor. Re-revue → 3 addressed, 0 open. Complete. |
-| L2-T2 | 3baa083 | `messaging: liste blanche, groupe BL et notifications de supervision`. Revue → spec ✅, **Approved**, 3 minor (deferred). Complete. |
-| L2-T3 | 92ecf47 + correction a097ac6 | `messaging: numéro interne et boutons de confirmation`. Revue → **1 Critical** (`_numero_interne_valide` sans borne : entrée malformée ou hors bigint → 500 webhook), 1 Important (« Écart » écrasait un document `archive`), 2 Minor. Corrigé en a097ac6, re-revue → 2 addressed, 0 open. Complete. |
-| L2-T4 | 5ab195b + correction 4bb3d56 | `ingest: dépôt de facture PDF Unikalo`. Revue → 2 Important (« confiance réduite » §4.2 non représentée ; avoirs non traités — Ruling L2-R5), 2 Minor. Corrigé/documenté en 4bb3d56, re-revue → 3 addressed, 0 open. Complete. |
-| L2-T5 | 8a438c8 | `api: factures et documents en lecture`. Revue → spec ✅, **Approved**, 4 minor (deferred). Complete. |
-| L2-T6 | 8741881 | `web: socle React, connexion et service statique`. Revue → 1 Important (proxy Vite dev sur le port de vérification isolée 8460 au lieu du port de dev 8450 — Ruling L2-R3), 2 Minor. Corrigé (amendé), re-revue → 3 addressed, 0 open. Complete. |
-| L2-T7 | e352a98 + correction 2e06aa8 | `web: écran Factures et onglet BL déposés`. Implémenteur : 336 passed, `typecheck`/`build` propres, parcours local sans Docker (§4). Revue → **1 Important** (le libellé « Vérifié / Écart » de l'onglet BL déposés était dérivé côté front de `statut`+`confirme_le` — faux pour un document `a_verifier` d'origine OCR confirmé ensuite « Quantités vérifiées » ; règle métier dans le front — Ruling L2-R8), 3 Minor (commentaire ECMA-402 sur-évalué, contraste du badge « écart » à vérifier, badge ajouté). Corrigé en 2e06aa8 (`api: confirmation explicite des BL déposés`, champ `confirmation` explicite sur `GET /api/documents`, 5 tests ajoutés, 341 passed). Re-revue → **Approved**, 0 open. Complete. |
+| L2-T1 | d850bdb | `auth: connexion par cookie, sessions en base, limitation du login`. Revue → spec ✅, **Approved**, 3 minor (deferred). Complete. |
+| L2-T1b | f1b672e + correction 170f905 | `auth: commandes de gestion des utilisateurs`. Revue → 1 Important (unicité e-mail sensible à la casse vs login insensible, corrigé en 170f905), 2 Minor. Re-revue → 3 addressed, 0 open. Complete. |
+| L2-T2 | 3ae3d11 | `messaging: liste blanche, groupe BL et notifications de supervision`. Revue → spec ✅, **Approved**, 3 minor (deferred). Complete. |
+| L2-T3 | 4dc290f + correction 0da4928 | `messaging: numéro interne et boutons de confirmation`. Revue → **1 Critical** (`_numero_interne_valide` sans borne : entrée malformée ou hors bigint → 500 webhook), 1 Important (« Écart » écrasait un document `archive`), 2 Minor. Corrigé en 0da4928, re-revue → 2 addressed, 0 open. Complete. |
+| L2-T4 | 66458fb + correction c273084 | `ingest: dépôt de facture PDF Unikalo`. Revue → 2 Important (« confiance réduite » §4.2 non représentée ; avoirs non traités — Ruling L2-R5), 2 Minor. Corrigé/documenté en c273084, re-revue → 3 addressed, 0 open. Complete. |
+| L2-T5 | ffe94b6 | `api: factures et documents en lecture`. Revue → spec ✅, **Approved**, 4 minor (deferred). Complete. |
+| L2-T6 | 7a24c67 | `web: socle React, connexion et service statique`. Revue → 1 Important (proxy Vite dev sur le port de vérification isolée 8460 au lieu du port de dev 8450 — Ruling L2-R3), 2 Minor. Corrigé (amendé), re-revue → 3 addressed, 0 open. Complete. |
+| L2-T7 | e76eeac + correction b0cc8e6 | `web: écran Factures et onglet BL déposés`. Implémenteur : 336 passed, `typecheck`/`build` propres, parcours local sans Docker (§4). Revue → **1 Important** (le libellé « Vérifié / Écart » de l'onglet BL déposés était dérivé côté front de `statut`+`confirme_le` — faux pour un document `a_verifier` d'origine OCR confirmé ensuite « Quantités vérifiées » ; règle métier dans le front — Ruling L2-R8), 3 Minor (commentaire ECMA-402 sur-évalué, contraste du badge « écart » à vérifier, badge ajouté). Corrigé en b0cc8e6 (`api: confirmation explicite des BL déposés`, champ `confirmation` explicite sur `GET /api/documents`, 5 tests ajoutés, 341 passed). Re-revue → **Approved**, 0 open. Complete. |
 | L2-T8 | (ce commit) | Cette recette. |
 
 ## 2. Décisions prises en autonomie
@@ -273,7 +273,7 @@ visible (`focus-visible:ring-2`) sur le bouton de dépôt et les liens.
 
 - **Revue de L2-T7 close, corrigée** (§1, Ruling L2-R8) : le seul point
   Important relevé (confirmation dérivée à tort de `statut` côté front)
-  est corrigé et testé (`2e06aa8`). Plus rien de bloquant côté code pour ce
+  est corrigé et testé (`b0cc8e6`). Plus rien de bloquant côté code pour ce
   point ; les vérifications manuelles ci-dessous restent à faire.
 - **Vérification visuelle réelle** : aucun navigateur cette nuit — rendu à
   375 px, couleurs des badges/pastilles, focus clavier, parcours complet du
@@ -333,7 +333,7 @@ uv run pytest -q
 0 échec, 0 skip inattendu (base de test `habitat_reno_pg_l2:5454` déjà
 migrée à `0004`).
 
-**Après correction L2-T7 (Ruling L2-R8, `2e06aa8`)** : 5 tests ajoutés
+**Après correction L2-T7 (Ruling L2-R8, `b0cc8e6`)** : 5 tests ajoutés
 (4 sur `lister_documents` — vérifiée malgré `statut=a_verifier`, écart, sans
 clic, sans N+1 — et 1 sur `GET /api/documents`) →
 ```
@@ -368,17 +368,17 @@ fichier .env` : *Skipped*, aucun fichier concerné dans ce commit).
 
 ## 6. Revue finale de branche (vague finale du lot 2, 2026-09-17)
 
-Revue complète de la branche `lot-2-collecte` (`9254ffe..44ba9d7`), 6 points
+Revue complète de la branche `lot-2-collecte` (`768bf66..f4f3b11`), 6 points
 relevés, tous corrigés en 4 commits (`docs: revue finale du lot 2` = ce
 commit) :
 
 | # | Nature | Corrigé par | Résumé |
 | --- | --- | --- | --- |
-| 1 | Important | `9973b02` (`ingest: découpage du service en sous-modules`) | `app/modules/ingest/service.py` (1631 lignes, ~6 responsabilités) découpé en `ingest/commun.py` (aides partagées), `ingest/depot_telegram.py` (dédoublonnage, liste blanche, `traiter_fichier`, OCR des photos, supervision, clics), `ingest/factures.py` (lecture/dépôt de facture) et `ingest/lecture.py` (listes/détails, correspondance BL, fichiers servis). Simple déplacement de code (aucun changement de comportement), tous les imports mis à jour (routeurs, `app/cli.py`, tests), aucun module façade. `ingest` reste le seul orchestrateur, `tests/test_frontieres.py` inchangé et vert. |
-| 5 | Dette (L2-T5) | `9973b02` (même commit que le point 1) | `documents_bl_par_numeros` : la présélection SQL utilisait `trim()` (espace ASCII seul) alors que la comparaison Python utilise `str.strip()` (tout espace Unicode, dont l'espace insécable U+00A0 et la tabulation). Remplacé par `btrim()` avec la liste explicite de ces trois caractères. 2 tests ajoutés (espace insécable, tabulation) ; entrée de dette retirée. |
-| 2 | Important | `97f740d` (`core: contrôle d'origine des requêtes modifiantes et cache du front`) | Défense en profondeur CSRF : `ControleOrigineMiddleware` (`app/core/origine.py`) refuse (403 `{"detail": "Origine refusée."}`) toute requête `POST`/`PUT`/`PATCH`/`DELETE` sur `/api/*` dont `Origin` diffère de l'origine du service ou dont `Sec-Fetch-Site` vaut `cross-site` ; absence des deux en-têtes acceptée ; `/tg/webhook` non concerné. Décision documentée en L2-D18 (`docs/plan-lot-2.md` §4 et §2 ci-dessus). 14 tests ajoutés (middleware isolé + intégration sur `POST /api/auth/login` et `POST /api/factures`). |
-| 3 | Mineur | `97f740d` (même commit) | `app/core/front.py::monter_front` : `index.html` renvoyé avec `Cache-Control: no-cache` (référence des fichiers hachés de `assets/` par leur nom) ; `assets/` reste cachable sans limite. 2 tests ajoutés. |
-| 4 | Important | `6298a9d` (`deploy: en-têtes de sécurité HTTP`) | Middleware Traefik `headers` (`entetes-securite`) sur le routeur `api` : `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, HSTS (`stsSeconds=31536000`, `stsIncludeSubdomains=true`), `Content-Security-Policy` compatible avec le build Vite réel (vérifié : `web/dist/index.html` ne référence que des fichiers `/assets/*` du même service, aucun script/style externe ni inline). Validé par `docker compose --env-file .env.example -f deploy/docker-compose.yml config`. |
+| 1 | Important | `acaf86a` (`ingest: découpage du service en sous-modules`) | `app/modules/ingest/service.py` (1631 lignes, ~6 responsabilités) découpé en `ingest/commun.py` (aides partagées), `ingest/depot_telegram.py` (dédoublonnage, liste blanche, `traiter_fichier`, OCR des photos, supervision, clics), `ingest/factures.py` (lecture/dépôt de facture) et `ingest/lecture.py` (listes/détails, correspondance BL, fichiers servis). Simple déplacement de code (aucun changement de comportement), tous les imports mis à jour (routeurs, `app/cli.py`, tests), aucun module façade. `ingest` reste le seul orchestrateur, `tests/test_frontieres.py` inchangé et vert. |
+| 5 | Dette (L2-T5) | `acaf86a` (même commit que le point 1) | `documents_bl_par_numeros` : la présélection SQL utilisait `trim()` (espace ASCII seul) alors que la comparaison Python utilise `str.strip()` (tout espace Unicode, dont l'espace insécable U+00A0 et la tabulation). Remplacé par `btrim()` avec la liste explicite de ces trois caractères. 2 tests ajoutés (espace insécable, tabulation) ; entrée de dette retirée. |
+| 2 | Important | `ead7605` (`core: contrôle d'origine des requêtes modifiantes et cache du front`) | Défense en profondeur CSRF : `ControleOrigineMiddleware` (`app/core/origine.py`) refuse (403 `{"detail": "Origine refusée."}`) toute requête `POST`/`PUT`/`PATCH`/`DELETE` sur `/api/*` dont `Origin` diffère de l'origine du service ou dont `Sec-Fetch-Site` vaut `cross-site` ; absence des deux en-têtes acceptée ; `/tg/webhook` non concerné. Décision documentée en L2-D18 (`docs/plan-lot-2.md` §4 et §2 ci-dessus). 14 tests ajoutés (middleware isolé + intégration sur `POST /api/auth/login` et `POST /api/factures`). |
+| 3 | Mineur | `ead7605` (même commit) | `app/core/front.py::monter_front` : `index.html` renvoyé avec `Cache-Control: no-cache` (référence des fichiers hachés de `assets/` par leur nom) ; `assets/` reste cachable sans limite. 2 tests ajoutés. |
+| 4 | Important | `fc689f8` (`deploy: en-têtes de sécurité HTTP`) | Middleware Traefik `headers` (`entetes-securite`) sur le routeur `api` : `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, HSTS (`stsSeconds=31536000`, `stsIncludeSubdomains=true`), `Content-Security-Policy` compatible avec le build Vite réel (vérifié : `web/dist/index.html` ne référence que des fichiers `/assets/*` du même service, aucun script/style externe ni inline). Validé par `docker compose --env-file .env.example -f deploy/docker-compose.yml config`. |
 | 6 | Dette + docs | ce commit (`docs: revue finale du lot 2`) | `docs/dette.md` : absence de purge des jetons expirés de `jeton_session` (section « L2-T1 — auth »). `docs/lot-2-recette.md` : cette section. |
 
 **Résultats de tests réels après corrections** (relancés ce soir, dans le

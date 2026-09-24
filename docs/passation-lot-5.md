@@ -11,7 +11,7 @@ foi), `docs/plan-lot-5.md`, `docs/lot-5-recette.md`,
 ## 1. État au 20/09/2026
 
 - Dépôt `/home/debian/habitat_reno`, branche `lot-5-restitution`, créée depuis
-  `main` à `c9f51a5`. Dernier commit technique : `d770654` (L5-T11). Avant
+  `main` à `c536f5b`. Dernier commit technique : `f1b82c4` (L5-T11). Avant
   L5-T12, la branche contient 26 commits au-dessus de `main`.
 - **L5-T1 à L5-T11 sont faites, commitées et relues.** Les corrections issues
   des revues sont incluses dans la branche; l'ultime revue de L5-T11 a rendu
@@ -20,11 +20,11 @@ foi), `docs/plan-lot-5.md`, `docs/lot-5-recette.md`,
   passation, dette et état du projet dans `CLAUDE.md` sont mis à jour. Aucun
   code applicatif n'est modifié et rien ne doit être poussé par cette tâche.
 - **La revue finale complète de `main..HEAD` a eu lieu.** Elle a
-  relevé cinq constats moyens, tous corrigés dans `e599fda` : jointures
+  relevé cinq constats moyens, tous corrigés dans `a550e8f` : jointures
   null-safe du Bilan, colonne anomalies du tableau BL, identité Drive non
   visible, cache front limité à `moi` et filtre agence fermé. Leur relecture
   indépendante a rendu `passed=true`, sans constat bloquant. La branche a été
-  fusionnée localement par avance rapide; `main` pointe sur `e599fda` avant la
+  fusionnée localement par avance rapide; `main` pointe sur `a550e8f` avant la
   présente mise à jour documentaire.
 - Aucun remote n'a été utilisé, aucun push et aucun déploiement n'ont été faits.
   Les lignes cron des lots 4 et 5 ne sont pas posées.
@@ -55,7 +55,7 @@ foi), `docs/plan-lot-5.md`, `docs/lot-5-recette.md`,
 | L5-T9 | Journal filtré/paginé, route et écran admin |
 | L5-T10 | Lecture/modification des neuf seuils, validation service, journalisation, écran Réglages |
 | L5-T11 | Migration 0009, client et synchronisation Drive, CLI, reprise/idempotence, notification, note d'exploitation |
-| L5-T12 | Documentation de recette/passation/dette et état du projet, commit `f879114` |
+| L5-T12 | Documentation de recette/passation/dette et état du projet, commit `91f2808` |
 
 Le bilan réel d'août n'est repris qu'en comptes sans donnée client : 28 blocs
 (3 reçus, 4 « pas de bon », 21 non reçus), 25 anomalies (R01 ×21, R02 ×4,
