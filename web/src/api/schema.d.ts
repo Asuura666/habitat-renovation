@@ -1169,6 +1169,11 @@ export interface components {
          *     le front adapte ses libellés (« Écart prix ou quantité » -> « Écart de
          *     quantité ») et masque le filtre « Prix » de l'écran « À régler » quand
          *     ce drapeau est faux -- voir `ingest.a_traiter.CompteProblemes`.
+         *
+         *     `controle_livre_non_facture_actif` (même décision, seconde demande du
+         *     jour) : l'écran Réglages signale sans effet le seuil propre à R06
+         *     (`delai_ligne_bl_non_facturee_j`) quand ce second drapeau, indépendant
+         *     du premier, est faux -- voir `ingest.a_traiter.CompteProblemes`.
          */
         CompteProblemesReponse: {
             /** Nb Problemes */
@@ -1177,6 +1182,8 @@ export interface components {
             nb_urgents: number;
             /** Controle Prix Actif */
             controle_prix_actif: boolean;
+            /** Controle Livre Non Facture Actif */
+            controle_livre_non_facture_actif: boolean;
         };
         /**
          * CorrectionEnteteRequete

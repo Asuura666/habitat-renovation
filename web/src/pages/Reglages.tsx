@@ -25,6 +25,16 @@ const CLES_SEUILS_PRIX: ReadonlySet<string> = new Set([
   "occurrences_prix_min",
 ]);
 
+// Le seuil propre à R06 (« Livré mais pas facturé »), désactivée par un
+// second drapeau indépendant le même jour (`docs/dette.md`) : R06 lit
+// `delai_ligne_bl_non_facturee_j` (`app/modules/rules/rules/R06.py`), aucun
+// autre seuil ne lui est propre. Constat 1 de la relecture de l'évolution
+// « R06 désactivée » : oubliée lors de la désactivation initiale (seuls les
+// trois seuils de prix ci-dessus portaient la mention), corrigée ici --
+// même traitement que `CLES_SEUILS_PRIX`, mécanisme identique mais drapeau
+// distinct (`controleLivreNonFactureActif`, jamais `controlePrixActif`).
+const CLE_SEUIL_LIVRE_NON_FACTURE = "delai_ligne_bl_non_facturee_j";
+
 function messageErreur(erreur: unknown): string {
   if (erreur instanceof ErreurApi) {
     return erreur.detail;
@@ -40,13 +50,16 @@ function messageErreur(erreur: unknown): string {
 function LigneParametre({
   parametre,
   controlePrixActif,
+  controleLivreNonFactureActif,
 }: {
   parametre: Parametre;
   controlePrixActif: boolean;
+  controleLivreNonFactureActif: boolean;
 }): ReactElement {
   const queryClient = useQueryClient();
   const [valeur, setValeur] = useState(parametre.valeur);
   const seuilDePrix = CLES_SEUILS_PRIX.has(parametre.cle);
+  const seuilLivreNonFacture = parametre.cle === CLE_SEUIL_LIVRE_NON_FACTURE;
 
   useEffect(() => setValeur(parametre.valeur), [parametre.valeur]);
 
@@ -77,6 +90,9 @@ function LigneParametre({
         </p>
         {seuilDePrix && !controlePrixActif && (
           <p className="mt-1 text-sm text-encre-2">Contrôle des prix désactivé pour le moment.</p>
+        )}
+        {seuilLivreNonFacture && !controleLivreNonFactureActif && (
+          <p className="mt-1 text-sm text-encre-2">Contrôle désactivé pour le moment.</p>
         )}
       </div>
       <div>
@@ -123,7 +139,8 @@ export function Reglages(): ReactElement {
   const parametres = useQuery({ queryKey: CLE_PARAMETRES, queryFn: listerParametres });
   // Même clé que `Gabarit`/`VueEnsemble`/`ARegler` (décision d'Ilane du
   // 24/09/2026, `docs/dette.md`) : seul endroit qui porte `controle_prix_
-  // actif`, lu ici pour la mention des seuils de prix ci-dessous.
+  // actif` et `controle_livre_non_facture_actif`, lus ici pour la mention
+  // des seuils de prix et du seuil de R06 ci-dessous.
   const compteARegler = useQuery({ queryKey: CLE_COMPTE_A_REGLER, queryFn: obtenirCompteARegler });
   // Constat mineur 2 de la revue des contrôles de prix : le repli est
   // `false`, même valeur que le défaut serveur (`CONTROLE_PRIX_ACTIF`
@@ -131,6 +148,11 @@ export function Reglages(): ReactElement {
   // la mention « Contrôle des prix désactivé pour le moment » comme fausse
   // avant la réponse de la requête.
   const controlePrixActif = compteARegler.data?.controle_prix_actif ?? false;
+  // Constat 1 de la relecture de l'évolution « R06 désactivée » : même
+  // repli `false` que ci-dessus, même raison -- second drapeau
+  // indépendant (`CONTROLE_LIVRE_NON_FACTURE_ACTIF`, défaut désactivé).
+  const controleLivreNonFactureActif =
+    compteARegler.data?.controle_livre_non_facture_actif ?? false;
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -161,6 +183,7 @@ export function Reglages(): ReactElement {
                 key={parametre.cle}
                 parametre={parametre}
                 controlePrixActif={controlePrixActif}
+                controleLivreNonFactureActif={controleLivreNonFactureActif}
               />
             ))}
           </div>

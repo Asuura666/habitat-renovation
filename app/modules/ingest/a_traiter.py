@@ -28,7 +28,16 @@ par toutes les pages (barre de navigation, vue d'ensemble, écran « À
 régler », `CLE_COMPTE_A_REGLER` côté front) : aucun autre point d'API n'a
 besoin de porter ce même drapeau. Aucun calcul métier n'en découle ici, le
 front ne fait qu'adapter des libellés (« Écart prix ou quantité » ->
-« Écart de quantité », filtre « Prix » masqué) à partir de ce booléen."""
+« Écart de quantité », filtre « Prix » masqué) à partir de ce booléen.
+
+`CompteProblemes.controle_livre_non_facture_actif` (même décision, seconde
+demande du jour, `docs/dette.md`) : reflet de `ingest.commun.controle_livre
+_non_facture_actif()`, même point unique. Corrigé après relecture (constat
+1, revue de l'évolution « R06 désactivée ») : le front en a besoin, pour
+l'écran Réglages, qui signale sans effet le seuil propre à R06
+(`delai_ligne_bl_non_facturee_j`) quand ce second drapeau est faux --
+jamais confondu avec `controle_prix_actif`, les deux drapeaux sont
+indépendants (`ingest.commun.regles_desactivees`)."""
 
 from __future__ import annotations
 
@@ -42,7 +51,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.modules.ingest.anomalies import compter_anomalies_ouvertes
-from app.modules.ingest.commun import controle_prix_actif
+from app.modules.ingest.commun import (
+    controle_livre_non_facture_actif,
+    controle_prix_actif,
+)
 from app.modules.ingest.lecture import _CONFIRMATION_PAR_ACTION, MotifLu, motifs_lus
 from app.modules.ingest.models import (
     Article,
@@ -271,6 +283,7 @@ class CompteProblemes:
     nb_problemes: int
     nb_urgents: int
     controle_prix_actif: bool
+    controle_livre_non_facture_actif: bool
 
 
 async def compter_problemes_a_regler(session: AsyncSession) -> CompteProblemes:
@@ -286,6 +299,7 @@ async def compter_problemes_a_regler(session: AsyncSession) -> CompteProblemes:
         + len(a_traiter.articles),
         nb_urgents=nb_urgents,
         controle_prix_actif=controle_prix_actif(),
+        controle_livre_non_facture_actif=controle_livre_non_facture_actif(),
     )
 
 

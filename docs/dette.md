@@ -884,22 +884,35 @@ dans `correction-finale-rapport.md`, même dossier) :
   `rapprocher_facture`) : désactivée, elle n'est plus évaluée
   (`rules.engine.evaluer_suivi` saute son appel), ses anomalies existantes
   restent masquées de toutes les lectures (même point unique,
-  `condition_regles_actives`) et **ne sont jamais fermées ni supprimées par
-  un passage des contrôles différés** tant que le drapeau reste désactivé
+  `condition_regles_actives`) et ne sont pas touchées par un passage des
+  contrôles différés tant que le drapeau reste désactivé
   (`controles_differes` passe `regles_actives`/`portee_regles = REGLES_SUIVI
-  - regles_desactivees()`, R06 exclue des deux). **Contrairement aux
-  contrôles de prix, l'archivage de la facture porteuse ne les retire pas** :
-  `corrections.archiver_document` ne balaie que `REGLES_FACTURE` pour une
-  facture (Ruling R25 ci-dessus), R06 (`REGLES_SUIVI`) n'en fait pas partie
-  — une R06 déjà ouverte sur une facture ensuite archivée reste donc ouverte
-  en base indéfiniment, y compris après réactivation, jusqu'à ce qu'un futur
-  passage des contrôles différés recalcule cette ligne (matière non exclue
-  par le filtre `facture_doc.statut != "archive"` d'`ingest.suivi
-  ._lignes_bl_non_facturees`, qui *exclut* justement les blocs d'une facture
-  archivée de la production de nouvelles anomalies R06 — donc plus jamais
-  recalculée, ni fermée ni relevée). Constat de dette pré-existant, non
+  - regles_desactivees()`, R06 exclue des deux — un passage pendant que R06
+  reste désactivée ne la considère donc ni pour la fermer ni pour la
+  relever). **Contrairement aux contrôles de prix, l'archivage de la
+  facture porteuse ne la retire pas sur-le-champ** : `corrections
+  .archiver_document` ne balaie que `REGLES_FACTURE` pour une facture
+  (Ruling R25 ci-dessus), R06 (`REGLES_SUIVI`) n'en fait pas partie — une R06
+  déjà ouverte sur une facture ensuite archivée reste donc en base, masquée,
+  tant que R06 reste désactivée. Elle n'y reste pas indéfiniment pour
+  autant : `controles_differes` appelle `synchroniser_anomalies` sans
+  `portee_document_id`, donc `_conditions_portee` (`ingest/anomalies.py`)
+  balaie toutes les anomalies ouvertes des règles de la portée, pas un seul
+  document (balayage global déjà observable sur R14 dans
+  `test_suivi.py::test_controles_differes_leve_une_anomalie_disparue`) — au
+  premier passage des contrôles différés où R06 est active, cette R06 est
+  candidate comme les autres ; le filtre `facture_doc.statut != "archive"`
+  d'`ingest.suivi._lignes_bl_non_facturees` l'empêche d'être reproduite,
+  donc elle est levée (supprimée et journalisée `anomalie_levee`,
+  `anomalies.py`) à ce passage-là. Constat de dette pré-existant, non
   introduit par cette désactivation (même lacune que si R06 était restée
-  active) — à corriger un jour si observé en pratique. R02 (« Livré sans
+  active) : le retrait n'est ni immédiat (contrairement aux prix) ni
+  garanti tant que R06 reste désactivée — à corriger un jour si ce délai
+  pose problème en pratique. Aucun interrupteur à l'écran ; le front
+  signale le seuil propre à R06 (`delai_ligne_bl_non_facturee_j`) dans
+  Réglages, qui reste modifiable (même mécanisme que les seuils de prix,
+  `CompteProblemesReponse.controle_livre_non_facture_actif`, corrigé après
+  relecture -- voir `docs/refonte-front-recette.md`). R02 (« Livré sans
   bon ») reste active (décision d'Ilane : la preuve est dans la facture).
   Réactiver avec `CONTROLE_LIVRE_NON_FACTURE_ACTIF=true` (puis redémarrer
   l'API) si le cas est un jour constaté.

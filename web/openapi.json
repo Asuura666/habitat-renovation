@@ -3462,16 +3462,21 @@
      "controle_prix_actif": {
       "type": "boolean",
       "title": "Controle Prix Actif"
+     },
+     "controle_livre_non_facture_actif": {
+      "type": "boolean",
+      "title": "Controle Livre Non Facture Actif"
      }
     },
     "type": "object",
     "required": [
      "nb_problemes",
      "nb_urgents",
-     "controle_prix_actif"
+     "controle_prix_actif",
+     "controle_livre_non_facture_actif"
     ],
     "title": "CompteProblemesReponse",
-    "description": "`GET /api/a-regler/compte` : nombre de problèmes « à régler », tous\nmois confondus -- mêmes attributs qu'`ingest.a_traiter.CompteProblemes`\n(revue finale de la refonte du front : un seul compte pour la pastille\nde navigation, la vue d'ensemble et l'écran « À régler »).\n\n`controle_prix_actif` (décision d'Ilane du 24/09/2026, `docs/dette.md`) :\nle front adapte ses libellés (« Écart prix ou quantité » -> « Écart de\nquantité ») et masque le filtre « Prix » de l'écran « À régler » quand\nce drapeau est faux -- voir `ingest.a_traiter.CompteProblemes`."
+    "description": "`GET /api/a-regler/compte` : nombre de problèmes « à régler », tous\nmois confondus -- mêmes attributs qu'`ingest.a_traiter.CompteProblemes`\n(revue finale de la refonte du front : un seul compte pour la pastille\nde navigation, la vue d'ensemble et l'écran « À régler »).\n\n`controle_prix_actif` (décision d'Ilane du 24/09/2026, `docs/dette.md`) :\nle front adapte ses libellés (« Écart prix ou quantité » -> « Écart de\nquantité ») et masque le filtre « Prix » de l'écran « À régler » quand\nce drapeau est faux -- voir `ingest.a_traiter.CompteProblemes`.\n\n`controle_livre_non_facture_actif` (même décision, seconde demande du\njour) : l'écran Réglages signale sans effet le seuil propre à R06\n(`delai_ligne_bl_non_facturee_j`) quand ce second drapeau, indépendant\ndu premier, est faux -- voir `ingest.a_traiter.CompteProblemes`."
    },
    "CorrectionEnteteRequete": {
     "properties": {

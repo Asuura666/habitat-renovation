@@ -444,3 +444,20 @@ def test_reglages_seuils_de_prix_signales_desactives() -> None:
     balise_input = reglages.split("<input", 1)[1].split("/>", 1)[0]
     assert "seuilDePrix" not in balise_input
     assert "controlePrixActif" not in balise_input
+
+
+def test_reglages_seuil_r06_signale_desactive() -> None:
+    """Constat 1 de la relecture de l'évolution « R06 désactivée » : le
+    seuil propre à R06, `delai_ligne_bl_non_facturee_j`
+    (`app/modules/rules/rules/R06.py`), porte sa propre mention -- distincte
+    de celle des prix -- quand `controle_livre_non_facture_actif` est faux,
+    avec le même repli `?? false` (jamais `?? true`) que
+    `controle_prix_actif`."""
+    reglages = (SRC / "pages" / "Reglages.tsx").read_text()
+    assert '"delai_ligne_bl_non_facturee_j"' in reglages
+    assert "Contrôle désactivé pour le moment." in reglages
+    assert "controle_livre_non_facture_actif ?? false" in reglages
+    assert "controle_livre_non_facture_actif ?? true" not in reglages
+    balise_input = reglages.split("<input", 1)[1].split("/>", 1)[0]
+    assert "seuilLivreNonFacture" not in balise_input
+    assert "controleLivreNonFactureActif" not in balise_input

@@ -235,6 +235,7 @@ async def test_compte_a_regler_admin_compte_la_liste_de_l_ecran(
         "nb_problemes": 1,
         "nb_urgents": 0,
         "controle_prix_actif": False,
+        "controle_livre_non_facture_actif": True,
     }
 
 
@@ -258,3 +259,27 @@ async def test_compte_a_regler_reflete_controle_prix_actif_quand_vrai(
 
     assert reponse.status_code == 200
     assert reponse.json()["controle_prix_actif"] is True
+
+
+async def test_compte_a_regler_reflete_controle_livre_non_facture_actif_quand_faux(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Constat 1 de la relecture de l'évolution « R06 désactivée » :
+    `controle_livre_non_facture_actif`, second drapeau indépendant de
+    `controle_prix_actif`, exposé par le même point unique -- les deux
+    valeurs sont couvertes, aucune des deux par la seule absence d'une
+    variable du `.env` de test."""
+    _regler_drapeaux(monkeypatch, prix_actif=True, livre_non_facture_actif=False)
+    admin = await _creer_utilisateur(
+        db_session, email="admin.compte3@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(app_test, "GET", "/api/a-regler/compte", cookie=cookie)
+
+    assert reponse.status_code == 200
+    assert reponse.json()["controle_livre_non_facture_actif"] is False

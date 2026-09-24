@@ -216,16 +216,25 @@ défaut `false`, même fonction `ingest.commun.regles_desactivees`), mais R06
 est une règle de **suivi** (contrôle différé, `ingest.suivi
 .controles_differes`, commande `controles-differes`) : désactivée, elle
 n'est plus évaluée du tout, plutôt que seulement masquée après coup. Ses
-anomalies existantes restent masquées de tous les écrans, jamais fermées ni
-supprimées par un passage des contrôles différés (voir `docs/dette.md`, qui
-signale aussi une lacune préexistante et sans lien avec cette décision :
-contrairement aux contrôles de prix, l'archivage de la facture porteuse ne
-les retire pas). Aucune adaptation front : R06 était déjà rangée dans la
-catégorie « Quantités » (`ingest.anomalies.CATEGORIES_REGLE`), jamais un
-libellé ou un filtre qui lui soit propre — la tuile « Écart de quantité »
-et son sous-texte (« livraisons avec un écart de quantité ») restent
-corrects sans changement, R02 (« Livré sans bon », preuve dans la facture)
-reste active. Réactivation identique (`.env` + redémarrage), sans
+anomalies existantes restent masquées de tous les écrans, pas touchées par
+un passage des contrôles différés tant que R06 reste désactivée (voir
+`docs/dette.md`, qui signale aussi une lacune préexistante et sans lien
+avec cette décision : contrairement aux contrôles de prix, l'archivage de
+la facture porteuse ne la retire pas sur-le-champ — elle est levée au
+prochain passage des contrôles différés où R06 est active, balayage global
+de la portée suivi). Une adaptation front, oubliée lors de la désactivation
+initiale et corrigée après relecture (constat 1) : l'écran Réglages signale
+désormais sans effet le seuil propre à R06, « Délai avant alerte d'une
+ligne de BL non facturée » (`delai_ligne_bl_non_facturee_j`), même
+mécanisme que les trois seuils de prix mais drapeau distinct
+(`CompteProblemesReponse.controle_livre_non_facture_actif`, exposé par
+`GET /api/a-regler/compte` aux côtés de `controle_prix_actif`). Les écrans
+d'anomalies, eux, ne changent pas : R06 était déjà rangée dans la catégorie
+« Quantités » (`ingest.anomalies.CATEGORIES_REGLE`), jamais un libellé ou un
+filtre qui lui soit propre sur ces écrans-là — la tuile « Écart de
+quantité » et son sous-texte (« livraisons avec un écart de quantité »)
+restent corrects sans changement, R02 (« Livré sans bon », preuve dans la
+facture) reste active. Réactivation identique (`.env` + redémarrage), sans
 interrupteur à l'écran.
 
 ## 4. Contrôles finaux (sur `eeb93a4`)

@@ -79,11 +79,17 @@ def controle_prix_actif() -> bool:
 
 def controle_livre_non_facture_actif() -> bool:
     """Reflet direct de `Settings.controle_livre_non_facture_actif` -- voir
-    le docstring de module. Aucun front n'a besoin de ce drapeau pour
-    l'instant (R06 est déjà rangée dans la catégorie « quantites »,
-    `ingest.anomalies.CATEGORIES_REGLE`, jamais un libellé ou un filtre
-    dédié) : exposée quand même, séparément de `regles_desactivees`, par
-    symétrie avec `controle_prix_actif` plutôt que par besoin déjà connu."""
+    le docstring de module. Repris par `ingest.a_traiter.CompteProblemes
+    .controle_livre_non_facture_actif` (`GET /api/a-regler/compte`) :
+    contrairement à ce qu'affirmait la première version de cette décision,
+    le front a bien besoin de ce drapeau, pour l'écran Réglages, qui
+    signale sans effet le seuil propre à R06
+    (`delai_ligne_bl_non_facturee_j`) quand il est faux -- corrigé après
+    relecture (constat 1, revue de l'évolution « R06 désactivée »). R06
+    reste par ailleurs rangée dans la catégorie « quantites »
+    (`ingest.anomalies.CATEGORIES_REGLE`), sans libellé ni filtre qui lui
+    soit propre sur les écrans d'anomalies -- exposée séparément de
+    `regles_desactivees`, par symétrie avec `controle_prix_actif`."""
     return get_settings().controle_livre_non_facture_actif
 
 
