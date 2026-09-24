@@ -2,7 +2,18 @@
 
 Ce module est l'unique source des neuf clés, de leurs valeurs par défaut et de
 leurs bornes. Les couches API et web ne portent aucune validation métier.
-"""
+
+Masquage des réglages d'un contrôle désactivé (24/09/2026, en écho à la
+décision d'Ilane sur les contrôles de prix et R06, `docs/dette.md`) : quand
+un contrôle est désactivé côté serveur (`ingest.commun.controle_prix_actif`/
+`controle_livre_non_facture_actif`), ses réglages propres n'apparaissent
+plus du tout dans `lister_parametres`, et `modifier_parametre` les refuse
+comme une clé inconnue -- ce module est le **seul** endroit qui porte la
+correspondance réglage -> contrôle (`_cle_masquee`), jamais dupliquée côté
+API ni côté front. Rien n'est supprimé en base : `_assurer_parametres`
+continue d'amorcer les neuf lignes, et une valeur modifiée avant
+désactivation reste lue telle quelle dès la réactivation du contrôle (voir
+les tests dédiés)."""
 
 from __future__ import annotations
 
@@ -15,6 +26,10 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.ingest.commun import (
+    controle_livre_non_facture_actif,
+    controle_prix_actif,
+)
 from app.modules.ingest.models import Journal, Parametre
 
 
@@ -130,6 +145,32 @@ PARAMETRES_DEFAUT = tuple(
 _CLES_SEUILS_PRIX = ("seuil_prix_fort_pct", "seuil_prix_pct")
 _DECIMALES_MAX = 6
 
+# Réglages propres aux contrôles de prix (R07/R08/R09) ou à la remise (R09
+# réutilise `occurrences_prix_min`, aucun seuil ne lui est propre) : masqués
+# quand `controle_prix_actif()` est faux.
+_CLES_CONTROLE_PRIX: frozenset[str] = frozenset(
+    {"seuil_prix_pct", "seuil_prix_fort_pct", "occurrences_prix_min"}
+)
+
+# Réglage propre à R06 (« Livré mais pas facturé ») : masqué quand
+# `controle_livre_non_facture_actif()` est faux.
+_CLES_CONTROLE_LIVRE_NON_FACTURE: frozenset[str] = frozenset(
+    {"delai_ligne_bl_non_facturee_j"}
+)
+
+
+def _cle_masquee(cle: str) -> bool:
+    """Vrai si `cle` appartient à un contrôle désactivé côté serveur --
+    unique point de correspondance réglage -> contrôle (voir docstring de
+    module). Les deux drapeaux sont indépendants, comme dans
+    `ingest.commun.regles_desactivees`."""
+    if cle in _CLES_CONTROLE_PRIX and not controle_prix_actif():
+        return True
+    return (
+        cle in _CLES_CONTROLE_LIVRE_NON_FACTURE
+        and not controle_livre_non_facture_actif()
+    )
+
 
 def _texte_decimal(valeur: Decimal) -> str:
     texte = format(valeur, "f")
@@ -148,7 +189,11 @@ async def _assurer_parametres(session: AsyncSession) -> None:
 
 
 async def lister_parametres(session: AsyncSession) -> list[ParametreAffiche]:
-    """Liste toujours les neuf seuils connus, dans l'ordre de présentation."""
+    """Liste les seuils connus dans l'ordre de présentation, à l'exclusion
+    de ceux dont le contrôle est désactivé côté serveur (`_cle_masquee`) --
+    neuf quand les deux contrôles sont actifs, moins sinon. Les lignes
+    masquées restent amorcées en base par `_assurer_parametres` : leur
+    valeur est conservée et réapparaît dès la réactivation du contrôle."""
 
     await _assurer_parametres(session)
     lignes = {
@@ -166,6 +211,7 @@ async def lister_parametres(session: AsyncSession) -> list[ParametreAffiche]:
             entier=definition.entier,
         )
         for definition in DEFINITIONS_PARAMETRES
+        if not _cle_masquee(definition.cle)
     ]
 
 
@@ -176,10 +222,13 @@ async def modifier_parametre(
     *,
     auteur_id: uuid.UUID | None,
 ) -> ParametreAffiche:
-    """Valide, modifie et journalise un des neuf seuils connus."""
+    """Valide, modifie et journalise un des seuils connus. Une clé dont le
+    contrôle est désactivé côté serveur (`_cle_masquee`) est refusée
+    exactement comme une clé inconnue -- jamais un message distinct, elle
+    n'existe pas plus qu'une clé qui n'a jamais existé pour cet appelant."""
 
     definition = DEFINITIONS_PAR_CLE.get(cle)
-    if definition is None:
+    if definition is None or _cle_masquee(cle):
         raise ValueError(f"Paramètre inconnu : {cle}")
 
     try:

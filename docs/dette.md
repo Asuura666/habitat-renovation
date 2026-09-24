@@ -869,10 +869,16 @@ dans `correction-finale-rapport.md`, même dossier) :
   couvre R07/R08/R09 sans condition — Ruling R25 du lot 4). Aucun
   interrupteur à l'écran ; le front adapte deux libellés (tuile « Écart prix
   ou quantité » -> « Écart de quantité », filtre « Prix » masqué dans « À
-  régler ») et signale les trois seuils concernés (`seuil_prix_pct`,
+  régler »). Depuis la tâche « réglages des contrôles désactivés »
+  (24/09/2026), les trois seuils concernés (`seuil_prix_pct`,
   `seuil_prix_fort_pct`, `occurrences_prix_min` — pas de seuil propre à la
-  remise en plus de ce dernier) dans Réglages, qui restent modifiables.
-  Réactivation : geste d'administrateur serveur, pas un redémarrage —
+  remise en plus de ce dernier) n'apparaissent plus du tout dans Réglages,
+  masqués côté serveur (`ingest/parametres.py::_cle_masquee`, seul point de
+  décision : `GET /api/parametres` ne les renvoie plus, `PUT
+  /api/parametres/<clé>` les refuse comme une clé inconnue) — leur valeur
+  n'est pas perdue pour autant, elle reste en base et réapparaît telle
+  quelle dès la réactivation du drapeau ; le front ne filtre plus rien
+  lui-même. Réactivation : geste d'administrateur serveur, pas un redémarrage —
   `CONTROLE_PRIX_ACTIF=true` dans le fichier d'environnement de l'instance
   (`.env.prod` ou `.env.demo`), puis recréation du conteneur API
   (`docker compose -p habitat_<instance> --env-file .env.<instance> -f
@@ -918,11 +924,13 @@ dans `correction-finale-rapport.md`, même dossier) :
   introduit par cette désactivation (même lacune que si R06 était restée
   active) : le retrait n'est ni immédiat (contrairement aux prix) ni
   garanti tant que R06 reste désactivée — à corriger un jour si ce délai
-  pose problème en pratique. Aucun interrupteur à l'écran ; le front
-  signale le seuil propre à R06 (`delai_ligne_bl_non_facturee_j`) dans
-  Réglages, qui reste modifiable (même mécanisme que les seuils de prix,
-  `CompteProblemesReponse.controle_livre_non_facture_actif`, corrigé après
-  relecture -- voir `docs/refonte-front-recette.md`). R02 (« Livré sans
+  pose problème en pratique. Aucun interrupteur à l'écran ; depuis la tâche
+  « réglages des contrôles désactivés » (24/09/2026), le seuil propre à R06
+  (`delai_ligne_bl_non_facturee_j`) n'apparaît plus du tout dans Réglages
+  tant que le drapeau reste désactivé — même mécanisme de masquage côté
+  serveur que les seuils de prix ci-dessus (`ingest/parametres.py
+  ::_cle_masquee`, un seul point de décision pour les deux contrôles),
+  valeur conservée en base, réapparaît dès la réactivation. R02 (« Livré sans
   bon ») reste active (décision d'Ilane : la preuve est dans la facture).
   Réactivation : même geste d'administrateur serveur que les contrôles de
   prix ci-dessus — `CONTROLE_LIVRE_NON_FACTURE_ACTIF=true` dans le fichier

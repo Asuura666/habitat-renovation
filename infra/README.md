@@ -213,6 +213,17 @@ modifiables par l'admin. Deux moments d'évaluation :
 Le seuil de confiance OCR (`seuil_confiance_ocr`, 0,80 par défaut) est lu dans
 la même table mais n'est **pas** modifiable depuis l'écran.
 
+Depuis la tâche « réglages des contrôles désactivés » (24/09/2026), un seuil
+propre à un contrôle désactivé (`seuil_prix_pct`, `seuil_prix_fort_pct`,
+`occurrences_prix_min` tant que `CONTROLE_PRIX_ACTIF` reste faux ;
+`delai_ligne_bl_non_facturee_j` tant que `CONTROLE_LIVRE_NON_FACTURE_ACTIF`
+reste faux) n'apparaît plus du tout sur l'écran Réglages : masqué côté
+serveur, seul point de décision (`ingest/parametres.py::_cle_masquee`,
+`GET /api/parametres`), une tentative de modification étant refusée comme
+une clé inconnue. Rien n'est perdu en base ; la valeur réapparaît telle
+quelle dès la réactivation du drapeau concerné (redémarrage du conteneur
+API avec la variable à `true`, voir l'encadré ci-dessus).
+
 **Cycle de vie d'une anomalie** : ouverte → traitée ou ignorée, avec un
 commentaire obligatoire. Une anomalie ouverte dont la cause disparaît est
 supprimée au rejeu (entrée de journal `anomalie_levee`). Une anomalie traitée

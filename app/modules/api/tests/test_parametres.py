@@ -15,6 +15,7 @@ from app.core.auth import NOM_COOKIE
 from app.core.auth import router as auth_router
 from app.core.config import get_settings
 from app.modules.api import router as api_router
+from app.modules.ingest import commun
 from app.modules.ingest.models import Journal, Utilisateur
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
@@ -105,12 +106,21 @@ async def test_put_parametre_admin_modifie_et_journalise(
         cookies={NOM_COOKIE: cookie},
     ) as client:
         liste = await client.get("/api/parametres")
+        # `tolerance_total_ht` : le seul des neuf réglages qui n'appartient
+        # à aucun des deux contrôles désactivables (voir les tests de
+        # masquage plus bas dans ce fichier) -- jamais masqué, quel que
+        # soit l'état des drapeaux du `.env` de test.
         modification = await client.put(
-            "/api/parametres/seuil_prix_pct", json={"valeur": "6.5"}
+            "/api/parametres/tolerance_total_ht", json={"valeur": "6.5"}
         )
 
     assert liste.status_code == 200
-    assert len(liste.json()) == 9
+    # Défaut réel de l'application (`CONTROLE_PRIX_ACTIF`/`CONTROLE_LIVRE_
+    # NON_FACTURE_ACTIF` absentes du `.env` de test -> toutes deux `False`,
+    # `app.core.config.Settings`) : quatre des neuf réglages sont masqués
+    # -- voir les tests de masquage plus bas dans ce fichier pour les deux
+    # drapeaux couverts indépendamment.
+    assert len(liste.json()) == 5
     assert modification.status_code == 200
     assert modification.json()["valeur"] == "6.5"
 
@@ -143,3 +153,133 @@ async def test_put_parametre_invalide_renvoie_422(
 
     assert reponse.status_code == 422
     assert "Paramètre inconnu" in reponse.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Masquage des réglages d'un contrôle désactivé côté serveur (même décision
+# que `app/modules/ingest/tests/test_parametres.py`, ici à travers les
+# routes HTTP) : `commun.get_settings` est monkeypatchée, jamais la
+# dépendance FastAPI de `get_settings` (court-circuitée pour ce drapeau,
+# voir `ingest.commun`) -- même idiome que `test_a_traiter.py::_regler_
+# drapeaux`.
+# ---------------------------------------------------------------------------
+
+
+def _regler_controles(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    prix_actif: bool,
+    livre_non_facture_actif: bool,
+) -> None:
+    class _SettingsInventee:
+        controle_prix_actif = prix_actif
+        controle_livre_non_facture_actif = livre_non_facture_actif
+
+    monkeypatch.setattr(commun, "get_settings", lambda: _SettingsInventee())
+
+
+async def test_get_parametres_masque_les_seuils_de_prix_quand_desactives(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _regler_controles(monkeypatch, prix_actif=False, livre_non_facture_actif=True)
+    admin = await _creer_utilisateur(
+        db_session, email="admin.parametres.masques@example.test", role="admin"
+    )
+    app = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app, admin.email)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        reponse = await client.get("/api/parametres")
+
+    cles = {p["cle"] for p in reponse.json()}
+    assert "seuil_prix_pct" not in cles
+    assert "seuil_prix_fort_pct" not in cles
+    assert "occurrences_prix_min" not in cles
+    assert "delai_ligne_bl_non_facturee_j" in cles
+
+
+async def test_get_parametres_toutes_les_cles_quand_les_deux_controles_actifs(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _regler_controles(monkeypatch, prix_actif=True, livre_non_facture_actif=True)
+    admin = await _creer_utilisateur(
+        db_session, email="admin.parametres.actifs@example.test", role="admin"
+    )
+    app = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app, admin.email)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        reponse = await client.get("/api/parametres")
+
+    assert len(reponse.json()) == 9
+
+
+async def test_put_parametre_masque_renvoie_422_comme_une_cle_inconnue(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _regler_controles(monkeypatch, prix_actif=False, livre_non_facture_actif=True)
+    admin = await _creer_utilisateur(
+        db_session, email="admin.parametres.put-masque@example.test", role="admin"
+    )
+    app = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app, admin.email)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        reponse = await client.put(
+            "/api/parametres/seuil_prix_pct", json={"valeur": "9"}
+        )
+
+    assert reponse.status_code == 422
+    assert "Paramètre inconnu" in reponse.json()["detail"]
+
+
+async def test_valeur_masquee_reapparait_inchangee_a_la_reactivation(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _regler_controles(monkeypatch, prix_actif=True, livre_non_facture_actif=True)
+    admin = await _creer_utilisateur(
+        db_session, email="admin.parametres.reactivation@example.test", role="admin"
+    )
+    app = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app, admin.email)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        await client.put("/api/parametres/seuil_prix_pct", json={"valeur": "12"})
+
+        _regler_controles(monkeypatch, prix_actif=False, livre_non_facture_actif=True)
+        pendant_masquage = await client.get("/api/parametres")
+        assert all(p["cle"] != "seuil_prix_pct" for p in pendant_masquage.json())
+
+        _regler_controles(monkeypatch, prix_actif=True, livre_non_facture_actif=True)
+        apres_reactivation = await client.get("/api/parametres")
+
+    seuil = next(p for p in apres_reactivation.json() if p["cle"] == "seuil_prix_pct")
+    assert seuil["valeur"] == "12"

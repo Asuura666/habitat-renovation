@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.ingest import commun
 from app.modules.ingest.models import Journal, Utilisateur
 from app.modules.ingest.parametres import lister_parametres, modifier_parametre
 from app.modules.ingest.rapprochement import _charger_parametres
@@ -128,6 +129,128 @@ async def test_valeur_modifiee_est_relue_par_le_rapprochement(
     parametres = await _charger_parametres(db_session)
 
     assert str(parametres.seuil_prix_pct) == "8.25"
+
+
+# ---------------------------------------------------------------------------
+# Masquage des réglages d'un contrôle désactivé côté serveur : quand un
+# contrôle est désactivé, ses réglages propres n'apparaissent plus du tout
+# (au lieu de la mention affichée jusqu'ici par l'écran Réglages) --
+# `app/modules/ingest/tests/conftest.py::_controle_prix_actif_par_defaut`
+# réenclenche les deux drapeaux par défaut pour tout ce paquet, chaque test
+# ci-dessous qui veut un drapeau désactivé l'écrase localement, même idiome
+# que `test_controle_prix.py::_regler_controle_prix`.
+# ---------------------------------------------------------------------------
+
+
+def _regler_controles(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    prix_actif: bool,
+    livre_non_facture_actif: bool,
+) -> None:
+    class _SettingsInventee:
+        controle_prix_actif = prix_actif
+        controle_livre_non_facture_actif = livre_non_facture_actif
+
+    monkeypatch.setattr(commun, "get_settings", lambda: _SettingsInventee())
+
+
+async def test_lister_parametres_masque_les_seuils_de_prix_quand_desactives(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _regler_controles(monkeypatch, prix_actif=False, livre_non_facture_actif=True)
+
+    cles = {p.cle for p in await lister_parametres(db_session)}
+
+    assert cles == {
+        "tolerance_total_ht",
+        "delai_ligne_bl_non_facturee_j",
+        "delai_alias_non_resolu_h",
+        "delai_confirmation_bl_h",
+        "delai_chantier_silencieux_j",
+        "duree_ignorance_j",
+    }
+
+
+async def test_lister_parametres_masque_le_seuil_r06_quand_desactive(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _regler_controles(monkeypatch, prix_actif=True, livre_non_facture_actif=False)
+
+    cles = {p.cle for p in await lister_parametres(db_session)}
+
+    assert "delai_ligne_bl_non_facturee_j" not in cles
+    assert cles == {
+        "tolerance_total_ht",
+        "seuil_prix_pct",
+        "seuil_prix_fort_pct",
+        "occurrences_prix_min",
+        "delai_alias_non_resolu_h",
+        "delai_confirmation_bl_h",
+        "delai_chantier_silencieux_j",
+        "duree_ignorance_j",
+    }
+
+
+async def test_lister_parametres_toutes_les_cles_quand_les_deux_controles_actifs(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _regler_controles(monkeypatch, prix_actif=True, livre_non_facture_actif=True)
+
+    assert len(await lister_parametres(db_session)) == 9
+
+
+@pytest.mark.parametrize(
+    "cle",
+    ["seuil_prix_pct", "seuil_prix_fort_pct", "occurrences_prix_min"],
+)
+async def test_modifier_parametre_refuse_un_seuil_de_prix_masque_comme_inconnu(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    cle: str,
+) -> None:
+    _regler_controles(monkeypatch, prix_actif=False, livre_non_facture_actif=True)
+
+    with pytest.raises(ValueError, match="Paramètre inconnu"):
+        await modifier_parametre(db_session, cle, "9", auteur_id=None)
+
+
+async def test_modifier_parametre_refuse_le_seuil_r06_masque_comme_inconnu(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _regler_controles(monkeypatch, prix_actif=True, livre_non_facture_actif=False)
+
+    with pytest.raises(ValueError, match="Paramètre inconnu"):
+        await modifier_parametre(
+            db_session, "delai_ligne_bl_non_facturee_j", "60", auteur_id=None
+        )
+
+
+async def test_valeur_d_un_reglage_masque_est_conservee_et_reapparait_reactive(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Rien n'est supprimé en base par le masquage : une valeur posée avant
+    la désactivation reste inchangée pendant qu'elle est masquée, et
+    réapparaît telle quelle dès la réactivation du contrôle."""
+    _regler_controles(monkeypatch, prix_actif=True, livre_non_facture_actif=True)
+    await modifier_parametre(db_session, "seuil_prix_pct", "12", auteur_id=None)
+
+    _regler_controles(monkeypatch, prix_actif=False, livre_non_facture_actif=True)
+    cles_masquees = {p.cle for p in await lister_parametres(db_session)}
+    assert "seuil_prix_pct" not in cles_masquees
+    with pytest.raises(ValueError, match="Paramètre inconnu"):
+        await modifier_parametre(db_session, "seuil_prix_pct", "20", auteur_id=None)
+
+    _regler_controles(monkeypatch, prix_actif=True, livre_non_facture_actif=True)
+    reactive = next(
+        p for p in await lister_parametres(db_session) if p.cle == "seuil_prix_pct"
+    )
+    assert reactive.valeur == "12"
 
 
 def test_libelles_des_reglages_en_francais_courant() -> None:

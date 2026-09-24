@@ -382,7 +382,6 @@ def test_controle_prix_actif_repli_est_toujours_faux() -> None:
     la réponse de `GET /api/a-regler/compte`."""
     for chemin in (
         "ARegler.tsx",
-        "Reglages.tsx",
         "VueEnsemble.tsx",
         "FicheChantier.tsx",
         "FicheFournisseur.tsx",
@@ -428,36 +427,20 @@ def test_a_regler_ancien_lien_filtre_prix_revient_a_tous() -> None:
     assert "filtreEffectif ===" in bloc_liste
 
 
-def test_reglages_seuils_de_prix_signales_desactives() -> None:
-    """Écran Réglages : les trois seuils que lisent R07/R08/R09
-    (`seuil_prix_pct`, `seuil_prix_fort_pct`, `occurrences_prix_min` —
-    aucun seuil propre à la remise à part `occurrences_prix_min`, déjà
-    listé) portent la mention « Contrôle des prix désactivé pour le
-    moment » quand le drapeau est faux ; ils restent modifiables (choix
-    assumé pour rester simple : `<input>` ne référence ni le drapeau ni
-    `seuilDePrix`, donc jamais désactivé par cette décision)."""
+def test_reglages_ne_filtre_plus_les_seuils_lui_meme() -> None:
+    """Un réglage propre à un contrôle désactivé (les trois seuils de prix
+    lus par R07/R08/R09, ou le seuil de R06) n'est plus signalé par une
+    mention sur l'écran Réglages : le serveur ne le renvoie plus du tout
+    tant que le contrôle reste désactivé (`ingest/parametres.py
+    ::_cle_masquee`, GET /api/parametres), un seul point de décision.
+    L'ancienne mention (« Contrôle des prix désactivé pour le moment »,
+    « Contrôle désactivé pour le moment ») a disparu, sans qu'un filtre
+    équivalent ne soit reconstruit côté front : l'écran affiche simplement
+    la liste que l'API lui renvoie."""
     reglages = (SRC / "pages" / "Reglages.tsx").read_text()
-    assert '"seuil_prix_pct"' in reglages
-    assert '"seuil_prix_fort_pct"' in reglages
-    assert '"occurrences_prix_min"' in reglages
-    assert "Contrôle des prix désactivé pour le moment." in reglages
-    balise_input = reglages.split("<input", 1)[1].split("/>", 1)[0]
-    assert "seuilDePrix" not in balise_input
-    assert "controlePrixActif" not in balise_input
-
-
-def test_reglages_seuil_r06_signale_desactive() -> None:
-    """Constat 1 de la relecture de l'évolution « R06 désactivée » : le
-    seuil propre à R06, `delai_ligne_bl_non_facturee_j`
-    (`app/modules/rules/rules/R06.py`), porte sa propre mention -- distincte
-    de celle des prix -- quand `controle_livre_non_facture_actif` est faux,
-    avec le même repli `?? false` (jamais `?? true`) que
-    `controle_prix_actif`."""
-    reglages = (SRC / "pages" / "Reglages.tsx").read_text()
-    assert '"delai_ligne_bl_non_facturee_j"' in reglages
-    assert "Contrôle désactivé pour le moment." in reglages
-    assert "controle_livre_non_facture_actif ?? false" in reglages
-    assert "controle_livre_non_facture_actif ?? true" not in reglages
-    balise_input = reglages.split("<input", 1)[1].split("/>", 1)[0]
-    assert "seuilLivreNonFacture" not in balise_input
-    assert "controleLivreNonFactureActif" not in balise_input
+    assert "Contrôle des prix désactivé pour le moment." not in reglages
+    assert "Contrôle désactivé pour le moment." not in reglages
+    assert "controlePrixActif" not in reglages
+    assert "controleLivreNonFactureActif" not in reglages
+    assert "CLES_SEUILS_PRIX" not in reglages
+    assert "obtenirCompteARegler" not in reglages
