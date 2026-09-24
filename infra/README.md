@@ -5,12 +5,15 @@ Il s'adresse à un lecteur technique qui découvre le projet (futur mainteneur,
 prestataire du client) et à Ilane, le développeur.
 
 - **État décrit** : 24/09/2026. Lots 1 à 5 et refonte du front fusionnés
-  dans `main` (`a085948`) ; les désactivations R07-R09/R06 et
-  `API_DOCS_ACTIVES` décrites ci-dessous sont fusionnées dans
-  `refonte-front` (`0bcd5cd`) pour les premières, sur une branche à part pour
-  la seconde — **pas dans `main`** (§2.5, §7.6, §9). Les deux instances en
-  service ont été déployées le 23/09/2026, avant ces commits : elles
-  évaluent encore R06 à R09 et servent encore `/openapi.json` publiquement.
+  dans `main` (`a085948`). Les désactivations R07-R09/R06 décrites
+  ci-dessous sont introduites par le commit `0bcd5cd`, `API_DOCS_ACTIVES`
+  par le commit `5034ca7` (§2.5, §7.6, §9) ; avant tout build de
+  production, vérifier que la branche construite contient les deux
+  (`git merge-base --is-ancestor 0bcd5cd <branche>` et `git merge-base
+  --is-ancestor 5034ca7 <branche>`) plutôt que de supposer qu'une branche
+  particulière les a. Les deux instances en service ont été déployées le
+  23/09/2026, avant ces commits : elles évaluent encore R06 à R09 et
+  servent encore `/openapi.json` publiquement.
 - **Ce qui fait foi** : le cahier des charges, `docs/cahier-des-charges.md`
   (CDC). Ce document le résume, puis décrit ce qui a été construit, comment
   c'est hébergé et pourquoi.
@@ -1104,15 +1107,15 @@ interne des tâches ne sera donc pas dans le dépôt remis.
 
 Toutes les commandes se lancent depuis `/home/debian/habitat_reno`. Avant un
 `build`, vérifier la branche et que l'arbre de travail est propre : l'image
-est construite depuis cet arbre. Au 24/09/2026, `refonte-front` a divergé de
-`main` (`a085948`) : elle contient depuis `0bcd5cd` la désactivation de
-R06-R09 (§2.5) que `main` n'a pas — **ne pas faire `git switch main` avant
-un build de production**, ça déploierait sans cette désactivation.
-`API_DOCS_ACTIVES` (§7.6) est postérieur et n'est encore fusionné ni dans
-`main` ni dans `refonte-front`. Avant tout build de production, vérifier que
-la branche construite contient les deux (`git merge-base --is-ancestor
-0bcd5cd <branche>` et l'équivalent pour le commit `API_DOCS_ACTIVES`) plutôt
-que de supposer qu'une branche particulière les a.
+est construite depuis cet arbre. `refonte-front` a divergé de `main`
+(`a085948`) ; elle contient depuis `0bcd5cd` la désactivation de R06-R09
+(§2.5) que `main` n'a pas — **ne pas faire `git switch main` avant un build
+de production**, ça déploierait sans cette désactivation.
+`API_DOCS_ACTIVES` (§7.6) est introduit par le commit `5034ca7`. Avant tout
+build de production, vérifier que la branche construite contient les deux
+(`git merge-base --is-ancestor 0bcd5cd <branche>` et `git merge-base
+--is-ancestor 5034ca7 <branche>`) plutôt que de supposer qu'une branche
+particulière les a.
 
 ```bash
 cd /home/debian/habitat_reno
