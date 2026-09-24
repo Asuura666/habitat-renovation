@@ -23,6 +23,18 @@ Décisions du contrôleur (fiche de cette tâche) :
   `test_synchroniser_anomalies_portee_suivi_restreint_aux_regles_donnees`
   (`ingest/tests/test_anomalies.py`, déjà commité en L4-T8) anticipait pour
   cette tâche.
+- Décision d'Ilane du 24/09/2026 (`docs/dette.md`, seconde demande du jour) :
+  R06 désactivable par `CONTROLE_LIVRE_NON_FACTURE_ACTIF`, même mécanisme
+  que les contrôles de prix (`ingest.commun.regles_desactivees`). Comme
+  `ingest.rapprochement.rapprocher_facture` pour `REGLES_FACTURE`, cette
+  fonction calcule `regles_actives = REGLES_SUIVI - regles_desactivees()`
+  et le passe à `evaluer_suivi` (R06 n'est alors plus évaluée) **et** à
+  `synchroniser_anomalies` comme `portee_regles` (jamais `REGLES_SUIVI` brut
+  — Ruling R8, `ingest/anomalies.py`) : une R06 désactivée n'est donc jamais
+  considérée comme « recalculée » par le balayage de suppression, ses
+  anomalies existantes restent ouvertes en base (masquées à l'affichage par
+  `ingest.anomalies.condition_regles_actives`, jamais fermées ni
+  supprimées) le temps qu'elle soit réactivée.
 - `lignes_bl_non_facturees` (R06) : blocs dont `statut_rapprochement =
   "recu"` et dont le BL rapproché est lui-même `statut = "recu"` (Ruling R3
   du rapprochement : un bloc peut être `recu` alors que son BL est encore
@@ -73,6 +85,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.modules.ingest.anomalies import synchroniser_anomalies
+from app.modules.ingest.commun import regles_desactivees
 from app.modules.ingest.models import (
     BlocFacture,
     Chantier,
@@ -365,12 +378,20 @@ async def controles_differes(session: AsyncSession, *, maintenant: datetime) -> 
         bl_sans_confirmation=await _bl_sans_confirmation(session),
         chantiers=await _chantiers_suivis(session),
     )
-    anomalies = evaluer_suivi(contexte, parametres)
+    # Décision d'Ilane du 24/09/2026 (`docs/dette.md`) : `regles_actives`
+    # est l'ensemble exact des règles de suivi que cet appel recalcule
+    # réellement (R06 exclue tant que `CONTROLE_LIVRE_NON_FACTURE_ACTIF`
+    # n'est pas actif), donc aussi celui passé à `synchroniser_anomalies`
+    # ci-dessous (Ruling R8, `ingest/anomalies.py`) — jamais `REGLES_SUIVI`
+    # brut, même principe que `rapprochement.rapprocher_facture` pour
+    # `REGLES_FACTURE`.
+    regles_actives = REGLES_SUIVI - regles_desactivees()
+    anomalies = evaluer_suivi(contexte, parametres, regles_actives)
 
     nb_ouvertes = await synchroniser_anomalies(
         session,
         anomalies=anomalies,
-        portee_regles=tuple(REGLES_SUIVI),
+        portee_regles=tuple(regles_actives),
     )
     await session.commit()
     return nb_ouvertes

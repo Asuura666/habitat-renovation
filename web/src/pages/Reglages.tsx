@@ -1,6 +1,7 @@
 import { type FormEvent, type ReactElement, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { CLE_COMPTE_A_REGLER, obtenirCompteARegler } from "../api/aTraiter";
 import { ErreurApi } from "../api/client";
 import {
   CLE_PARAMETRES,
@@ -9,6 +10,30 @@ import {
   type Parametre,
 } from "../api/parametres";
 import { Bouton, Carte, EnTetePage, EtatVide } from "../ui";
+
+// Les trois seuils que la décision d'Ilane du 24/09/2026 (`docs/dette.md`)
+// rend sans effet tant que les contrôles de prix restent désactivés (voir
+// `Reglages` ci-dessous) : R07/R08 lisent `seuil_prix_pct`/`seuil_prix_
+// fort_pct`, R07/R08/R09 lisent `occurrences_prix_min` (`app/modules/rules/
+// rules/R07-R09.py`) -- aucun seuil propre à la remise n'existe à part
+// celui-ci (R09 le réutilise). Affichage seulement : la valeur reste
+// modifiable (plus simple qu'un formulaire à moitié désactivé) et
+// s'appliquera dès la réactivation du drapeau côté serveur.
+const CLES_SEUILS_PRIX: ReadonlySet<string> = new Set([
+  "seuil_prix_pct",
+  "seuil_prix_fort_pct",
+  "occurrences_prix_min",
+]);
+
+// Le seuil propre à R06 (« Livré mais pas facturé »), désactivée par un
+// second drapeau indépendant le même jour (`docs/dette.md`) : R06 lit
+// `delai_ligne_bl_non_facturee_j` (`app/modules/rules/rules/R06.py`), aucun
+// autre seuil ne lui est propre. Constat 1 de la relecture de l'évolution
+// « R06 désactivée » : oubliée lors de la désactivation initiale (seuls les
+// trois seuils de prix ci-dessus portaient la mention), corrigée ici --
+// même traitement que `CLES_SEUILS_PRIX`, mécanisme identique mais drapeau
+// distinct (`controleLivreNonFactureActif`, jamais `controlePrixActif`).
+const CLE_SEUIL_LIVRE_NON_FACTURE = "delai_ligne_bl_non_facturee_j";
 
 function messageErreur(erreur: unknown): string {
   if (erreur instanceof ErreurApi) {
@@ -22,9 +47,19 @@ function messageErreur(erreur: unknown): string {
  * l'habillage change ici (Task 10 de la refonte du front). Le libellé vient
  * déjà en français courant du serveur (« Seuil de tolérance de prix », pas
  * de clé technique affichée). */
-function LigneParametre({ parametre }: { parametre: Parametre }): ReactElement {
+function LigneParametre({
+  parametre,
+  controlePrixActif,
+  controleLivreNonFactureActif,
+}: {
+  parametre: Parametre;
+  controlePrixActif: boolean;
+  controleLivreNonFactureActif: boolean;
+}): ReactElement {
   const queryClient = useQueryClient();
   const [valeur, setValeur] = useState(parametre.valeur);
+  const seuilDePrix = CLES_SEUILS_PRIX.has(parametre.cle);
+  const seuilLivreNonFacture = parametre.cle === CLE_SEUIL_LIVRE_NON_FACTURE;
 
   useEffect(() => setValeur(parametre.valeur), [parametre.valeur]);
 
@@ -53,6 +88,12 @@ function LigneParametre({ parametre }: { parametre: Parametre }): ReactElement {
         <p className="mt-1 text-sm text-encre-2">
           De {parametre.minimum} à {parametre.maximum} {parametre.unite}
         </p>
+        {seuilDePrix && !controlePrixActif && (
+          <p className="mt-1 text-sm text-encre-2">Contrôle des prix désactivé pour le moment.</p>
+        )}
+        {seuilLivreNonFacture && !controleLivreNonFactureActif && (
+          <p className="mt-1 text-sm text-encre-2">Contrôle désactivé pour le moment.</p>
+        )}
       </div>
       <div>
         <div className="flex items-center gap-2">
@@ -96,6 +137,22 @@ function LigneParametre({ parametre }: { parametre: Parametre }): ReactElement {
  * aucune vérification de rôle ici. */
 export function Reglages(): ReactElement {
   const parametres = useQuery({ queryKey: CLE_PARAMETRES, queryFn: listerParametres });
+  // Même clé que `Gabarit`/`VueEnsemble`/`ARegler` (décision d'Ilane du
+  // 24/09/2026, `docs/dette.md`) : seul endroit qui porte `controle_prix_
+  // actif` et `controle_livre_non_facture_actif`, lus ici pour la mention
+  // des seuils de prix et du seuil de R06 ci-dessous.
+  const compteARegler = useQuery({ queryKey: CLE_COMPTE_A_REGLER, queryFn: obtenirCompteARegler });
+  // Constat mineur 2 de la revue des contrôles de prix : le repli est
+  // `false`, même valeur que le défaut serveur (`CONTROLE_PRIX_ACTIF`
+  // absente -> désactivé) -- jamais l'inverse, qui afficherait un instant
+  // la mention « Contrôle des prix désactivé pour le moment » comme fausse
+  // avant la réponse de la requête.
+  const controlePrixActif = compteARegler.data?.controle_prix_actif ?? false;
+  // Constat 1 de la relecture de l'évolution « R06 désactivée » : même
+  // repli `false` que ci-dessus, même raison -- second drapeau
+  // indépendant (`CONTROLE_LIVRE_NON_FACTURE_ACTIF`, défaut désactivé).
+  const controleLivreNonFactureActif =
+    compteARegler.data?.controle_livre_non_facture_actif ?? false;
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -122,7 +179,12 @@ export function Reglages(): ReactElement {
         <Carte>
           <div className="divide-y divide-bordure">
             {parametres.data.map((parametre) => (
-              <LigneParametre key={parametre.cle} parametre={parametre} />
+              <LigneParametre
+                key={parametre.cle}
+                parametre={parametre}
+                controlePrixActif={controlePrixActif}
+                controleLivreNonFactureActif={controleLivreNonFactureActif}
+              />
             ))}
           </div>
         </Carte>

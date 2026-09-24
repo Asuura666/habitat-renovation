@@ -849,4 +849,71 @@ dans `correction-finale-rapport.md`, même dossier) :
 - **« Document n° N » reste affiché** sur la page d'un bon (constat
   ECRAN-13) : c'est le numéro cité par chaque message Telegram, seul moyen
   de retrouver un dépôt depuis la conversation.
+- **Contrôles de prix désactivés le 24/09/2026, décision d'Ilane** : un seul
+  mois de factures ne fonde aucun « prix habituel », R07 (« Prix un peu plus
+  cher »), R08 (« Prix plus cher que d'habitude ») et R09 (« Remise
+  habituelle oubliée ») sont désactivées côté serveur (`CONTROLE_PRIX_ACTIF`,
+  optionnelle, défaut `false` ; `ingest.commun.regles_desactivees`, seule
+  source de vérité). Leurs anomalies existantes sont masquées de chaque
+  écran (À régler, compte, tableau de bord, bilan, export, comparaison BL,
+  fiches), **jamais fermées ni supprimées par un rapprochement rejoué**
+  (`rapprocher_facture` ne les passe plus à `synchroniser_anomalies` comme
+  « recalculées », elles restent donc ouvertes en base, prêtes à
+  réapparaître) **ni par un passage des contrôles différés** (`R06`
+  ci-dessous partage exactement ce mécanisme, aucune des deux catégories de
+  règle désactivée n'est jamais considérée comme « recalculée » par le
+  balayage de suppression, Ruling R8 d'`ingest/anomalies.py`) ; en revanche
+  **l'archivage du document les retire, comme les autres anomalies** de sa
+  portée (`corrections.archiver_document` sur une facture appelle
+  `synchroniser_anomalies(anomalies=(), portee_regles=REGLES_FACTURE)`, qui
+  couvre R07/R08/R09 sans condition — Ruling R25 du lot 4). Aucun
+  interrupteur à l'écran ; le front adapte deux libellés (tuile « Écart prix
+  ou quantité » -> « Écart de quantité », filtre « Prix » masqué dans « À
+  régler ») et signale les trois seuils concernés (`seuil_prix_pct`,
+  `seuil_prix_fort_pct`, `occurrences_prix_min` — pas de seuil propre à la
+  remise en plus de ce dernier) dans Réglages, qui restent modifiables.
+  Réactiver avec `CONTROLE_PRIX_ACTIF=true` (puis redémarrer l'API) quand
+  l'historique couvre plusieurs mois.
+- **R06 (« Livré mais pas facturé ») désactivée le 24/09/2026, seconde
+  décision d'Ilane le même jour** : aucune preuve encore constatée que ce
+  cas se produise. Même mécanisme que les contrôles de prix ci-dessus
+  (`CONTROLE_LIVRE_NON_FACTURE_ACTIF`, optionnelle, défaut `false` ;
+  `ingest.commun.regles_desactivees` combine les deux drapeaux). R06 est une
+  règle de **suivi** (contrôle différé, `ingest.suivi.controles_differes`,
+  déclenchée par `python -m app.cli controles-differes`, jamais par
+  `rapprocher_facture`) : désactivée, elle n'est plus évaluée
+  (`rules.engine.evaluer_suivi` saute son appel), ses anomalies existantes
+  restent masquées de toutes les lectures (même point unique,
+  `condition_regles_actives`) et ne sont pas touchées par un passage des
+  contrôles différés tant que le drapeau reste désactivé
+  (`controles_differes` passe `regles_actives`/`portee_regles = REGLES_SUIVI
+  - regles_desactivees()`, R06 exclue des deux — un passage pendant que R06
+  reste désactivée ne la considère donc ni pour la fermer ni pour la
+  relever). **Contrairement aux contrôles de prix, l'archivage de la
+  facture porteuse ne la retire pas sur-le-champ** : `corrections
+  .archiver_document` ne balaie que `REGLES_FACTURE` pour une facture
+  (Ruling R25 ci-dessus), R06 (`REGLES_SUIVI`) n'en fait pas partie — une R06
+  déjà ouverte sur une facture ensuite archivée reste donc en base, masquée,
+  tant que R06 reste désactivée. Elle n'y reste pas indéfiniment pour
+  autant : `controles_differes` appelle `synchroniser_anomalies` sans
+  `portee_document_id`, donc `_conditions_portee` (`ingest/anomalies.py`)
+  balaie toutes les anomalies ouvertes des règles de la portée, pas un seul
+  document (balayage global déjà observable sur R14 dans
+  `test_suivi.py::test_controles_differes_leve_une_anomalie_disparue`) — au
+  premier passage des contrôles différés où R06 est active, cette R06 est
+  candidate comme les autres ; le filtre `facture_doc.statut != "archive"`
+  d'`ingest.suivi._lignes_bl_non_facturees` l'empêche d'être reproduite,
+  donc elle est levée (supprimée et journalisée `anomalie_levee`,
+  `anomalies.py`) à ce passage-là. Constat de dette pré-existant, non
+  introduit par cette désactivation (même lacune que si R06 était restée
+  active) : le retrait n'est ni immédiat (contrairement aux prix) ni
+  garanti tant que R06 reste désactivée — à corriger un jour si ce délai
+  pose problème en pratique. Aucun interrupteur à l'écran ; le front
+  signale le seuil propre à R06 (`delai_ligne_bl_non_facturee_j`) dans
+  Réglages, qui reste modifiable (même mécanisme que les seuils de prix,
+  `CompteProblemesReponse.controle_livre_non_facture_actif`, corrigé après
+  relecture -- voir `docs/refonte-front-recette.md`). R02 (« Livré sans
+  bon ») reste active (décision d'Ilane : la preuve est dans la facture).
+  Réactiver avec `CONTROLE_LIVRE_NON_FACTURE_ACTIF=true` (puis redémarrer
+  l'API) si le cas est un jour constaté.
 

@@ -10,7 +10,17 @@ import {
   type TableauDeBord,
   obtenirTableauDeBord,
 } from "../api/tableauDeBord";
-import { Carte, Chiffre, EnTetePage, EtatVide, PastilleEtat, phraseProbleme, titreRegle } from "../ui";
+import {
+  Carte,
+  Chiffre,
+  EnTetePage,
+  EtatVide,
+  libelleEcart,
+  PastilleEtat,
+  phraseProbleme,
+  sousTexteEcart,
+  titreRegle,
+} from "../ui";
 import { formaterMontant, libelleMois, lireMois, moisApi, TIRET } from "../lib/formats";
 import { lienChantier } from "../lib/liens";
 
@@ -338,6 +348,10 @@ export function VueEnsemble(): ReactElement {
   // Compte unique « à régler, en tout » (même clé que la pastille de
   // navigation : un seul appel, un seul nombre à l'écran).
   const compteARegler = useQuery({ queryKey: CLE_COMPTE_A_REGLER, queryFn: obtenirCompteARegler });
+  // Constat mineur 2 de la revue des contrôles de prix : le repli est
+  // `false`, même valeur que le défaut serveur -- jamais un flash de
+  // « Écart prix ou quantité » le temps que la requête réponde.
+  const controlePrixActif = compteARegler.data?.controle_prix_actif ?? false;
 
   // Brouillon local du sélecteur de mois (correction de revue, tour 1).
   // `mois` ci-dessus est la valeur *effective* (repli sur le mois courant
@@ -428,9 +442,9 @@ export function VueEnsemble(): ReactElement {
               ton="conforme"
             />
             <Chiffre
-              libelle="Écart prix ou quantité"
+              libelle={libelleEcart(controlePrixActif)}
               valeur={formaterMontant(donnees.totaux.en_ecart)}
-              sousTexte="livraisons concernées par un écart"
+              sousTexte={sousTexteEcart(controlePrixActif)}
               ton="ecart"
             />
             <Chiffre

@@ -128,7 +128,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.fuseau import FUSEAU_PARIS
-from app.modules.ingest.anomalies import CHANTIER_ID_RESOLU, regles_de_categorie
+from app.modules.ingest.anomalies import (
+    CHANTIER_ID_RESOLU,
+    condition_regles_actives,
+    regles_de_categorie,
+)
 from app.modules.ingest.models import (
     Anomalie,
     BlocFacture,
@@ -408,6 +412,13 @@ def _sous_requete_anomalies(mois: date | None) -> Any:
     facture_bloc = aliased(Document)
     conditions: list[Any] = [
         Anomalie.statut == "ouverte",
+        # Décision d'Ilane du 24/09/2026 (`docs/dette.md`) : masque les
+        # anomalies des règles désactivées (R07/R08/R09) -- point unique
+        # d'`ingest.anomalies`, voir son docstring. Toutes les vues qui
+        # réutilisent cette sous-requête (bilan par chantier/fournisseur/BL,
+        # tableau de bord, export CSV) en héritent, jamais un filtre
+        # dupliqué par écran.
+        condition_regles_actives(),
         or_(
             and_(
                 Anomalie.bloc_id.is_not(None),
@@ -1071,6 +1082,7 @@ async def _anomalies_par_ligne_et_bloc(
     if not ids_lignes and not ids_blocs:
         return {}, {}
     requete = select(Anomalie.ligne_id, Anomalie.bloc_id, Anomalie.regle).where(
+        condition_regles_actives(),
         Anomalie.statut == "ouverte",
         or_(
             Anomalie.ligne_id.in_(ids_lignes),

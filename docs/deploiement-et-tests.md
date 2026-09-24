@@ -148,6 +148,8 @@ Variables principales :
 | `COOKIE_SECURE` | `true` en production HTTPS, `false` en HTTP local |
 | `RESTIC_*`, `AWS_*` | sauvegarde chiffrée |
 | `GOOGLE_DRIVE_*` | optionnelles pour l'API, requises par `drive-sync` |
+| `CONTROLE_PRIX_ACTIF` | optionnelle, défaut `false` ; active R07/R08/R09 (décision d'Ilane du 24/09/2026, `docs/dette.md`) |
+| `CONTROLE_LIVRE_NON_FACTURE_ACTIF` | optionnelle, défaut `false` ; active R06 (décision d'Ilane du 24/09/2026, `docs/dette.md`) |
 
 Créer le répertoire documentaire avec des droits limités :
 

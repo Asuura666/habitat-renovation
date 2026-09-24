@@ -16,6 +16,7 @@ import {
   urlExportBilanFournisseurs,
 } from "../api/bilan";
 import { cleAnomalies, type FiltresAnomalies, listerAnomalies } from "../api/anomalies";
+import { CLE_COMPTE_A_REGLER, obtenirCompteARegler } from "../api/aTraiter";
 import { ErreurApi } from "../api/client";
 import {
   CLE_CHANTIERS,
@@ -34,9 +35,11 @@ import {
   Chiffre,
   EtatVide,
   FilAriane,
+  libelleEcart,
   PastilleEtat,
   PastilleUrgence,
   phraseProbleme,
+  sousTexteEcart,
   titreRegle,
   urgence,
 } from "../ui";
@@ -432,6 +435,15 @@ export function FicheChantier(): ReactElement {
     queryFn: () => listerAnomalies(filtresAnomalies),
     enabled: chantierId !== undefined,
   });
+  // Même clé que `Gabarit`/`VueEnsemble`/`ARegler` (décision d'Ilane du
+  // 24/09/2026, `docs/dette.md`) : seul endroit qui porte `controle_prix_
+  // actif`, lu ici pour la tuile « Écart … » ci-dessous — `@tanstack/
+  // react-query` partage le cache par clé, jamais un second appel réseau.
+  const compteARegler = useQuery({ queryKey: CLE_COMPTE_A_REGLER, queryFn: obtenirCompteARegler });
+  // Constat mineur 2 de la revue des contrôles de prix : le repli est
+  // `false`, même valeur que le défaut serveur -- jamais un flash de
+  // « Écart prix ou quantité » le temps que la requête réponde.
+  const controlePrixActif = compteARegler.data?.controle_prix_actif ?? false;
 
   const fournisseursResolus: LigneBilanFournisseur[] =
     fournisseurs.data?.filter((f): f is LigneBilanFournisseur & { fournisseur_id: string } => f.fournisseur_id !== null) ?? [];
@@ -628,8 +640,9 @@ export function FicheChantier(): ReactElement {
           ton={estMontantNul(ligneBilan?.montants.conforme ?? null) ? "neutre" : "conforme"}
         />
         <Chiffre
-          libelle={libelleAvecPeriode("Écart prix ou quantité", moisParam)}
+          libelle={libelleAvecPeriode(libelleEcart(controlePrixActif), moisParam)}
           valeur={formaterMontant(ligneBilan?.montants.en_ecart ?? null)}
+          sousTexte={sousTexteEcart(controlePrixActif)}
           ton={estMontantNul(ligneBilan?.montants.en_ecart ?? null) ? "neutre" : "ecart"}
         />
         <Chiffre

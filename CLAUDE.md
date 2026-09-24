@@ -125,6 +125,10 @@ Points à retenir :
 - L2-R10 (contrôle d'origine bloquant les POST via `npm run dev`) est
   résolu depuis le lot 3 (L3-D21, proxy Vite qui réécrit `Origin`).
 - Ne jamais lancer `pre-commit install` depuis un worktree (hooks partagés).
+- **Contrôles de prix R07/R08/R09 et R06 (« Livré mais pas facturé »)
+  désactivés côté serveur depuis le 24/09/2026** (décisions d'Ilane, même
+  jour) — `CONTROLE_PRIX_ACTIF` et `CONTROLE_LIVRE_NON_FACTURE_ACTIF`,
+  détail `docs/dette.md` et `docs/refonte-front-recette.md`.
 
 ## Méthode
 

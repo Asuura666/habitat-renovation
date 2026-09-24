@@ -66,7 +66,37 @@ paramètre obligatoire `portee_regles` plutôt que de retyper la liste des
 règles à chaque appel. `test_engine.py` vérifie qu'ils sont disjoints et
 que leur union couvre exactement R01 à R17 — une règle ajoutée plus tard
 sans mise à jour de l'un des deux ensembles fait donc échouer la suite.
-"""
+
+`regles_actives` d'`evaluer_facture` et d'`evaluer_suivi` (décision d'Ilane
+du 24/09/2026, `docs/dette.md` : contrôles de prix désactivés tant que
+l'historique ne couvre qu'un seul mois, puis R06 désactivée le même jour,
+aucune preuve encore constatée que le cas se produise) : paramètre
+optionnel des deux points d'entrée, `None` par défaut (= comportement
+inchangé, toutes les règles de `REGLES_FACTURE`/`REGLES_SUIVI` s'évaluent).
+`rules` reste pur (n'importe rien de `app.core`) : c'est `ingest`, seul
+orchestrateur, qui lit la configuration (`ingest.commun.regles_desactivees`)
+et passe explicitement l'ensemble des règles actives à chacun des deux
+points d'entrée.
+
+Deux mécanismes complémentaires, jamais un seul (constat mineur 3 de la
+revue des contrôles de prix) :
+- R07/R08/R09 (`_evaluer_prix`) et R06 (`evaluer_suivi`) observent
+  individuellement ce paramètre : retirer leur code de `regles_actives`
+  fait sauter leur *appel* (elles ne sont plus évaluées, pas seulement
+  filtrées en sortie) — c'est ce qui économise le calcul pour une règle
+  qu'on sait désactivée.
+- `_filtrees`, dernière étape des deux points d'entrée, retire de la
+  sortie toute anomalie dont la règle ne figure pas dans `regles_actives`
+  (`None` ne filtre rien), **quelle que soit la raison** pour laquelle elle
+  a été produite — y compris R10, qui court-circuite le reste de
+  `evaluer_facture`, ou toute règle qui n'a pas de garde individuelle
+  dédiée. Sans cette dernière passe, la portée passée à `ingest.anomalies
+  .synchroniser_anomalies` (calculée à partir du même `regles_actives`) et
+  ce que le moteur produit réellement pourraient diverger pour une règle
+  désactivée plus tard sans garde individuelle ajoutée en même temps —
+  `_filtrees` ferme cette possibilité une fois pour toutes, pour les deux
+  points d'entrée, plutôt que de compter sur une garde par règle à chaque
+  nouvelle désactivation."""
 
 from __future__ import annotations
 
@@ -126,13 +156,32 @@ REGLES_FACTURE: frozenset[str] = frozenset(
 REGLES_SUIVI: frozenset[str] = frozenset({"R06", "R14", "R15", "R16"})
 
 
-def evaluer_facture(
-    facture: FactureControlee, parametres: Parametres
+def _filtrees(
+    anomalies: tuple[Anomalie, ...], regles_actives: frozenset[str] | None
 ) -> tuple[Anomalie, ...]:
-    """Point d'entrée du moteur pour une facture (niveau document)."""
+    """Dernière étape des deux points d'entrée (voir le docstring de
+    module) : `None` (défaut) ne filtre rien : sinon, ne garde que les
+    anomalies dont la règle figure dans `regles_actives`, quelle que soit
+    la raison pour laquelle elles ont été produites."""
+    if regles_actives is None:
+        return anomalies
+    return tuple(a for a in anomalies if a.regle in regles_actives)
+
+
+def evaluer_facture(
+    facture: FactureControlee,
+    parametres: Parametres,
+    regles_actives: frozenset[str] | None = None,
+) -> tuple[Anomalie, ...]:
+    """Point d'entrée du moteur pour une facture (niveau document).
+
+    `regles_actives` : voir le docstring de module. `None` (défaut) évalue
+    toutes les règles de `REGLES_FACTURE`, comme avant ce paramètre."""
     anomalie_r10 = R10(facture.document, parametres)
     if anomalie_r10 is not None:
-        return (anomalie_r10,)
+        return _filtrees((anomalie_r10,), regles_actives)
+
+    actives = regles_actives if regles_actives is not None else REGLES_FACTURE
 
     anomalies: list[Anomalie] = []
     for bloc in facture.blocs:
@@ -143,30 +192,43 @@ def evaluer_facture(
                 facture.document.numero,
                 facture.articles,
                 facture.historiques,
+                actives,
             )
         )
     for ligne, chantier in facture.lignes_negatives_sans_origine:
         anomalie_r13 = R13(ligne, chantier)
         if anomalie_r13 is not None:
             anomalies.append(anomalie_r13)
-    return tuple(anomalies)
+    return _filtrees(tuple(anomalies), regles_actives)
 
 
 def evaluer_suivi(
-    contexte: ContexteSuivi, parametres: Parametres
+    contexte: ContexteSuivi,
+    parametres: Parametres,
+    regles_actives: frozenset[str] | None = None,
 ) -> tuple[Anomalie, ...]:
     """Point d'entrée du moteur pour les règles de suivi (R06, R14, R15,
     R16 — contrôles différés au temps écoulé, L4-D14), distinct de
     `evaluer_facture` (décision du contrôleur). Enchaîne les règles dans
     l'ordre des champs de `ContexteSuivi` : lignes de BL non facturées
     (R06), alias en attente (R14), BL sans confirmation (R15), chantiers
-    suivis (R16)."""
+    suivis (R16).
+
+    `regles_actives` (décision d'Ilane du 24/09/2026, `docs/dette.md` : R06
+    désactivable) : voir le docstring de module. `None` (défaut) évalue
+    toutes les règles de `REGLES_SUIVI`, comme avant ce paramètre. Seule
+    R06 observe ce paramètre individuellement (retirer son code saute son
+    appel) ; R14/R15/R16 continuent de s'évaluer quel que soit leur
+    contenu — `_filtrees` reste la garantie finale pour les quatre."""
+    actives = regles_actives if regles_actives is not None else REGLES_SUIVI
+
     anomalies: list[Anomalie] = []
 
-    for bloc, ligne_bl in contexte.lignes_bl_non_facturees:
-        anomalie_r06 = R06(bloc, ligne_bl, contexte.aujourdhui, parametres)
-        if anomalie_r06 is not None:
-            anomalies.append(anomalie_r06)
+    if "R06" in actives:
+        for bloc, ligne_bl in contexte.lignes_bl_non_facturees:
+            anomalie_r06 = R06(bloc, ligne_bl, contexte.aujourdhui, parametres)
+            if anomalie_r06 is not None:
+                anomalies.append(anomalie_r06)
 
     for alias in contexte.alias_en_attente:
         anomalie_r14 = R14(alias, contexte.aujourdhui, parametres)
@@ -183,7 +245,7 @@ def evaluer_suivi(
         if anomalie_r16 is not None:
             anomalies.append(anomalie_r16)
 
-    return tuple(anomalies)
+    return _filtrees(tuple(anomalies), regles_actives)
 
 
 def _evaluer_bloc(
@@ -192,6 +254,7 @@ def _evaluer_bloc(
     facture_numero: str | None,
     articles: Mapping[UUID, ArticleControle],
     historiques: Mapping[UUID, HistoriqueArticle],
+    regles_actives: frozenset[str],
 ) -> tuple[Anomalie, ...]:
     """Règles de niveau bloc (L4-T2), dans l'ordre : R11 (si un BL est
     rapproché), puis R01, R02 et R12, **toujours** évaluées (Ruling R2).
@@ -220,7 +283,9 @@ def _evaluer_bloc(
 
     for rapprochee in bloc.lignes:
         anomalies.extend(
-            _evaluer_prix(rapprochee.facture, articles, historiques, parametres)
+            _evaluer_prix(
+                rapprochee.facture, articles, historiques, parametres, regles_actives
+            )
         )
 
     return tuple(anomalies)
@@ -267,6 +332,7 @@ def _evaluer_prix(
     articles: Mapping[UUID, ArticleControle],
     historiques: Mapping[UUID, HistoriqueArticle],
     parametres: Parametres,
+    regles_actives: frozenset[str],
 ) -> tuple[Anomalie, ...]:
     """R07 ou R08 (exclusives, écart de prix), puis R09 (remise absente) —
     L4-T4. Ne dépendent ni du BL rapproché ni de `conversion_impossible`
@@ -274,7 +340,12 @@ def _evaluer_prix(
     fournisseur comptent. `()` si la ligne n'a pas d'article résolu
     (`article_id` absent ou inconnu de `articles`) ou pas d'historique
     connu pour cet article (jamais mesuré — pas une erreur, simplement rien
-    à comparer)."""
+    à comparer).
+
+    Chaque règle n'est **appelée** que si son code figure dans
+    `regles_actives` (décision d'Ilane du 24/09/2026, voir le docstring de
+    module) : une règle retirée de `regles_actives` n'est pas évaluée,
+    jamais seulement filtrée après coup."""
     if ligne.article_id is None:
         return ()
     article = articles.get(ligne.article_id)
@@ -285,14 +356,17 @@ def _evaluer_prix(
         return ()
 
     anomalies: list[Anomalie] = []
-    anomalie_prix = R07(ligne, article, historique, parametres) or R08(
-        ligne, article, historique, parametres
-    )
+    anomalie_prix = None
+    if "R07" in regles_actives:
+        anomalie_prix = R07(ligne, article, historique, parametres)
+    if anomalie_prix is None and "R08" in regles_actives:
+        anomalie_prix = R08(ligne, article, historique, parametres)
     if anomalie_prix is not None:
         anomalies.append(anomalie_prix)
 
-    anomalie_r09 = R09(ligne, article, historique, parametres)
-    if anomalie_r09 is not None:
-        anomalies.append(anomalie_r09)
+    if "R09" in regles_actives:
+        anomalie_r09 = R09(ligne, article, historique, parametres)
+        if anomalie_r09 is not None:
+            anomalies.append(anomalie_r09)
 
     return tuple(anomalies)

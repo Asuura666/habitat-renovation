@@ -32,12 +32,26 @@ def test_vue_ensemble_contenu() -> None:
     for libelle in (
         "Facturé ce mois",
         "Conforme",
-        "Écart prix ou quantité",
         "Sans bon de livraison",
         "Problèmes à régler",
         "Bons de livraison reçus",
     ):
         assert libelle in page, libelle
+
+    # « Écart prix ou quantité » (décision d'Ilane du 24/09/2026, `docs/
+    # dette.md`) : appelle désormais `libelleEcart(controlePrixActif)`
+    # (`ui/libelles.ts`, contrat couvert par `tests/test_web_socle.py::
+    # test_tuiles_ecart_utilisent_libelle_ecart_partage`) plutôt que le
+    # texte figé, devenu faux quand les contrôles de prix sont désactivés.
+    # `controlePrixActif` : repli `?? false` (constat mineur 2 de la revue
+    # des contrôles de prix), même valeur que le défaut serveur.
+    assert (
+        "const controlePrixActif = compteARegler.data?.controle_prix_actif ?? false;"
+        in page
+    )
+    assert "libelleEcart(controlePrixActif)" in page
+    assert "sousTexteEcart(controlePrixActif)" in page
+    assert '"Écart prix ou quantité"' not in page
 
     assert "Chantier à rattacher" in page
     assert "Aucune facture ce mois-ci." in page

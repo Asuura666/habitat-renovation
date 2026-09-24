@@ -444,8 +444,11 @@ export function ARegler(): ReactElement {
     queryFn: obtenirCompteARegler,
     // Même rythme que la liste des documents/chantiers à rattacher
     // ci-dessus : un dépôt Telegram arrivé entre-temps compte aussitôt.
+    // Toujours actif (fix round 1, décision d'Ilane du 24/09/2026,
+    // `docs/dette.md`) : même restreint à un périmètre, le filtre « Prix »
+    // ci-dessous a besoin de `controle_prix_actif` — même clé que `Gabarit`,
+    // donc jamais un second appel réseau pour l'écran non restreint.
     refetchInterval: 30_000,
-    enabled: portee === undefined,
   });
   const urgentsAffiches = (nombre: number): string => `${nombre} urgent${nombre > 1 ? "s" : ""}`;
   const surtitre =
@@ -457,23 +460,40 @@ export function ARegler(): ReactElement {
           nbUrgents,
         )}`;
 
+  // Constat mineur 2 de la revue des contrôles de prix : le repli est
+  // `false`, même valeur que le défaut serveur (`CONTROLE_PRIX_ACTIF`
+  // absente -> désactivé) -- jamais l'inverse, qui ferait flasher le
+  // filtre « Prix » et la puce « Prix » d'une anomalie (`ProblemeDetail`)
+  // le temps que la requête réponde.
+  const controlePrixActif = compteARegler.data?.controle_prix_actif ?? false;
   const options: OptionFiltre[] = [
     { valeur: "tous", libelle: "Tous", compte: nbOuverts },
     { valeur: "urgents", libelle: "Urgents", compte: nbUrgents },
     { valeur: "bl", libelle: "BL manquants", compte: compterCategorie(problemesOuverts, "bl") },
-    { valeur: "prix", libelle: "Prix", compte: compterCategorie(problemesOuverts, "prix") },
+    ...(controlePrixActif
+      ? [{ valeur: "prix", libelle: "Prix", compte: compterCategorie(problemesOuverts, "prix") }]
+      : []),
     { valeur: "quantites", libelle: "Quantités", compte: compterCategorie(problemesOuverts, "quantites") },
     { valeur: "rattacher", libelle: "À rattacher", compte: compterCategorie(problemesOuverts, "rattacher") },
     { valeur: "illisible", libelle: "Bons illisibles", compte: compterCategorie(problemesOuverts, "illisible") },
     { valeur: "regles", libelle: "Déjà réglés" },
   ];
 
+  // Constat mineur 6 de la revue des contrôles de prix : un ancien lien
+  // `?filtre=prix` (partagé avant la désactivation, ou simplement tapé)
+  // revient au filtre « tous » tant que le contrôle de prix reste
+  // désactivé -- le filtre lui-même n'apparaît plus dans `options`
+  // ci-dessus, mais sans ce repli la liste resterait filtrée sur une
+  // catégorie qu'aucune anomalie ouverte ne peut plus porter, une liste
+  // vide sans explication plutôt qu'un retour silencieux à « tous ».
+  const filtreEffectif = filtreActif === "prix" && !controlePrixActif ? "tous" : filtreActif;
+
   const listeAffichee = useMemo(() => {
-    if (filtreActif === "regles") return problemesRegles;
-    if (filtreActif === "urgents") return problemesOuverts.filter((p) => urgenceProbleme(p) === "Urgent");
-    if (filtreActif === "tous") return problemesOuverts;
-    return problemesOuverts.filter((p) => categorieFiltreProbleme(p) === (filtreActif as CategorieFiltre));
-  }, [filtreActif, problemesOuverts, problemesRegles]);
+    if (filtreEffectif === "regles") return problemesRegles;
+    if (filtreEffectif === "urgents") return problemesOuverts.filter((p) => urgenceProbleme(p) === "Urgent");
+    if (filtreEffectif === "tous") return problemesOuverts;
+    return problemesOuverts.filter((p) => categorieFiltreProbleme(p) === (filtreEffectif as CategorieFiltre));
+  }, [filtreEffectif, problemesOuverts, problemesRegles]);
 
   const indexActuel = id !== undefined ? listeAffichee.findIndex((p) => p.id === id) : -1;
   const problemeActuel = indexActuel >= 0 ? listeAffichee[indexActuel] : undefined;
@@ -524,7 +544,7 @@ export function ARegler(): ReactElement {
         <EnTetePage
           surtitre={surtitre}
           titre="À régler"
-          actions={<Filtres options={options} valeur={filtreActif} onChange={changerFiltre} />}
+          actions={<Filtres options={options} valeur={filtreEffectif} onChange={changerFiltre} />}
         />
       </div>
 
