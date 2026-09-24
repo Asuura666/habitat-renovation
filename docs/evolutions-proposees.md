@@ -37,10 +37,9 @@ fusionnées, lignes d'en-tête).
 **Besoin.** Les contrôles de prix (« Prix un peu plus cher », « Prix plus
 cher que d'habitude », « Remise habituelle oubliée ») sont désactivés côté
 serveur depuis le 24/09/2026 (`docs/dette.md`) : un seul mois de factures ne
-fonde aucun « prix habituel », les laisser actifs aurait rendu ces contrôles
-inexploitables (toute facture aurait déclenché une anomalie, faute de
-référence). Dès que l'historique de factures couvre plusieurs mois, ces
-trois contrôles redeviennent utiles.
+permet pas d'établir un prix habituel fiable — les alertes auraient reposé
+sur une référence trop courte. Dès que l'historique de factures couvre
+plusieurs mois, ces trois contrôles redeviennent utiles.
 
 **Proposition.** Aucune construction : le mécanisme existe déjà et a été
 pensé pour cette réactivation (`CONTROLE_PRIX_ACTIF=true` dans `.env`, puis
@@ -62,11 +61,15 @@ moment.
 
 ## c. Réactivation de « Livré mais pas facturé » (R06)
 
-**Besoin.** R06 signale une ligne d'un bon de livraison reçu depuis plus de
-45 jours (réglage) sans jamais avoir été facturée — désactivée le 24/09/2026
-(décision d'Ilane, même mécanisme que les contrôles de prix) faute de preuve
-que ce cas se produise réellement chez ce fournisseur/client. Si un cas
-réel est un jour constaté (un bon livré jamais suivi de facture), la
+**Besoin.** R06 signale un article présent sur un bon de livraison déjà
+rapproché d'une facture (le bloc de cette facture est au statut « reçu »)
+mais absent des lignes de cette même facture, 45 jours après la date du bon
+(réglage) — désactivée le 24/09/2026 (décision d'Ilane, même mécanisme que
+les contrôles de prix) faute de preuve que ce cas se produise réellement
+chez ce fournisseur/client. Un bon jamais facturé n'est pas couvert par ce
+contrôle : R06 ne porte que sur un bon déjà rapproché d'une facture, jamais
+sur un bon resté sans facture du tout. Si un cas réel est un jour constaté
+(un article livré, dont la facture correspondante omet une ligne), la
 question se reposera : faut-il ce contrôle en continu ?
 
 **Proposition.** Même geste que ci-dessus :
@@ -82,11 +85,12 @@ chaque passage, donc dès le lendemain).
 **Effort indicatif.** Quelques minutes (changement de variable
 d'environnement et redémarrage).
 
-**Prérequis.** Un cas réel constaté par Ilane ou l'équipe (un bon de
-livraison resté sans facture correspondante largement au-delà du délai
-normal de facturation du fournisseur) — sinon la réactivation ne ferait que
-réintroduire du bruit sans valeur, la raison même de la désactivation du
-24/09/2026.
+**Prérequis.** Un cas réel constaté par Ilane ou l'équipe (un article présent
+sur un bon déjà rapproché d'une facture mais absent du détail de cette
+facture, largement au-delà du délai normal de facturation du fournisseur —
+pas un bon resté sans aucune facture, cas que R06 ne couvre pas) — sinon la
+réactivation ne ferait que réintroduire du bruit sans valeur, la raison même
+de la désactivation du 24/09/2026.
 
 ## d. Client du chantier
 
