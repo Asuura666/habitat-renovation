@@ -683,7 +683,8 @@ def _construire_parser() -> argparse.ArgumentParser:
     sous_parsers.add_parser(
         "controles-differes",
         help=(
-            "Évalue les règles de suivi (R06, R14, R15, R16) et synchronise "
+            "Évalue les règles de suivi (R14, R15, R16, et R06 seulement si "
+            "CONTROLE_LIVRE_NON_FACTURE_ACTIF est vraie) et synchronise "
             "leurs anomalies"
         ),
     )

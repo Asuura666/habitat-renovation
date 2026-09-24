@@ -14,12 +14,15 @@ construit son `ContexteSuivi` depuis la base, appelle `rules.engine
 .synchroniser_anomalies` (déjà commité).
 
 Décisions du contrôleur (fiche de cette tâche) :
-- `controles_differes` passe `portee_regles=REGLES_SUIVI` et **aucune**
-  portée de document (`portee_document_id` omis, donc `None`) : le balayage
-  de suppression porte alors sur *toutes* les anomalies ouvertes de ces
-  quatre règles, quel que soit leur document ou chantier — jamais sur les
-  règles de facture (`REGLES_FACTURE`), déjà couvertes par
-  `rapprocher_facture`. C'est exactement le comportement que
+- `controles_differes` passe `portee_regles=regles_actives` (`REGLES_SUIVI
+  - regles_desactivees()` — R06 n'en fait donc partie que si
+  `CONTROLE_LIVRE_NON_FACTURE_ACTIF` est vraie, voir la décision suivante)
+  et **aucune** portée de document (`portee_document_id` omis, donc
+  `None`) : le balayage de suppression porte alors sur *toutes* les
+  anomalies ouvertes des règles de suivi actives, quel que soit leur
+  document ou chantier — jamais sur les règles de facture
+  (`REGLES_FACTURE`), déjà couvertes par `rapprocher_facture`. C'est
+  exactement le comportement que
   `test_synchroniser_anomalies_portee_suivi_restreint_aux_regles_donnees`
   (`ingest/tests/test_anomalies.py`, déjà commité en L4-T8) anticipait pour
   cette tâche.

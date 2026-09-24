@@ -288,13 +288,23 @@ async def test_r06_masquee_de_lister_anomalies_quand_desactive(
 async def test_r06_reapparait_dans_lister_anomalies_quand_reactive(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Cycle complet, pas seulement la moitié « active » : désactivée,
+    l'anomalie R06 est bien absente de `lister_anomalies` (masquée) ; sans
+    autre passage des contrôles différés ni retouche de la ligne en base,
+    réactiver le drapeau suffit à la faire réapparaître -- le masquage est
+    purement un filtre de lecture (`ingest.anomalies
+    .condition_regles_actives`), jamais une recréation."""
     _regler_controle_livre_non_facture(monkeypatch, actif=True)
     await _scenario_r06_declencherait(db_session)
     await controles_differes(db_session, maintenant=_MAINTENANT)
 
-    anomalies = await lister_anomalies(db_session, statut="ouverte")
+    _regler_controle_livre_non_facture(monkeypatch, actif=False)
+    anomalies_desactivee = await lister_anomalies(db_session, statut="ouverte")
+    assert not any(a.regle == "R06" for a in anomalies_desactivee)
 
-    assert any(a.regle == "R06" for a in anomalies)
+    _regler_controle_livre_non_facture(monkeypatch, actif=True)
+    anomalies_reactivee = await lister_anomalies(db_session, statut="ouverte")
+    assert any(a.regle == "R06" for a in anomalies_reactivee)
 
 
 async def test_r06_masquee_du_compte_quand_desactive(
