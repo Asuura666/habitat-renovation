@@ -114,9 +114,12 @@ npm --prefix web run dev     # Vite relaie /api vers 127.0.0.1:8450
 Variante proche de la production : `npm --prefix web run build` **avant** de
 démarrer l'API, qui sert alors le front sur `http://127.0.0.1:8450`.
 
-> Sur le VPS partagé du projet, `8450` est le port local de la
-> **production** : `npm run dev` tel quel y interrogerait l'API de
-> production (`infra/README.md` §4.7).
+> Sur le VPS partagé du projet, l'API de développement ne peut pas écouter
+> sur 8450 (port déjà pris par la production) : utiliser un autre port et
+> adapter temporairement `CIBLE_API_DEV` dans `web/vite.config.mts`, sans
+> committer ce changement ; sinon `npm run dev` tel quel interrogerait l'API
+> de production (`infra/README.md` §4.7). Sur un poste neuf, les commandes
+> ci-dessus fonctionnent telles quelles.
 
 Premier administrateur (les comptes ne se créent qu'en ligne de commande ; mot
 de passe demandé deux fois, sans écho, 12 caractères au moins) :
@@ -168,15 +171,16 @@ Méthode : une tâche = un commit, message en français préfixé du module
 ## Déploiement
 
 Depuis le 23/09/2026, deux instances tournent sur un VPS OVH partagé,
-derrière nginx et certbot :
-la **production** (https://habitat.ellumena.fr, données réelles) et la
-**démonstration** (https://demo.habitat.ellumena.fr, données fictives).
-Chacune est un projet Compose (`habitat_prod`, `habitat_demo`) avec son
-fichier d'environnement non versionné (`.env.prod`, `.env.demo`), la surcouche
+derrière nginx et certbot : la **production** (données réelles) et la
+**démonstration** (données fictives). Chacune est un projet Compose
+(`habitat_prod`, `habitat_demo`) avec son fichier d'environnement non
+versionné (`.env.prod`, `.env.demo`), la surcouche
 `deploy/docker-compose.vps.yml` (Traefik désactivé, API sur `127.0.0.1`
-seulement) et le virtual host `deploy/nginx/habitat.conf`. Les migrations ne
-sont jamais lancées au démarrage : on les applique à la main, API arrêtée,
-après une sauvegarde.
+seulement) et le virtual host `deploy/nginx/habitat.conf`. En plus des
+variables de `.env.example`, chaque fichier d'instance doit définir
+`API_HOST_PORT` (8450 pour la production, 8451 pour la démonstration),
+exigée par la surcouche VPS. Les migrations ne sont jamais lancées au
+démarrage : on les applique à la main, API arrêtée, après une sauvegarde.
 
 ```bash
 P="-p habitat_prod --env-file .env.prod -f deploy/docker-compose.yml -f deploy/docker-compose.vps.yml"
@@ -188,11 +192,11 @@ docker compose $P up -d --wait api
 
 Procédures complètes : [`docs/deploiement-et-tests.md`](docs/deploiement-et-tests.md)
 (§1.1 instances, §10 mise à jour) et [`infra/README.md`](infra/README.md) §5
-et §9. Les commandes de `docs/deploiement-et-tests.md` visent
-`-p habitat_reno --env-file .env` (développement) : sur le VPS, les remplacer
-par les options de l'instance. `deploy/docker-compose.yml` seul, avec
-Traefik, vise la cible du cahier des charges (VPS dédié au client). Consigner
-à chaque déploiement le SHA déployé et la révision Alembic.
+et §9. Les commandes des §4 et §6 à §12 de `docs/deploiement-et-tests.md`
+visent `-p habitat_reno --env-file .env -f deploy/docker-compose.yml` (VPS
+dédié, avec Traefik : la cible du cahier des charges) : sur le VPS partagé,
+les remplacer par les options de l'instance (§1.1 du guide). Consigner à
+chaque déploiement le SHA déployé et la révision Alembic.
 
 ## État du projet (24/09/2026)
 
@@ -224,9 +228,8 @@ réel ; ni restic, ni tâches planifiées, ni supervision externe sur les
 instances en service.
 
 **Prochaines étapes** (`infra/README.md` §10.2) : configurer restic et tester
-une restauration ; faire tourner les secrets communiqués pendant la mise en
-place ; planifier `controles-differes` et une sonde externe sur `GET /health` ;
-trancher le mode Drive ; revoir avec le client le classement d'août, les
+une restauration ; planifier `controles-differes` et une sonde externe sur
+`GET /health` ; trancher le mode Drive ; revoir avec le client le classement d'août, les
 montants du bilan et les écrans de la refonte. Décidé pour après la
 démonstration du 26/09/2026 : gestion des fournisseurs à l'écran,
 identification d'une facture par SIRET ou TVA, factures d'autres
