@@ -1,5 +1,6 @@
 import { type ReactElement, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
 
 import { type EntreeJournal, type FiltresJournal, cleJournal, listerJournal } from "../api/journal";
 import { formaterDateHeure, TIRET } from "../lib/formats";
@@ -10,6 +11,7 @@ import {
   libelleAuteur,
   libelleCible,
   libelleCibleId,
+  lienCible,
   lignesAvantApres,
 } from "../lib/journal";
 import { Carte, EnTetePage, EtatVide, Filtres } from "../ui";
@@ -17,6 +19,12 @@ import { Carte, EnTetePage, EtatVide, Filtres } from "../ui";
 const CLASSES_CHAMP =
   "min-h-[44px] w-full rounded-lg border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent";
 const CLASSES_LABEL = "mb-1 block text-xs font-medium text-encre-2";
+// Même cible tactile (44 px) que les autres liens de l'application
+// (`FicheChantier.tsx::CLASSES_LIEN`) — un lien direct vers l'élément
+// concerné par une entrée (`lib/journal.ts::lienCible`), jamais un jargon
+// technique répété ici.
+const CLASSES_LIEN_CIBLE =
+  "inline-flex min-h-[44px] items-center font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent";
 
 const OPTIONS_LIMITE = [50, 100, 200, 500] as const;
 const LIMITE_DEFAUT = 100;
@@ -62,6 +70,7 @@ function LigneJournal({ entree }: { entree: EntreeJournal }): ReactElement {
   // (nom d'un réglage, identifiant d'un compte pour le filtre « Auteur ») —
   // jamais un UUID brut sous chaque ligne (revue finale, COUVERTURE-10).
   const idCible = entree.cible_id !== null ? libelleCibleId(entree.cible_table, entree.cible_id) : null;
+  const lien = lienCible(entree.cible_table, entree.cible_id);
   return (
     <tr>
       <td className="px-4 py-3 align-top font-mono text-xs text-encre-2 [overflow-wrap:anywhere]">
@@ -89,6 +98,14 @@ function LigneJournal({ entree }: { entree: EntreeJournal }): ReactElement {
             </span>
           </>
         )}
+        {lien !== null && (
+          <>
+            <br />
+            <Link to={lien.href} className={CLASSES_LIEN_CIBLE}>
+              {lien.libelle}
+            </Link>
+          </>
+        )}
       </td>
       <td className="px-4 py-3 align-top text-encre-2 [overflow-wrap:anywhere]">
         <DetailAvantApres avant={entree.avant} apres={entree.apres} />
@@ -102,6 +119,7 @@ function LigneJournal({ entree }: { entree: EntreeJournal }): ReactElement {
  * 375 px (contrainte téléphone = cible à part entière, spec §7). */
 function CarteJournal({ entree }: { entree: EntreeJournal }): ReactElement {
   const idCible = entree.cible_id !== null ? libelleCibleId(entree.cible_table, entree.cible_id) : null;
+  const lien = lienCible(entree.cible_table, entree.cible_id);
   return (
     <Carte>
       <div className="flex items-baseline justify-between gap-3">
@@ -126,6 +144,11 @@ function CarteJournal({ entree }: { entree: EntreeJournal }): ReactElement {
           </>
         )}
       </p>
+      {lien !== null && (
+        <Link to={lien.href} className={CLASSES_LIEN_CIBLE}>
+          {lien.libelle}
+        </Link>
+      )}
       <div className="mt-3 border-t border-bordure pt-3 text-sm">
         <DetailAvantApres avant={entree.avant} apres={entree.apres} />
       </div>

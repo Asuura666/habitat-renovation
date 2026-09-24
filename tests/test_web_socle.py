@@ -427,6 +427,46 @@ def test_a_regler_ancien_lien_filtre_prix_revient_a_tous() -> None:
     assert "filtreEffectif ===" in bloc_liste
 
 
+def test_journal_lien_direct_vers_chaque_element_consultable() -> None:
+    """Chaque entrée du journal qui porte sur un élément consultable
+    affiche un lien direct vers lui (`lib/journal.ts::lienCible`) -- même
+    correspondance table -> route que celles déjà déclarées dans
+    `App.tsx` (`/documents/:id`, `/a-regler/:id`, `/chantiers/:chantierId`,
+    `/fournisseurs/:fournisseurId`, `/reglages`,
+    `/a-regler?filtre=rattacher`, `/a-regler`). `utilisateur` et toute
+    table inconnue n'ont pas de fiche dédiée : aucun `case` pour elles,
+    repli `default: return null`."""
+    journal_lib = (SRC / "lib" / "journal.ts").read_text()
+    fonction = journal_lib.split("export function lienCible(", 1)[1].split("\n}\n", 1)[
+        0
+    ]
+    for table, destination, libelle in (
+        ("document", "`/documents/${cibleId}`", "Voir le document"),
+        ("anomalie", "`/a-regler/${cibleId}`", "Voir le problème"),
+        ("chantier", "`/chantiers/${cibleId}`", "Voir le chantier"),
+        ("fournisseur", "`/fournisseurs/${cibleId}`", "Voir le fournisseur"),
+        ("parametre", '"/reglages"', "Voir les réglages"),
+        (
+            "chantier_alias",
+            "LIEN_CHANTIERS_A_RATTACHER",
+            "Voir les chantiers à rattacher",
+        ),
+        ("article", '"/a-regler"', "Voir les articles à valider"),
+    ):
+        bloc = fonction.split(f'case "{table}":', 1)[1].split("case ", 1)[0]
+        assert destination in bloc, table
+        assert libelle in bloc, table
+    assert '"utilisateur"' not in fonction
+    assert "default:\n      return null;" in fonction
+
+    journal_page = (SRC / "pages" / "Journal.tsx").read_text()
+    assert "lienCible(" in journal_page
+    # Cible tactile d'au moins 44 px (spec §7), même convention que les
+    # autres liens de l'application (`FicheChantier.tsx::CLASSES_LIEN`).
+    lien = journal_page.split("CLASSES_LIEN_CIBLE =", 1)[1].split("\n", 2)[1]
+    assert "min-h-[44px]" in lien
+
+
 def test_reglages_ne_filtre_plus_les_seuils_lui_meme() -> None:
     """Un réglage propre à un contrôle désactivé (les trois seuils de prix
     lus par R07/R08/R09, ou le seuil de R06) n'est plus signalé par une

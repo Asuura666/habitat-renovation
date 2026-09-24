@@ -37,6 +37,7 @@
  */
 
 import { formaterDate, formaterDateHeure, formaterMontant, formaterQuantite, TIRET } from "./formats";
+import { LIEN_CHANTIERS_A_RATTACHER } from "./liens";
 import { type Anomalie, phraseProbleme, titreRegle, urgence } from "../ui/libelles";
 
 const LIBELLES_ACTION: Record<string, string> = {
@@ -150,6 +151,49 @@ export function libelleCibleId(cibleTable: string | null, cibleId: string): stri
     return cibleId;
   }
   return null;
+}
+
+/** Lien direct vers l'élément concerné par une entrée du journal, présenté
+ * à côté de chaque entrée (ordinateur et téléphone) pour l'ouvrir sans
+ * ressaisir sa recherche — même correspondance table -> route que
+ * `App.tsx`, présentation seulement, aucune règle métier ici. `cible_id`
+ * reste l'identifiant brut qu'`ingest/journal.py` journalise (jamais un
+ * pseudo-identifiant préfixé comme `article:<uuid>`, propre à l'écran
+ * « À régler ») : pour un article ou un nom de chantier fournisseur, cet
+ * identifiant ne désigne aucune fiche dédiée (aucune route ne prend un
+ * identifiant d'article ; l'alias d'un nom de chantier fournisseur n'est
+ * pas l'identifiant du chantier auquel il a été rattaché), la destination
+ * reste donc la liste plutôt qu'un lien qui ne mène nulle part. Si
+ * l'élément visé n'existe plus (ex. une anomalie de prix, masquée depuis
+ * la désactivation des contrôles de prix), la page cible affiche déjà son
+ * propre état « introuvable » — ce fichier n'a pas à le savoir à l'avance.
+ * Compte utilisateur et toute table que ce fichier ne connaît pas encore :
+ * aucun lien (repli défensif, même principe que le reste de ce fichier). */
+export function lienCible(
+  cibleTable: string | null,
+  cibleId: string | null,
+): { href: string; libelle: string } | null {
+  if (cibleTable === null || cibleId === null) {
+    return null;
+  }
+  switch (cibleTable) {
+    case "document":
+      return { href: `/documents/${cibleId}`, libelle: "Voir le document" };
+    case "anomalie":
+      return { href: `/a-regler/${cibleId}`, libelle: "Voir le problème" };
+    case "chantier":
+      return { href: `/chantiers/${cibleId}`, libelle: "Voir le chantier" };
+    case "fournisseur":
+      return { href: `/fournisseurs/${cibleId}`, libelle: "Voir le fournisseur" };
+    case "parametre":
+      return { href: "/reglages", libelle: "Voir les réglages" };
+    case "chantier_alias":
+      return { href: LIEN_CHANTIERS_A_RATTACHER, libelle: "Voir les chantiers à rattacher" };
+    case "article":
+      return { href: "/a-regler", libelle: "Voir les articles à valider" };
+    default:
+      return null;
+  }
 }
 
 /** Libellé court d'un code de motif de mise « à vérifier »
