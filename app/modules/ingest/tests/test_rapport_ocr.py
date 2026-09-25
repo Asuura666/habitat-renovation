@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import stat
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -731,6 +733,37 @@ async def test_mesurer_dossier_ocr_factice_appele_et_cache_ecrit(
         cache_ecrit["document_annotation"]
         == _reponse_synthetique()["document_annotation"]
     )
+
+
+async def test_mesurer_dossier_ecrit_cache_en_0640(tmp_path: Path) -> None:
+    """Le cache `<nom>.mistral-ocr.json` contient l'annotation brute d'un
+    document d'un client réel (`docs/protocole-mesure-ocr.md`) : mêmes
+    droits restreints que les documents déposés par l'application (tâche
+    T3), jamais 0644 (umask 0022 du conteneur), lisible par tout autre
+    compte Unix du VPS partagé."""
+    nom = "photo-a-analyser"
+    (tmp_path / f"{nom}.jpg").write_bytes(b"contenu invente")
+    (tmp_path / f"{nom}.attendu.json").write_text(
+        json.dumps(_attendu_bl_synthetique()), encoding="utf-8"
+    )
+
+    async def _ocr_factice(contenu: bytes, mime: str) -> dict[str, Any]:
+        return _reponse_synthetique()
+
+    umask_avant = os.umask(0o022)
+    try:
+        await mesurer_dossier(
+            tmp_path,
+            ocr=_ocr_factice,
+            seuil=SEUIL_CONFIANCE_DEFAUT,
+            tolerance=TOLERANCE_TOTAL_DEFAUT,
+        )
+    finally:
+        os.umask(umask_avant)
+
+    chemin_cache = tmp_path / f"{nom}.mistral-ocr.json"
+    mode = stat.S_IMODE(chemin_cache.stat().st_mode)
+    assert mode == 0o640
 
 
 async def test_mesurer_dossier_annotation_illisible_motif_et_non_silencieuse(

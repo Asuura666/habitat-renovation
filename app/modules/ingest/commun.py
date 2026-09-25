@@ -124,15 +124,61 @@ def _supprimer_si_existe(chemin: Path) -> None:
     chemin.unlink(missing_ok=True)
 
 
+# Droits restreints des documents clients sur disque (audit rapidité/
+# sécurité du 25/09/2026, tâche T3, constat CRITIQUE) : avec l'umask 0022 du
+# conteneur, `Path.mkdir`/`Path.write_bytes` créaient respectivement un
+# dossier 0755 et des fichiers 0644 -- lisibles par tout autre compte Unix
+# du VPS partagé, hors de toute authentification. 0750/0640 restreignent la
+# lecture (et, pour le dossier, le listage) au seul compte du conteneur.
+_MODE_DOSSIER_DOCUMENTS = 0o750
+_MODE_FICHIER_DOCUMENT = 0o640
+
+
+def _creer_dossier_documents(dossier: Path) -> None:
+    """Crée `dossier` (et ses parents éventuels) en 0750 s'il n'existe pas
+    déjà -- voir le commentaire sur `_MODE_DOSSIER_DOCUMENTS`. Le mode passé
+    à `mkdir` reste combiné à l'umask du process comme tout appel `mkdir`
+    POSIX (déterministe une fois l'umask du conteneur, 0022, connu -- les
+    deux bits qu'il retire ici, écriture groupe/autre, sont déjà absents de
+    0750). N'aggrave jamais les droits d'un dossier déjà présent : cette
+    fonction ne fait qu'ajouter `exist_ok=True`, jamais un `chmod` sur
+    l'existant (dossiers déjà déployés à corriger à la main, voir
+    `docs/dette.md`)."""
+    dossier.mkdir(mode=_MODE_DOSSIER_DOCUMENTS, parents=True, exist_ok=True)
+
+
+def _ecrire_fichier_prive(chemin: Path, contenu: bytes) -> None:
+    """Écrit `contenu` dans `chemin` (créé, ou tronqué s'il existe déjà) en
+    0640 -- voir le commentaire sur `_MODE_FICHIER_DOCUMENT`. Le mode est
+    fixé dès la création du descripteur (`os.open` avec
+    `O_WRONLY|O_CREAT|O_TRUNC` et le mode voulu), jamais appliqué après coup
+    par un `chmod` séparé : le fichier n'existe donc jamais, même
+    momentanément, avec des droits plus larges. Réécrire un fichier déjà
+    existant à ce chemin conserve le mode qu'il avait déjà (règle POSIX de
+    `open` : le mode passé n'est appliqué qu'à la création) -- seule la
+    création initiale fixe 0640."""
+    descripteur = os.open(
+        chemin, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, _MODE_FICHIER_DOCUMENT
+    )
+    with os.fdopen(descripteur, "wb") as fichier:
+        fichier.write(contenu)
+
+
 def _ecrire_atomique(
     docs_dir: Path, chemin_temporaire: Path, chemin_final: Path, contenu: bytes
 ) -> None:
     """Écriture atomique (décision du contrôleur T6) : fichier temporaire
     dans `docs_dir`, rempli, puis `os.replace` (rename atomique sur un même
     système de fichiers). Fonction synchrone, exécutée hors de la boucle
-    asyncio via `asyncio.to_thread` (I/O disque bloquante)."""
-    docs_dir.mkdir(parents=True, exist_ok=True)
-    chemin_temporaire.write_bytes(contenu)
+    asyncio via `asyncio.to_thread` (I/O disque bloquante).
+
+    `docs_dir` est créé en 0750 (`_creer_dossier_documents`) et le fichier
+    temporaire directement en 0640 (`_ecrire_fichier_prive`) -- tâche T3,
+    voir le commentaire sur `_MODE_DOSSIER_DOCUMENTS`/
+    `_MODE_FICHIER_DOCUMENT`. `os.replace` ne touche pas au mode du fichier
+    temporaire : le fichier final porte donc le même 0640."""
+    _creer_dossier_documents(docs_dir)
+    _ecrire_fichier_prive(chemin_temporaire, contenu)
     os.replace(chemin_temporaire, chemin_final)
 
 

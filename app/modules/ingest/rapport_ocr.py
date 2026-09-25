@@ -59,6 +59,7 @@ from typing import Any
 from app.modules.extract.bl import AnnotationIllisible, BLExtrait, LigneBL, analyser_bl
 from app.modules.extract.bl import normaliser_numero_bl as _normaliser_numero_bl
 from app.modules.extract.verification import CodeMotif, bl_a_verifier, verifier_bl
+from app.modules.ingest.commun import _ecrire_fichier_prive
 from app.modules.normalize.texte import normaliser_libelle
 
 # --------------------------------------------------------------------------
@@ -701,7 +702,15 @@ def _lire_json(chemin: Path) -> Any:
 
 
 def _ecrire_cache(chemin: Path, reponse: Mapping[str, Any]) -> None:
-    chemin.write_text(json.dumps(reponse, ensure_ascii=False), encoding="utf-8")
+    """Écrit la réponse OCR brute en cache (`<nom>.mistral-ocr.json`), un
+    document d'un client réel (`docs/protocole-mesure-ocr.md`) : mêmes
+    droits restreints que les documents déposés par l'application
+    (`ingest.commun._ecrire_fichier_prive`, tâche T3), jamais un
+    `write_text` qui passerait par l'umask et laisserait le fichier lisible
+    par tout autre compte Unix du VPS."""
+    _ecrire_fichier_prive(
+        chemin, json.dumps(reponse, ensure_ascii=False).encode("utf-8")
+    )
 
 
 async def _lire_attendu_isole(entree: _EntreeDossier) -> BLAttendu | None:
