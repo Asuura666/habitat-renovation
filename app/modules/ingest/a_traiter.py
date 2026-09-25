@@ -8,7 +8,13 @@ privée, assemblées par `lister_a_traiter`. La sélection des documents/blocs
 candidats à la propagation d'un alias (`nb_documents`/`exemple_brut` ici,
 propagation dans `ingest.referentiels.valider_alias`) vit dans `referentiels
 .candidats_alias` — décision du contrôleur : ne jamais dupliquer cette
-sélection entre les deux endroits.
+sélection entre les deux endroits. `_lister_alias_en_attente` appelle les
+deux briques dont `candidats_alias` est faite (`referentiels
+.candidats_bruts_fournisseur`/`filtrer_candidats_par_libelle`) plutôt que
+`candidats_alias` elle-même, pour charger les candidats bruts une seule
+fois par `fournisseur_id` distinct même avec plusieurs alias en attente du
+même fournisseur (tâche T5, décision du contrôleur : jamais une requête par
+alias).
 
 `compter_problemes_a_regler` (revue finale de la refonte du front, constats
 LIENS-2, ECRAN-6, TELEPHONE-2, COUVERTURE-2) : **la** définition du nombre
@@ -43,6 +49,7 @@ besoin de connaître ce second drapeau pour afficher un seuil « sans effet »
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -56,13 +63,17 @@ from app.modules.ingest.commun import controle_prix_actif
 from app.modules.ingest.lecture import _CONFIRMATION_PAR_ACTION, MotifLu, motifs_lus
 from app.modules.ingest.models import (
     Article,
+    BlocFacture,
     ChantierAlias,
     Document,
     Fournisseur,
     Journal,
     Utilisateur,
 )
-from app.modules.ingest.referentiels import candidats_alias
+from app.modules.ingest.referentiels import (
+    candidats_bruts_fournisseur,
+    filtrer_candidats_par_libelle,
+)
 
 
 @dataclass(frozen=True)
@@ -198,7 +209,15 @@ async def _lister_alias_en_attente(session: AsyncSession) -> list[AliasEnAttente
     concernés et un exemple de libellé brut (le plus récent) — même
     sélection que la propagation de `referentiels.valider_alias`
     (`referentiels.candidats_alias`, décision du contrôleur : ne jamais
-    dupliquer cette logique)."""
+    dupliquer cette logique).
+
+    Les candidats bruts (`referentiels.candidats_bruts_fournisseur`, deux
+    requêtes) sont chargés une seule fois par `fournisseur_id` distinct,
+    dans un cache local à l'appel, puis filtrés par libellé en Python
+    (`referentiels.filtrer_candidats_par_libelle`, sans requête
+    supplémentaire) pour chaque alias -- jamais une requête par alias
+    (tâche T5 : plusieurs alias en attente d'un même fournisseur ne
+    doivent jamais multiplier les requêtes)."""
     lignes = (
         await session.execute(
             select(ChantierAlias, Fournisseur.nom)
@@ -208,10 +227,21 @@ async def _lister_alias_en_attente(session: AsyncSession) -> list[AliasEnAttente
         )
     ).all()
 
+    candidats_bruts_par_fournisseur: dict[
+        uuid.UUID, tuple[Sequence[Document], Sequence[BlocFacture]]
+    ] = {}
+
     resultat: list[AliasEnAttente] = []
     for alias, nom_fournisseur in lignes:
-        documents, blocs = await candidats_alias(
-            session, alias.fournisseur_id, alias.libelle_brut
+        if alias.fournisseur_id not in candidats_bruts_par_fournisseur:
+            candidats_bruts_par_fournisseur[
+                alias.fournisseur_id
+            ] = await candidats_bruts_fournisseur(session, alias.fournisseur_id)
+        documents_bruts, blocs_bruts = candidats_bruts_par_fournisseur[
+            alias.fournisseur_id
+        ]
+        documents, blocs = filtrer_candidats_par_libelle(
+            documents_bruts, blocs_bruts, alias.libelle_brut
         )
         brut_par_date = [
             (document.chantier_brut, document.created_at) for document in documents

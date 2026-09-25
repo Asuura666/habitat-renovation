@@ -46,7 +46,11 @@ documents/blocs concernés) et `valider_article` (fige unités et ratio).
 `candidats_alias` est la sélection des documents/blocs candidats à la
 propagation d'un alias, partagée par `ingest.a_traiter.lister_a_traiter`
 (comptage/exemple) et `valider_alias` (propagation) — décision du
-contrôleur : ne jamais la dupliquer entre les deux.
+contrôleur : ne jamais la dupliquer entre les deux. Elle se décompose en
+deux briques publiques réutilisables séparément (tâche T5) :
+`candidats_bruts_fournisseur` (les deux requêtes, à charger une seule fois
+par `fournisseur_id`) et `filtrer_candidats_par_libelle` (le filtre pur, à
+rejouer sans requête pour chaque alias d'un même fournisseur).
 """
 
 from __future__ import annotations
@@ -725,21 +729,48 @@ def _libelle_correspond(chantier_brut: str | None, libelle: str) -> bool:
     return decompose is not None and decompose.libelle == libelle
 
 
+async def candidats_bruts_fournisseur(
+    session: AsyncSession, fournisseur_id: uuid.UUID
+) -> tuple[Sequence[Document], Sequence[BlocFacture]]:
+    """Documents et blocs candidats à la propagation d'un alias pour
+    `fournisseur_id`, **avant** tout filtre de libellé (deux requêtes,
+    `_documents_candidats_alias`/`_blocs_candidats_alias`).
+
+    Séparée de `candidats_alias` pour que l'appelant puisse la mutualiser
+    par `fournisseur_id` quand il traite plusieurs alias d'un même
+    fournisseur (`ingest.a_traiter._lister_alias_en_attente`, tâche T5,
+    décision du contrôleur : jamais une requête par alias)."""
+    documents = await _documents_candidats_alias(session, fournisseur_id)
+    blocs = await _blocs_candidats_alias(session, fournisseur_id)
+    return documents, blocs
+
+
+def filtrer_candidats_par_libelle(
+    documents: Sequence[Document], blocs: Sequence[BlocFacture], libelle: str
+) -> tuple[list[Document], list[BlocFacture]]:
+    """Filtre pur (aucun accès base) : ne garde que les documents/blocs dont
+    le libellé décomposé de `chantier_brut` égale `libelle` -- même logique
+    que l'ancien filtre en ligne de `candidats_alias`, extraite pour être
+    rejouée sans requête supplémentaire pour chaque alias d'un même
+    fournisseur (tâche T5)."""
+    return (
+        [d for d in documents if _libelle_correspond(d.chantier_brut, libelle)],
+        [b for b in blocs if _libelle_correspond(b.chantier_brut, libelle)],
+    )
+
+
 async def candidats_alias(
     session: AsyncSession, fournisseur_id: uuid.UUID, libelle: str
 ) -> tuple[list[Document], list[BlocFacture]]:
     """Documents et blocs de facture de `fournisseur_id`, sans chantier
     résolu, dont le libellé décomposé de `chantier_brut` égale `libelle`
     (décision du contrôleur) : sélection **partagée** par `ingest.a_traiter
-    .lister_a_traiter` (comptage/exemple de l'alias en attente) et
-    `valider_alias` ci-dessous (propagation) — jamais dupliquée entre les
-    deux."""
-    documents = await _documents_candidats_alias(session, fournisseur_id)
-    blocs = await _blocs_candidats_alias(session, fournisseur_id)
-    return (
-        [d for d in documents if _libelle_correspond(d.chantier_brut, libelle)],
-        [b for b in blocs if _libelle_correspond(b.chantier_brut, libelle)],
-    )
+    .lister_a_traiter` (comptage/exemple de l'alias en attente, via les deux
+    briques ci-dessus quand plusieurs alias d'un même fournisseur sont en
+    jeu) et `valider_alias` ci-dessous (propagation) — jamais dupliquée
+    entre les deux."""
+    documents, blocs = await candidats_bruts_fournisseur(session, fournisseur_id)
+    return filtrer_candidats_par_libelle(documents, blocs, libelle)
 
 
 async def valider_alias(

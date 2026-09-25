@@ -12,7 +12,9 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.modules.ingest.a_traiter import compter_problemes_a_regler, lister_a_traiter
 from app.modules.ingest.anomalies import lister_anomalies
@@ -296,6 +298,120 @@ async def test_alias_sans_document_correspondant_compte_zero(
     lignes = {a.id: a for a in a_traiter.alias}
     assert lignes[alias.id].nb_documents == 0
     assert lignes[alias.id].exemple_brut is None
+
+
+async def test_alias_en_attente_plusieurs_alias_meme_fournisseur_et_autre(
+    db_session: AsyncSession,
+) -> None:
+    """Plusieurs alias en attente d'un même fournisseur, plus un alias d'un
+    autre fournisseur (tâche T5, chargement mutualisé par
+    `fournisseur_id`) : chaque alias ne voit que les documents de SON
+    fournisseur dont le libellé décomposé correspond au sien -- même
+    résultat qu'avec une sélection refaite pour chaque alias."""
+    fournisseur_a = await _creer_fournisseur(db_session, nom="Fournisseur A")
+    fournisseur_b = await _creer_fournisseur(db_session, nom="Fournisseur B")
+
+    alias_a1 = await _creer_alias(
+        db_session, fournisseur=fournisseur_a, libelle_brut="maison test"
+    )
+    alias_a2 = await _creer_alias(
+        db_session, fournisseur=fournisseur_a, libelle_brut="autre chantier"
+    )
+    alias_b1 = await _creer_alias(
+        db_session, fournisseur=fournisseur_b, libelle_brut="maison test"
+    )
+
+    # Fournisseur A : un document par alias, plus un qui ne correspond à
+    # aucun des deux (négatif : libellé différent).
+    doc_a1 = await _creer_document(
+        db_session,
+        fournisseur=fournisseur_a,
+        chantier_brut="MAISON TEST (1002)",
+        created_at=_instant(0),
+    )
+    doc_a2 = await _creer_document(
+        db_session,
+        fournisseur=fournisseur_a,
+        chantier_brut="AUTRE CHANTIER (2002)",
+        created_at=_instant(10),
+    )
+    await _creer_document(
+        db_session,
+        fournisseur=fournisseur_a,
+        chantier_brut="SANS RAPPORT (3002)",
+        created_at=_instant(20),
+    )
+
+    # Fournisseur B : même libellé brut que alias_a1, mais un autre
+    # fournisseur -- négatif : ne doit jamais compter pour alias_a1.
+    doc_b1 = await _creer_document(
+        db_session,
+        fournisseur=fournisseur_b,
+        chantier_brut="MAISON TEST (9002)",
+        created_at=_instant(0),
+    )
+
+    a_traiter = await lister_a_traiter(db_session)
+
+    lignes = {a.id: a for a in a_traiter.alias}
+    assert lignes[alias_a1.id].nb_documents == 1
+    assert lignes[alias_a1.id].exemple_brut == doc_a1.chantier_brut
+    assert lignes[alias_a2.id].nb_documents == 1
+    assert lignes[alias_a2.id].exemple_brut == doc_a2.chantier_brut
+    assert lignes[alias_b1.id].nb_documents == 1
+    assert lignes[alias_b1.id].exemple_brut == doc_b1.chantier_brut
+
+
+async def test_alias_en_attente_sans_n_plus_1(
+    db_session: AsyncSession, db_engine: AsyncEngine
+) -> None:
+    """Le nombre de requêtes SQL pour charger les alias en attente ne doit
+    pas dépendre du nombre d'alias d'un même fournisseur (tâche T5,
+    constat mesuré : 18 requêtes pour 9 alias avant correctif) : un alias
+    puis cinq alias du même fournisseur doivent déclencher le même nombre
+    de requêtes."""
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur N+1")
+    await _creer_alias(
+        db_session, fournisseur=fournisseur, libelle_brut="chantier n1 0"
+    )
+
+    sync_engine: Engine = db_engine.sync_engine
+
+    compteur_un_alias = {"n": 0}
+
+    def _compter_un_alias(*args: object, **kwargs: object) -> None:
+        compteur_un_alias["n"] += 1
+
+    event.listen(sync_engine, "before_cursor_execute", _compter_un_alias)
+    try:
+        a_traiter_un_alias = await lister_a_traiter(db_session)
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _compter_un_alias)
+
+    assert len(a_traiter_un_alias.alias) == 1
+
+    for indice in range(1, 5):
+        await _creer_alias(
+            db_session, fournisseur=fournisseur, libelle_brut=f"chantier n1 {indice}"
+        )
+
+    compteur_cinq_alias = {"n": 0}
+
+    def _compter_cinq_alias(*args: object, **kwargs: object) -> None:
+        compteur_cinq_alias["n"] += 1
+
+    event.listen(sync_engine, "before_cursor_execute", _compter_cinq_alias)
+    try:
+        a_traiter_cinq_alias = await lister_a_traiter(db_session)
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _compter_cinq_alias)
+
+    assert len(a_traiter_cinq_alias.alias) == 5
+    # Même nombre de requêtes avec cinq alias du même fournisseur qu'avec
+    # un seul : la charge ne croît plus avec le nombre d'alias (avant
+    # correctif, cinq requêtes de plus pour les quatre alias
+    # supplémentaires).
+    assert compteur_cinq_alias["n"] == compteur_un_alias["n"]
 
 
 # --------------------------------------------------------------------------
