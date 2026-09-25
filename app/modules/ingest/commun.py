@@ -204,6 +204,67 @@ def _mime_pour_extension(extension: str) -> str:
     return _MIME_PAR_EXTENSION.get(extension, "application/octet-stream")
 
 
+# Signature (« magic bytes ») attendue pour chaque extension de stockage
+# (audit rapidité/sécurité du 25/09/2026, tâche T9, constat CRITIQUE) : un
+# document reçu par Telegram (`depot_telegram.traiter_fichier`) n'était
+# accepté que sur le type MIME déclaré par le client Telegram
+# (`messaging.telegram._fichier_depuis_document`) — jamais confronté au
+# contenu réel — alors que le dépôt de facture (`factures.deposer_facture`)
+# vérifie déjà `%PDF-` avant tout. `signature_conforme` généralise ce
+# contrôle aux extensions de `_MIME_PAR_EXTENSION` ci-dessus (sauf `jpeg`,
+# jamais produite par `messaging.telegram._extension`/`_EXTENSIONS_PAR_MIME`
+# — seule `jpg` l'est) et devient la seule source de vérité pour les deux
+# appelants : `factures.py` (PDF) et `depot_telegram.traiter_fichier`
+# (toutes les extensions), fonction pure (aucune base, aucun réseau).
+_SIGNATURE_JPG = b"\xff\xd8\xff"
+_SIGNATURE_PNG = b"\x89PNG\r\n\x1a\n"
+_SIGNATURE_PDF = b"%PDF-"
+_SIGNATURE_TIFF_LITTLE_ENDIAN = b"II*\x00"
+_SIGNATURE_TIFF_BIG_ENDIAN = b"MM\x00*"
+
+
+def signature_conforme(extension: str, contenu: bytes) -> bool:
+    """`True` si `contenu` porte la signature binaire attendue pour
+    `extension`, `False` sinon -- y compris pour une extension absente de
+    cette table (défensif : mieux vaut refuser un fichier d'un type non
+    prévu que le stocker sans vérification).
+
+    - `jpg` : `FF D8 FF` en tête.
+    - `png` : les 8 octets de signature PNG (`89 50 4E 47 0D 0A 1A 0A`).
+    - `webp` : `RIFF` en tête (octets 0-4) et `WEBP` aux octets 8-12 (le
+      conteneur RIFF, entre les deux, porte la taille du fichier -- jamais
+      vérifiée ici, seule la structure du conteneur importe).
+    - `pdf` : `%PDF-` en tête (même signature que `factures._SIGNATURE_PDF`,
+      cette fonction en devient la seule source de vérité).
+    - `tiff` : `II*\\x00` (petit-boutiste) ou `MM\\x00*` (gros-boutiste) en
+      tête -- les deux ordres d'octets valides du format TIFF.
+    - `heic`/`heif` : `ftyp` aux octets 4-8, sans exiger de marque précise
+      aux octets 8-12 (`heic`, `mif1`, `heix`, ... -- de nombreuses marques
+      ISOBMFF valides, aucune liste exhaustive fiable).
+
+    Une lecture hors bornes (`contenu` plus court que la signature attendue)
+    ne lève jamais : une tranche Python au-delà de la fin d'un `bytes` est
+    simplement plus courte, jamais une erreur -- elle ne correspond alors à
+    aucune signature attendue et la fonction renvoie `False`.
+    """
+    if extension == "jpg":
+        return contenu[: len(_SIGNATURE_JPG)] == _SIGNATURE_JPG
+    if extension == "png":
+        return contenu[: len(_SIGNATURE_PNG)] == _SIGNATURE_PNG
+    if extension == "webp":
+        return contenu[:4] == b"RIFF" and contenu[8:12] == b"WEBP"
+    if extension == "pdf":
+        return contenu[: len(_SIGNATURE_PDF)] == _SIGNATURE_PDF
+    if extension == "tiff":
+        return contenu[:4] in (
+            _SIGNATURE_TIFF_LITTLE_ENDIAN,
+            _SIGNATURE_TIFF_BIG_ENDIAN,
+        )
+    if extension in ("heic", "heif"):
+        return contenu[4:8] == b"ftyp"
+    return False
+
+
 @dataclass(frozen=True)
 class Deposant:
     """Auteur d'un dépôt : un utilisateur actif rattaché à un envoi Telegram

@@ -1,11 +1,16 @@
 """Tests de `app.modules.ingest.commun` : droits d'écriture des documents
-clients sur disque (audit rapidité/sécurité du 25/09/2026, tâche T3,
+clients sur disque (audit rapidité/sécurité du 25/09/2026, tâche T3, constat
+CRITIQUE) et signature binaire attendue par extension (même audit, tâche T9,
 constat CRITIQUE).
 
 L'umask du conteneur en production est 0022 (constat de l'audit) : chaque
 test qui vérifie un mode précis le fixe explicitement le temps du test
 (`os.umask`, restauré dans un `finally`) pour un résultat déterministe,
 indépendant de l'umask du poste qui exécute la suite.
+
+`signature_conforme` est une fonction pure (aucune base, aucun réseau) :
+un positif et un négatif par extension (`jpg`, `png`, `webp`, `pdf`, `tiff`,
+`heic`, `heif`), plus l'extension inconnue.
 """
 
 from __future__ import annotations
@@ -13,6 +18,8 @@ from __future__ import annotations
 import os
 import stat
 from pathlib import Path
+
+import pytest
 
 from app.modules.ingest import commun as ingest_commun
 
@@ -73,3 +80,61 @@ def test_ecrire_atomique_reecriture_fichier_existant_garde_0640(
     assert chemin_final.read_bytes() == b"nouveau contenu"
     assert not chemin_temporaire.exists()
     assert _mode(chemin_final) == 0o640
+
+
+@pytest.mark.parametrize(
+    ("extension", "contenu"),
+    [
+        pytest.param("jpg", b"\xff\xd8\xff\xe0\x00\x10JFIF\x00", id="jpg"),
+        pytest.param("png", b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR", id="png"),
+        pytest.param("webp", b"RIFF\x24\x00\x00\x00WEBPVP8 ", id="webp"),
+        pytest.param("pdf", b"%PDF-1.4\n%invente-pour-les-tests\n", id="pdf"),
+        pytest.param("tiff", b"II*\x00\x08\x00\x00\x00", id="tiff-petit-boutiste"),
+        pytest.param("tiff", b"MM\x00*\x00\x08\x00\x00", id="tiff-gros-boutiste"),
+        pytest.param("heic", b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00", id="heic"),
+        pytest.param("heif", b"\x00\x00\x00\x18ftypmif1\x00\x00\x00\x00", id="heif"),
+    ],
+)
+def test_signature_conforme_accepte_une_signature_valide(
+    extension: str, contenu: bytes
+) -> None:
+    """Cas positif, un par extension reconnue (T9)."""
+    assert ingest_commun.signature_conforme(extension, contenu) is True
+
+
+@pytest.mark.parametrize(
+    ("extension", "contenu"),
+    [
+        pytest.param("jpg", b"\x89PNG\r\n\x1a\n reste invente", id="jpg-contenu-png"),
+        pytest.param("png", b"\xff\xd8\xff reste invente", id="png-contenu-jpg"),
+        pytest.param(
+            "webp",
+            b"RIFF\x24\x00\x00\x00AVI reste invente",
+            id="webp-riff-sans-marque-webp",
+        ),
+        pytest.param("webp", b"texte quelconque invente", id="webp-sans-riff"),
+        pytest.param("pdf", b"pas-un-pdf-du-tout", id="pdf"),
+        pytest.param("tiff", b"texte quelconque invente", id="tiff"),
+        pytest.param(
+            "heic",
+            b"\x00\x00\x00\x18toto1234\x00\x00\x00\x00",
+            id="heic-sans-ftyp",
+        ),
+        pytest.param("heif", b"", id="heif-vide"),
+    ],
+)
+def test_signature_conforme_refuse_une_signature_invalide(
+    extension: str, contenu: bytes
+) -> None:
+    """Cas négatif, un par extension reconnue (T9) : un contenu qui ne
+    correspond pas à la signature attendue est refusé -- jamais d'exception
+    (y compris un contenu trop court ou vide, `heif-vide`)."""
+    assert ingest_commun.signature_conforme(extension, contenu) is False
+
+
+def test_signature_conforme_extension_inconnue_renvoie_false() -> None:
+    """Une extension absente de la table est refusée, quel que soit le
+    contenu (T9) -- défensif : mieux vaut refuser un type non prévu que le
+    stocker sans vérification."""
+    assert ingest_commun.signature_conforme("exe", b"\xff\xd8\xff peu importe") is False
+    assert ingest_commun.signature_conforme("gif", b"GIF89a") is False

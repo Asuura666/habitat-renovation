@@ -42,7 +42,12 @@ from app.modules.extract.verification import (
     motif_en_json,
     verifier_facture,
 )
-from app.modules.ingest.commun import Deposant, _ecrire_atomique, _supprimer_si_existe
+from app.modules.ingest.commun import (
+    Deposant,
+    _ecrire_atomique,
+    _supprimer_si_existe,
+    signature_conforme,
+)
 from app.modules.ingest.extraction_bl import CLE_TOLERANCE_TOTAL_HT
 from app.modules.ingest.lecture import _normaliser_numero, documents_bl_par_numeros
 from app.modules.ingest.mistral import ErreurOCR
@@ -233,7 +238,6 @@ def formater_blocs(blocs: list[BlocReception]) -> str:
 # --------------------------------------------------------------------------
 
 
-_SIGNATURE_PDF = b"%PDF-"
 _NOM_FOURNISSEUR_UNIKALO = "Unikalo"
 
 
@@ -331,7 +335,11 @@ async def deposer_facture(
     code HTTP. Aucun fichier n'est stocké et rien n'est inséré en base tant
     que la facture n'est pas entièrement lue et validée.
     """
-    if contenu[: len(_SIGNATURE_PDF)] != _SIGNATURE_PDF:
+    # T9 (audit rapidité/sécurité du 25/09/2026) : signature vérifiée via
+    # `ingest.commun.signature_conforme`, seule source de vérité partagée
+    # avec `depot_telegram.traiter_fichier` -- même contrôle qu'avant
+    # (`%PDF-` en tête), plus jamais dupliqué en dur ici.
+    if not signature_conforme("pdf", contenu):
         raise FichierInvalide("Le fichier n'est pas un PDF.")
 
     try:

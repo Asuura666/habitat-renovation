@@ -68,6 +68,22 @@ Décisions du contrôleur L2-T2 (liste blanche, groupe BL, supervision) :
   technique) — corrige la dette notée en lot 1 (`docs/dette.md`, T6).
 - Un échec d'envoi d'un message de supervision est journalisé mais ne fait
   jamais échouer `traiter_fichier` (`_envoyer_supervision`).
+
+Audit rapidité et sécurité (T9, 25/09/2026, constat CRITIQUE) — signature du
+fichier reçu vérifiée avant tout traitement :
+- `messagerie.telecharger` déduit `FichierTelecharge.extension` du type MIME
+  *déclaré* par le client Telegram (`messaging.telegram
+  ._fichier_depuis_document`) ou, pour une photo compressée, du chemin
+  renvoyé par `getFile` — jamais confronté au contenu réel jusqu'ici, alors
+  que le dépôt de facture (`factures.deposer_facture`) vérifie déjà
+  `%PDF-`.
+- `ingest.commun.signature_conforme(fichier.extension, fichier.contenu)` est
+  appelée juste après le téléchargement, avant toute écriture disque et
+  avant tout appel OCR : une signature non conforme suit exactement le
+  chemin d'échec d'un échec de téléchargement (journalisation sans donnée
+  client, message de supervision, réponse d'échec à l'agent) — rien n'est
+  jamais écrit sur disque ni transmis à Mistral pour un fichier dont le
+  contenu ne correspond pas à l'extension annoncée.
 """
 
 from __future__ import annotations
@@ -91,6 +107,7 @@ from app.modules.ingest.commun import (
     _journaliser_echec,
     _mime_pour_extension,
     _supprimer_si_existe,
+    signature_conforme,
 )
 from app.modules.ingest.extraction_bl import (
     enregistrer_echec_ocr,
@@ -393,6 +410,24 @@ async def traiter_fichier(
         _journaliser_echec("téléchargement", entrant.update_id, exc)
         await _signaler_echec_traitement(
             messagerie, telegram_chat_supervision_id, entrant, "téléchargement"
+        )
+        return
+
+    # T9 (audit rapidité/sécurité du 25/09/2026, constat CRITIQUE) : le
+    # contenu réellement téléchargé doit correspondre à l'extension déduite
+    # par `messagerie.telecharger` (elle-même déduite du type MIME déclaré
+    # par le client Telegram, jamais garanti) -- avant toute écriture disque
+    # et avant tout appel OCR, même chemin d'échec qu'un échec de
+    # téléchargement (journalisation sans donnée client, supervision,
+    # réponse d'échec à l'agent).
+    if not signature_conforme(fichier.extension, fichier.contenu):
+        _journaliser_echec(
+            "signature fichier",
+            entrant.update_id,
+            ValueError("signature de fichier non conforme à l'extension déclarée"),
+        )
+        await _signaler_echec_traitement(
+            messagerie, telegram_chat_supervision_id, entrant, "signature"
         )
         return
 
