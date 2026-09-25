@@ -266,6 +266,12 @@ function DepotFacture(): ReactElement {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: CLE_FACTURES }),
         invaliderApresChangementAnomalies(queryClient),
+        // Task 7 (audit rapidité) : le tout premier dépôt d'une facture
+        // Unikalo crée ce fournisseur s'il n'existe pas encore
+        // (`ingest.factures._fournisseur_unikalo`, get-or-create) — cas rare
+        // en pratique (déjà créé depuis le lot 3 sur les instances
+        // existantes), gardé pour rester correct sur une base neuve.
+        queryClient.invalidateQueries({ queryKey: CLE_FOURNISSEURS }),
       ]);
       navigate(`/documents/${deposee.id}`);
     },

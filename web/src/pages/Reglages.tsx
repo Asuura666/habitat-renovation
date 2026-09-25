@@ -8,7 +8,20 @@ import {
   modifierParametre,
   type Parametre,
 } from "../api/parametres";
+import { CLE_CHANTIERS_SILENCIEUX } from "../api/referentiels";
 import { Bouton, Carte, EnTetePage, EtatVide } from "../ui";
+
+/** Seul réglage lu en direct par une autre route à chaque appel, jamais
+ * seulement « aux prochains contrôles » comme les huit autres seuils
+ * (`ingest/rapprochement.py`, `rules/rules/R*.py`) : `chantiers_sans_depot`
+ * (`GET /api/referentiels/chantiers-silencieux`) relit
+ * `delai_chantier_silencieux_j` dans la table `parametre` à chaque requête
+ * (`ingest/referentiels_vue.py`), jamais reçu en paramètre. Task 7 (audit
+ * rapidité) : avec `staleTime` par défaut à 0, un remontage de l'écran
+ * « Chantiers » après ce réglage relançait de toute façon la requête ; à
+ * 30 s (nouveau défaut, `main.tsx`), la liste des chantiers silencieux
+ * pouvait rester fausse jusqu'à 30 s après l'enregistrement. */
+const CLE_PARAMETRE_DELAI_SILENCE = "delai_chantier_silencieux_j";
 
 function messageErreur(erreur: unknown): string {
   if (erreur instanceof ErreurApi) {
@@ -36,7 +49,11 @@ function LigneParametre({ parametre }: { parametre: Parametre }): ReactElement {
     mutationFn: () => modifierParametre(parametre.cle, valeur),
     onSuccess: async (parametreModifie) => {
       setValeur(parametreModifie.valeur);
-      await queryClient.invalidateQueries({ queryKey: CLE_PARAMETRES });
+      const invalidations = [queryClient.invalidateQueries({ queryKey: CLE_PARAMETRES })];
+      if (parametre.cle === CLE_PARAMETRE_DELAI_SILENCE) {
+        invalidations.push(queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS_SILENCIEUX }));
+      }
+      await Promise.all(invalidations);
     },
   });
 

@@ -19,6 +19,7 @@ import { cleAnomalies, type FiltresAnomalies, listerAnomalies } from "../api/ano
 import { CLE_COMPTE_A_REGLER, obtenirCompteARegler } from "../api/aTraiter";
 import { ErreurApi } from "../api/client";
 import {
+  CLE_AGENCES,
   CLE_CHANTIERS,
   CLE_CHANTIERS_SILENCIEUX,
   type Chantier,
@@ -288,6 +289,11 @@ function FormulaireEdition({
         queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS }),
         queryClient.invalidateQueries({ queryKey: cleBilanChantiers(FILTRES_TOUS_MOIS) }),
         queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS_SILENCIEUX }),
+        // Task 7 (audit rapidité), même raison que la création de chantier
+        // (`ChantiersListe.tsx`) : l'agence de ce chantier a pu changer, le
+        // filtre « Agence » de l'écran « Chantiers » doit le refléter sans
+        // attendre un remontage.
+        queryClient.invalidateQueries({ queryKey: CLE_AGENCES }),
       ]);
       onFermer();
     },
