@@ -234,8 +234,8 @@ def signature_conforme(extension: str, contenu: bytes) -> bool:
     - `webp` : `RIFF` en tête (octets 0-4) et `WEBP` aux octets 8-12 (le
       conteneur RIFF, entre les deux, porte la taille du fichier -- jamais
       vérifiée ici, seule la structure du conteneur importe).
-    - `pdf` : `%PDF-` en tête (même signature que `factures._SIGNATURE_PDF`,
-      cette fonction en devient la seule source de vérité).
+    - `pdf` : `%PDF-` en tête (même signature que celle utilisée par
+      `factures.deposer_facture`, via cette fonction).
     - `tiff` : `II*\\x00` (petit-boutiste) ou `MM\\x00*` (gros-boutiste) en
       tête -- les deux ordres d'octets valides du format TIFF.
     - `heic`/`heif` : `ftyp` aux octets 4-8, sans exiger de marque précise
