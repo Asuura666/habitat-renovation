@@ -12,9 +12,16 @@ prestataire du client) et à Ilane, le développeur.
   production, vérifier que la branche construite contient les deux
   (`git merge-base --is-ancestor 04f1077 <branche>` et `git merge-base
   --is-ancestor f431b27 <branche>`) plutôt que de supposer qu'une branche
-  particulière les a. Les deux instances en service ont été déployées le
-  23/09/2026, avant ces commits : elles évaluent encore R06 à R09 et
-  servent encore `/openapi.json` publiquement.
+  particulière les a. Les deux instances en service, déployées une
+  première fois le 23/09/2026, ont été redéployées depuis une branche
+  contenant ces deux commits le 24/09/2026 à 19 h 39 UTC : elles
+  n'évaluent plus R06 à R09 et ne servent plus `/openapi.json` (constaté
+  le 25/09/2026, voir §9 pour le détail).
+- **Optimisations du 25/09/2026** : audit rapidité/sécurité mené sur la
+  branche `optimisations` (T1-T13), pas encore fusionné ni déployé au
+  moment de la rédaction. Détail commit par commit, et ce qui reste
+  volontairement reporté (avec la raison) : `docs/dette.md` §
+  « Optimisations du 25/09/2026 (rapidité et sécurité) ».
 - **Ce qui fait foi** : le cahier des charges, `docs/cahier-des-charges.md`
   (CDC). Ce document le résume, puis décrit ce qui a été construit, comment
   c'est hébergé et pourquoi.
@@ -1287,10 +1294,10 @@ Autres procédures, à ne pas recopier ici (mêmes options à remplacer) :
 - `DATABASE_URL` hors `SecretStr` ; tests des modules copiés dans l'image ;
   hook `interdit-env` limité à `.env` (§4.9, §5.5, §5.6). `/openapi.json`
   public sur la production : corrigé dans le code, désactivé par défaut
-  (`API_DOCS_ACTIVES`, §7.6), mais pas déployé — les deux instances, créées
-  le 23/09/2026, servent toujours `/openapi.json` en 200 (vérifié par curl
-  le 24/09/2026) et évaluent toujours R06 à R09 (§2.5), jusqu'à leur
-  prochain déploiement depuis une branche qui contient ces correctifs (§9).
+  (`API_DOCS_ACTIVES`, §7.6) — **déployé** depuis le redéploiement du
+  24/09/2026 à 19 h 39 UTC : les deux instances renvoient 404 sur `/docs`
+  et `/openapi.json`, et n'évaluent plus R06 à R09 (drapeaux absents des
+  `.env.*`, donc `false` par défaut), constaté par `curl` le 25/09/2026.
 
 **Hébergement**
 

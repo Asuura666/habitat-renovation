@@ -545,6 +545,52 @@ Si le fichier Compose ou l'image Traefik/PostgreSQL a changé, utiliser ensuite
 
 Rejouer toutes les vérifications du §7.
 
+### 10.3 Déploiement des optimisations du 25/09/2026
+
+Application des tâches T1-T13 (audit rapidité/sécurité, `docs/dette.md`
+§ « Optimisations du 25/09/2026 ») aux deux instances en place (§1.1),
+l'une après l'autre. Variable `$P` (instance), dans le même esprit que le
+`$C` du §1.1 :
+
+```bash
+P="-p habitat_prod --env-file .env.prod"      # puis -p habitat_demo --env-file .env.demo
+C="-f deploy/docker-compose.yml -f deploy/docker-compose.vps.yml"
+```
+
+1. **Dump avant** (§10.1, §11.1) : sauvegarde de l'instance (`pg_dump -Fc`
+   ou `./deploy/backup.sh` selon ce qui est déjà en place) avant tout
+   effet de bord.
+2. **Nouveau vhost nginx** (T11, en-têtes complétés et zone dédiée à la
+   connexion) :
+   ```bash
+   sudo cp deploy/nginx/habitat.conf /etc/nginx/sites-available/habitat
+   sudo nginx -t && sudo systemctl reload nginx
+   ```
+   `reload`, jamais `restart` (ne coupe pas les connexions en cours).
+   Les deux zones `limit_req` référencées par le vhost (`general`,
+   `login`) doivent déjà exister dans le `nginx.conf` du serveur (hors
+   dépôt, commentaire en tête de `deploy/nginx/habitat.conf`) — vérifier
+   avant de recharger, sans quoi `nginx -t` échoue.
+3. `docker compose $P $C up -d --build` recrée **les deux** services,
+   `api` et `postgres` (T11 ajoute `security_opt`/`pids_limit` aux deux
+   dans `deploy/docker-compose.yml`, pas seulement `api`). Aucune
+   migration Alembic dans ce lot de tâches : `alembic upgrade head`
+   n'a rien à appliquer, mais rejouer quand même le §7.4 par habitude.
+4. **`chmod` des documents déjà présents** (T3, 0640/0750) : facultatif
+   sur ce serveur provisoire (choix d'Ilane, `docs/dette.md`) — seuls
+   les documents écrits après ce déploiement en profitent
+   automatiquement ; sans objet sur le futur serveur dédié.
+5. **Contrôles après coup**, par instance :
+   ```bash
+   curl -sI "https://<DOMAIN>/" | grep -i 'content-security-policy\|permissions-policy\|cross-origin'
+   curl -sI "https://<DOMAIN>/assets/<un-fichier-hache>.js" | grep -i cache-control
+   curl --fail --show-error --silent "https://<DOMAIN>/health"
+   ```
+   en-têtes de sécurité complétés sur `/`, `Cache-Control:
+   public, max-age=31536000, immutable` sur un fichier de `/assets`,
+   `/health` à 200 ; puis vérifier la connexion (§7.3) sur chaque
+   instance.
+
 ## 11. Sauvegarde, restauration et retour arrière
 
 ### 11.1 Sauvegarde

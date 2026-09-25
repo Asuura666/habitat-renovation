@@ -42,7 +42,8 @@ app/
     rules/     engine.py, rules/R01.py … R17.py, tests           ← PUR
     api/       routers JSON consommés par le front
     messaging/ base.py (interface), telegram.py, tests
-    jobs/      drive_sync, bilan, rappels
+    jobs/      drive.py, drive_sync.py (bilan à la demande dans ingest ;
+               rappels R14-R16 via ingest/suivi.py, controles-differes)
   main.py
 web/           front React (lot 2)
 migrations/    alembic

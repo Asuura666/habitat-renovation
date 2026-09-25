@@ -989,3 +989,144 @@ méthode reste disponible que `openapi_url` soit `None` ou non.
 seulement si un besoin ponctuel le justifie (revue d'API par un tiers,
 par exemple), jamais en permanence sur la production.
 
+## Optimisations du 25/09/2026 (rapidité et sécurité)
+
+Audit « rapidité et sécurité » mené sur la branche `optimisations`
+(extraite de `main`), tâches T1 à T13, non encore fusionnée. Contexte
+d'hébergement à garder en tête pour toute cette section : le serveur
+actuel (VPS partagé du prestataire) est **provisoire**, partagé avec
+d'autres projets et d'autres comptes Unix ; le serveur cible, dédié au
+client, n'aura que le compte d'Ilane (administrateur). Deux constats
+ci-dessous (limite de connexion contournable, documents déjà présents
+lisibles par d'autres comptes) ne valent que sur ce serveur provisoire et
+tombent d'eux-mêmes sur le serveur dédié.
+
+### Corrigé
+
+- **T1 (`3b2c562`)** — base PostgreSQL de dev/test sans `fsync`
+  (`docker-compose.dev.yml` uniquement, jamais `habitat_prod`/
+  `habitat_demo`) : suite de tests plus rapide, base jetable sans valeur
+  de durabilité à préserver.
+- **T2 (`8918a55`)** — `conftest.py` réduit le coût Argon2 (`time_cost=1`,
+  `memory_cost=8`) pendant la suite de tests seulement ; coût réel intact
+  en production (`app/core/auth.py` non touché).
+- **T3 (`a59daa3`)** — documents écrits en 0640 (dossier 0750) au lieu de
+  0644/0755 : n'étaient plus protégés que par l'authentification
+  applicative, lisibles par tout autre compte Unix du VPS partagé sans
+  elle. Voir la limite résiduelle sur les fichiers déjà présents et
+  `backup.sh`, ci-dessous (« Reporté »).
+- **T3 fix (`80e06eb`)** — `fichier_document`
+  (`GET /api/documents/{id}/fichier`) contrôle désormais `document.type`
+  avant le rôle de l'appelant : une facture ne peut plus être servie par
+  cette route (défense en profondeur, `TYPES_BL` comme le reste
+  d'`ingest`).
+- **T4 (`d1a59ef`)** — alias chantier en attente : une seule requête par
+  `fournisseur_id` distinct au lieu d'une par alias (N+1 corrigé,
+  `referentiels.candidats_bruts_fournisseur` + filtre Python, même règle
+  qu'avant, non dupliquée).
+- **T5 (`b0948fc`)** — `Cache-Control: public, max-age=31536000, immutable`
+  sur les fichiers hachés de `/assets` (front Vite) ; `index.html` garde
+  `no-cache`.
+- **T6 (`3eab4c9`)** — `staleTime: 30_000` par défaut côté TanStack Query
+  (au lieu de 0) ; revue des 14 `useMutation` pour compléter les
+  invalidations qui en dépendaient désormais (réglages, agences,
+  fournisseurs).
+- **T3 fix (`64263f8`)** — avertissement documentaire : la sauvegarde
+  nocturne doit tourner en root (ou avec un accès donné explicitement à
+  l'uid 10001) depuis le durcissement des permissions T3 — entrée déjà
+  détaillée dans « Lot 5 — Restitution » ci-dessus (§ `backup.sh` ne
+  pourra plus lire `DOCS_HOST_DIR`…), non dupliquée ici.
+- **T3 fix (`392b4d6`)** — le rapport `rapport-ocr --sortie` (peut
+  contenir des valeurs lues sur un document client réel) était encore
+  écrit en 0644, oublié par le grep de T3 (l'appel passait `write_text`
+  en référence de méthode à `asyncio.to_thread`, invisible au grep) ;
+  passe désormais par `rapport_ocr.ecrire_rapport` (0640).
+- **T7 (`bd3340a`)** — taille d'un fichier Telegram plafonnée avant le
+  téléchargement (déclaré par `getFile`) et pendant (flux tronqué si le
+  serveur Telegram mentirait) : plus de téléchargement illimité déclenché
+  par un simple envoi de fichier.
+- **T9 (`72a0b74`)** — `signature_conforme` (`ingest/commun.py`, fonction
+  pure) vérifie désormais la signature binaire réelle d'un fichier reçu
+  par Telegram (jpg/png/webp/pdf/tiff/heic/heif), pas seulement le
+  `mime_type` déclaré par le client — même principe que le contrôle déjà
+  en place sur le dépôt de facture (« %PDF- »), devenu la seule source de
+  vérité, reprise par `factures.py` et `depot_telegram.py`.
+- **T11 nginx (`f9fb2b6`)** — CSP complétée (`base-uri`, `form-action`,
+  `object-src`), `Permissions-Policy`, `Cross-Origin-Opener-Policy` et
+  `Cross-Origin-Resource-Policy: same-origin` ajoutés ; zone `limit_req`
+  dédiée `login` (5 r/min) sur `/api/auth/login`, le reste garde
+  `general`. Mêmes en-têtes reportés dans les labels Traefik du compose
+  de production. Les deux zones (`general`, `login`) doivent exister dans
+  le `nginx.conf` du serveur (hors dépôt) — voir « Reporté » ci-dessous
+  pour la limite propre à `login` sur le serveur provisoire.
+- **T11 conteneurs (`3c74a1e`)** — `security_opt: no-new-privileges:true`
+  sur `api` et `postgres`, `cap_drop: ALL` sur `api` (déjà non-root, uid
+  10001), `pids_limit: 200` sur les deux. Pas de `cap_drop` sur
+  `postgres` (l'image officielle démarre en root avant d'abandonner ses
+  privilèges, a besoin de capacités que `ALL` retirerait) — voir
+  « Reporté » pour les limites mémoire et le rootfs en lecture seule,
+  non traités par cette tâche.
+- **T13 dépôt (`dae8bda`)** — hooks pre-commit `pip-audit` et
+  `npm audit --omit=dev --audit-level=high`, déclenchés uniquement quand
+  `uv.lock`/`pyproject.toml` ou `web/package-lock.json` changent (pas à
+  chaque commit).
+
+### Reporté
+
+- **Limite de connexion (5 requêtes/minute sur `/login`) contournable par
+  un processus local.** La zone nginx `login` (T11 ci-dessus) protège le
+  trafic Internet, mais un `uvicorn` lancé avec
+  `--forwarded-allow-ips=*` reste joignable sur son port TCP
+  `127.0.0.1` par tout autre processus de l'hôte, qui contournerait ainsi
+  nginx et sa limite. Parade : socket Unix entre nginx et uvicorn, ou
+  secret partagé nginx → API vérifié par un middleware. **Sans objet sur
+  le serveur dédié** s'il n'héberge rien d'autre que cette application ;
+  concerne uniquement le VPS provisoire, partagé avec d'autres comptes.
+- **Documents déjà présents sur le serveur provisoire, toujours en
+  0644.** T3 (`a59daa3`) corrige les *nouveaux* fichiers (0640/0750) ;
+  les documents déjà écrits avant ce commit restent en 0644 — choix
+  explicite d'Ilane, pas de `chmod` rétroactif sur ce serveur provisoire.
+  De toute façon, un compte membre du groupe `docker` de cet hôte a un
+  accès équivalent à root (peut lire/écrire n'importe quel fichier via un
+  conteneur) : le durcissement des permissions ne change donc rien face
+  à ce niveau d'accès-là — seulement face à un compte Unix ordinaire,
+  hors groupe `docker`. **Sans objet sur le serveur dédié**, sans autre
+  compte que l'administrateur.
+- **Session glissante de 12 h sans plafond absolu.** Conforme au CDC
+  (déconnexion après 12 h d'inactivité, cf. « L2-T1 » ci-dessus) ; à
+  confirmer avec Ilane si un plafond absolu (ex. 30 jours quelle que soit
+  l'activité) est également voulu.
+- **Limites mémoire des conteneurs, `cap_drop` sur `postgres`, rootfs en
+  lecture seule.** Non traitées par T11 (`3c74a1e`) : à mesurer d'abord
+  (`docker stats` sur une charge réelle) et à tester sur la démo avant la
+  production, une limite mémoire trop basse pouvant faire tuer le
+  conteneur (OOM) plutôt que de le protéger.
+- **Images Docker épinglées par tag (`postgres:18`, etc.), pas par
+  digest.** Choix assumé : un digest figé ne reçoit plus les correctifs
+  de sécurité de l'image de base.
+- **Pas de scanner de CVE de la couche système (paquets Debian, image de
+  base).** Les hooks `pip-audit`/`npm audit` (T13, `dae8bda`) couvrent les
+  dépendances applicatives, jamais la couche OS des images ; passer
+  `trivy` à la main avant un déploiement sensible, pas automatisé.
+- **Bundle JS unique de 108 Ko gzip.** Pas de découpage par page à ce
+  volume (peu d'écrans, peu de dépendances lourdes) ; Brotli non activé
+  (gain estimé ≈ 16 Ko, jugé non prioritaire au volume actuel).
+- **Liste « Documents » plafonnée à 100 lignes, filtres chantier/
+  fournisseur/mois côté navigateur.** Déjà noté ci-dessus (« Liste
+  Documents », Task 8) : suffisant pour ≈ 6 jours de dépôts au volume du
+  CDC ; filtrer côté SQL (sur le modèle de `bilan.py`) si le volume
+  grandit.
+- **Synchronisation des anomalies : une requête par anomalie candidate au
+  dépôt d'une facture.** Négligeable devant le coût d'un appel OCR
+  Mistral (même dépôt). Piège identifié à ne pas reproduire si ce code
+  est retouché : `_conditions_portee` (`ingest/anomalies.py`) filtre sur
+  `statut='ouverte'`, mais `_trouver_par_cle` doit, lui, retrouver aussi
+  une anomalie déjà `traitée`/`ignorée` (la contrainte d'unicité
+  couvrant toutes les anomalies, pas seulement les ouvertes) —
+  restreindre ce second point à `ouverte` casserait cette unicité.
+- **`preparer_base` rejouée 5 fois par run de tests.** Ne pas la
+  mémoïser : les tests de migration comptent sur sa ré-exécution après un
+  `alembic downgrade`. `pytest-xdist` non adopté pour autant (base de
+  test partagée entre tous les tests, incompatible avec une exécution
+  parallèle sans base par worker).
+
