@@ -495,23 +495,19 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   `flock`, rotation des logs et supervision des codes de sortie
   (`docs/deploiement-et-tests.md` §9 et §11) avant de considérer le
   déploiement complet.
-- **`backup.sh` ne pourra plus lire `DOCS_HOST_DIR` en cron non-root, depuis
+- **`backup.sh` ne pouvait plus lire `DOCS_HOST_DIR` en cron non-root, depuis
   le durcissement des permissions des documents (0640/0750, tâche T3,
   `a59daa3`).** Les documents sont écrits par le conteneur `api` avec l'uid
   10001 (`Dockerfile`, `USER 10001`), sans droit de lecture pour « other » ;
   `backup.sh` monte `DOCS_HOST_DIR` en lecture seule pour restic avec
   `-u "$(id -u):$(id -g)"`, c'est-à-dire l'uid/gid de l'utilisateur **hôte**
   qui invoque le script, jamais l'uid 10001. Un cron exécuté par un compte
-  hôte ordinaire (ex. `debian`) obtiendra donc `permission denied` sur
-  `restic backup` dès qu'il tournera. Rien ne casse tant qu'aucun cron de
-  sauvegarde n'est posé (voir l'entrée ci-dessus), mais la prochaine tâche
-  qui pose les crons/sauvegardes restic doit soit l'exécuter en root, soit
-  donner au compte exécutant un accès en lecture au groupe/uid 10001 sur
-  `DOCS_HOST_DIR` (ex. `setfacl`) — détail et commande dans
-  `deploy/RESTAURATION.md` § « Entrée cron nocturne » et
-  `docs/deploiement-et-tests.md` §9. `deploy/test-restauration.sh` ne
-  détecte pas cette régression : il dépose son fichier de test en bash sous
-  l'utilisateur courant, jamais via l'API/uid 10001.
+  hôte ordinaire (ex. `debian`) obtenait donc `permission denied` sur
+  `restic backup` dès qu'il tournait. **Résolu (constat R1 de la revue
+  finale du 25/09/2026, « Optimisations du 25/09/2026 » ci-dessous)** :
+  `backup.sh` ajoute désormais le gid 10001 comme groupe supplémentaire du
+  conteneur restic (`--group-add`), lisible quel que soit le compte hôte
+  qui invoque le script — plus besoin de root ni de `setfacl`.
 
 ### Bilan — définitions et validation provisoires
 
@@ -1036,6 +1032,17 @@ tombent d'eux-mêmes sur le serveur dédié.
   l'uid 10001) depuis le durcissement des permissions T3 — entrée déjà
   détaillée dans « Lot 5 — Restitution » ci-dessus (§ `backup.sh` ne
   pourra plus lire `DOCS_HOST_DIR`…), non dupliquée ici.
+- **R1 (revue finale du 25/09/2026)** — corrige réellement l'avertissement
+  ci-dessus plutôt que de seulement le documenter : `deploy/backup.sh`
+  ajoute le gid 10001 (propriétaire des documents écrits par l'API) comme
+  groupe supplémentaire du conteneur restic (`--group-add`), lisible quel
+  que soit le compte hôte qui invoque le script — plus besoin de root ni
+  de `setfacl`. `deploy/test-restauration.sh` dépose désormais un second
+  fichier de test avec les droits réels d'un document produit par l'API
+  (0640, uid/gid 10001) et vérifie qu'il survit à l'aller-retour sauvegarde/
+  restauration — reproduit et vérifié en échec avant ce correctif
+  (`permission denied` de `restic backup`, snapshot partiel), en succès
+  après.
 - **T3 fix (`392b4d6`)** — le rapport `rapport-ocr --sortie` (peut
   contenir des valeurs lues sur un document client réel) était encore
   écrit en 0644, oublié par le grep de T3 (l'appel passait `write_text`

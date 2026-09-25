@@ -86,6 +86,29 @@ docker run --rm \
 # éviterait de devoir gérer HOME pour un uid arbitraire.
 RESTIC_USER_ARGS=(-u "$(id -u):$(id -g)")
 
+# Groupe supplémentaire pour lire DOCS_HOST_DIR (constat R1 de la revue
+# finale du 25/09/2026) : les documents y sont écrits par le conteneur api
+# en 0640 (dossier 0750), appartenant à l'uid ET au gid 10001 (Dockerfile,
+# "useradd --uid 10001 ... appuser", sans "-g" : Debian crée un groupe de
+# même nom avec le même gid -- vérifié, "id" dans l'image donne
+# "uid=10001(appuser) gid=10001(appuser)") -- jamais l'uid/gid de
+# l'utilisateur hôte qui invoque ce script (RESTIC_USER_ARGS ci-dessus).
+# Sans ce groupe, tout compte hôte différent de celui qui a écrit
+# DOCS_HOST_DIR (root excepté) perdrait l'accès en lecture aux documents à
+# sauvegarder. `--group-add` ajoute ce gid comme groupe supplémentaire du
+# conteneur restic : le mode 0640/0750 déjà en place suffit alors (bit de
+# lecture du groupe déjà positionné), sans exiger que le compte hôte qui
+# lance ce script soit root ni qu'une ACL (setfacl, paquet `acl`, absent de
+# ce VPS) soit posée à part sur DOCS_HOST_DIR. Gid **fixe** (10001), jamais
+# déduit de `stat` sur DOCS_HOST_DIR : le dossier peut avoir été créé à la
+# main par un compte différent avant le premier démarrage du conteneur api
+# (`_creer_dossier_documents` ne fait jamais de `chown` sur un dossier déjà
+# présent, voir `ingest/commun.py`) -- seul le gid effectivement utilisé
+# par le conteneur api pour écrire les *fichiers* compte ici. Docker
+# accepte un gid numérique même absent du /etc/group du conteneur restic.
+DOCS_GID_APPUSER=10001
+RESTIC_BACKUP_ARGS=("${RESTIC_USER_ARGS[@]}" --group-add "$DOCS_GID_APPUSER")
+
 RESTIC_ENV=(-e RESTIC_REPOSITORY -e RESTIC_PASSWORD)
 if [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]; then
   RESTIC_ENV+=(-e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY)
@@ -98,7 +121,7 @@ fi
 
 echo "backup.sh : restic backup (tag nocturne)…"
 docker run --rm \
-  "${RESTIC_USER_ARGS[@]}" \
+  "${RESTIC_BACKUP_ARGS[@]}" \
   "${RESTIC_ENV[@]}" \
   "${RESTIC_MOUNTS[@]}" \
   "$RESTIC_IMAGE" \

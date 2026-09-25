@@ -437,15 +437,14 @@ Créer d'abord le dossier de logs :
 mkdir -p /home/debian/habitat_reno/logs
 ```
 
-**Attention** : la ligne « Sauvegarde nocturne » ci-dessous doit tourner en root, ou
-avec un accès en lecture donné explicitement sur `DOCS_HOST_DIR` au compte
-qui exécute le cron — jamais un compte hôte ordinaire tel quel. Les
-documents y sont écrits par le conteneur `api` en 0640 (dossier 0750),
-appartenant à l'uid 10001 (`Dockerfile`, `USER 10001`, tâche T3) ; `backup.sh`
-monte ce dossier en lecture seule pour restic avec `-u "$(id -u):$(id -g)"`,
-c'est-à-dire l'uid/gid de l'utilisateur **hôte** qui invoque le script —
-jamais l'uid 10001. Détail et solutions (root, ou `setfacl` sur
-`DOCS_HOST_DIR`) : `deploy/RESTAURATION.md` § « Entrée cron nocturne ».
+La ligne « Sauvegarde nocturne » ci-dessous peut tourner sous n'importe quel
+compte hôte, root ou non : depuis le correctif R1 de la revue finale du
+25/09/2026, `backup.sh` ajoute lui-même le gid propriétaire de
+`DOCS_HOST_DIR` (10001 en pratique, `Dockerfile`, `USER 10001`, tâche T3)
+comme groupe supplémentaire du conteneur restic (`--group-add`), qui peut
+donc lire les documents 0640 écrits par l'API sans que le compte hôte qui
+invoque le script en soit propriétaire. Détail :
+`deploy/RESTAURATION.md` § « Permissions de `DOCS_HOST_DIR` ».
 
 Après validation du déploiement seulement, configurer une adresse
 d'exploitation dans la crontab. `MAILTO` nécessite un MTA fonctionnel. Les
@@ -560,7 +559,7 @@ C="-f deploy/docker-compose.yml -f deploy/docker-compose.vps.yml"
 1. **Dump avant** (§10.1, §11.1) : sauvegarde de l'instance (`pg_dump -Fc`
    ou `./deploy/backup.sh` selon ce qui est déjà en place) avant tout
    effet de bord.
-2. **Nouveau vhost nginx** (T11, en-têtes complétés et zone dédiée à la
+2. **Nouveau vhost nginx** (T10, en-têtes complétés et zone dédiée à la
    connexion) :
    ```bash
    sudo cp deploy/nginx/habitat.conf /etc/nginx/sites-available/habitat

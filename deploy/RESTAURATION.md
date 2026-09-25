@@ -44,11 +44,9 @@ ne modifie rien, mais autant l'éviter.
 
 ## Entrée cron nocturne
 
-**Doit tourner en root**, ou avec un accès en lecture donné explicitement
-sur `DOCS_HOST_DIR` au compte qui exécute le cron (voir l'avertissement
-« Permissions de `DOCS_HOST_DIR` » ci-dessous) — jamais un simple
-« utilisateur propriétaire du dépôt » depuis le durcissement des
-permissions des documents (tâche T3, `a59daa3`).
+Peut tourner sous **n'importe quel compte hôte**, root ou non (voir
+« Permissions de `DOCS_HOST_DIR` » ci-dessous — `backup.sh` s'en charge
+lui-même depuis le correctif R1 de la revue finale du 25/09/2026).
 
 ```cron
 0 3 * * * cd /home/debian/habitat_reno && ./deploy/backup.sh >> /home/debian/habitat_reno/logs/backup.log 2>&1
@@ -58,31 +56,31 @@ permissions des documents (tâche T3, `a59daa3`).
 sauvegarde restic ou rotation) : surveiller le code de sortie du cron
 (`MAILTO=` ou une supervision externe), pas seulement le contenu du log.
 
-### Attention — permissions de `DOCS_HOST_DIR` (à vérifier avant de poser ce cron)
+### Permissions de `DOCS_HOST_DIR`
 
 Les documents dans `DOCS_HOST_DIR` sont écrits par le conteneur `api` en
-0640 (dossier 0750), appartenant à l'uid 10001 (`Dockerfile`, `USER
-10001`) — aucun droit de lecture pour « other » (défense en profondeur,
-tâche T3). `backup.sh` monte ce dossier en lecture seule dans le conteneur
-restic lancé avec `-u "$(id -u):$(id -g)"`, c'est-à-dire l'**uid/gid de
-l'utilisateur hôte qui invoque le script**, jamais l'uid 10001 (interne au
-conteneur, absent de `/etc/passwd` sur l'hôte). Concrètement : tout compte
-hôte autre que root n'a plus accès en lecture à ces fichiers, et
-`restic backup` échouera (`permission denied`) dès que le cron tournera
-sous un compte non-root (ex. `debian`).
+0640 (dossier 0750), appartenant à l'uid **et** au gid 10001 (`Dockerfile`,
+`USER 10001` — Debian crée un groupe de même nom et même gid que l'uid) —
+aucun droit de lecture pour « other » (défense en profondeur, tâche T3),
+mais le mode 0640 accorde déjà la lecture au **groupe** propriétaire.
+`backup.sh` monte ce dossier en lecture seule dans le conteneur restic
+lancé avec `-u "$(id -u):$(id -g)"` (l'uid/gid de l'utilisateur hôte qui
+invoque le script, jamais l'uid 10001, interne au conteneur, absent de
+`/etc/passwd` sur l'hôte) **et** `--group-add 10001` : ce deuxième réglage
+ajoute ce gid (fixe, celui de l'image `Dockerfile`, jamais déduit de
+`stat` sur `DOCS_HOST_DIR` — ce dossier a pu être créé à la main par un
+compte différent avant le premier démarrage du conteneur `api`) comme
+groupe supplémentaire du conteneur restic, quel que soit le compte hôte
+qui invoque le script. Le mode 0640/0750 déjà en place suffit alors :
+aucune ACL (`setfacl`, paquet `acl`) à poser à part sur `DOCS_HOST_DIR`, et
+aucune obligation de faire tourner le cron en root.
 
-Avant de poser ce cron : soit l'exécuter en root (qui contourne les
-vérifications de permissions Unix), soit donner au compte qui l'exécute un
-accès en lecture au groupe/uid 10001 sur `DOCS_HOST_DIR`, par exemple :
-
-```bash
-setfacl -R -m g:10001:rX -m d:g:10001:rX "$DOCS_HOST_DIR"
-```
-
-`deploy/test-restauration.sh` ne détecte pas cette régression : il dépose
-son fichier de test directement en bash (`echo ... > "$DOCS_DIR_TEST/..."`)
-sous l'utilisateur courant, jamais via l'API/uid 10001, donc jamais avec un
-fichier 0640 appartenant à un autre uid.
+`deploy/test-restauration.sh` couvre cette régression (constat R1 de la
+revue finale du 25/09/2026) : en plus de son fichier de test déposé
+directement en bash sous l'utilisateur courant, il dépose un second
+fichier avec les droits réels d'un document produit par l'API (0640,
+uid/gid 10001) et vérifie qu'il survit à l'aller-retour sauvegarde/
+restauration.
 
 La rotation (`restic forget --keep-daily 30 --keep-monthly 12 --prune`) est
 effectuée par `backup.sh` lui-même après chaque sauvegarde : aucune tâche
