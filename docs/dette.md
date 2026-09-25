@@ -1016,14 +1016,14 @@ tombent d'eux-mêmes sur le serveur dédié.
   avant le rôle de l'appelant : une facture ne peut plus être servie par
   cette route (défense en profondeur, `TYPES_BL` comme le reste
   d'`ingest`).
-- **T4 (`d1a59ef`)** — alias chantier en attente : une seule requête par
+- **T5 (`d1a59ef`)** — alias chantier en attente : une seule requête par
   `fournisseur_id` distinct au lieu d'une par alias (N+1 corrigé,
   `referentiels.candidats_bruts_fournisseur` + filtre Python, même règle
   qu'avant, non dupliquée).
-- **T5 (`b0948fc`)** — `Cache-Control: public, max-age=31536000, immutable`
+- **T6 (`b0948fc`)** — `Cache-Control: public, max-age=31536000, immutable`
   sur les fichiers hachés de `/assets` (front Vite) ; `index.html` garde
   `no-cache`.
-- **T6 (`3eab4c9`)** — `staleTime: 30_000` par défaut côté TanStack Query
+- **T7 (`3eab4c9`)** — `staleTime: 30_000` par défaut côté TanStack Query
   (au lieu de 0) ; revue des 14 `useMutation` pour compléter les
   invalidations qui en dépendaient désormais (réglages, agences,
   fournisseurs).
@@ -1048,7 +1048,7 @@ tombent d'eux-mêmes sur le serveur dédié.
   écrit en 0644, oublié par le grep de T3 (l'appel passait `write_text`
   en référence de méthode à `asyncio.to_thread`, invisible au grep) ;
   passe désormais par `rapport_ocr.ecrire_rapport` (0640).
-- **T7 (`bd3340a`)** — taille d'un fichier Telegram plafonnée avant le
+- **T8 (`bd3340a`)** — taille d'un fichier Telegram plafonnée avant le
   téléchargement (déclaré par `getFile`) et pendant (flux tronqué si le
   serveur Telegram mentirait) : plus de téléchargement illimité déclenché
   par un simple envoi de fichier.
@@ -1058,7 +1058,7 @@ tombent d'eux-mêmes sur le serveur dédié.
   `mime_type` déclaré par le client — même principe que le contrôle déjà
   en place sur le dépôt de facture (« %PDF- »), devenu la seule source de
   vérité, reprise par `factures.py` et `depot_telegram.py`.
-- **T11 nginx (`f9fb2b6`)** — CSP complétée (`base-uri`, `form-action`,
+- **T10 (`f9fb2b6`)** — CSP complétée (`base-uri`, `form-action`,
   `object-src`), `Permissions-Policy`, `Cross-Origin-Opener-Policy` et
   `Cross-Origin-Resource-Policy: same-origin` ajoutés ; zone `limit_req`
   dédiée `login` (5 r/min) sur `/api/auth/login`, le reste garde
@@ -1081,7 +1081,7 @@ tombent d'eux-mêmes sur le serveur dédié.
 ### Reporté
 
 - **Limite de connexion (5 requêtes/minute sur `/login`) contournable par
-  un processus local.** La zone nginx `login` (T11 ci-dessus) protège le
+  un processus local.** La zone nginx `login` (T10 ci-dessus) protège le
   trafic Internet, mais un `uvicorn` lancé avec
   `--forwarded-allow-ips=*` reste joignable sur son port TCP
   `127.0.0.1` par tout autre processus de l'hôte, qui contournerait ainsi

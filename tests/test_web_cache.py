@@ -10,7 +10,7 @@ def test_cache_long_est_limite_a_la_requete_utilisateur() -> None:
     `staleTime` par défaut de `QueryClient` : seules les requêtes `["moi"]`
     l'utilisent explicitement (Gabarit, GardeAdmin, RedirectionAccueil,
     RouteProtegee) — sinon *toute* requête du front hériterait de 5 min de
-    fraîcheur au lieu des 30 s par défaut (Task 7, audit rapidité)."""
+    fraîcheur au lieu des 30 s par défaut (tâche T7, audit rapidité)."""
     main = (WEB / "main.tsx").read_text()
     moi = (WEB / "api" / "moi.ts").read_text()
 
@@ -26,7 +26,7 @@ def test_cache_long_est_limite_a_la_requete_utilisateur() -> None:
 
 
 def test_fraicheur_par_defaut_30_secondes() -> None:
-    """Task 7 (audit rapidité) : `defaultOptions.queries.staleTime` vaut
+    """Tâche T7 (audit rapidité) : `defaultOptions.queries.staleTime` vaut
     30 s pour tout le front (défaut TanStack sinon `0`) — un remontage
     d'écran ou un retour de focus dans les 30 s qui suivent le dernier
     chargement ne relance plus la requête pour rien ; les invalidations

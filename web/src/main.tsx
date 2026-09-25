@@ -32,7 +32,7 @@ const queryClient = new QueryClient({
         }
         return nombreEchecs < 2;
       },
-      // Fraîcheur de 30 s par défaut (Task 7, audit rapidité) : le défaut
+      // Fraîcheur de 30 s par défaut (tâche T7, audit rapidité) : le défaut
       // TanStack (`staleTime: 0`) relançait 5 à 7 requêtes par écran à
       // chaque montage et à chaque retour de focus sur la fenêtre (ex.
       // ChantiersListe : chantiers, agences, bilan, tableau de bord,

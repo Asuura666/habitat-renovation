@@ -16,7 +16,7 @@ import { Bouton, Carte, EnTetePage, EtatVide } from "../ui";
  * (`ingest/rapprochement.py`, `rules/rules/R*.py`) : `chantiers_sans_depot`
  * (`GET /api/referentiels/chantiers-silencieux`) relit
  * `delai_chantier_silencieux_j` dans la table `parametre` à chaque requête
- * (`ingest/referentiels_vue.py`), jamais reçu en paramètre. Task 7 (audit
+ * (`ingest/referentiels_vue.py`), jamais reçu en paramètre. Tâche T7 (audit
  * rapidité) : avec `staleTime` par défaut à 0, un remontage de l'écran
  * « Chantiers » après ce réglage relançait de toute façon la requête ; à
  * 30 s (nouveau défaut, `main.tsx`), la liste des chantiers silencieux

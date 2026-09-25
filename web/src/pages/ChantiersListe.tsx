@@ -575,7 +575,7 @@ function FormulaireCreationChantier({
         queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS }),
         queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS_SILENCIEUX }),
         queryClient.invalidateQueries({ queryKey: CLE_BILAN_CHANTIERS_TOUTES }),
-        // Task 7 (audit rapidité) : une nouvelle agence saisie ici (champ
+        // tâche T7 (audit rapidité) : une nouvelle agence saisie ici (champ
         // libre) n'apparaissait dans le filtre « Agence » de cet écran
         // qu'après un remontage — masqué tant que `staleTime` valait 0
         // (`agences_connues` relit `chantier.agence` en base à chaque appel,

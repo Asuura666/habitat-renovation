@@ -289,7 +289,7 @@ function FormulaireEdition({
         queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS }),
         queryClient.invalidateQueries({ queryKey: cleBilanChantiers(FILTRES_TOUS_MOIS) }),
         queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS_SILENCIEUX }),
-        // Task 7 (audit rapidité), même raison que la création de chantier
+        // tâche T7 (audit rapidité), même raison que la création de chantier
         // (`ChantiersListe.tsx`) : l'agence de ce chantier a pu changer, le
         // filtre « Agence » de l'écran « Chantiers » doit le refléter sans
         // attendre un remontage.
