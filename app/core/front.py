@@ -12,13 +12,50 @@ build (`tmp_path`), jamais `app.main.app`.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.staticfiles import PathLike
+from starlette.types import Scope
 
 _logger = logging.getLogger(__name__)
+
+# `immutable` : un navigateur qui a déjà servi ce fichier ne le revalide même
+# plus (pas de requête conditionnelle tant que l'URL ne change pas) — valable
+# ici puisque Vite hache le nom du fichier avec son contenu (point 3 du
+# docstring de `monter_front`).
+_CACHE_CONTROL_ASSETS_HACHES = "public, max-age=31536000, immutable"
+
+
+class _FichiersHaches(StaticFiles):
+    """`StaticFiles` qui ajoute `Cache-Control` (cache long, `immutable`) aux
+    fichiers hachés par Vite sous `/assets`.
+
+    Surcharge `file_response` (pas `get_response`) : d'après
+    `starlette.staticfiles.StaticFiles.get_response`, `file_response` n'est
+    appelée que lorsqu'un fichier est effectivement trouvé — pour la réponse
+    200 (`FileResponse`) comme pour la réponse 304 d'une requête
+    conditionnelle (`If-None-Match`, `NotModifiedResponse` construite par
+    `file_response` lui-même à partir des mêmes en-têtes). Un fichier absent
+    lève une `HTTPException(404)` directement dans `get_response`, sans
+    jamais passer par `file_response` : un 404 ne reçoit donc jamais cet
+    en-tête.
+    """
+
+    def file_response(
+        self,
+        full_path: PathLike,
+        stat_result: os.stat_result,
+        scope: Scope,
+        status_code: int = 200,
+    ) -> Response:
+        reponse = super().file_response(full_path, stat_result, scope, status_code)
+        reponse.headers["cache-control"] = _CACHE_CONTROL_ASSETS_HACHES
+        return reponse
+
 
 # Préfixes jamais remplacés par `index.html`, même si aucune route ne les
 # gère explicitement : ils tombent alors sur le 404 JSON par défaut de
@@ -70,7 +107,7 @@ def monter_front(app: FastAPI, dossier: Path) -> None:
 
     assets_dir = dossier / "assets"
     if assets_dir.is_dir():
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+        app.mount("/assets", _FichiersHaches(directory=assets_dir), name="assets")
 
     @app.get("/{chemin_complet:path}", include_in_schema=False)
     async def _servir_index(chemin_complet: str) -> Response:
