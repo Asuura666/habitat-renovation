@@ -32,26 +32,29 @@ def test_vue_ensemble_contenu() -> None:
     for libelle in (
         "Facturé ce mois",
         "Conforme",
+        "Montant des bons reçus",
         "Sans bon de livraison",
         "Problèmes à régler",
         "Bons de livraison reçus",
     ):
         assert libelle in page, libelle
 
-    # « Écart prix ou quantité » (décision d'Ilane du 24/09/2026, `docs/
-    # dette.md`) : appelle désormais `libelleEcart(controlePrixActif)`
-    # (`ui/libelles.ts`, contrat couvert par `tests/test_web_socle.py::
-    # test_tuiles_ecart_utilisent_libelle_ecart_partage`) plutôt que le
-    # texte figé, devenu faux quand les contrôles de prix sont désactivés.
-    # `controlePrixActif` : repli `?? false` (constat mineur 2 de la revue
-    # des contrôles de prix), même valeur que le défaut serveur.
-    assert (
-        "const controlePrixActif = compteARegler.data?.controle_prix_actif ?? false;"
-        in page
-    )
-    assert "libelleEcart(controlePrixActif)" in page
-    assert "sousTexteEcart(controlePrixActif)" in page
-    assert '"Écart prix ou quantité"' not in page
+    # Décision d'Ilane du 25/09/2026 (`docs/refonte-front-recette.md` §3,
+    # troisième addendum) : la 3e tuile n'est plus « Écart de quantité »
+    # (`libelleEcart`/`sousTexteEcart`, `controlePrixActif`,
+    # `totaux.en_ecart`) mais « Montant des bons reçus », lue telle quelle
+    # sur les trois champs ajoutés à `GET /api/tableau-de-bord`. Ces trois
+    # identifiants restent employés par la fiche chantier et la fiche
+    # fournisseur (`tests/test_web_socle.py::
+    # test_tuiles_ecart_utilisent_libelle_ecart_partage`), plus jamais ici.
+    assert "montant_bons_recus" in page
+    assert "nb_bons_sans_montant" in page
+    # Forme appelée, pas la simple mention (le commentaire de décision
+    # ci-dessus les cite en toutes lettres, sans parenthèses, pour expliquer
+    # où elles vivent désormais).
+    assert "libelleEcart(" not in page
+    assert "sousTexteEcart(" not in page
+    assert "controlePrixActif" not in page
 
     assert "Chantier à rattacher" in page
     assert "Aucune facture ce mois-ci." in page

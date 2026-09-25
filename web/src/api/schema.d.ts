@@ -1831,6 +1831,12 @@ export interface components {
             priorites: components["schemas"]["ProblemePrioritaireReponse"][];
             /** Dernier Mois Facture */
             dernier_mois_facture: string | null;
+            /** Nb Bons Recus */
+            nb_bons_recus: number;
+            /** Montant Bons Recus */
+            montant_bons_recus: string;
+            /** Nb Bons Sans Montant */
+            nb_bons_sans_montant: number;
         };
         /**
          * TotauxMoisReponse

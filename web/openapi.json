@@ -5430,6 +5430,19 @@
        }
       ],
       "title": "Dernier Mois Facture"
+     },
+     "nb_bons_recus": {
+      "type": "integer",
+      "title": "Nb Bons Recus"
+     },
+     "montant_bons_recus": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Montant Bons Recus"
+     },
+     "nb_bons_sans_montant": {
+      "type": "integer",
+      "title": "Nb Bons Sans Montant"
      }
     },
     "type": "object",
@@ -5443,7 +5456,10 @@
      "nb_bl_manquants",
      "chantiers",
      "priorites",
-     "dernier_mois_facture"
+     "dernier_mois_facture",
+     "nb_bons_recus",
+     "montant_bons_recus",
+     "nb_bons_sans_montant"
     ],
     "title": "TableauDeBordReponse",
     "description": "`GET /api/tableau-de-bord` — mêmes attributs\nqu'`ingest.tableau_de_bord.TableauDeBord`."

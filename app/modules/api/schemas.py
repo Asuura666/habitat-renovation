@@ -687,6 +687,9 @@ class TableauDeBordReponse(BaseModel):
     chantiers: list[ChantierTableauReponse]
     priorites: list[ProblemePrioritaireReponse]
     dernier_mois_facture: date | None
+    nb_bons_recus: int
+    montant_bons_recus: Decimal
+    nb_bons_sans_montant: int
 
 
 class DepotAgentReponse(BaseModel):

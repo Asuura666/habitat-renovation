@@ -12,7 +12,7 @@ test : aucun nettoyage manuel nécessaire ici.
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -20,6 +20,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.modules.ingest.tableau_de_bord as tableau_de_bord_module
+from app.core.fuseau import FUSEAU_PARIS
 from app.modules.ingest.anomalies import lister_anomalies as lister_anomalies_module
 from app.modules.ingest.models import (
     Anomalie,
@@ -165,6 +166,36 @@ async def _creer_anomalie(
     return anomalie
 
 
+async def _creer_bon(
+    db_session: AsyncSession,
+    *,
+    type_bon: str = "bl",
+    statut: str = "recu",
+    total_ht: Decimal | None = Decimal("100.00"),
+    date_doc: date | None = date(2026, 9, 10),
+    created_at: datetime | None = None,
+) -> Document:
+    """Un BL ou un bon d'enlèvement (`type_bon` dans `TYPES_BL`), jamais une
+    facture -- construction réduite à ce que lit `_compter_bons_recus`
+    (décision d'Ilane du 25/09/2026, tuile « Montant des bons reçus »,
+    docstring de module). `numero`/`fournisseur_id` restent `None` :
+    non contraints ici, la contrainte d'unicité de `Document` traite
+    plusieurs `NULL` comme distincts."""
+    document = Document(
+        type=type_bon,
+        source="telegram",
+        statut=statut,
+        fichier_path=f"chemin-invente-{uuid.uuid4()}.jpg",
+        total_ht=total_ht,
+        date_doc=date_doc,
+        **({"created_at": created_at} if created_at is not None else {}),
+    )
+    db_session.add(document)
+    await db_session.commit()
+    await db_session.refresh(document)
+    return document
+
+
 # --------------------------------------------------------------------------
 # Scénarios
 # --------------------------------------------------------------------------
@@ -184,6 +215,9 @@ async def test_tableau_de_bord_mois_vide(db_session: AsyncSession) -> None:
     assert tdb.nb_bl_recus == 0
     assert tdb.nb_problemes_ouverts == 0
     assert tdb.nb_problemes_urgents == 0
+    assert tdb.nb_bons_recus == 0
+    assert tdb.montant_bons_recus == Decimal("0")
+    assert tdb.nb_bons_sans_montant == 0
 
 
 async def test_tableau_de_bord_totaux_et_conforme(db_session: AsyncSession) -> None:
@@ -1122,3 +1156,107 @@ async def test_tableau_de_bord_dernier_mois_facture(db_session: AsyncSession) ->
 
     assert tdb.chantiers == []
     assert tdb.dernier_mois_facture == date(2026, 8, 1)
+
+
+# --------------------------------------------------------------------------
+# Bons reçus du mois (décision d'Ilane du 25/09/2026, tuile « Montant des
+# bons reçus » -- voir docstring de module).
+# --------------------------------------------------------------------------
+
+
+async def test_tableau_de_bord_bons_recus_bl_et_enlevement_comptes_et_sommes(
+    db_session: AsyncSession,
+) -> None:
+    """Un BL et un bon d'enlèvement, tous deux « recu » ce mois-ci et avec
+    un montant, sont comptés et leurs montants sommés."""
+    await _creer_bon(db_session, type_bon="bl", total_ht=Decimal("120.00"))
+    await _creer_bon(db_session, type_bon="enlevement", total_ht=Decimal("80.00"))
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    assert tdb.nb_bons_recus == 2
+    assert tdb.montant_bons_recus == Decimal("200.00")
+    assert tdb.nb_bons_sans_montant == 0
+
+
+async def test_tableau_de_bord_bons_a_verifier_et_archives_ne_comptent_pas(
+    db_session: AsyncSession,
+) -> None:
+    """Négatif : ni un bon encore « a_verifier » (pas confirmé), ni un bon
+    « archive » (sorti du suivi actif) ne comptent dans les bons reçus."""
+    await _creer_bon(db_session, statut="a_verifier", total_ht=Decimal("50.00"))
+    await _creer_bon(db_session, statut="archive", total_ht=Decimal("50.00"))
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    assert tdb.nb_bons_recus == 0
+    assert tdb.montant_bons_recus == Decimal("0")
+    assert tdb.nb_bons_sans_montant == 0
+
+
+async def test_tableau_de_bord_bon_autre_mois_ne_compte_pas(
+    db_session: AsyncSession,
+) -> None:
+    """Négatif : un bon reçu daté de juillet ne compte pas dans le tableau
+    de bord de septembre."""
+    await _creer_bon(db_session, date_doc=date(2026, 7, 15), total_ht=Decimal("50.00"))
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    assert tdb.nb_bons_recus == 0
+    assert tdb.montant_bons_recus == Decimal("0")
+
+
+async def test_tableau_de_bord_facture_ne_compte_pas_dans_bons_recus(
+    db_session: AsyncSession,
+) -> None:
+    """Négatif : une facture (même « recu », même mois) n'est pas un bon --
+    `TYPES_BL` ne la contient pas."""
+    fournisseur = await _creer_fournisseur(db_session)
+    await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-BONS-1",
+        date_doc=date(2026, 9, 5),
+    )
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    assert tdb.nb_bons_recus == 0
+    assert tdb.montant_bons_recus == Decimal("0")
+
+
+async def test_tableau_de_bord_bon_sans_montant(db_session: AsyncSession) -> None:
+    """Beaucoup de bons n'ont pas de prix imprimé (docstring de module) : un
+    bon sans `total_ht` compte dans `nb_bons_recus` et
+    `nb_bons_sans_montant`, jamais dans `montant_bons_recus`."""
+    await _creer_bon(db_session, total_ht=None)
+    await _creer_bon(db_session, total_ht=Decimal("40.00"))
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    assert tdb.nb_bons_recus == 2
+    assert tdb.nb_bons_sans_montant == 1
+    assert tdb.montant_bons_recus == Decimal("40.00")
+
+
+async def test_tableau_de_bord_bon_sans_date_doc_range_selon_created_at(
+    db_session: AsyncSession,
+) -> None:
+    """Même repli que le bilan (L5-D4, `ingest.bilan._condition_mois`) : un
+    bon sans `date_doc` est rangé selon sa date de dépôt (`created_at`),
+    convertie en Europe/Paris -- positif sur le mois de dépôt, négatif sur
+    un autre mois demandé."""
+    await _creer_bon(
+        db_session,
+        date_doc=None,
+        created_at=datetime(2026, 9, 3, 10, tzinfo=FUSEAU_PARIS),
+        total_ht=Decimal("60.00"),
+    )
+
+    tdb_septembre = await tableau_de_bord(db_session, mois=_SEPT)
+    assert tdb_septembre.nb_bons_recus == 1
+    assert tdb_septembre.montant_bons_recus == Decimal("60.00")
+
+    tdb_juillet = await tableau_de_bord(db_session, mois=_JUILLET)
+    assert tdb_juillet.nb_bons_recus == 0
