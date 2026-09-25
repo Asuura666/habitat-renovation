@@ -57,3 +57,18 @@ repos:
         language: system
         files: '^web/'
         pass_filenames: false
+
+      - id: pip-audit
+        name: pip-audit (dépendances Python)
+        entry: >-
+          sh -c 'uv export --frozen --no-dev --no-hashes | uvx pip-audit -r /dev/stdin'
+        language: system
+        files: '^(pyproject\.toml|uv\.lock)$'
+        pass_filenames: false
+
+      - id: npm-audit
+        name: npm audit (dépendances front)
+        entry: npm --prefix web audit --omit=dev --audit-level=high
+        language: system
+        files: '^web/package-lock\.json$'
+        pass_filenames: false
