@@ -222,6 +222,32 @@ _SIGNATURE_PDF = b"%PDF-"
 _SIGNATURE_TIFF_LITTLE_ENDIAN = b"II*\x00"
 _SIGNATURE_TIFF_BIG_ENDIAN = b"MM\x00*"
 
+# Marques ISOBMFF (« major brand », octets 8-12 du conteneur `ftyp`) reconnues
+# comme HEIC/HEIF (constat SEC-1 de la revue finale du 25/09/2026) : `ftyp`
+# seul aux octets 4-8 est commun à tout conteneur ISOBMFF, y compris des
+# vidéos (MP4 `isom`/`mp41`/`mp42`, MOV `qt  `, ...) -- accepter tout `ftyp`
+# sans confronter la marque revenait à accepter n'importe quel conteneur
+# ISOBMFF sous couvert d'une extension `heic`/`heif`. Liste blanche des
+# marques HEIC/HEIF usuelles (spec HEIF ISO/IEC 23008-12 et pratique des
+# téléphones qui produisent du HEIC) -- volontairement non exhaustive, mais
+# élimine les conteneurs vidéo connus.
+_MARQUES_HEIF: frozenset[bytes] = frozenset(
+    {
+        b"heic",
+        b"heix",
+        b"heim",
+        b"heis",
+        b"hevc",
+        b"hevx",
+        b"hevm",
+        b"hevs",
+        b"mif1",
+        b"msf1",
+        b"avif",
+        b"avis",
+    }
+)
+
 
 def signature_conforme(extension: str, contenu: bytes) -> bool:
     """`True` si `contenu` porte la signature binaire attendue pour
@@ -238,9 +264,11 @@ def signature_conforme(extension: str, contenu: bytes) -> bool:
       `factures.deposer_facture`, via cette fonction).
     - `tiff` : `II*\\x00` (petit-boutiste) ou `MM\\x00*` (gros-boutiste) en
       tête -- les deux ordres d'octets valides du format TIFF.
-    - `heic`/`heif` : `ftyp` aux octets 4-8, sans exiger de marque précise
-      aux octets 8-12 (`heic`, `mif1`, `heix`, ... -- de nombreuses marques
-      ISOBMFF valides, aucune liste exhaustive fiable).
+    - `heic`/`heif` : `ftyp` aux octets 4-8 **et** une marque (« major
+      brand ») HEIC/HEIF connue aux octets 8-12 (`_MARQUES_HEIF` : `heic`,
+      `mif1`, `heix`, ... -- liste non exhaustive mais qui exclut les
+      conteneurs ISOBMFF non-image connus, par ex. `isom`/`mp41` en MP4 ou
+      `qt  ` en MOV).
 
     Une lecture hors bornes (`contenu` plus court que la signature attendue)
     ne lève jamais : une tranche Python au-delà de la fin d'un `bytes` est
@@ -261,7 +289,7 @@ def signature_conforme(extension: str, contenu: bytes) -> bool:
             _SIGNATURE_TIFF_BIG_ENDIAN,
         )
     if extension in ("heic", "heif"):
-        return contenu[4:8] == b"ftyp"
+        return contenu[4:8] == b"ftyp" and contenu[8:12] in _MARQUES_HEIF
     return False
 
 

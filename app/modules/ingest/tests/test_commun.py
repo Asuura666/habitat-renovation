@@ -121,6 +121,16 @@ def test_signature_conforme_accepte_une_signature_valide(
             id="heic-sans-ftyp",
         ),
         pytest.param("heif", b"", id="heif-vide"),
+        pytest.param(
+            "heic",
+            b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2avc1mp41",
+            id="heic-ftyp-mp4-non-heic",
+        ),
+        pytest.param(
+            "heif",
+            b"\x00\x00\x00\x14ftypqt  \x00\x00\x02\x00",
+            id="heif-ftyp-mov-non-heic",
+        ),
     ],
 )
 def test_signature_conforme_refuse_une_signature_invalide(
@@ -128,7 +138,12 @@ def test_signature_conforme_refuse_une_signature_invalide(
 ) -> None:
     """Cas négatif, un par extension reconnue (T9) : un contenu qui ne
     correspond pas à la signature attendue est refusé -- jamais d'exception
-    (y compris un contenu trop court ou vide, `heif-vide`)."""
+    (y compris un contenu trop court ou vide, `heif-vide`). `heic-ftyp-mp4-
+    non-heic`/`heif-ftyp-mov-non-heic` (constat SEC-1 de la revue finale du
+    25/09/2026) : un conteneur ISOBMFF `ftyp` valide mais dont la marque
+    (octets 8-12) désigne un format non-HEIC/HEIF (ici un MP4 et un MOV
+    minimaux, inventés pour le test) doit être refusé -- `ftyp` seul aux
+    octets 4-8 est commun à tout conteneur ISOBMFF, y compris des vidéos."""
     assert ingest_commun.signature_conforme(extension, contenu) is False
 
 
