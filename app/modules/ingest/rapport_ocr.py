@@ -713,6 +713,24 @@ def _ecrire_cache(chemin: Path, reponse: Mapping[str, Any]) -> None:
     )
 
 
+def ecrire_rapport(chemin: Path, contenu: str) -> None:
+    """Écrit le rapport Markdown (`--sortie` de `rapport-ocr`, appelée par
+    `app/cli.py::_rapport_ocr`) avec les mêmes droits restreints que les
+    documents déposés par l'application (`ingest.commun._ecrire_fichier_
+    prive`, tâche T3) : le rapport peut contenir des valeurs attendues et
+    lues d'un document client réel (voir le docstring de module), jamais un
+    `write_text` qui passerait par l'umask et laisserait le fichier lisible
+    par tout autre compte Unix du VPS.
+
+    Correction (relecture de la tâche T3) : `app/cli.py::_rapport_ocr`
+    appelait directement `Path.write_text` -- seul site d'écriture d'un
+    document client oublié par le grep de la tâche T3 (celui-ci passait
+    `sortie.write_text` en référence de méthode à `asyncio.to_thread`,
+    jamais suivi d'une parenthèse adjacente à `write_text`, contrairement à
+    `_ecrire_cache` ci-dessus qui avait bien été corrigé)."""
+    _ecrire_fichier_prive(chemin, contenu.encode("utf-8"))
+
+
 async def _lire_attendu_isole(entree: _EntreeDossier) -> BLAttendu | None:
     """`None` si `<nom>.attendu.json` est illisible, mal encodé, JSON
     invalide, ou rejeté par `lire_attendu` (fix round 1, finding 1) —

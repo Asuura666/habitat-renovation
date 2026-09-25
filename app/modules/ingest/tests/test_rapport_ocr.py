@@ -46,6 +46,7 @@ from app.modules.ingest.rapport_ocr import (
     LigneComparee,
     agreger,
     comparer_bl,
+    ecrire_rapport,
     lire_attendu,
     mesurer_dossier,
     rapport_markdown,
@@ -1049,3 +1050,46 @@ def test_rapport_markdown_lignes_champs_indicatives_seul_4_champs_objectif() -> 
     assert "Documents avec les 4 champs justes | 100.0 % | ≥ 95 % |" in texte
     assert "Lignes justes (code et quantité) | 100.0 % | ≥ 90 % |" in texte
     assert "Erreurs silencieuses | 0 | 0 |" in texte
+
+
+# ---------------------------------------------------------------------------
+# `ecrire_rapport` (correction relecture tâche T3) : le rapport Markdown de
+# `rapport-ocr` peut contenir des valeurs attendues et lues d'un document
+# client réel (docstring de module) -- mêmes droits restreints que
+# `_ecrire_cache` ci-dessus, jamais `Path.write_text` (umask du conteneur,
+# 0022, laisserait le fichier lisible par tout autre compte Unix du VPS).
+# ---------------------------------------------------------------------------
+
+
+def test_ecrire_rapport_mode_0640_sous_umask_022(tmp_path: Path) -> None:
+    """Cas positif : un rapport nouvellement créé porte 0640, jamais 0644
+    (umask 0022 du conteneur fixée pour un résultat déterministe)."""
+    chemin = tmp_path / "rapport.md"
+
+    umask_avant = os.umask(0o022)
+    try:
+        ecrire_rapport(chemin, "# Rapport\n\ncontenu inventé")
+    finally:
+        os.umask(umask_avant)
+
+    assert chemin.read_text(encoding="utf-8") == "# Rapport\n\ncontenu inventé"
+    assert stat.S_IMODE(chemin.stat().st_mode) == 0o640
+
+
+def test_ecrire_rapport_reecriture_garde_0640(tmp_path: Path) -> None:
+    """Cas négatif/robustesse : réécrire un rapport déjà présent au même
+    chemin conserve 0640 (comme `_ecrire_fichier_prive`, règle POSIX de
+    `open` -- le mode passé n'est appliqué qu'à la création) et remplace
+    bien le contenu."""
+    chemin = tmp_path / "rapport.md"
+    chemin.write_text("ancien contenu", encoding="utf-8")
+    chemin.chmod(0o640)
+
+    umask_avant = os.umask(0o022)
+    try:
+        ecrire_rapport(chemin, "nouveau contenu")
+    finally:
+        os.umask(umask_avant)
+
+    assert chemin.read_text(encoding="utf-8") == "nouveau contenu"
+    assert stat.S_IMODE(chemin.stat().st_mode) == 0o640

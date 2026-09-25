@@ -114,7 +114,11 @@ from app.modules.ingest.factures import (
     lire_facture,
 )
 from app.modules.ingest.mistral import ErreurOCR, ocr_document
-from app.modules.ingest.rapport_ocr import mesurer_dossier, rapport_markdown
+from app.modules.ingest.rapport_ocr import (
+    ecrire_rapport,
+    mesurer_dossier,
+    rapport_markdown,
+)
 from app.modules.ingest.rapprochement import (
     FactureIntrouvable,
     ResultatRapprochement,
@@ -413,7 +417,9 @@ async def _rapport_ocr(
         return 2
 
     contenu_rapport = rapport_markdown(rapport, comparaisons)
-    await asyncio.to_thread(sortie.write_text, contenu_rapport, encoding="utf-8")
+    # Droits restreints (tâche T3, correction relecture) : jamais
+    # `sortie.write_text`, voir `rapport_ocr.ecrire_rapport`.
+    await asyncio.to_thread(ecrire_rapport, sortie, contenu_rapport)
 
     print(f"{rapport.nb_documents} documents mesurés ({rapport.nb_degrades} dégradés)")
     for champ, taux in rapport.taux_champs.items():

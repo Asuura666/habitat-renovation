@@ -63,7 +63,9 @@ from __future__ import annotations
 import asyncio
 import getpass
 import json
+import os
 import re
+import stat
 import subprocess
 import sys
 import uuid
@@ -876,6 +878,37 @@ def test_rapport_ocr_rapport_ecrit_sans_appeler_ocr(tmp_path: Path) -> None:
     contenu = sortie.read_text(encoding="utf-8")
     assert "Rapport" in contenu
     assert nom in contenu
+
+
+def test_rapport_ocr_sortie_ecrite_en_0640(tmp_path: Path) -> None:
+    """Correction (relecture tâche T3) : le rapport Markdown peut contenir
+    des valeurs attendues et lues d'un document client réel (docstring de
+    `ingest.rapport_ocr`) -- avant cette correction, `_rapport_ocr`
+    (`app/cli.py`) écrivait `sortie` via `Path.write_text`, sans passer par
+    `ecrire_rapport`/`_ecrire_fichier_prive` : sous l'umask 0022 du
+    conteneur (fixée ici pour un résultat déterministe), le fichier
+    ressortait en 0644, lisible par tout autre compte Unix du VPS partagé."""
+    dossier = tmp_path / "photos"
+    dossier.mkdir()
+    nom = "photo-permissions"
+    (dossier / f"{nom}.jpg").write_bytes(b"contenu invente")
+    (dossier / f"{nom}.attendu.json").write_text(
+        json.dumps(_attendu_invente()), encoding="utf-8"
+    )
+    (dossier / f"{nom}.mistral-ocr.json").write_text(
+        json.dumps({"document_annotation": {"lignes": []}}), encoding="utf-8"
+    )
+    sortie = tmp_path / "rapport.md"
+
+    umask_avant = os.umask(0o022)
+    try:
+        code = cli.main(["rapport-ocr", str(dossier), "--sortie", str(sortie)])
+    finally:
+        os.umask(umask_avant)
+
+    assert code == 0
+    assert sortie.is_file()
+    assert stat.S_IMODE(sortie.stat().st_mode) == 0o640
 
 
 def test_rapport_ocr_appeler_ocr_construit_ocr_meme_options_et_delai(
