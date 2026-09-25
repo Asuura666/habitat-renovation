@@ -794,13 +794,18 @@ async def fichier_document(
     utilisateur_id: uuid.UUID,
     role: str,
 ) -> FichierDocument:
-    """Fichier d'un document (droit vérifié ici, décision du contrôleur
-    L2-T5) : un admin peut télécharger n'importe quel document, un agent
-    seulement ceux qu'il a déposés. Lève `DocumentIntrouvable` (404) dans
-    tous les autres cas — absent, déposé par un autre agent, ou chemin hors
-    `docs_dir` — sans jamais distinguer ces cas dans la réponse."""
+    """Fichier d'un BL/enlèvement (`TYPES_BL`), jamais celui d'une facture —
+    défense en profondeur (constat SERVEUR-5, revue finale de la refonte du
+    front), même restriction que `_document_pour_lecture`
+    (`ingest.corrections`) et `comparer_bl` (`ingest.comparaison_bl`).
+    Droit vérifié ensuite (décision du contrôleur L2-T5) : un admin peut
+    télécharger n'importe quel BL/enlèvement, un agent seulement ceux qu'il
+    a déposés. Lève `DocumentIntrouvable` (404) dans tous les autres cas —
+    absent, type autre que BL/enlèvement, déposé par un autre agent, ou
+    chemin hors `docs_dir` — sans jamais distinguer ces cas dans la
+    réponse."""
     document = await session.get(Document, document_id)
-    if document is None:
+    if document is None or document.type not in TYPES_BL:
         raise DocumentIntrouvable(str(document_id))
     if role != "admin" and document.deposant_id != utilisateur_id:
         raise DocumentIntrouvable(str(document_id))
