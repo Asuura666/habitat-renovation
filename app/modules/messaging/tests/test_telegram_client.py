@@ -11,7 +11,11 @@ import httpx
 import pytest
 
 from app.modules.messaging.base import FichierEntrant
-from app.modules.messaging.telegram import ErreurTelegram, TelegramClient
+from app.modules.messaging.telegram import (
+    _TAILLE_MAX_OCTETS,
+    ErreurTelegram,
+    TelegramClient,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -320,3 +324,89 @@ async def test_erreur_http_pendant_la_reponse_ne_contient_pas_le_token() -> None
 
     assert TOKEN_INVENTE not in str(exc_info.value)
     assert "api.telegram.org" not in str(exc_info.value)
+
+
+# --------------------------------------------------------------------------
+# T8 : taille d'un fichier Telegram plafonnée avant et pendant le
+# téléchargement (défense en profondeur, `_TAILLE_MAX_OCTETS`, même valeur
+# que `app.modules.api.factures._TAILLE_MAX_OCTETS`).
+# --------------------------------------------------------------------------
+
+
+async def test_telecharger_file_size_trop_gros_leve_sans_telecharger() -> None:
+    """`file_size` (renvoyé par `getFile`) au-delà du plafond -> `ErreurTelegram`
+    levée avant toute requête vers l'URL de téléchargement (une seule requête
+    HTTP émise, celle de `getFile`)."""
+    requetes: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requetes.append(request)
+        assert request.url.path.endswith("/getFile"), (
+            "aucune requête de téléchargement ne doit être émise"
+        )
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "result": {
+                    "file_path": "documents/trop_gros.pdf",
+                    "file_size": _TAILLE_MAX_OCTETS + 1,
+                },
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = TelegramClient(TOKEN_INVENTE, http)
+        with pytest.raises(ErreurTelegram):
+            await client.telecharger(_fichier_document_pdf())
+
+    assert len(requetes) == 1
+
+
+async def test_telecharger_contenu_trop_gros_sans_file_size_leve_pendant_le_flux() -> (
+    None
+):
+    """`file_size` absent de la réponse `getFile` (non garanti par l'API) :
+    le plafond est appliqué au cumul du flux téléchargé, `ErreurTelegram` dès
+    le dépassement."""
+    contenu_trop_gros = b"0" * (_TAILLE_MAX_OCTETS + 1)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/getFile"):
+            return httpx.Response(
+                200,
+                json={"ok": True, "result": {"file_path": "documents/gros.pdf"}},
+            )
+        return httpx.Response(200, content=contenu_trop_gros)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = TelegramClient(TOKEN_INVENTE, http)
+        with pytest.raises(ErreurTelegram):
+            await client.telecharger(_fichier_document_pdf())
+
+
+async def test_telecharger_fichier_normal_sous_le_plafond_contenu_identique() -> None:
+    """`file_size` renseigné et sous le plafond : le téléchargement en flux
+    aboutit normalement, contenu identique à celui reçu."""
+    contenu_attendu = b"%PDF-invente-sous-le-plafond"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/getFile"):
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "result": {
+                        "file_path": "documents/normal.pdf",
+                        "file_size": len(contenu_attendu),
+                    },
+                },
+            )
+        return httpx.Response(200, content=contenu_attendu)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = TelegramClient(TOKEN_INVENTE, http)
+        resultat = await client.telecharger(_fichier_document_pdf())
+
+    assert resultat.contenu == contenu_attendu
+    assert resultat.extension == "pdf"
