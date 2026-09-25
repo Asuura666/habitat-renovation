@@ -1137,3 +1137,13 @@ tombent d'eux-mêmes sur le serveur dédié.
   test partagée entre tous les tests, incompatible avec une exécution
   parallèle sans base par worker).
 
+- **`restore.sh` refuse de restaurer quand l'API est arrêtée (bogue
+  antérieur aux optimisations, constaté le 25/09/2026).** Le garde-fou
+  `docker compose … ps -q api` (`deploy/restore.sh`, vers la ligne 131)
+  ne liste que les conteneurs **en marche** : après un `stop api` (fait
+  par `deploy/test-restauration.sh` juste avant, et naturel avant une
+  restauration), il conclut « conteneur api introuvable » et s'arrête sans
+  rien modifier. Correctif probable : `ps -a -q api` (conteneur créé, en
+  marche ou non), avec un test dans `tests/test_restore_script.py`. À
+  traiter avec la mise en place des sauvegardes restic (priorité n° 1),
+  en rejouant `deploy/test-restauration.sh` de bout en bout.

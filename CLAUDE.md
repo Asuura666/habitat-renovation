@@ -130,6 +130,15 @@ Points à retenir :
   désactivés côté serveur depuis le 24/09/2026** (décisions d'Ilane, même
   jour) — `CONTROLE_PRIX_ACTIF` et `CONTROLE_LIVRE_NON_FACTURE_ACTIF`,
   détail `docs/dette.md` et `docs/refonte-front-recette.md`.
+- **Optimisations rapidité et sécurité du 25/09/2026 fusionnées dans `main`
+  et déployées le jour même** (nginx, démo puis production, dumps
+  `avant-optimisations-*` dans `~/sauvegardes-habitat/`) : documents en
+  0640/0750, signature et taille des fichiers Telegram vérifiées, en-têtes
+  nginx complétés et zone `login`, conteneurs durcis, cache immutable des
+  `/assets`, `staleTime` de 30 s côté front, N+1 des alias corrigé, suite de
+  tests accélérée. Reporté et contexte : `docs/dette.md` (« Optimisations du
+  25/09/2026 »). Le serveur actuel est un serveur perso/de dev provisoire ;
+  la cible est un serveur dédié au client (seul Ilane y aura un compte).
 
 ## Méthode
 
