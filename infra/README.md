@@ -731,12 +731,20 @@ installée dans `/etc/nginx/sites-available/habitat` lui est identique.
   renouvellement) ; le hook `renewal-hooks/deploy/reload-nginx.sh` du VPS
   vise un autre certificat et ne fait rien pour celui-ci. À valider une fois
   avec `certbot renew --cert-name habitat.ellumena.fr --dry-run`.
-- En-têtes repris des labels Traefik : CSP, `nosniff`, `X-Frame-Options DENY`,
-  `Referrer-Policy same-origin`, HSTS d'un an (§7).
+- En-têtes repris des labels Traefik : CSP, `Permissions-Policy`,
+  `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `nosniff`,
+  `X-Frame-Options DENY`, `Referrer-Policy same-origin`, HSTS d'un an (§7).
 - `client_max_body_size 25m` (l'application limite un document à 20 Mio),
-  `limit_req zone=general burst=40 nodelay` (zone `general` partagée du VPS :
-  10 requêtes/s par adresse IP cliente, rafale de 40 sans délai),
-  `proxy_read_timeout 120s`.
+  `limit_req zone=general burst=40 nodelay` sur `location /` (zone `general`
+  partagée du VPS : 10 requêtes/s par adresse IP cliente, rafale de 40 sans
+  délai), `proxy_read_timeout 120s`.
+- `location = /api/auth/login`, placé avant `location /`, applique en plus
+  `limit_req zone=login burst=5 nodelay` (zone `login` partagée du VPS : 5
+  requêtes/minute par adresse IP cliente) avant de proxyer vers le même
+  amont ; aucun `add_header` dans ce bloc, pour hériter ceux du `server`
+  (sinon ils ne s'appliqueraient plus à cette location).
+- Les deux zones (`general` et `login`) sont définies dans le `nginx.conf`
+  du serveur, hors dépôt (§4) ; à reproduire sur le futur serveur dédié.
 - nginx transmet `Host`, `X-Forwarded-Proto` et `X-Forwarded-For` fixé à
   `$remote_addr`. Uvicorn tourne avec `--proxy-headers
   --forwarded-allow-ips=*`, ce qui donne à slowapi l'adresse réelle du client.
@@ -1024,14 +1032,26 @@ immédiate et aucun second serveur ; ajouter plus tard un TOTP pour les admins.
   `cross-site`. Une requête sans ces deux en-têtes (curl, tests) passe.
   `/tg/webhook` n'est pas concerné. Avec `SameSite=Lax`, cela remplace un
   jeton CSRF.
-- **En-têtes** (servis par nginx) :
+- **En-têtes** (servis par nginx, repris dans les labels Traefik de
+  `deploy/docker-compose.yml`) :
   `Content-Security-Policy: default-src 'self'; img-src 'self' data:;
-  style-src 'self' 'unsafe-inline'; frame-ancestors 'none'`, `nosniff`,
+  style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self';
+  object-src 'none'; frame-ancestors 'none'`, `Permissions-Policy:
+  camera=(), microphone=(), geolocation=(), payment=()`,
+  `Cross-Origin-Opener-Policy: same-origin`,
+  `Cross-Origin-Resource-Policy: same-origin`, `nosniff`,
   `X-Frame-Options DENY`, `Referrer-Policy same-origin`,
   `Strict-Transport-Security max-age=31536000; includeSubDomains`.
   `'unsafe-inline'` sur les styles est gardé par prudence ; aucun style inline
-  n'était utilisé lors de la vérification.
+  n'était utilisé lors de la vérification. `Cross-Origin-Resource-Policy:
+  same-origin` est sans risque de casse : les photos de BL et PDF de
+  factures ne sont affichés que depuis `web/src`, en même origine (`<img>`,
+  lien de téléchargement), jamais consommés depuis un autre site.
 - **Polices** auto-hébergées : la CSP interdit Google Fonts.
+- **Limitation dédiée à la connexion** : `location = /api/auth/login`
+  applique en plus la zone `login` (5 requêtes/minute par IP, cf. §5.4),
+  au-delà de la limitation applicative slowapi (§7.1) et de la zone
+  `general` (10 requêtes/s, §5.4) qui couvre le reste de l'API.
 
 ### 7.3 Secrets
 
