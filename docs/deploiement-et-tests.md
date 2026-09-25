@@ -437,6 +437,16 @@ Créer d'abord le dossier de logs :
 mkdir -p /home/debian/habitat_reno/logs
 ```
 
+**Attention** : la ligne « Sauvegarde nocturne » ci-dessous doit tourner en root, ou
+avec un accès en lecture donné explicitement sur `DOCS_HOST_DIR` au compte
+qui exécute le cron — jamais un compte hôte ordinaire tel quel. Les
+documents y sont écrits par le conteneur `api` en 0640 (dossier 0750),
+appartenant à l'uid 10001 (`Dockerfile`, `USER 10001`, tâche T3) ; `backup.sh`
+monte ce dossier en lecture seule pour restic avec `-u "$(id -u):$(id -g)"`,
+c'est-à-dire l'uid/gid de l'utilisateur **hôte** qui invoque le script —
+jamais l'uid 10001. Détail et solutions (root, ou `setfacl` sur
+`DOCS_HOST_DIR`) : `deploy/RESTAURATION.md` § « Entrée cron nocturne ».
+
 Après validation du déploiement seulement, configurer une adresse
 d'exploitation dans la crontab. `MAILTO` nécessite un MTA fonctionnel. Les
 blocs d'échec réémettent la fin du log sur la sortie de cron et conservent le

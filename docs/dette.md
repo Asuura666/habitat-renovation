@@ -495,6 +495,23 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   `flock`, rotation des logs et supervision des codes de sortie
   (`docs/deploiement-et-tests.md` §9 et §11) avant de considérer le
   déploiement complet.
+- **`backup.sh` ne pourra plus lire `DOCS_HOST_DIR` en cron non-root, depuis
+  le durcissement des permissions des documents (0640/0750, tâche T3,
+  `a59daa3`).** Les documents sont écrits par le conteneur `api` avec l'uid
+  10001 (`Dockerfile`, `USER 10001`), sans droit de lecture pour « other » ;
+  `backup.sh` monte `DOCS_HOST_DIR` en lecture seule pour restic avec
+  `-u "$(id -u):$(id -g)"`, c'est-à-dire l'uid/gid de l'utilisateur **hôte**
+  qui invoque le script, jamais l'uid 10001. Un cron exécuté par un compte
+  hôte ordinaire (ex. `debian`) obtiendra donc `permission denied` sur
+  `restic backup` dès qu'il tournera. Rien ne casse tant qu'aucun cron de
+  sauvegarde n'est posé (voir l'entrée ci-dessus), mais la prochaine tâche
+  qui pose les crons/sauvegardes restic doit soit l'exécuter en root, soit
+  donner au compte exécutant un accès en lecture au groupe/uid 10001 sur
+  `DOCS_HOST_DIR` (ex. `setfacl`) — détail et commande dans
+  `deploy/RESTAURATION.md` § « Entrée cron nocturne » et
+  `docs/deploiement-et-tests.md` §9. `deploy/test-restauration.sh` ne
+  détecte pas cette régression : il dépose son fichier de test en bash sous
+  l'utilisateur courant, jamais via l'API/uid 10001.
 
 ### Bilan — définitions et validation provisoires
 

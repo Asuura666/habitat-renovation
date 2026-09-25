@@ -44,8 +44,11 @@ ne modifie rien, mais autant l'éviter.
 
 ## Entrée cron nocturne
 
-Exemple (root ou l'utilisateur propriétaire du dépôt, à adapter au chemin
-réel) :
+**Doit tourner en root**, ou avec un accès en lecture donné explicitement
+sur `DOCS_HOST_DIR` au compte qui exécute le cron (voir l'avertissement
+« Permissions de `DOCS_HOST_DIR` » ci-dessous) — jamais un simple
+« utilisateur propriétaire du dépôt » depuis le durcissement des
+permissions des documents (tâche T3, `a59daa3`).
 
 ```cron
 0 3 * * * cd /home/debian/habitat_reno && ./deploy/backup.sh >> /home/debian/habitat_reno/logs/backup.log 2>&1
@@ -54,6 +57,32 @@ réel) :
 `backup.sh` s'arrête avec un code non nul à la moindre erreur (dump,
 sauvegarde restic ou rotation) : surveiller le code de sortie du cron
 (`MAILTO=` ou une supervision externe), pas seulement le contenu du log.
+
+### Attention — permissions de `DOCS_HOST_DIR` (à vérifier avant de poser ce cron)
+
+Les documents dans `DOCS_HOST_DIR` sont écrits par le conteneur `api` en
+0640 (dossier 0750), appartenant à l'uid 10001 (`Dockerfile`, `USER
+10001`) — aucun droit de lecture pour « other » (défense en profondeur,
+tâche T3). `backup.sh` monte ce dossier en lecture seule dans le conteneur
+restic lancé avec `-u "$(id -u):$(id -g)"`, c'est-à-dire l'**uid/gid de
+l'utilisateur hôte qui invoque le script**, jamais l'uid 10001 (interne au
+conteneur, absent de `/etc/passwd` sur l'hôte). Concrètement : tout compte
+hôte autre que root n'a plus accès en lecture à ces fichiers, et
+`restic backup` échouera (`permission denied`) dès que le cron tournera
+sous un compte non-root (ex. `debian`).
+
+Avant de poser ce cron : soit l'exécuter en root (qui contourne les
+vérifications de permissions Unix), soit donner au compte qui l'exécute un
+accès en lecture au groupe/uid 10001 sur `DOCS_HOST_DIR`, par exemple :
+
+```bash
+setfacl -R -m g:10001:rX -m d:g:10001:rX "$DOCS_HOST_DIR"
+```
+
+`deploy/test-restauration.sh` ne détecte pas cette régression : il dépose
+son fichier de test directement en bash (`echo ... > "$DOCS_DIR_TEST/..."`)
+sous l'utilisateur courant, jamais via l'API/uid 10001, donc jamais avec un
+fichier 0640 appartenant à un autre uid.
 
 La rotation (`restic forget --keep-daily 30 --keep-monthly 12 --prune`) est
 effectuée par `backup.sh` lui-même après chaque sauvegarde : aucune tâche
