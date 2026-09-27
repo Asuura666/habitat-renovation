@@ -871,3 +871,81 @@ class JournalReponse(BaseModel):
     avant: dict[str, Any] | None
     apres: dict[str, Any] | None
     horodatage: datetime
+
+
+# --------------------------------------------------------------------------
+# Comptes (Task 10, spec §3) : schémas construits à partir d'`app.core.auth
+# .CompteLu`, consommés par `api/comptes.py`. `CompteReponse` n'expose jamais
+# `hashed_password`/`mdp_hash` -- `CompteLu` ne les porte même pas (défense
+# en profondeur, décision du contrôleur).
+# --------------------------------------------------------------------------
+
+
+class CompteReponse(BaseModel):
+    """Une ligne de `GET /api/comptes`, et la réponse de chaque route
+    d'écriture de l'écran « Comptes » -- mêmes attributs qu'`app.core.auth
+    .CompteLu`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    nom: str | None
+    email: str
+    role: str
+    agence: str | None
+    telegram_user_id: int | None
+    actif: bool
+    cree_le: datetime
+
+
+class CompteCreationRequete(BaseModel):
+    """Corps de `POST /api/comptes` (spec §3 : « Créer ») : e-mail et nom
+    obligatoires (blanc refusé, même convention que `ChantierCreationRequete`
+    ci-dessus), rôle restreint aux deux valeurs valides (`Literal`, un rôle
+    hors de cet ensemble est un 422 avant même d'atteindre le service),
+    agence et identifiant Telegram facultatifs, mot de passe provisoire
+    (longueur revérifiée par `app.core.auth._mot_de_passe_valide`, jamais
+    ici : une seule source de vérité pour ce seuil)."""
+
+    email: str = Field(min_length=1, max_length=320)
+    nom: str = Field(min_length=1, max_length=200)
+    role: Literal["admin", "agent"]
+    agence: str | None = Field(default=None, max_length=200)
+    telegram_user_id: int | None = None
+    mot_de_passe: str = Field(min_length=1)
+
+    @field_validator("email", "nom")
+    @classmethod
+    def _non_blanc(cls, valeur: str) -> str:
+        if not valeur.strip():
+            raise ValueError("champ requis")
+        return valeur
+
+
+class CompteModificationRequete(BaseModel):
+    """Corps de `PUT /api/comptes/{id}` (spec §3 : « Modifier ») -- jamais le
+    mot de passe (`ChangementMotDePasseRequete` ci-dessous), mêmes règles que
+    `CompteCreationRequete`."""
+
+    email: str = Field(min_length=1, max_length=320)
+    nom: str = Field(min_length=1, max_length=200)
+    role: Literal["admin", "agent"]
+    agence: str | None = Field(default=None, max_length=200)
+    telegram_user_id: int | None = None
+
+    @field_validator("email", "nom")
+    @classmethod
+    def _non_blanc(cls, valeur: str) -> str:
+        if not valeur.strip():
+            raise ValueError("champ requis")
+        return valeur
+
+
+class ChangementMotDePasseRequete(BaseModel):
+    """Corps de `PUT /api/comptes/{id}/mot-de-passe` (spec §3 : « Changer le
+    mot de passe ») : l'admin saisit lui-même le nouveau mot de passe, jamais
+    d'envoi d'e-mail -- longueur revérifiée par `app.core.auth
+    ._mot_de_passe_valide`, jamais ici (même raison que `mot_de_passe`
+    ci-dessus)."""
+
+    mot_de_passe: str = Field(min_length=1)

@@ -2416,6 +2416,237 @@
     }
    }
   },
+  "/api/comptes": {
+   "get": {
+    "summary": "Lister Comptes Endpoint",
+    "operationId": "lister_comptes_endpoint_api_comptes_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/CompteReponse"
+         },
+         "type": "array",
+         "title": "Response Lister Comptes Endpoint Api Comptes Get"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "summary": "Creer Compte Endpoint",
+    "operationId": "creer_compte_endpoint_api_comptes_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CompteCreationRequete"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CompteReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/comptes/{compte_id}": {
+   "put": {
+    "summary": "Modifier Compte Endpoint",
+    "operationId": "modifier_compte_endpoint_api_comptes__compte_id__put",
+    "parameters": [
+     {
+      "name": "compte_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Compte Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CompteModificationRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CompteReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/comptes/{compte_id}/mot-de-passe": {
+   "put": {
+    "summary": "Changer Mot De Passe Endpoint",
+    "operationId": "changer_mot_de_passe_endpoint_api_comptes__compte_id__mot_de_passe_put",
+    "parameters": [
+     {
+      "name": "compte_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Compte Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ChangementMotDePasseRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/comptes/{compte_id}/retirer-acces": {
+   "post": {
+    "summary": "Retirer Acces Endpoint",
+    "operationId": "retirer_acces_endpoint_api_comptes__compte_id__retirer_acces_post",
+    "parameters": [
+     {
+      "name": "compte_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Compte Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CompteReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/comptes/{compte_id}/retablir-acces": {
+   "post": {
+    "summary": "Retablir Acces Endpoint",
+    "operationId": "retablir_acces_endpoint_api_comptes__compte_id__retablir_acces_post",
+    "parameters": [
+     {
+      "name": "compte_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Compte Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CompteReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/tableau-de-bord": {
    "get": {
     "summary": "Tableau De Bord Endpoint",
@@ -3258,6 +3489,21 @@
     "title": "ChampsDocumentReponse",
     "description": "`DocumentDetail.champs` (`dict[str, ChampLu]`), à attributs nommés\n(une clé par champ correctible de l'en-tête, hors `type`/`fournisseur_id`\n— décision du contrôleur)."
    },
+   "ChangementMotDePasseRequete": {
+    "properties": {
+     "mot_de_passe": {
+      "type": "string",
+      "minLength": 1,
+      "title": "Mot De Passe"
+     }
+    },
+    "type": "object",
+    "required": [
+     "mot_de_passe"
+    ],
+    "title": "ChangementMotDePasseRequete",
+    "description": "Corps de `PUT /api/comptes/{id}/mot-de-passe` (spec §3 : « Changer le\nmot de passe ») : l'admin saisit lui-même le nouveau mot de passe, jamais\nd'envoi d'e-mail -- longueur revérifiée par `app.core.auth\n._mot_de_passe_valide`, jamais ici (même raison que `mot_de_passe`\nci-dessus)."
+   },
    "ChantierACompleterReponse": {
     "properties": {
      "id": {
@@ -3687,6 +3933,122 @@
     "title": "ComparaisonBlReponse",
     "description": "`GET /api/documents/{id}/comparaison` (Task 3, refonte front) —\nmêmes attributs qu'`ingest.comparaison_bl.ComparaisonBl`.\n`facture_id`/`numero_facture`/`montant_facture_ht` valent `None` quand\naucun bloc de facture ne cite ce BL (`bloc_facture.bl_document_id`,\nmême principe que `LigneBilanBlReponse.bl_document_id`).\n\n`nb_problemes` (tour de correction 1, Task 8) : nombre d'anomalies\nouvertes concernant ce BL, au sens large — pas seulement la somme des\n`regles_ouvertes` des `lignes` (voir le docstring de\n`ingest.comparaison_bl.ComparaisonBl`). C'est ce champ, jamais un calcul\nfront, qui doit fonder le nombre de problèmes affiché et déterminer si\nle BL peut être présenté comme « Conforme »."
    },
+   "CompteCreationRequete": {
+    "properties": {
+     "email": {
+      "type": "string",
+      "maxLength": 320,
+      "minLength": 1,
+      "title": "Email"
+     },
+     "nom": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Nom"
+     },
+     "role": {
+      "type": "string",
+      "enum": [
+       "admin",
+       "agent"
+      ],
+      "title": "Role"
+     },
+     "agence": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Agence"
+     },
+     "telegram_user_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Telegram User Id"
+     },
+     "mot_de_passe": {
+      "type": "string",
+      "minLength": 1,
+      "title": "Mot De Passe"
+     }
+    },
+    "type": "object",
+    "required": [
+     "email",
+     "nom",
+     "role",
+     "mot_de_passe"
+    ],
+    "title": "CompteCreationRequete",
+    "description": "Corps de `POST /api/comptes` (spec §3 : « Créer ») : e-mail et nom\nobligatoires (blanc refusé, même convention que `ChantierCreationRequete`\nci-dessus), rôle restreint aux deux valeurs valides (`Literal`, un rôle\nhors de cet ensemble est un 422 avant même d'atteindre le service),\nagence et identifiant Telegram facultatifs, mot de passe provisoire\n(longueur revérifiée par `app.core.auth._mot_de_passe_valide`, jamais\nici : une seule source de vérité pour ce seuil)."
+   },
+   "CompteModificationRequete": {
+    "properties": {
+     "email": {
+      "type": "string",
+      "maxLength": 320,
+      "minLength": 1,
+      "title": "Email"
+     },
+     "nom": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Nom"
+     },
+     "role": {
+      "type": "string",
+      "enum": [
+       "admin",
+       "agent"
+      ],
+      "title": "Role"
+     },
+     "agence": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Agence"
+     },
+     "telegram_user_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Telegram User Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "email",
+     "nom",
+     "role"
+    ],
+    "title": "CompteModificationRequete",
+    "description": "Corps de `PUT /api/comptes/{id}` (spec §3 : « Modifier ») -- jamais le\nmot de passe (`ChangementMotDePasseRequete` ci-dessous), mêmes règles que\n`CompteCreationRequete`."
+   },
    "CompteProblemesReponse": {
     "properties": {
      "nb_problemes": {
@@ -3710,6 +4072,78 @@
     ],
     "title": "CompteProblemesReponse",
     "description": "`GET /api/a-regler/compte` : nombre de problèmes « à régler », tous\nmois confondus -- mêmes attributs qu'`ingest.a_traiter.CompteProblemes`\n(revue finale de la refonte du front : un seul compte pour la pastille\nde navigation, la vue d'ensemble et l'écran « À régler »).\n\n`controle_prix_actif` (décision d'Ilane du 24/09/2026, `docs/dette.md`) :\nle front adapte ses libellés (« Écart prix ou quantité » -> « Écart de\nquantité ») et masque le filtre « Prix » de l'écran « À régler » quand\nce drapeau est faux -- voir `ingest.a_traiter.CompteProblemes`.\n\n`controle_livre_non_facture_actif` n'est plus un attribut de cette\nréponse : depuis que `ingest.parametres._cle_masquee` masque\n`delai_ligne_bl_non_facturee_j` côté serveur, plus aucun écran ne lit\nce second drapeau -- voir `ingest.a_traiter.CompteProblemes`."
+   },
+   "CompteReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "nom": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Nom"
+     },
+     "email": {
+      "type": "string",
+      "title": "Email"
+     },
+     "role": {
+      "type": "string",
+      "title": "Role"
+     },
+     "agence": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Agence"
+     },
+     "telegram_user_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Telegram User Id"
+     },
+     "actif": {
+      "type": "boolean",
+      "title": "Actif"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "nom",
+     "email",
+     "role",
+     "agence",
+     "telegram_user_id",
+     "actif",
+     "cree_le"
+    ],
+    "title": "CompteReponse",
+    "description": "Une ligne de `GET /api/comptes`, et la réponse de chaque route\nd'écriture de l'écran « Comptes » -- mêmes attributs qu'`app.core.auth\n.CompteLu`."
    },
    "CorrectionEnteteRequete": {
     "properties": {

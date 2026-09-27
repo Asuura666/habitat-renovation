@@ -30,14 +30,22 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.auth import (
     NOM_COOKIE,
+    ActionSurSoiInterdite,
+    DernierAdmin,
     EmailDejaUtilise,
     MotDePasseTropCourt,
     RoleInvalide,
     TelegramUserIdDejaAttribue,
     UtilisateurIntrouvable,
     admin_requis,
+    changer_mot_de_passe,
+    creer_compte,
     creer_utilisateur,
     desactiver_utilisateur,
+    lister_comptes,
+    modifier_compte,
+    retablir_acces,
+    retirer_acces,
 )
 from app.core.auth import router as auth_router
 from app.core.origine import ControleOrigineMiddleware
@@ -882,3 +890,628 @@ async def test_desactiver_utilisateur_casse_differente_trouve(
 
     assert desactive.email == "agent.desactive.casse@example.invalid"
     assert desactive.is_active is False
+
+
+# ---------------------------------------------------------------------------
+# Gestion des comptes par un admin (Task 10, spec §3) : `lister_comptes`/
+# `creer_compte`/`modifier_compte`/`changer_mot_de_passe`/`retirer_acces`/
+# `retablir_acces`. Tests au niveau fonction (pas de route HTTP ici) : voir
+# `app/modules/api/tests/test_comptes.py` pour les routes, les codes HTTP et
+# le comportement de bout en bout d'un cookie coupé.
+# ---------------------------------------------------------------------------
+
+
+async def _journal_action(
+    db_session: AsyncSession, cible_id: uuid.UUID, action: str
+) -> Journal:
+    """L'unique ligne `journal` pour `(cible_id, action)` (erreur si aucune
+    ou plusieurs) — plus précis que `_journal_pour` ci-dessus quand un compte
+    porte déjà une entrée `utilisateur_cree`/`compte_cree` avant l'action
+    testée."""
+    return (
+        await db_session.execute(
+            select(Journal)
+            .where(Journal.cible_id == str(cible_id))
+            .where(Journal.action == action)
+        )
+    ).scalar_one()
+
+
+async def test_creer_compte_journalise_sans_mot_de_passe(
+    db_session: AsyncSession,
+) -> None:
+    admin = await creer_utilisateur(
+        db_session,
+        email="cc.admin@example.invalid",
+        nom="Admin",
+        role="admin",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+
+    compte = await creer_compte(
+        db_session,
+        email="cc.cree@example.invalid",
+        nom="Nouveau Compte",
+        role="agent",
+        agence="Bordeaux",
+        telegram_user_id=None,
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+        auteur_id=admin.id,
+    )
+
+    assert compte.email == "cc.cree@example.invalid"
+    assert compte.nom == "Nouveau Compte"
+    assert compte.role == "agent"
+    assert compte.agence == "Bordeaux"
+    assert compte.telegram_user_id is None
+    assert compte.actif is True
+
+    relu = (
+        await db_session.execute(select(Utilisateur).where(Utilisateur.id == compte.id))
+    ).scalar_one()
+    assert relu.hashed_password is not None
+    assert relu.hashed_password.startswith("$argon2id$")
+
+    journal = await _journal_action(db_session, compte.id, "compte_cree")
+    assert journal.utilisateur_id == admin.id
+    assert journal.avant is None
+    assert journal.apres is not None
+    # Même garde que `test_creer_utilisateur_hash_argon2id_et_journal_sans_
+    # secret` ci-dessus : ni le hash ni le mot de passe en clair dans le
+    # journal, cette fois avec `utilisateur_id=auteur_id` (jamais `None`,
+    # contrairement à `creer_utilisateur`/`utilisateur_cree`).
+    assert "hashed_password" not in journal.apres
+    assert "mdp_hash" not in journal.apres
+    assert _MOT_DE_PASSE_VALIDE not in journal.apres.values()
+    assert relu.hashed_password not in journal.apres.values()
+
+
+async def test_creer_compte_email_deja_utilise_insensible_casse(
+    db_session: AsyncSession,
+) -> None:
+    admin = await creer_utilisateur(
+        db_session,
+        email="cc.casse.admin@example.invalid",
+        nom="Admin",
+        role="admin",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    await creer_compte(
+        db_session,
+        email="Agent.Casse@Example.INVALID",
+        nom="Premier",
+        role="agent",
+        agence="Toulouse",
+        telegram_user_id=None,
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+        auteur_id=admin.id,
+    )
+
+    with pytest.raises(EmailDejaUtilise):
+        await creer_compte(
+            db_session,
+            email="agent.casse@example.invalid",
+            nom="Second",
+            role="agent",
+            agence="Toulouse",
+            telegram_user_id=None,
+            mot_de_passe=_MOT_DE_PASSE_VALIDE,
+            auteur_id=admin.id,
+        )
+
+    lignes = (
+        (
+            await db_session.execute(
+                select(Utilisateur).where(
+                    func.lower(Utilisateur.email) == "agent.casse@example.invalid"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(lignes) == 1
+    assert lignes[0].nom == "Premier"
+
+
+async def test_creer_compte_telegram_deja_attribue(db_session: AsyncSession) -> None:
+    admin = await creer_utilisateur(
+        db_session,
+        email="cc.telegram.admin@example.invalid",
+        nom="Admin",
+        role="admin",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    await creer_compte(
+        db_session,
+        email="cc.telegram1@example.invalid",
+        nom="Premier",
+        role="agent",
+        agence="Toulouse",
+        telegram_user_id=111222333,
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+        auteur_id=admin.id,
+    )
+
+    with pytest.raises(TelegramUserIdDejaAttribue):
+        await creer_compte(
+            db_session,
+            email="cc.telegram2@example.invalid",
+            nom="Second",
+            role="agent",
+            agence="Toulouse",
+            telegram_user_id=111222333,
+            mot_de_passe=_MOT_DE_PASSE_VALIDE,
+            auteur_id=admin.id,
+        )
+
+    porteurs = (
+        (
+            await db_session.execute(
+                select(Utilisateur).where(Utilisateur.telegram_user_id == 111222333)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(porteurs) == 1
+    assert porteurs[0].email == "cc.telegram1@example.invalid"
+
+
+async def test_lister_comptes_actifs_dabord_puis_nom_email(
+    db_session: AsyncSession,
+) -> None:
+    inactif = await creer_utilisateur(
+        db_session,
+        email="liste.inactif@example.invalid",
+        nom="Aaa Inactif",
+        role="agent",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    await desactiver_utilisateur(db_session, inactif.email)
+    await creer_utilisateur(
+        db_session,
+        email="liste.zzz@example.invalid",
+        nom="Zzz Actif",
+        role="agent",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    await creer_utilisateur(
+        db_session,
+        email="liste.aaa@example.invalid",
+        nom="Aaa Actif",
+        role="agent",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+
+    comptes = await lister_comptes(db_session)
+    emails = [compte.email for compte in comptes]
+
+    assert emails == [
+        "liste.aaa@example.invalid",
+        "liste.zzz@example.invalid",
+        "liste.inactif@example.invalid",
+    ]
+
+
+async def test_modifier_compte(db_session: AsyncSession) -> None:
+    admin = await creer_utilisateur(
+        db_session,
+        email="mc.admin@example.invalid",
+        nom="Admin",
+        role="admin",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    cible = await creer_utilisateur(
+        db_session,
+        email="mc.cible@example.invalid",
+        nom="Ancien Nom",
+        role="agent",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+
+    compte = await modifier_compte(
+        db_session,
+        cible.id,
+        email="mc.cible.modifie@example.invalid",
+        nom="Nouveau Nom",
+        role="admin",
+        agence="Bordeaux",
+        telegram_user_id=444555666,
+        auteur_id=admin.id,
+    )
+
+    assert compte.email == "mc.cible.modifie@example.invalid"
+    assert compte.nom == "Nouveau Nom"
+    assert compte.role == "admin"
+    assert compte.agence == "Bordeaux"
+    assert compte.telegram_user_id == 444555666
+
+    relu = (
+        await db_session.execute(select(Utilisateur).where(Utilisateur.id == cible.id))
+    ).scalar_one()
+    assert relu.email == "mc.cible.modifie@example.invalid"
+    assert relu.role == "admin"
+    # Le mot de passe n'est jamais touché par `modifier_compte`.
+    assert relu.hashed_password == cible.hashed_password
+
+    journal = await _journal_action(db_session, cible.id, "compte_modifie")
+    assert journal.utilisateur_id == admin.id
+    assert journal.avant == {
+        "email": "mc.cible@example.invalid",
+        "nom": "Ancien Nom",
+        "role": "agent",
+        "agence": "Toulouse",
+        "telegram_user_id": None,
+    }
+    assert journal.apres == {
+        "email": "mc.cible.modifie@example.invalid",
+        "nom": "Nouveau Nom",
+        "role": "admin",
+        "agence": "Bordeaux",
+        "telegram_user_id": 444555666,
+    }
+
+
+async def test_modifier_compte_email_unicite_exclut_le_compte_lui_meme(
+    db_session: AsyncSession,
+) -> None:
+    """Sans l'exclusion (`exclu_id`), enregistrer une fiche sans changer ni
+    l'e-mail ni l'identifiant Telegram serait refusé comme « déjà utilisé »
+    par le compte lui-même."""
+    admin = await creer_utilisateur(
+        db_session,
+        email="mc.exclu.admin@example.invalid",
+        nom="Admin",
+        role="admin",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    cible = await creer_utilisateur(
+        db_session,
+        email="mc.exclu.cible@example.invalid",
+        nom="Cible",
+        role="agent",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+        telegram_user_id=777888999,
+    )
+
+    compte = await modifier_compte(
+        db_session,
+        cible.id,
+        email=cible.email,
+        nom="Cible Renommée",
+        role="agent",
+        agence="Toulouse",
+        telegram_user_id=777888999,
+        auteur_id=admin.id,
+    )
+
+    assert compte.nom == "Cible Renommée"
+    assert compte.email == "mc.exclu.cible@example.invalid"
+    assert compte.telegram_user_id == 777888999
+
+
+async def test_modifier_compte_introuvable(db_session: AsyncSession) -> None:
+    admin = await creer_utilisateur(
+        db_session,
+        email="mc.introuvable.admin@example.invalid",
+        nom="Admin",
+        role="admin",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+
+    with pytest.raises(UtilisateurIntrouvable):
+        await modifier_compte(
+            db_session,
+            uuid.uuid4(),
+            email="peu.importe@example.invalid",
+            nom="Peu Importe",
+            role="agent",
+            agence=None,
+            telegram_user_id=None,
+            auteur_id=admin.id,
+        )
+
+
+async def test_dernier_admin_protege(db_session: AsyncSession) -> None:
+    """Garde-fou (spec §3) : ni `modifier_compte` (passage au rôle `agent`)
+    ni `retirer_acces` ne doivent pouvoir retirer le dernier administrateur
+    actif — sans quoi plus personne ne pourrait gérer les comptes. Un second
+    compte admin *inactif* ne compte pas comme protection (« dernier admin
+    **actif** », spec §3)."""
+    seul_admin_actif = await creer_utilisateur(
+        db_session,
+        email="dernier.admin@example.invalid",
+        nom="Seul Admin",
+        role="admin",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    autre_admin_inactif = await creer_utilisateur(
+        db_session,
+        email="autre.admin.inactif@example.invalid",
+        nom="Autre Admin",
+        role="admin",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    await desactiver_utilisateur(db_session, autre_admin_inactif.email)
+
+    with pytest.raises(DernierAdmin):
+        await modifier_compte(
+            db_session,
+            seul_admin_actif.id,
+            email=seul_admin_actif.email,
+            nom="Seul Admin",
+            role="agent",
+            agence=seul_admin_actif.agence,
+            telegram_user_id=None,
+            auteur_id=seul_admin_actif.id,
+        )
+    relu = (
+        await db_session.execute(
+            select(Utilisateur).where(Utilisateur.id == seul_admin_actif.id)
+        )
+    ).scalar_one()
+    assert relu.role == "admin"
+
+    with pytest.raises(DernierAdmin):
+        await retirer_acces(
+            db_session, seul_admin_actif.id, auteur_id=autre_admin_inactif.id
+        )
+    relu = (
+        await db_session.execute(
+            select(Utilisateur).where(Utilisateur.id == seul_admin_actif.id)
+        )
+    ).scalar_one()
+    assert relu.is_active is True
+
+
+async def test_changer_mot_de_passe_coupe_les_sessions(
+    db_session: AsyncSession,
+) -> None:
+    admin = await creer_utilisateur(
+        db_session,
+        email="cmdp.admin@example.invalid",
+        nom="Admin",
+        role="admin",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    cible = await creer_utilisateur(
+        db_session,
+        email="cmdp.cible@example.invalid",
+        nom="Cible",
+        role="agent",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    ancien_hash = cible.hashed_password
+    db_session.add(
+        JetonSession(token="jeton-cmdp-1", user_id=cible.id)  # noqa: S106 -- test, jamais un vrai secret
+    )
+    await db_session.commit()
+
+    nouveau_mot_de_passe = "nouveau-mot-de-passe-invente-1234"
+    await changer_mot_de_passe(
+        db_session, cible.id, mot_de_passe=nouveau_mot_de_passe, auteur_id=admin.id
+    )
+
+    relu = (
+        await db_session.execute(select(Utilisateur).where(Utilisateur.id == cible.id))
+    ).scalar_one()
+    assert relu.hashed_password is not None
+    assert relu.hashed_password != ancien_hash
+    assert relu.hashed_password.startswith("$argon2id$")
+
+    jetons_restants = (
+        (
+            await db_session.execute(
+                select(JetonSession).where(JetonSession.user_id == cible.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert jetons_restants == []
+
+    journal = await _journal_action(db_session, cible.id, "mot_de_passe_change")
+    assert journal.utilisateur_id == admin.id
+    assert journal.avant is None
+    assert journal.apres is None
+
+
+async def test_changer_mot_de_passe_trop_court(db_session: AsyncSession) -> None:
+    admin = await creer_utilisateur(
+        db_session,
+        email="cmdp.court.admin@example.invalid",
+        nom="Admin",
+        role="admin",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    cible = await creer_utilisateur(
+        db_session,
+        email="cmdp.court.cible@example.invalid",
+        nom="Cible",
+        role="agent",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    ancien_hash = cible.hashed_password
+
+    with pytest.raises(MotDePasseTropCourt):
+        await changer_mot_de_passe(
+            db_session, cible.id, mot_de_passe="court12345", auteur_id=admin.id
+        )
+
+    relu = (
+        await db_session.execute(select(Utilisateur).where(Utilisateur.id == cible.id))
+    ).scalar_one()
+    assert relu.hashed_password == ancien_hash
+
+
+async def test_changer_mot_de_passe_introuvable(db_session: AsyncSession) -> None:
+    admin = await creer_utilisateur(
+        db_session,
+        email="cmdp.introuvable.admin@example.invalid",
+        nom="Admin",
+        role="admin",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+
+    with pytest.raises(UtilisateurIntrouvable):
+        await changer_mot_de_passe(
+            db_session,
+            uuid.uuid4(),
+            mot_de_passe=_MOT_DE_PASSE_VALIDE,
+            auteur_id=admin.id,
+        )
+
+
+async def test_retirer_son_propre_acces_refuse(db_session: AsyncSession) -> None:
+    admin1 = await creer_utilisateur(
+        db_session,
+        email="soi1@example.invalid",
+        nom="Admin Un",
+        role="admin",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    # Un second admin actif, pour isoler `ActionSurSoiInterdite` du
+    # garde-fou `DernierAdmin` (`test_dernier_admin_protege` ci-dessus).
+    await creer_utilisateur(
+        db_session,
+        email="soi2@example.invalid",
+        nom="Admin Deux",
+        role="admin",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+
+    with pytest.raises(ActionSurSoiInterdite):
+        await retirer_acces(db_session, admin1.id, auteur_id=admin1.id)
+
+    relu = (
+        await db_session.execute(select(Utilisateur).where(Utilisateur.id == admin1.id))
+    ).scalar_one()
+    assert relu.is_active is True
+
+
+async def test_retirer_acces_coupe_les_sessions(db_session: AsyncSession) -> None:
+    admin = await creer_utilisateur(
+        db_session,
+        email="retire.admin@example.invalid",
+        nom="Admin",
+        role="admin",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    cible = await creer_utilisateur(
+        db_session,
+        email="retire.cible@example.invalid",
+        nom="Cible",
+        role="agent",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    db_session.add(
+        JetonSession(token="jeton-retire-1", user_id=cible.id)  # noqa: S106 -- test, jamais un vrai secret
+    )
+    await db_session.commit()
+
+    compte = await retirer_acces(db_session, cible.id, auteur_id=admin.id)
+
+    assert compte.actif is False
+    relu = (
+        await db_session.execute(select(Utilisateur).where(Utilisateur.id == cible.id))
+    ).scalar_one()
+    assert relu.is_active is False
+    jetons_restants = (
+        (
+            await db_session.execute(
+                select(JetonSession).where(JetonSession.user_id == cible.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert jetons_restants == []
+
+    journal = await _journal_action(db_session, cible.id, "acces_retire")
+    assert journal.utilisateur_id == admin.id
+    assert journal.avant == {"actif": True}
+    assert journal.apres == {"actif": False}
+
+
+async def test_retirer_acces_introuvable(db_session: AsyncSession) -> None:
+    admin = await creer_utilisateur(
+        db_session,
+        email="retire.introuvable.admin@example.invalid",
+        nom="Admin",
+        role="admin",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+
+    with pytest.raises(UtilisateurIntrouvable):
+        await retirer_acces(db_session, uuid.uuid4(), auteur_id=admin.id)
+
+
+async def test_retablir_acces(db_session: AsyncSession) -> None:
+    admin = await creer_utilisateur(
+        db_session,
+        email="retablir.admin@example.invalid",
+        nom="Admin",
+        role="admin",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    cible = await creer_utilisateur(
+        db_session,
+        email="retablir.cible@example.invalid",
+        nom="Cible",
+        role="agent",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+    await retirer_acces(db_session, cible.id, auteur_id=admin.id)
+
+    compte = await retablir_acces(db_session, cible.id, auteur_id=admin.id)
+
+    assert compte.actif is True
+    relu = (
+        await db_session.execute(select(Utilisateur).where(Utilisateur.id == cible.id))
+    ).scalar_one()
+    assert relu.is_active is True
+
+    journal = await _journal_action(db_session, cible.id, "acces_retabli")
+    assert journal.utilisateur_id == admin.id
+    assert journal.avant == {"actif": False}
+    assert journal.apres == {"actif": True}
+
+
+async def test_retablir_acces_introuvable(db_session: AsyncSession) -> None:
+    admin = await creer_utilisateur(
+        db_session,
+        email="retablir.introuvable.admin@example.invalid",
+        nom="Admin",
+        role="admin",
+        agence="Toulouse",
+        mot_de_passe=_MOT_DE_PASSE_VALIDE,
+    )
+
+    with pytest.raises(UtilisateurIntrouvable):
+        await retablir_acces(db_session, uuid.uuid4(), auteur_id=admin.id)

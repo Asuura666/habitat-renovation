@@ -68,6 +68,15 @@ const LIBELLES_ACTION: Record<string, string> = {
   utilisateur_cree: "Compte utilisateur créé",
   utilisateur_desactive: "Compte utilisateur désactivé",
   parametre_modifie: "Réglage modifié",
+  // Écran « Comptes » (Task 10, spec §3, `app/core/auth.py`) : gestion des
+  // comptes par un admin, distincte des deux actions ci-dessus (`utilisateur_
+  // cree`/`utilisateur_desactive`, propres à la CLI d'exploitation -- voir le
+  // docstring de module d'`app/core/auth.py`).
+  compte_cree: "Compte créé",
+  compte_modifie: "Compte modifié",
+  mot_de_passe_change: "Mot de passe changé",
+  acces_retire: "Accès retiré",
+  acces_retabli: "Accès rétabli",
 };
 
 export function libelleAction(action: string): string {

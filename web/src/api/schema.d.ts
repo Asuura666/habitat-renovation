@@ -766,6 +766,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/comptes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lister Comptes Endpoint */
+        get: operations["lister_comptes_endpoint_api_comptes_get"];
+        put?: never;
+        /** Creer Compte Endpoint */
+        post: operations["creer_compte_endpoint_api_comptes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/comptes/{compte_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Modifier Compte Endpoint */
+        put: operations["modifier_compte_endpoint_api_comptes__compte_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/comptes/{compte_id}/mot-de-passe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Changer Mot De Passe Endpoint */
+        put: operations["changer_mot_de_passe_endpoint_api_comptes__compte_id__mot_de_passe_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/comptes/{compte_id}/retirer-acces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retirer Acces Endpoint */
+        post: operations["retirer_acces_endpoint_api_comptes__compte_id__retirer_acces_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/comptes/{compte_id}/retablir-acces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retablir Acces Endpoint */
+        post: operations["retablir_acces_endpoint_api_comptes__compte_id__retablir_acces_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tableau-de-bord": {
         parameters: {
             query?: never;
@@ -1069,6 +1155,18 @@ export interface components {
             total_ttc: components["schemas"]["ChampReponse"];
         };
         /**
+         * ChangementMotDePasseRequete
+         * @description Corps de `PUT /api/comptes/{id}/mot-de-passe` (spec §3 : « Changer le
+         *     mot de passe ») : l'admin saisit lui-même le nouveau mot de passe, jamais
+         *     d'envoi d'e-mail -- longueur revérifiée par `app.core.auth
+         *     ._mot_de_passe_valide`, jamais ici (même raison que `mot_de_passe`
+         *     ci-dessus).
+         */
+        ChangementMotDePasseRequete: {
+            /** Mot De Passe */
+            mot_de_passe: string;
+        };
+        /**
          * ChantierACompleterReponse
          * @description Un chantier créé automatiquement encore à compléter, dans `GET /api
          *     /a-traiter` — mêmes attributs qu'`ingest.a_traiter.ChantierACompleter`
@@ -1260,6 +1358,54 @@ export interface components {
             nb_problemes: number;
         };
         /**
+         * CompteCreationRequete
+         * @description Corps de `POST /api/comptes` (spec §3 : « Créer ») : e-mail et nom
+         *     obligatoires (blanc refusé, même convention que `ChantierCreationRequete`
+         *     ci-dessus), rôle restreint aux deux valeurs valides (`Literal`, un rôle
+         *     hors de cet ensemble est un 422 avant même d'atteindre le service),
+         *     agence et identifiant Telegram facultatifs, mot de passe provisoire
+         *     (longueur revérifiée par `app.core.auth._mot_de_passe_valide`, jamais
+         *     ici : une seule source de vérité pour ce seuil).
+         */
+        CompteCreationRequete: {
+            /** Email */
+            email: string;
+            /** Nom */
+            nom: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "admin" | "agent";
+            /** Agence */
+            agence?: string | null;
+            /** Telegram User Id */
+            telegram_user_id?: number | null;
+            /** Mot De Passe */
+            mot_de_passe: string;
+        };
+        /**
+         * CompteModificationRequete
+         * @description Corps de `PUT /api/comptes/{id}` (spec §3 : « Modifier ») -- jamais le
+         *     mot de passe (`ChangementMotDePasseRequete` ci-dessous), mêmes règles que
+         *     `CompteCreationRequete`.
+         */
+        CompteModificationRequete: {
+            /** Email */
+            email: string;
+            /** Nom */
+            nom: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "admin" | "agent";
+            /** Agence */
+            agence?: string | null;
+            /** Telegram User Id */
+            telegram_user_id?: number | null;
+        };
+        /**
          * CompteProblemesReponse
          * @description `GET /api/a-regler/compte` : nombre de problèmes « à régler », tous
          *     mois confondus -- mêmes attributs qu'`ingest.a_traiter.CompteProblemes`
@@ -1283,6 +1429,36 @@ export interface components {
             nb_urgents: number;
             /** Controle Prix Actif */
             controle_prix_actif: boolean;
+        };
+        /**
+         * CompteReponse
+         * @description Une ligne de `GET /api/comptes`, et la réponse de chaque route
+         *     d'écriture de l'écran « Comptes » -- mêmes attributs qu'`app.core.auth
+         *     .CompteLu`.
+         */
+        CompteReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Nom */
+            nom: string | null;
+            /** Email */
+            email: string;
+            /** Role */
+            role: string;
+            /** Agence */
+            agence: string | null;
+            /** Telegram User Id */
+            telegram_user_id: number | null;
+            /** Actif */
+            actif: boolean;
+            /**
+             * Cree Le
+             * Format: date-time
+             */
+            cree_le: string;
         };
         /**
          * CorrectionEnteteRequete
@@ -3486,6 +3662,189 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ParametreReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lister_comptes_endpoint_api_comptes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompteReponse"][];
+                };
+            };
+        };
+    };
+    creer_compte_endpoint_api_comptes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompteCreationRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompteReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    modifier_compte_endpoint_api_comptes__compte_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                compte_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompteModificationRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompteReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    changer_mot_de_passe_endpoint_api_comptes__compte_id__mot_de_passe_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                compte_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangementMotDePasseRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retirer_acces_endpoint_api_comptes__compte_id__retirer_acces_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                compte_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompteReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retablir_acces_endpoint_api_comptes__compte_id__retablir_acces_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                compte_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompteReponse"];
                 };
             };
             /** @description Validation Error */
