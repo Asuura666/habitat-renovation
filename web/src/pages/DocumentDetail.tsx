@@ -1072,7 +1072,8 @@ export function DocumentDetail(): ReactElement {
       {!enEditionEntete && (
         <p className="mb-6 text-xs text-encre-2">
           {donnees.agence_fournisseur !== null && <>Agence : {donnees.agence_fournisseur} · </>}
-          Chantier rattaché : {donnees.chantier ?? "non rattaché"}
+          Chantier rattaché : {donnees.chantier ?? "non rattaché"} · Nom indiqué par l'employé :{" "}
+          {donnees.legende ?? "—"}
         </p>
       )}
 

@@ -217,6 +217,7 @@ def _entrant(
     update_id: int = 1,
     expediteur_id: int | None = None,
     expediteur_nom: str | None = None,
+    legende: str | None = None,
 ) -> FichierEntrant:
     return FichierEntrant(
         update_id=update_id,
@@ -228,6 +229,7 @@ def _entrant(
         nom_fichier=None,
         compresse=True,
         expediteur_nom=expediteur_nom,
+        legende=legende,
     )
 
 
@@ -500,6 +502,34 @@ async def test_traiter_fichier_photo_compressee_false_pour_un_document_envoye(
 
     document = (await db_session.execute(select(Document))).scalar_one()
     assert document.photo_compressee is False
+
+
+async def test_depot_conserve_la_legende(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    tmp_path: Path,
+) -> None:
+    """La légende Telegram (`message.caption`, avenant du 27/09/2026) est
+    conservée sur le document déposé, telle que déjà nettoyée par
+    `lire_update` (`FichierEntrant.legende`) -- `traiter_fichier` la reprend
+    sans la retoucher."""
+    utilisateur = await _creer_utilisateur(db_session, telegram_user_id=9012)
+    deposant = _deposant_depuis(utilisateur)
+    messagerie = MessagerieFactice()
+    entrant = _entrant(update_id=32, legende="Villa Test")
+
+    await traiter_fichier(
+        entrant,
+        messagerie,
+        sessions_test,
+        tmp_path,
+        _ocr_avec_numero_bl,
+        deposant,
+        CHAT_SUPERVISION_INVENTE,
+    )
+
+    document = (await db_session.execute(select(Document))).scalar_one()
+    assert document.legende == "Villa Test"
 
 
 async def test_traiter_fichier_signature_non_conforme_signale_echec_sans_ecrire(

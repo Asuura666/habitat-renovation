@@ -231,6 +231,7 @@ class DocumentDetailReponse(BaseModel):
     agence_fournisseur: str | None
     chantier_id: uuid.UUID | None
     chantier: str | None
+    legende: str | None
     champs: ChampsDocumentReponse
     lignes: list[LigneDocumentReponse]
     motifs: list[MotifReponse]

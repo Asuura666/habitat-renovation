@@ -3884,6 +3884,17 @@
       ],
       "title": "Chantier"
      },
+     "legende": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Legende"
+     },
      "champs": {
       "$ref": "#/components/schemas/ChampsDocumentReponse"
      },
@@ -3927,6 +3938,7 @@
      "agence_fournisseur",
      "chantier_id",
      "chantier",
+     "legende",
      "champs",
      "lignes",
      "motifs",

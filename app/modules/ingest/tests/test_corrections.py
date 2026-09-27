@@ -126,6 +126,7 @@ async def _creer_document(
     fournisseur: Fournisseur | None = None,
     chantier_brut: str | None = None,
     chantier_id: uuid.UUID | None = None,
+    legende: str | None = None,
     total_ht: Decimal | None = None,
     total_tva: Decimal | None = None,
     total_ttc: Decimal | None = None,
@@ -145,6 +146,7 @@ async def _creer_document(
         fournisseur_id=fournisseur.id if fournisseur is not None else None,
         chantier_brut=chantier_brut,
         chantier_id=chantier_id,
+        legende=legende,
         total_ht=total_ht,
         total_tva=total_tva,
         total_ttc=total_ttc,
@@ -303,6 +305,32 @@ async def test_detail_document_agent_autre_document_leve_document_introuvable(
         await detail_document(
             db_session, document.id, utilisateur_id=agent_2.id, role="agent"
         )
+
+
+async def test_detail_document_expose_la_legende(
+    db_session: AsyncSession,
+) -> None:
+    """La légende Telegram (`message.caption`, avenant du 27/09/2026) est
+    reprise telle quelle dans le détail du document."""
+    document = await _creer_document(db_session, legende="Villa Test")
+
+    detail = await detail_document(
+        db_session, document.id, utilisateur_id=_ADMIN_ID, role="admin"
+    )
+
+    assert detail.legende == "Villa Test"
+
+
+async def test_detail_document_sans_legende_renvoie_none(
+    db_session: AsyncSession,
+) -> None:
+    document = await _creer_document(db_session, legende=None)
+
+    detail = await detail_document(
+        db_session, document.id, utilisateur_id=_ADMIN_ID, role="admin"
+    )
+
+    assert detail.legende is None
 
 
 async def test_detail_document_champs_valeur_ocr_et_confiance(

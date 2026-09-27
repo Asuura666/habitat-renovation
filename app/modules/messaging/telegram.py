@@ -109,6 +109,11 @@ _RE_NUMERO_INTERNE = re.compile(r"[0-9]{1,18}")
 # valeurs change.
 _TAILLE_MAX_OCTETS = 20 * 1024 * 1024
 
+# Longueur maximale de la légende Telegram conservée (`message.caption`,
+# avenant du 27/09/2026) : saisie libre de l'employé, tronquée pour ne
+# jamais dépasser une taille raisonnable en base ni à l'affichage.
+LONGUEUR_LEGENDE_MAX = 200
+
 # Mapping explicite type MIME -> extension de stockage (décision du
 # contrôleur : pas de `mimetypes`, qui dépend d'une base système variable
 # selon la machine).
@@ -145,6 +150,7 @@ def _fichier_depuis_document(
     expediteur_id: int | None,
     expediteur_nom: str | None,
     document: dict[str, Any],
+    legende: str | None,
 ) -> FichierEntrant | None:
     mime_type = document.get("mime_type")
     if mime_type not in _EXTENSIONS_PAR_MIME:
@@ -162,6 +168,7 @@ def _fichier_depuis_document(
         nom_fichier=document.get("file_name"),
         compresse=False,
         expediteur_nom=expediteur_nom,
+        legende=legende,
     )
 
 
@@ -172,6 +179,7 @@ def _fichier_depuis_photo(
     expediteur_id: int | None,
     expediteur_nom: str | None,
     photos: list[Any],
+    legende: str | None,
 ) -> FichierEntrant | None:
     if not photos:
         return None
@@ -193,6 +201,7 @@ def _fichier_depuis_photo(
         nom_fichier=None,
         compresse=True,
         expediteur_nom=expediteur_nom,
+        legende=legende,
     )
 
 
@@ -210,6 +219,22 @@ def _expediteur_nom(expediteur: dict[str, Any]) -> str | None:
     if isinstance(first_name, str):
         return first_name
     return None
+
+
+def _legende(message: dict[str, Any]) -> str | None:
+    """Légende Telegram (`message.caption`, avenant du 27/09/2026) : nom de
+    chantier tapé par l'employé au moment d'envoyer la photo, saisie libre
+    donc nettoyée avant d'être conservée (`strip()`, vide -> `None`,
+    tronquée à `LONGUEUR_LEGENDE_MAX` caractères) -- jamais la seule source
+    du chantier (seconde source pour `normalize.chantier`, à côté du nom lu
+    sur le bon)."""
+    caption = message.get("caption")
+    if not isinstance(caption, str):
+        return None
+    nettoyee = caption.strip()
+    if not nettoyee:
+        return None
+    return nettoyee[:LONGUEUR_LEGENDE_MAX]
 
 
 def _numero_interne_valide(reste: str) -> int | None:
@@ -306,17 +331,30 @@ def lire_update(update: dict[str, Any]) -> FichierEntrant | ClicBouton | None:
     expediteur_nom = (
         _expediteur_nom(expediteur) if isinstance(expediteur, dict) else None
     )
+    legende = _legende(message)
 
     photos = message.get("photo")
     if isinstance(photos, list):
         return _fichier_depuis_photo(
-            update_id, chat_id, message_id, expediteur_id, expediteur_nom, photos
+            update_id,
+            chat_id,
+            message_id,
+            expediteur_id,
+            expediteur_nom,
+            photos,
+            legende,
         )
 
     document = message.get("document")
     if isinstance(document, dict):
         return _fichier_depuis_document(
-            update_id, chat_id, message_id, expediteur_id, expediteur_nom, document
+            update_id,
+            chat_id,
+            message_id,
+            expediteur_id,
+            expediteur_nom,
+            document,
+            legende,
         )
 
     return None

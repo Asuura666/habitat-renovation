@@ -1308,6 +1308,8 @@ export interface components {
             chantier_id: string | null;
             /** Chantier */
             chantier: string | null;
+            /** Legende */
+            legende: string | null;
             champs: components["schemas"]["ChampsDocumentReponse"];
             /** Lignes */
             lignes: components["schemas"]["LigneDocumentReponse"][];

@@ -460,6 +460,7 @@ async def traiter_fichier(
                 telegram_message_id=entrant.message_id,
                 deposant_id=deposant.id,
                 photo_compressee=entrant.compresse,
+                legende=entrant.legende,
             )
             session.add(document)
             # `flush` (pas seulement `commit`) : peuple `document.id` et

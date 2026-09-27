@@ -205,6 +205,11 @@ class DocumentDetail:
     agence_fournisseur: str | None
     chantier_id: uuid.UUID | None
     chantier: str | None
+    # Légende Telegram (`message.caption`, avenant du 27/09/2026) : nom de
+    # chantier tapé par l'employé au moment d'envoyer la photo, affichée à
+    # côté du chantier rattaché -- `None` si la photo n'avait pas de
+    # légende ou si le document ne vient pas de Telegram.
+    legende: str | None
     champs: dict[str, ChampLu]
     lignes: list[LigneLue]
     motifs: list[MotifLu]
@@ -544,6 +549,7 @@ async def _charger_detail(
         agence_fournisseur=nom_agence,
         chantier_id=document.chantier_id,
         chantier=nom_chantier,
+        legende=document.legende,
         champs=_construire_champs(document, nom_fournisseur, corrections),
         lignes=[_ligne_lue(ligne) for ligne in lignes_db],
         motifs=motifs_lus(document.motifs),
