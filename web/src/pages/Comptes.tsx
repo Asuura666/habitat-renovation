@@ -21,9 +21,12 @@ const CLASSES_LABEL = "mb-1 block text-xs font-medium text-encre-2";
 const INDICE_MOT_DE_PASSE = "12 caractères minimum, à transmettre à la personne.";
 
 /** Écran « Comptes » (spec §3, Task 11) : rôle affiché en toutes lettres,
- * jamais la valeur brute `admin`/`agent` de l'API — distinct de
- * `ChantiersListe.tsx::LIBELLES_ROLE` (« qui a déposé ce bon »), le brief de
- * cet écran demande « Employé » ici plutôt que « Agent ». */
+ * jamais la valeur brute `admin`/`agent` de l'API — même vocabulaire que
+ * `ChantiersListe.tsx::LIBELLES_ROLE` (« qui a déposé ce bon »), unifié par
+ * le Ruling C5 de la revue finale du 27/09/2026 : les deux écrans disaient
+ * « Employé » ici et « Agent » là-bas pour le même rôle, chacun sa propre
+ * table (décision du contrôleur, pas de fichier partagé pour une
+ * correspondance aussi courte) mais désormais les mêmes deux libellés. */
 const LIBELLES_ROLE: Record<string, string> = {
   admin: "Administrateur",
   agent: "Employé",

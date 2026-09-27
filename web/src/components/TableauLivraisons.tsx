@@ -242,6 +242,8 @@ const OPTIONS_ETAT: OptionFiltre[] = [
   { valeur: "alerte", libelle: "Sans bon" },
 ];
 
+const VALEURS_ETAT_CONNUES = new Set(OPTIONS_ETAT.map((option) => option.valeur));
+
 /**
  * Livraisons (Task 13, spec §4.3) : extrait de `FicheChantier.tsx` (revue
  * finale de la refonte du front) — tableau ordinateur + cartes téléphone,
@@ -272,7 +274,12 @@ export function TableauLivraisons({
   messageVide: string;
 }): ReactElement {
   const [parametres, setParametres] = useSearchParams();
-  const etat = parametres.get("etat") ?? "toutes";
+  // T13 (revue finale du 27/09/2026) : une valeur `?etat=` inconnue (lien
+  // périmé, modifiée à la main) ne doit plus filtrer sur une catégorie qui
+  // n'existe pas -- `categorieLivraison` ne renvoie jamais cette valeur,
+  // donc `filtrees` restait vide en silence. Repli sur « toutes ».
+  const etatParam = parametres.get("etat");
+  const etat = etatParam !== null && VALEURS_ETAT_CONNUES.has(etatParam) ? etatParam : "toutes";
 
   function changerEtat(valeur: string): void {
     const suivants = new URLSearchParams(parametres);

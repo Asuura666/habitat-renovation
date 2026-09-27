@@ -119,6 +119,14 @@ function FormulaireEdition({
         // filtre « Agence » de l'écran « Chantiers » doit le refléter sans
         // attendre un remontage.
         queryClient.invalidateQueries({ queryKey: CLE_AGENCES }),
+        // C1 (revue finale du 27/09/2026) : enregistrer la fiche fait sortir
+        // le chantier de « à compléter » côté serveur (`a_completer` retombe
+        // à faux, `referentiels.modifier_chantier`), ce qui referme sa
+        // section « Nouveaux chantiers à compléter » dans « À régler » et
+        // change le compte de problèmes -- sans cette invalidation (même
+        // geste que `FormulaireFusion`/`SelecteurChantierBon`/`DetailR18`),
+        // le chantier restait listé dans « À régler » jusqu'à 30 s (staleTime).
+        invaliderApresChangementAnomalies(queryClient),
       ]);
       onFermer();
     },
@@ -232,7 +240,12 @@ function FormulaireFusion({
 }): ReactElement {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [cibleId, setCibleId] = useState(autresChantiers[0]?.id ?? "");
+  // C2 (revue finale du 27/09/2026) : pas de cible présélectionnée -- une
+  // fusion est irréversible côté écran (spec §2.7, « jamais supprimé
+  // physiquement » ne protège pas d'un choix distrait) ; le bouton reste
+  // désactivé tant qu'un chantier n'a pas été choisi explicitement (voir
+  // `disabled={cibleId === "" || fusion.isPending}` plus bas).
+  const [cibleId, setCibleId] = useState("");
   const cible = autresChantiers.find((c) => c.id === cibleId);
 
   const fusion = useMutation({
@@ -258,8 +271,18 @@ function FormulaireFusion({
 
   function soumettre(evenement: FormEvent<HTMLFormElement>): void {
     evenement.preventDefault();
-    if (cibleId === "") return;
-    fusion.mutate();
+    if (cibleId === "" || cible === undefined) return;
+    // C2 (revue finale du 27/09/2026) : fusion irréversible depuis l'écran
+    // (source désactivée, jamais supprimée, mais tout ce qu'elle porte
+    // change de chantier sans retour possible ici) -- confirmation
+    // obligatoire, même geste que « Retirer l'accès » (`Comptes.tsx`).
+    if (
+      window.confirm(
+        `Fusionner ${chantier.nom_canonique} dans ${cible.nom_canonique} ? Tous ses bons, factures et problèmes passeront sur ${cible.nom_canonique}. Cette action ne peut pas être annulée.`,
+      )
+    ) {
+      fusion.mutate();
+    }
   }
 
   return (
@@ -275,6 +298,7 @@ function FormulaireFusion({
             onChange={(evenement) => setCibleId(evenement.target.value)}
             className={CLASSES_CHAMP}
           >
+            <option value="">— Choisir un chantier —</option>
             {autresChantiers.map((autre) => (
               <option key={autre.id} value={autre.id}>
                 {autre.nom_canonique}
@@ -520,10 +544,18 @@ export function FicheChantier(): ReactElement {
     return <p role="status" className="text-sm text-encre-2">Chargement…</p>;
   }
   if (chantierQuery.isError) {
+    // C4 (revue finale du 27/09/2026) : « Ce chantier est introuvable. »
+    // n'a de sens que pour un vrai 404 -- une panne réseau ou serveur
+    // passagère affichait jusqu'ici le même message, laissant croire à
+    // tort que le chantier avait disparu.
+    const message =
+      chantierQuery.error instanceof ErreurApi && chantierQuery.error.status === 404
+        ? "Ce chantier est introuvable."
+        : "Impossible de charger ce chantier. Réessayez dans un instant.";
     return (
       <div className="space-y-4">
         <FilAriane elements={[{ libelle: "Chantiers", vers: "/chantiers" }, { libelle: "Chantier introuvable" }]} />
-        <EtatVide message="Ce chantier est introuvable." />
+        <EtatVide message={message} />
       </div>
     );
   }
@@ -599,7 +631,9 @@ export function FicheChantier(): ReactElement {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        {/* `flex-wrap` (C3, revue finale du 27/09/2026) : pastille + deux
+            boutons débordaient à 375 px sans lui. */}
+        <div className="flex flex-wrap items-center gap-3">
           {etatChoisi !== undefined && <PastilleEtat etat={etatChoisi} />}
           <Bouton variante="secondaire" onClick={() => setEditionOuverte((ouvert) => !ouvert)}>
             Modifier

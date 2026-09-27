@@ -743,3 +743,98 @@ def test_fiche_chantier_tuile_conforme_ouvre_les_livraisons_conformes() -> None:
     assert "useLocation" in page
     assert 'hash === "#livraisons"' in page
     assert 'getElementById("livraisons")?.scrollIntoView' in page
+
+
+# ---------------------------------------------------------------------------
+# Revue finale du 27/09/2026 (mise en production du 1er octobre) : commit
+# « web » -- FicheChantier plus sûre, libellés et filtres.
+# ---------------------------------------------------------------------------
+
+
+def test_fiche_chantier_edition_invalide_les_anomalies() -> None:
+    """C1 (Important) : enregistrer la fiche (qui fait sortir le chantier
+    de « à compléter » côté serveur, `referentiels.modifier_chantier`) doit
+    invalider les mêmes données que `FormulaireFusion`/`SelecteurChantierBon`
+    /`DetailR18` -- sinon le chantier reste listé dans « À régler » jusqu'à
+    30 s (staleTime)."""
+    contenu = _lire("pages", "FicheChantier.tsx")
+
+    formulaire = contenu.split("function FormulaireEdition", 1)[1].split(
+        "\nfunction FormulaireFusion", 1
+    )[0]
+    assert "invaliderApresChangementAnomalies(queryClient)" in formulaire
+
+
+def test_fiche_chantier_fusion_sans_cible_par_defaut_et_confirmation() -> None:
+    """C2 (Important) : pas de cible présélectionnée (la fusion est
+    irréversible côté écran) et confirmation obligatoire avant `fusion
+    .mutate()`, même geste que « Retirer l'accès » (`Comptes.tsx`)."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    formulaire = page.split("function FormulaireFusion", 1)[1].split(
+        "\nexport function FicheChantier", 1
+    )[0]
+    assert 'useState("")' in formulaire
+    assert "autresChantiers[0]" not in formulaire
+    assert '<option value="">' in formulaire
+
+    assert "window.confirm(" in formulaire
+    confirmation = formulaire.split("window.confirm(", 1)[1].split(")", 1)[0]
+    assert (
+        "Fusionner ${chantier.nom_canonique} dans ${cible.nom_canonique}"
+        in confirmation
+    )
+    assert "Cette action ne peut pas être annulée." in confirmation
+    assert "fusion.mutate();" in formulaire.split("window.confirm(", 1)[1]
+
+
+def test_fiche_chantier_action_row_flex_wrap() -> None:
+    """C3 (Minor) : la pastille + « Modifier » + « Fusionner avec… »
+    débordaient à 375 px, l'en-tête n'ayant pas `flex-wrap`."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    assert '<div className="flex flex-wrap items-center gap-3">' in page
+    assert "PastilleEtat etat={etatChoisi}" in page
+
+
+def test_fiche_chantier_erreur_reseau_distincte_du_404() -> None:
+    """C4 (Minor) : « Ce chantier est introuvable. » n'apparaît plus que
+    pour un vrai 404 (`ErreurApi.status === 404`) -- une panne réseau ou
+    serveur affiche désormais un message distinct."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    bloc_erreur = page.split("if (chantierQuery.isError)", 1)[1].split(
+        "if (chantier === undefined)", 1
+    )[0]
+    assert "chantierQuery.error instanceof ErreurApi" in bloc_erreur
+    assert "chantierQuery.error.status === 404" in bloc_erreur
+    assert (
+        "Impossible de charger ce chantier. Réessayez dans un instant." in bloc_erreur
+    )
+    assert "Ce chantier est introuvable." in bloc_erreur
+
+
+def test_role_agent_dit_employe_partout() -> None:
+    """C5 (Minor) : `ChantiersListe.tsx` (« Activité de terrain ») disait
+    « Agent » pour le rôle `agent` quand `Comptes.tsx` dit « Employé » --
+    même vocabulaire sur les deux écrans désormais."""
+    comptes = _lire("pages", "Comptes.tsx")
+    chantiers = _lire("pages", "ChantiersListe.tsx")
+
+    assert 'agent: "Employé"' in comptes
+    assert 'agent: "Employé"' in chantiers
+    table_role_chantiers = chantiers.split("const LIBELLES_ROLE", 1)[1].split("};", 1)[
+        0
+    ]
+    assert 'agent: "Agent"' not in table_role_chantiers
+
+
+def test_tableau_livraisons_etat_inconnu_replie_sur_toutes() -> None:
+    """T13 (Minor) : un `?etat=` hors des quatre valeurs connues affichait
+    une liste vide en silence (`categorieLivraison` ne renvoie jamais cette
+    valeur) -- repli sur « toutes »."""
+    page = _lire("components", "TableauLivraisons.tsx")
+
+    assert "VALEURS_ETAT_CONNUES" in page
+    assert "etatParam !== null && VALEURS_ETAT_CONNUES.has(etatParam)" in page
+    assert 'etatParam : "toutes";' in page

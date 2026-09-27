@@ -475,19 +475,21 @@ function CarteTousLesChantiers({
   );
 }
 
-/** Même correspondance que `Chantiers.tsx::LIBELLES_ROLE` (repris tel quel,
- * corrections de revue tour 3, constat 1) : `DepotAgent.role` porte la
- * valeur brute d'`Utilisateur.role` (`admin`/`agent`), jamais un libellé
- * affichable. Sans cette table, un administrateur qui a déposé un bon
- * apparaîtrait comme un agent de terrain de plus — exactement la confusion
- * que le Ruling L5-R7 (décision du contrôleur) et l'ajout du champ côté
- * serveur (`ingest/referentiels_vue.py`, tour de correction 1 bis) visaient
- * à éviter. Chaque écran garde sa propre table de deux entrées (décision du
- * contrôleur, pas de fichier partagé pour une correspondance aussi
- * courte). */
+/** Même correspondance que `Comptes.tsx::LIBELLES_ROLE` (repris tel quel,
+ * corrections de revue tour 3, constat 1 ; libellé « agent » aligné sur
+ * « Employé » par le Ruling C5 de la revue finale du 27/09/2026 -- les deux
+ * écrans disaient un mot différent pour le même rôle) : `DepotAgent.role`
+ * porte la valeur brute d'`Utilisateur.role` (`admin`/`agent`), jamais un
+ * libellé affichable. Sans cette table, un administrateur qui a déposé un
+ * bon apparaîtrait comme un employé de terrain de plus — exactement la
+ * confusion que le Ruling L5-R7 (décision du contrôleur) et l'ajout du
+ * champ côté serveur (`ingest/referentiels_vue.py`, tour de correction 1
+ * bis) visaient à éviter. Chaque écran garde sa propre table de deux
+ * entrées (décision du contrôleur, pas de fichier partagé pour une
+ * correspondance aussi courte). */
 const LIBELLES_ROLE: Record<string, string> = {
   admin: "Administrateur",
-  agent: "Agent",
+  agent: "Employé",
 };
 
 function libelleRole(role: string): string {
