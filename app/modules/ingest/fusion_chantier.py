@@ -44,8 +44,11 @@ jamais de chaîne à plus d'un saut (décision du contrôleur, cohérente avec
 `rattachement_chantier.chantier_effectif`, qui ne suit que deux sauts par
 prudence mais ne devrait jamais en avoir besoin après cette redirection).
 
-Verrou `rattachement_chantier.VERROU_CHANTIERS` : une fusion touche les
-mêmes données qu'un rattachement automatique (chantier, alias, documents)
+Verrou `commun.VERROU_CHANTIERS` (déplacé de `rattachement_chantier.py` à
+`ingest.commun` par le Ruling 16 de la revue finale du 27/09/2026, pour que
+`referentiels.creer_chantier`/`modifier_chantier` puissent le prendre eux
+aussi sans cycle d'import) : une fusion touche les mêmes données qu'un
+rattachement automatique (chantier, alias, documents)
 -- sans le même verrou, un dépôt concurrent pourrait apprendre un alias sur
 le chantier source pendant que cette fonction le fusionne, et le perdre.
 Pris en tout début de fonction, relâché par le `commit` de cette même
@@ -62,6 +65,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ingest.anomalies import _trouver_par_cle
+from app.modules.ingest.commun import VERROU_CHANTIERS
 from app.modules.ingest.models import (
     Anomalie,
     BlocFacture,
@@ -70,7 +74,6 @@ from app.modules.ingest.models import (
     Document,
     Journal,
 )
-from app.modules.ingest.rattachement_chantier import VERROU_CHANTIERS
 from app.modules.ingest.referentiels import ChantierIntrouvable
 
 

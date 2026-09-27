@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.core.db import creer_sessionmaker
+from app.modules.ingest.anomalies import traiter_anomalie
 from app.modules.ingest.lecture import DocumentIntrouvable
 from app.modules.ingest.models import (
     Anomalie,
@@ -241,6 +242,122 @@ async def test_correction_du_nom_leve_R18(db_session: AsyncSession) -> None:
     assert r.alerte is False
     assert r.chantier_id == villa.id
     assert bon.chantier_id == villa.id
+
+    anomalies_ouvertes = (
+        (
+            await db_session.execute(
+                select(Anomalie).where(
+                    Anomalie.document_id == bon.id,
+                    Anomalie.regle == "R18",
+                    Anomalie.statut == "ouverte",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert anomalies_ouvertes == []
+
+
+async def test_alerte_apres_decision_humaine_traitee_conserve_le_chantier(
+    db_session: AsyncSession,
+) -> None:
+    """Ruling 15 (A1, revue finale du 27/09/2026) : un bon dont la R18 a
+    déjà été réglée par un humain (`choisir_chantier_document`, statut
+    `traitee`) ne doit pas reperdre son chantier si une correction ultérieure
+    de l'en-tête (ici simulée en rappelant `rattacher_chantier_document` sans
+    changer nom lu/légende, comme le ferait `corrections
+    ._resoudre_chantier_document`) retombe sur le même désaccord."""
+    f = await _fournisseur(db_session)
+    villa = await _chantier(db_session, "Villa Test")
+    await _chantier(db_session, "Résidence des Tilleuls")
+    admin = await _admin(db_session)
+    bon = await _bon(
+        db_session,
+        fournisseur_id=f.id,
+        chantier_brut="VILLA TEST",
+        legende="tilleuls residence",
+    )
+    await rattacher_chantier_document(db_session, bon)
+    await db_session.commit()
+
+    await choisir_chantier_document(
+        db_session, bon.id, chantier_id=villa.id, auteur_id=admin.id
+    )
+    await db_session.refresh(bon)
+    assert bon.chantier_id == villa.id
+
+    # Correction d'en-tête qui relance le rattachement -- même désaccord
+    # nom lu/légende qu'au premier passage.
+    r = await rattacher_chantier_document(db_session, bon)
+    await db_session.commit()
+    await db_session.refresh(bon)
+
+    assert r.methode == "décision humaine conservée"
+    assert r.chantier_id == villa.id
+    assert r.alerte is False
+    assert bon.chantier_id == villa.id
+
+    anomalies_r18 = (
+        (
+            await db_session.execute(
+                select(Anomalie).where(
+                    Anomalie.document_id == bon.id, Anomalie.regle == "R18"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(anomalies_r18) == 1
+    assert anomalies_r18[0].statut == "traitee"
+
+
+async def test_alerte_apres_decision_humaine_ignoree_conserve_sans_chantier(
+    db_session: AsyncSession,
+) -> None:
+    """Même garde-fou (Ruling 15, A1) pour une R18 volontairement ignorée
+    (`anomalies.traiter_anomalie`, statut `ignoree`) plutôt que réglée par un
+    choix de chantier : le bon reste sans chantier, sans qu'une nouvelle R18
+    `ouverte` ne réapparaisse."""
+    f = await _fournisseur(db_session)
+    await _chantier(db_session, "Villa Test")
+    await _chantier(db_session, "Résidence des Tilleuls")
+    admin = await _admin(db_session)
+    bon = await _bon(
+        db_session,
+        fournisseur_id=f.id,
+        chantier_brut="VILLA TEST",
+        legende="tilleuls residence",
+    )
+    await rattacher_chantier_document(db_session, bon)
+    await db_session.commit()
+
+    anomalie = (
+        await db_session.execute(
+            select(Anomalie).where(
+                Anomalie.document_id == bon.id, Anomalie.regle == "R18"
+            )
+        )
+    ).scalar_one()
+    await traiter_anomalie(
+        db_session,
+        anomalie.id,
+        statut="ignoree",
+        commentaire="Sans rapport avec ce bon.",
+        auteur_id=admin.id,
+    )
+    await db_session.refresh(bon)
+    assert bon.chantier_id is None
+
+    r = await rattacher_chantier_document(db_session, bon)
+    await db_session.commit()
+    await db_session.refresh(bon)
+
+    assert r.methode == "décision humaine conservée"
+    assert r.chantier_id is None
+    assert r.alerte is False
+    assert bon.chantier_id is None
 
     anomalies_ouvertes = (
         (

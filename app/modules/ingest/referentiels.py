@@ -67,6 +67,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.ingest.commun import VERROU_CHANTIERS
 from app.modules.ingest.models import (
     AgenceFournisseur,
     Article,
@@ -590,7 +591,21 @@ async def creer_chantier(
     même principe que `definir_fournisseur` pour ses alias/agences — une
     requête SQL ne saurait pas appliquer `normaliser_libelle` (accents,
     casse, ponctuation) sans un index dédié, hors périmètre de cette tâche.
+
+    Verrou `pg_advisory_xact_lock(VERROU_CHANTIERS)` (Ruling 16 de la revue
+    finale du 27/09/2026, A2) : pris en tout premier, avant même de charger
+    les chantiers existants, comme `rattachement_chantier
+    .rattacher_chantier_document`/`rattacher_chantier_bloc` et
+    `fusion_chantier.fusionner_chantiers` qui partagent le même verrou --
+    sans lui, deux créations manuelles concurrentes du même nom (ou une
+    création manuelle qui recouvre une création automatique en cours) lisent
+    chacune « aucun chantier de ce nom » avant que l'autre n'ait commité, et
+    créent chacune leur chantier. Voir
+    `test_creation_concurrente_manuelle_un_seul_chantier`
+    (`app/modules/ingest/tests/test_referentiels.py`).
     """
+    await session.execute(select(func.pg_advisory_xact_lock(VERROU_CHANTIERS)))
+
     nom = nom_canonique.strip()
     normalise_cible = normaliser_libelle(nom)
 
@@ -657,7 +672,14 @@ async def modifier_chantier(
     §2.6) : enregistrer la fiche d'un chantier créé automatiquement est
     précisément l'action qui le « complète » -- même sans agence ni client
     renseignés, un admin qui a revu et enregistré la fiche ne doit plus la
-    revoir dans la section « Nouveaux chantiers à compléter »."""
+    revoir dans la section « Nouveaux chantiers à compléter ».
+
+    Même verrou que `creer_chantier` (`pg_advisory_xact_lock
+    (VERROU_CHANTIERS)`, Ruling 16, A2), pris en tout premier -- une
+    modification qui renomme un chantier vers un nom déjà pris par une
+    création concurrente doit être sérialisée de la même façon."""
+    await session.execute(select(func.pg_advisory_xact_lock(VERROU_CHANTIERS)))
+
     chantier = await session.get(Chantier, chantier_id)
     if chantier is None:
         raise ChantierIntrouvable(str(chantier_id))

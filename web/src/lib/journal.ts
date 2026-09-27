@@ -447,21 +447,24 @@ const LIBELLES_VALEUR_PAR_CLE: Record<string, Record<string, string>> = {
     recu: "Reçu",
     archive: "Archivé",
   },
-  // Cinq méthodes possibles (`rattachement_chantier.py
+  // Six méthodes possibles (`rattachement_chantier.py
   // ::ResultatRattachement.methode`, avenant du 27/09/2026) : un nom déjà
   // appris pour ce fournisseur, une ressemblance de nom sous le seuil
   // réglable, le message joint à la photo par l'employé, la création d'un
-  // nouveau chantier, ou une alerte (nom lu et message en désaccord —
-  // même libellé que `titreRegle("R18")`, `ui/libelles.ts`). Task 12
-  // (controller ruling 2) : cette table portait encore une clé « alias »
-  // jamais produite par le code depuis cet avenant, remplacée ici par les
-  // valeurs réellement écrites.
+  // nouveau chantier, une alerte (nom lu et message en désaccord — même
+  // libellé que `titreRegle("R18")`, `ui/libelles.ts`), ou une décision
+  // humaine déjà prise conservée face à un nouveau désaccord (Ruling 15 de
+  // la revue finale du 27/09/2026, A1 : une R18 déjà `traitee`/`ignoree`
+  // n'est jamais rouverte). Task 12 (controller ruling 2) : cette table
+  // portait encore une clé « alias » jamais produite par le code depuis cet
+  // avenant, remplacée ici par les valeurs réellement écrites.
   methode_chantier: {
     "nom connu": "Nom déjà reconnu",
     ressemblance: "Nom proche d'un chantier connu",
     légende: "Indiqué par l'employé",
     création: "Nouveau chantier",
     alerte: "À confirmer",
+    "décision humaine conservée": "Choix déjà fait, conservé",
   },
   methode_fournisseur: {
     siret: "Numéro Siret",

@@ -14,14 +14,32 @@ ambigu retombe sur l'ancien flux (`referentiels.resoudre_chantier`, alias en
 attente, écran « Noms à rattacher », R14) plutôt que sur R18 (spec §2.4,
 « Factures »).
 
-Concurrence : `pg_advisory_xact_lock(VERROU_CHANTIERS)` sérialise toute
-décision de chantier (lecture des noms connus, création, apprentissage
-d'alias) — sans lui, deux dépôts concurrents du même nom inconnu créeraient
-chacun leur chantier. Le verrou est pris en tout début de
+Concurrence : `pg_advisory_xact_lock(VERROU_CHANTIERS)` (défini dans
+`ingest.commun`, Ruling 16 de la revue finale du 27/09/2026 — ce module
+l'importe plutôt que le définir, pour que `referentiels.creer_chantier`/
+`modifier_chantier` puissent le prendre eux aussi sans cycle d'import)
+sérialise toute décision de chantier (lecture des noms connus, création,
+apprentissage d'alias) — sans lui, deux dépôts concurrents du même nom
+inconnu créeraient chacun leur chantier. Le verrou est pris en tout début de
 `rattacher_chantier_document`/`rattacher_chantier_bloc` et tenu jusqu'au
 commit de l'appelant (ni l'une ni l'autre fonction ne commite jamais, même
 principe que `referentiels.resoudre_chantier`/`rattacher_article` et
 `anomalies.synchroniser_anomalies`).
+
+Décision humaine conservée (Ruling 15 de la revue finale du 27/09/2026,
+A1) : quand une correction rouvre un désaccord nom lu/légende sur un bon
+dont la R18 a déjà été traitée par un humain (`choisir_chantier_document`,
+« traitee ») ou volontairement ignorée (`anomalies.traiter_anomalie`,
+« ignoree »), `rattacher_chantier_document` ne touche plus au chantier du
+document ni ne resynchronise R18 — elle renvoie `methode="décision humaine
+conservée"`. Sans ce garde-fou, le document perdait silencieusement son
+chantier (`document.chantier_id = None`, la ligne suivante de l'ancien
+code) alors que `synchroniser_anomalies` n'aurait jamais rouvert la R18
+`traitee`/`ignoree` (upsert qui ignore toute anomalie hors `ouverte`,
+`anomalies.py` L4-D12) : le bon se retrouvait sans chantier et sans aucune
+alerte visible. Le cycle de vie d'une anomalie (`ouverte` -> `traitee`/
+`ignoree`, jamais l'inverse) est un invariant de `anomalies.py`, jamais
+contourné ici.
 
 Apprentissage (spec §2.3) : dès qu'un nom lu non vide sert à rattacher ou à
 créer un chantier (fournisseur connu), l'alias `(fournisseur_id, libellé lu,
@@ -54,6 +72,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ingest.anomalies import synchroniser_anomalies
+from app.modules.ingest.commun import VERROU_CHANTIERS
 from app.modules.ingest.lecture import DocumentIntrouvable
 from app.modules.ingest.models import (
     Anomalie,
@@ -84,13 +103,6 @@ from app.modules.normalize.chantier import (
 from app.modules.normalize.texte import normaliser_libelle
 from app.modules.rules.engine import REGLES_CHANTIER, evaluer_chantier
 from app.modules.rules.modeles import ChantierIncertainControle
-
-# Clé de verrou consultatif (`pg_advisory_xact_lock`) qui sérialise toute
-# décision de chantier (lecture des noms connus, création, apprentissage) —
-# valeur arbitraire mais fixe, jamais réutilisée ailleurs dans le projet
-# (voir `app/modules/jobs/drive_sync.py` pour le seul autre verrou du dépôt,
-# une paire d'entiers 32 bits distincte).
-VERROU_CHANTIERS = 727_000_018
 
 SEUIL_RESSEMBLANCE_DEFAUT = Decimal("90")
 
@@ -357,6 +369,22 @@ async def _obtenir_ou_creer_chantier(
     return chantier_id, True
 
 
+async def _r18_deja_decidee(session: AsyncSession, document_id: uuid.UUID) -> bool:
+    """Vrai si ce bon porte déjà une R18 `traitee` (choisie par
+    `choisir_chantier_document`) ou `ignoree` (`anomalies.traiter_anomalie`)
+    -- décision humaine déjà prise, à conserver (Ruling 15, A1). Une R18
+    `ouverte` ne compte pas : elle suit le flux normal, mise à jour par
+    `synchroniser_anomalies` plus bas."""
+    resultat = await session.execute(
+        select(Anomalie.id).where(
+            Anomalie.regle == "R18",
+            Anomalie.document_id == document_id,
+            Anomalie.statut.in_(("traitee", "ignoree")),
+        )
+    )
+    return resultat.first() is not None
+
+
 async def rattacher_chantier_document(
     session: AsyncSession, document: Document
 ) -> ResultatRattachement:
@@ -411,6 +439,22 @@ async def rattacher_chantier_document(
                 contexte={"document_id": str(document.id)},
             )
     elif decision.type is TypeDecision.ALERTE:
+        if await _r18_deja_decidee(session, document.id):
+            # Ruling 15 (A1, revue finale du 27/09/2026) : une décision
+            # humaine déjà prise sur ce bon (choix d'un candidat ou R18
+            # ignorée) n'est jamais reperdue par un nouveau désaccord nom
+            # lu/légende -- on laisse le bon tel quel (voir docstring de
+            # module). Sortie anticipée avant `document.chantier_id =
+            # chantier_id` (qui vaudrait `None` ici) et avant
+            # `synchroniser_anomalies` (qui ne rouvrirait de toute façon
+            # jamais une R18 `traitee`/`ignoree`, L4-D12).
+            return ResultatRattachement(
+                chantier_id=document.chantier_id,
+                methode="décision humaine conservée",
+                score=None,
+                cree=False,
+                alerte=False,
+            )
         methode = "alerte"
         alerte = True
     # TypeDecision.AUCUN : chantier_id/methode restent `None` (comme aujourd'hui).

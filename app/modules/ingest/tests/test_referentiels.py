@@ -13,13 +13,15 @@ toutes les tables après chaque test : aucun nettoyage manuel nécessaire ici.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
+from app.core.db import creer_sessionmaker
 from app.modules.ingest.models import (
     AgenceFournisseur,
     Article,
@@ -657,6 +659,62 @@ async def test_creer_chantier_enregistre_le_client(
         auteur_id=admin.id,
     )
     assert chantier.client == "M. et Mme Martin"
+
+
+async def test_creation_concurrente_manuelle_un_seul_chantier(
+    db_engine: AsyncEngine,
+) -> None:
+    """Deux créations manuelles concurrentes du même nom (Ruling 16, A2,
+    revue finale du 27/09/2026) : sans `pg_advisory_xact_lock
+    (VERROU_CHANTIERS)`, chaque session peut lire « aucun chantier de ce nom
+    » (la boucle Python de `creer_chantier`) avant que l'autre n'ait commité,
+    et les deux créeraient leur propre doublon -- même schéma que
+    `test_creation_concurrente_un_seul_chantier`
+    (`app/modules/ingest/tests/test_rattachement_chantier.py`) : `db_engine`
+    directement (pas `db_session`), une session indépendante par tâche
+    concurrente, `asyncio.gather`. Exactement une des deux réussit, l'autre
+    lève `ChantierEnDouble`."""
+    sessionmaker = creer_sessionmaker(db_engine)
+
+    async with sessionmaker() as preparation:
+        admin_concurrence = await _creer_utilisateur(preparation)
+    admin_id = admin_concurrence.id
+
+    async def _creer(agence: str) -> None:
+        async with sessionmaker() as session:
+            await creer_chantier(
+                session,
+                nom_canonique="Chantier Concurrent",
+                agence=agence,
+                auteur_id=admin_id,
+            )
+
+    resultats = await asyncio.gather(
+        _creer("Agence A"), _creer("Agence B"), return_exceptions=True
+    )
+
+    reussites = [r for r in resultats if r is None]
+    echecs_doublon = [r for r in resultats if isinstance(r, ChantierEnDouble)]
+    autres_echecs = [
+        r for r in resultats if r is not None and not isinstance(r, ChantierEnDouble)
+    ]
+    assert autres_echecs == []
+    assert len(reussites) == 1
+    assert len(echecs_doublon) == 1
+
+    async with sessionmaker() as verification:
+        chantiers = (
+            (
+                await verification.execute(
+                    select(Chantier).where(
+                        Chantier.nom_canonique == "Chantier Concurrent"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(chantiers) == 1
 
 
 # ---------------------------------------------------------------------------
