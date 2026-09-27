@@ -71,6 +71,13 @@ infra/         README.md : documentation technique d'ensemble (demande client, a
 
 ## Où en est le projet
 
+**Depuis le 27/09/2026 : lire d'abord `docs/roadmap-octobre-2026.md`.**
+Demandes d'octobre du client (phases 1 à 4), organisation git (plus aucun
+commit direct sur `main` : branches `feature/…` → PR vers `dev` ; `dev` →
+`main` seulement avec l'accord d'Ilane), deux sessions Claude Code en
+parallèle (worktrees, base de test par session, verrou commun sur les tests),
+numéros réservés (migrations, règles, réglages) et zones de conflit.
+
 Lots 1 (Socle), 2 (Collecte), 3 (Extraction), 4 (Rapprochement) et 5
 (Restitution) faits et **fusionnés dans `main`** (lot 4 le 18/09/2026, lot 5
 le 20/09/2026 par avance rapide jusqu'à `a550e8f`). L5-T1 à L5-T12 sont

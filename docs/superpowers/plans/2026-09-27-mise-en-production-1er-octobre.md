@@ -38,7 +38,11 @@
 
 ## Ordre d'exécution
 
-Séquentiel (mémoire du serveur) : Task 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → relecture finale → déploiement. Branche : `mise-en-prod-1-octobre`.
+Séquentiel (mémoire du serveur). Organisation git du 27/09/2026 (voir `docs/roadmap-octobre-2026.md` §2) : plus rien directement dans `main` ; branche d'intégration `dev` ; une branche `feature/…` par lot, fusionnée dans `dev` par PR.
+
+1. **Socle commun** (prérequis de la phase 3, branche `feature/socle-commun`) : Task 1 → 2 → 3, puis PR vers `dev` et fusion — la session « phase 3 » part de `dev` dès cette fusion.
+2. **Reste de la phase 1** (branche `feature/mise-en-prod-1-octobre`, partie de `dev` après le socle) : Task 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → relecture finale, puis PR vers `dev`.
+3. Déploiement depuis `main` après fusion `dev` → `main` avec l'accord d'Ilane.
 
 ---
 
@@ -173,12 +177,13 @@ et `CLE_SEUIL_RESSEMBLANCE_CHANTIER = "seuil_ressemblance_chantier_pct"`. Vérif
 ### Task 2: Ressemblance et table de décision (module pur `normalize`)
 
 **Files:**
-- Modify: `app/modules/normalize/chantier.py`
-- Test: `app/modules/normalize/tests/test_chantier.py`
+- Modify: `app/modules/normalize/texte.py` (`ressemblance`, générique : **réutilisée par la phase 3** pour la ressemblance des désignations de produits — voir `docs/roadmap-octobre-2026.md`)
+- Modify: `app/modules/normalize/chantier.py` (tout le reste, importe `ressemblance` depuis `texte.py`)
+- Test: `app/modules/normalize/tests/test_texte.py` (tests `test_ressemblance_*`), `app/modules/normalize/tests/test_chantier.py` (le reste)
 
 **Interfaces:**
 - Consumes: `decomposer_chantier`, `normaliser_libelle` (existants).
-- Produces (tout dans `app/modules/normalize/chantier.py`) :
+- Produces : `ressemblance(a: str | None, b: str | None) -> int` dans `app/modules/normalize/texte.py` (avec `_forme_triee`) ; tout le reste dans `app/modules/normalize/chantier.py` :
 
 ```python
 @dataclass(frozen=True)
@@ -224,7 +229,9 @@ class DecisionChantier:
     apprendre: bool = False  # enregistrer le nom lu comme nom du chantier
 
 
-def ressemblance(a: str | None, b: str | None) -> int: ...
+def ressemblance(a: str | None, b: str | None) -> int: ...  # dans texte.py
+
+
 def reconnaitre_chantier(
     brut: str | None, noms: Sequence[NomConnu], seuil: int
 ) -> Correspondance: ...
@@ -411,11 +418,14 @@ def test_rien_du_tout_aucun() -> None:
     assert decider_chantier(vide(), vide()).type is TypeDecision.AUCUN
 ```
 
-- [ ] **Step 2: Lancer, vérifier l'échec** — `uv run pytest app/modules/normalize/tests/test_chantier.py -v` → FAIL (ImportError).
+Les quatre tests `test_ressemblance_*` ci-dessus vont dans `test_texte.py` (import depuis `app.modules.normalize.texte`), les autres dans `test_chantier.py`.
 
-- [ ] **Step 3: Implémentation** — dans `normalize/chantier.py` (imports stdlib seulement : `uuid`, `difflib.SequenceMatcher`, `enum.StrEnum`, `collections.abc.Sequence`) :
+- [ ] **Step 2: Lancer, vérifier l'échec** — `uv run pytest app/modules/normalize/tests/test_texte.py app/modules/normalize/tests/test_chantier.py -v` → FAIL (ImportError).
+
+- [ ] **Step 3: Implémentation** — `_forme_triee` et `ressemblance` dans `normalize/texte.py` (stdlib `difflib.SequenceMatcher`), le reste dans `normalize/chantier.py` (imports stdlib seulement : `uuid`, `enum.StrEnum`, `collections.abc.Sequence`, plus `from .texte import normaliser_libelle, ressemblance`) :
 
 ```python
+# --- normalize/texte.py ---
 def _forme_triee(texte: str | None) -> str:
     return " ".join(sorted(normaliser_libelle(texte).split()))
 
@@ -433,6 +443,7 @@ def ressemblance(a: str | None, b: str | None) -> int:
     return (200 * communs) // (len(fa) + len(fb))
 
 
+# --- normalize/chantier.py ---
 def reconnaitre_chantier(
     brut: str | None, noms: Sequence[NomConnu], seuil: int
 ) -> Correspondance:

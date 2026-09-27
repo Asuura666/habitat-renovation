@@ -24,7 +24,7 @@ repos:
 
       - id: pytest
         name: pytest
-        entry: uv run pytest
+        entry: flock /tmp/habitat_reno-tests.lock uv run pytest
         language: system
         pass_filenames: false
         always_run: true
@@ -53,7 +53,7 @@ repos:
 
       - id: front-build
         name: web build (vite build)
-        entry: npm --prefix web run build
+        entry: flock /tmp/habitat_reno-tests.lock npm --prefix web run build
         language: system
         files: '^web/'
         pass_filenames: false
