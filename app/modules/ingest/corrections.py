@@ -668,6 +668,28 @@ def _motifs_vers_motiflu(motifs: Sequence[Motif]) -> list[MotifLu]:
 # --------------------------------------------------------------------------
 
 
+async def document_visible(
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    *,
+    utilisateur_id: uuid.UUID,
+    role: str,
+) -> Document:
+    """Un BL/enlèvement visible par l'appelant : un admin voit tous les
+    documents, un agent seulement ceux qu'il a déposés (sinon
+    `DocumentIntrouvable`, jamais un 403 — même principe que
+    `ingest.lecture.fichier_document`).
+
+    Extrait de `detail_document` (règle de visibilité, L3-D19) pour être
+    réutilisé tel quel par `ingest.commentaires` (décision d'Ilane du
+    27/09/2026, §6.3-8 : « tout compte connecté qui voit la page du bon peut
+    commenter » — même règle, jamais recopiée)."""
+    document = await _document_pour_lecture(session, document_id)
+    if role != "admin" and document.deposant_id != utilisateur_id:
+        raise DocumentIntrouvable(str(document_id))
+    return document
+
+
 async def detail_document(
     session: AsyncSession,
     document_id: uuid.UUID,
@@ -675,13 +697,10 @@ async def detail_document(
     utilisateur_id: uuid.UUID,
     role: str,
 ) -> DocumentDetail:
-    """Détail d'un BL/enlèvement (L3-D19) : un admin voit tous les
-    documents, un agent seulement ceux qu'il a déposés (sinon
-    `DocumentIntrouvable`, jamais un 403 — même principe que
-    `ingest.lecture.fichier_document`)."""
-    document = await _document_pour_lecture(session, document_id)
-    if role != "admin" and document.deposant_id != utilisateur_id:
-        raise DocumentIntrouvable(str(document_id))
+    """Détail d'un BL/enlèvement (L3-D19), voir `document_visible`."""
+    document = await document_visible(
+        session, document_id, utilisateur_id=utilisateur_id, role=role
+    )
     return await _charger_detail(session, document, role=role)
 
 
