@@ -5,6 +5,7 @@ import { EcouteAuthentification } from "./components/EcouteAuthentification";
 import { Gabarit } from "./components/Gabarit";
 import { ARegler } from "./pages/ARegler";
 import { ChantiersListe } from "./pages/ChantiersListe";
+import { Comptes } from "./pages/Comptes";
 import { Connexion } from "./pages/Connexion";
 import { DocumentsListe } from "./pages/DocumentsListe";
 import { FicheChantier } from "./pages/FicheChantier";
@@ -158,6 +159,18 @@ export function App(): ReactElement {
             element={
               <GardeAdmin>
                 <Reglages />
+              </GardeAdmin>
+            }
+          />
+          {/* Comptes (Task 11, spec §3) : gestion des comptes par un admin
+              (créer, modifier, mot de passe, accès) — lien discret comme
+              Réglages/Journal (`Gabarit.tsx`), atteignable aussi depuis
+              Réglages (« Gérer les comptes »). */}
+          <Route
+            path="comptes"
+            element={
+              <GardeAdmin>
+                <Comptes />
               </GardeAdmin>
             }
           />

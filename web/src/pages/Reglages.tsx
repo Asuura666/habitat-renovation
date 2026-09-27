@@ -1,5 +1,6 @@
 import { type FormEvent, type ReactElement, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router";
 
 import { ErreurApi } from "../api/client";
 import {
@@ -120,7 +121,20 @@ export function Reglages(): ReactElement {
 
   return (
     <div className="max-w-4xl space-y-6">
-      <EnTetePage titre="Réglages" />
+      <EnTetePage
+        titre="Réglages"
+        actions={
+          // Task 11 (spec §3) : l'écran « Comptes » (gestion des comptes par
+          // un admin) est accessible depuis Réglages, en plus du lien
+          // discret de la navigation (`Gabarit.tsx`).
+          <Link
+            to="/comptes"
+            className="inline-flex min-h-[44px] items-center rounded-lg border border-bordure bg-surface px-4 py-2 text-sm font-medium text-encre outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+          >
+            Gérer les comptes
+          </Link>
+        }
+      />
       <p className="text-sm text-encre-2">
         Ces seuils s'appliquent aux prochains contrôles des factures. Chaque modification est
         conservée dans le journal.
