@@ -1,6 +1,6 @@
 """Lecture et modification des seuils métier administrables (L5-T10).
 
-Ce module est l'unique source des neuf clés, de leurs valeurs par défaut et de
+Ce module est l'unique source des dix clés, de leurs valeurs par défaut et de
 leurs bornes. Les couches API et web ne portent aucune validation métier.
 
 Masquage des réglages d'un contrôle désactivé (24/09/2026, en écho à la
@@ -11,7 +11,7 @@ plus du tout dans `lister_parametres`, et `modifier_parametre` les refuse
 comme une clé inconnue -- ce module est le **seul** endroit qui porte la
 correspondance réglage -> contrôle (`_cle_masquee`), jamais dupliquée côté
 API ni côté front. Rien n'est supprimé en base : `_assurer_parametres`
-continue d'amorcer les neuf lignes, et une valeur modifiée avant
+continue d'amorcer les dix lignes, et une valeur modifiée avant
 désactivation reste lue telle quelle dès la réactivation du contrôle (voir
 les tests dédiés)."""
 
@@ -108,6 +108,15 @@ DEFINITIONS_PARAMETRES: tuple[DefinitionParametre, ...] = (
         True,
     ),
     DefinitionParametre(
+        "seuil_ressemblance_chantier_pct",
+        "Ressemblance minimale d'un nom de chantier",
+        "%",
+        Decimal("90"),
+        Decimal("50"),
+        Decimal("100"),
+        True,
+    ),
+    DefinitionParametre(
         "delai_confirmation_bl_h",
         "Délai de confirmation d'un BL",
         "heures",
@@ -135,6 +144,15 @@ DEFINITIONS_PARAMETRES: tuple[DefinitionParametre, ...] = (
         True,
     ),
 )
+
+# Clé du seuil de ressemblance minimale d'un nom de chantier (avenant du
+# 27/09/2026, rattachement automatique des chantiers) : nommée ici plutôt
+# que recopiée en texte libre par les modules qui la liront (`normalize
+# .chantier`, tâches suivantes du même plan), même idiome que les `CLE_*`
+# définis au plus près de leur usage ailleurs dans `ingest` (`anomalies.py`,
+# `extraction_bl.py`, `referentiels_vue.py`) -- placée ici, seul module qui
+# connaît les dix clés.
+CLE_SEUIL_RESSEMBLANCE_CHANTIER = "seuil_ressemblance_chantier_pct"
 
 DEFINITIONS_PAR_CLE = {
     definition.cle: definition for definition in DEFINITIONS_PARAMETRES
@@ -191,7 +209,7 @@ async def _assurer_parametres(session: AsyncSession) -> None:
 async def lister_parametres(session: AsyncSession) -> list[ParametreAffiche]:
     """Liste les seuils connus dans l'ordre de présentation, à l'exclusion
     de ceux dont le contrôle est désactivé côté serveur (`_cle_masquee`) --
-    neuf quand les deux contrôles sont actifs, moins sinon. Les lignes
+    dix quand les deux contrôles sont actifs, moins sinon. Les lignes
     masquées restent amorcées en base par `_assurer_parametres` : leur
     valeur est conservée et réapparaît dès la réactivation du contrôle."""
 

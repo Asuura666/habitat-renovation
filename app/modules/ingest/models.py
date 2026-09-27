@@ -171,6 +171,22 @@ class Chantier(Base):
     actif: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true")
     )
+    # Migration 0011 (avenant du 27/09/2026, rattachement automatique des
+    # chantiers) : chantier créé automatiquement (aucune agence ni client
+    # renseignés) quand un nom lu ou une légende Telegram ne ressemble à
+    # aucun chantier connu -- signalé dans « À régler » (section « Nouveaux
+    # chantiers à compléter ») tant qu'un humain n'a pas complété sa fiche
+    # (`PUT /api/chantiers/{id}`) ou ne l'a pas fusionné avec un doublon.
+    a_completer: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    # Chantier fusionné dans un autre (bouton « Fusionner avec… ») : jamais
+    # supprimé physiquement -- `actif` et `a_completer` passés à faux, ses
+    # bons, blocs, alias et anomalies déplacés vers la cible. `NULL` tant
+    # que ce chantier n'a pas été fusionné.
+    fusionne_dans_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chantier.id"), nullable=True
+    )
     ouvert_le: Mapped[date | None] = mapped_column(Date, nullable=True)
     ferme_le: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = _created_at()
@@ -325,6 +341,14 @@ class Document(Base):
     chantier_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("chantier.id"), nullable=True
     )
+    # Légende Telegram tapée par l'employé au moment d'envoyer la photo
+    # (`message.caption`, migration 0011, avenant du 27/09/2026) : seconde
+    # source du nom de chantier, à côté du nom lu sur le bon (`chantier_
+    # brut`), pour le rattachement automatique (`normalize.chantier`).
+    # Affichée sur la page du bon (« Chantier indiqué par l'employé »).
+    # `NULL` si la photo n'a pas de légende ou si le document ne vient pas
+    # de Telegram.
+    legende: Mapped[str | None] = mapped_column(Text, nullable=True)
     numero_commande: Mapped[str | None] = mapped_column(Text, nullable=True)
     enleve_par: Mapped[str | None] = mapped_column(Text, nullable=True)
     total_tva: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
