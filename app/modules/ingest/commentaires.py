@@ -28,6 +28,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ingest.corrections import document_visible
@@ -243,7 +244,24 @@ async def ajouter_commentaire(
         texte=texte_nettoye,
     )
     session.add(commentaire)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError as exc:
+        # Course vérifiée (revue de fin de tâche C, reproduite par un
+        # scénario à deux sessions concurrentes) : la ligne relue plus haut
+        # a été supprimée, et cette suppression commitée par une autre
+        # transaction (relance de la lecture, `extraction_bl
+        # .enregistrer_extraction_bl`, ou une correction qui retire cette
+        # ligne, `corrections.corriger_lignes`), entre cette lecture et ce
+        # flush -- la clé étrangère `fk_commentaire_ligne_id_ligne`
+        # (migration 0012) refuse alors l'insertion. Même traduction que
+        # `_avec_reprise_doublon` (`ingest/extraction_bl.py`) pour une
+        # course similaire sur le numéro de BL : la ligne a disparu, donc
+        # `LigneIntrouvable` (404) plutôt qu'une `IntegrityError` brute
+        # remontée en 500. `rollback` d'abord pour laisser la session
+        # réutilisable par l'appelant.
+        await session.rollback()
+        raise LigneIntrouvable(str(ligne_id)) from exc
 
     session.add(
         Journal(

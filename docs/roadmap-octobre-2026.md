@@ -336,6 +336,6 @@ deux mois, formation, procès-verbal). Voir `memory.md` et `docs/dette.md`.
 - [ ] Phase 1 : PR vers `dev`
 - [ ] Phase 1 : déployée (`dev` → `main`, démo puis production)
 - [ ] Phase 2 : sauvegardes, tâches planifiées, clés
-- [ ] Phase 3 : commentaires
+- [x] Phase 3 : commentaires
 - [ ] Phase 3 : lot Prix (P0 → P6), PR vers `dev`
 - [ ] Phase 4

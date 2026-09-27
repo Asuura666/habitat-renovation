@@ -857,10 +857,12 @@ class CommentairesBonReponse(BaseModel):
 
 
 class CommentaireRequete(BaseModel):
-    """Corps de `POST /api/commentaires/lignes/{id}` : le texte est nettoyé
-    et validé (1 à 1000 caractères une fois nettoyé) par le service
-    (`ingest.commentaires.ajouter_commentaire`, `CommentaireInvalide`, 422)
-    — pas de contrainte Pydantic redondante ici, contrairement à
-    `ArchivageRequete`."""
+    """Corps de `POST /api/commentaires/lignes/{id}` : borne de taille dès
+    la validation Pydantic (comme `ArchivageRequete`), pour rejeter un corps
+    trop volumineux avant même de le charger entièrement en mémoire. Un
+    texte blanc une fois nettoyé (espaces seuls) passe encore cette borne
+    (`min_length` compte les espaces) : il reste refusé par le service
+    (`ingest.commentaires.ajouter_commentaire`, `str.strip()`,
+    `CommentaireInvalide`, 422)."""
 
-    texte: str
+    texte: str = Field(min_length=1, max_length=1000)

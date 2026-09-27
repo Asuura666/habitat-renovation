@@ -14,10 +14,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.ingest import commentaires as ingest_commentaires
 from app.modules.ingest.commentaires import (
     LONGUEUR_COMMENTAIRE_MAX,
     CommentaireInvalide,
@@ -25,7 +26,11 @@ from app.modules.ingest.commentaires import (
     ajouter_commentaire,
     commentaires_du_bon,
 )
-from app.modules.ingest.corrections import LigneSaisie, corriger_lignes
+from app.modules.ingest.corrections import (
+    LigneSaisie,
+    corriger_lignes,
+    document_visible,
+)
 from app.modules.ingest.extraction_bl import enregistrer_extraction_bl
 from app.modules.ingest.lecture import DocumentIntrouvable
 from app.modules.ingest.models import (
@@ -96,13 +101,18 @@ async def _creer_document(
 
 
 async def _creer_ligne(
-    db_session: AsyncSession, document: Document, *, ordre: int = 0
+    db_session: AsyncSession,
+    document: Document,
+    *,
+    ordre: int = 0,
+    code_brut: str | None = "ART-INVENTE",
+    article_brut: str | None = "Article inventé",
 ) -> Ligne:
     ligne = Ligne(
         document_id=document.id,
         type_ligne="article",
-        code_brut="ART-INVENTE",
-        article_brut="Article inventé",
+        code_brut=code_brut,
+        article_brut=article_brut,
         ordre=ordre,
     )
     db_session.add(ligne)
@@ -256,6 +266,73 @@ async def test_ajouter_commentaire_puis_lecture_sous_sa_ligne(
     assert ligne_lue.commentaires[0].texte == "Commentaire inventé."
 
 
+async def test_ajouter_commentaire_ligne_code_seul_libelle_est_le_code(
+    db_session: AsyncSession,
+) -> None:
+    """`_libelle_ligne` (§4 de la spec), branche « code seul » -- jamais
+    exercée avant cette tâche (toutes les autres fixtures renseignent à la
+    fois `code_brut` et `article_brut`)."""
+    admin = await _creer_utilisateur(db_session, role="admin")
+    document = await _creer_document(db_session)
+    ligne = await _creer_ligne(
+        db_session, document, code_brut="ART-SEUL", article_brut=None
+    )
+
+    ajoute = await ajouter_commentaire(
+        db_session,
+        ligne.id,
+        "Commentaire inventé.",
+        utilisateur_id=admin.id,
+        role="admin",
+    )
+
+    assert ajoute.ligne_libelle == "ART-SEUL"
+
+
+async def test_ajouter_commentaire_ligne_article_seul_libelle_est_larticle(
+    db_session: AsyncSession,
+) -> None:
+    """`_libelle_ligne`, branche « désignation seule »."""
+    admin = await _creer_utilisateur(db_session, role="admin")
+    document = await _creer_document(db_session)
+    ligne = await _creer_ligne(
+        db_session, document, code_brut=None, article_brut="Désignation seule"
+    )
+
+    ajoute = await ajouter_commentaire(
+        db_session,
+        ligne.id,
+        "Commentaire inventé.",
+        utilisateur_id=admin.id,
+        role="admin",
+    )
+
+    assert ajoute.ligne_libelle == "Désignation seule"
+
+
+async def test_ajouter_commentaire_ligne_sans_code_ni_article_libelle_est_ligne_n(
+    db_session: AsyncSession,
+) -> None:
+    """`_libelle_ligne`, repli « Ligne <ordre + 1> » -- le cas le plus
+    visible côté écran (« Commentaires sur des lignes modifiées depuis »)
+    une fois la ligne supprimée, et jamais exercé avant cette tâche."""
+    admin = await _creer_utilisateur(db_session, role="admin")
+    document = await _creer_document(db_session)
+    ligne = await _creer_ligne(
+        db_session, document, ordre=2, code_brut=None, article_brut=None
+    )
+
+    ajoute = await ajouter_commentaire(
+        db_session,
+        ligne.id,
+        "Commentaire inventé.",
+        utilisateur_id=admin.id,
+        role="admin",
+    )
+
+    assert ajoute.ligne_libelle == "Ligne 3"
+
+
 async def test_commentaires_du_bon_deux_commentaires_meme_ligne_ordre_chronologique(
     db_session: AsyncSession,
 ) -> None:
@@ -285,6 +362,32 @@ async def test_commentaires_du_bon_deux_commentaires_meme_ligne_ordre_chronologi
     assert resultat.nb_commentaires == 2
     textes = [c.texte for c in resultat.lignes[0].commentaires]
     assert textes == ["Premier commentaire.", "Second commentaire."]
+
+
+async def test_commentaires_du_bon_lignes_triees_par_ordre_pas_par_insertion(
+    db_session: AsyncSession,
+) -> None:
+    """Spec §7 (« ordre des lignes et des commentaires ») : seul l'ordre des
+    commentaires était vérifié jusqu'ici (test ci-dessus), jamais celui des
+    lignes -- `.order_by(Ligne.ordre)` (`commentaires_du_bon`) aurait pu
+    disparaître sans qu'aucun test échoue. Lignes insérées dans le désordre
+    (`ordre` 2 puis 0 puis 1) : `resultat.lignes` doit rester trié par
+    `ordre`, jamais par ordre d'insertion."""
+    admin = await _creer_utilisateur(db_session, role="admin")
+    document = await _creer_document(db_session)
+    await _creer_ligne(db_session, document, ordre=2, code_brut="TROISIEME")
+    await _creer_ligne(db_session, document, ordre=0, code_brut="PREMIERE")
+    await _creer_ligne(db_session, document, ordre=1, code_brut="DEUXIEME")
+
+    resultat = await commentaires_du_bon(
+        db_session, document.id, utilisateur_id=admin.id, role="admin"
+    )
+
+    assert [ligne_lue.code for ligne_lue in resultat.lignes] == [
+        "PREMIERE",
+        "DEUXIEME",
+        "TROISIEME",
+    ]
 
 
 async def test_ajouter_commentaire_texte_blanc_leve_commentaire_invalide(
@@ -398,6 +501,69 @@ async def test_ajouter_commentaire_ligne_de_facture_leve_ligne_introuvable(
             utilisateur_id=admin.id,
             role="admin",
         )
+
+
+async def test_ajouter_commentaire_ligne_supprimee_avant_flush_leve_ligne_introuvable(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Course vérifiée (revue de fin de tâche C) : `ajouter_commentaire` relit
+    la ligne (`session.get`) puis, après le contrôle de visibilité,
+    construit et flush le commentaire sans la reverrouiller ni la
+    revérifier. Si une autre transaction supprime et commit cette même
+    ligne entre les deux (relance de la lecture,
+    `extraction_bl.enregistrer_extraction_bl`, ou une correction qui la
+    retire, `corrections.corriger_lignes`), l'insertion viole la clé
+    étrangère `fk_commentaire_ligne_id_ligne`. Simulé ici en supprimant et
+    committant la ligne au moment même du contrôle de visibilité
+    (`document_visible`), juste après sa lecture par `ajouter_commentaire`
+    et juste avant la construction du commentaire -- même mécanisme de
+    simulation (une étape interne rejouée avec un effet de bord)
+    qu'`app/modules/ingest/tests/test_extraction_bl.py
+    ::test_enregistrer_extraction_bl_doublon_concurrent_rejoue_apres_erreur`."""
+    admin = await _creer_utilisateur(db_session, role="admin")
+    document = await _creer_document(db_session)
+    ligne = await _creer_ligne(db_session, document)
+    ligne_id = ligne.id
+    # Capturé maintenant : le `rollback()` de `ajouter_commentaire` (dans le
+    # bloc `except` testé ici) expire tous les objets de la session,
+    # `document` compris -- relire `document.id` après coup rechargerait
+    # l'attribut par une requête synchrone hors contexte greenlet
+    # (`MissingGreenlet`).
+    document_id = document.id
+
+    async def _supprimer_la_ligne_puis_verifier(
+        session: AsyncSession,
+        document_id: uuid.UUID,
+        *,
+        utilisateur_id: uuid.UUID,
+        role: str,
+    ) -> Any:
+        await session.execute(delete(Ligne).where(Ligne.id == ligne_id))
+        await session.commit()
+        return await document_visible(
+            session, document_id, utilisateur_id=utilisateur_id, role=role
+        )
+
+    monkeypatch.setattr(
+        ingest_commentaires, "document_visible", _supprimer_la_ligne_puis_verifier
+    )
+
+    with pytest.raises(LigneIntrouvable):
+        await ajouter_commentaire(
+            db_session,
+            ligne_id,
+            "Commentaire inventé.",
+            utilisateur_id=admin.id,
+            role="admin",
+        )
+
+    # `rollback()` (dans `ajouter_commentaire`) laisse la session
+    # réutilisable : aucun commentaire n'a été inséré pour ce document.
+    resultat = await db_session.execute(
+        select(Commentaire).where(Commentaire.document_id == document_id)
+    )
+    assert resultat.scalars().all() == []
 
 
 async def test_ajouter_commentaire_ligne_id_inconnu_leve_ligne_introuvable(
