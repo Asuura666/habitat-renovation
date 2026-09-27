@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Aller-retour complet de backup.sh / restore.sh sur un projet compose
-# isolé (bl_restore_test, ports 127.0.0.1:5451 postgres / 127.0.0.1:8451
+# isolé (bl_restore_test, ports 127.0.0.1:5459 postgres / 127.0.0.1:8459
 # api) et un dépôt restic local jetable.
 #
 # Ne touche jamais au projet compose "habitat_reno" ni à son .env : un .env
@@ -14,8 +14,9 @@ set -euo pipefail
 RESTIC_IMAGE="restic/restic:0.19.1"
 POSTGRES_IMAGE="postgres:18"
 PROJECT_NAME="bl_restore_test"
-POSTGRES_PORT="5451"
-API_PORT="8451"
+POSTGRES_PORT="5459"
+# 8450/8451 sont pris par la production et la démo sur le VPS actuel.
+API_PORT="8459"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd)"
