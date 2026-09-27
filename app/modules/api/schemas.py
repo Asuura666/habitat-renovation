@@ -872,3 +872,165 @@ class CommentaireRequete(BaseModel):
     `CommentaireInvalide`, 422)."""
 
     texte: str = Field(min_length=1, max_length=1000)
+
+
+# --------------------------------------------------------------------------
+# Grilles de prix fournisseur (phase 3, tâche P4) : schémas construits à
+# partir des dataclasses d'`ingest.grilles` (`ProduitGrilleAffiche`,
+# `GrilleFournisseur`, `LigneHistorique`, `ApercuImport`, `ImportEffectue`).
+# --------------------------------------------------------------------------
+
+
+class ProduitGrilleReponse(BaseModel):
+    """Un produit de la grille -- mêmes attributs qu'`ingest.grilles
+    .ProduitGrilleAffiche`. Réponse de `GET /api/grilles/fournisseurs/{id}`
+    (dans `GrilleFournisseurReponse.produits`) et de `POST /api/grilles
+    /fournisseurs/{id}/prix` (la ligne enregistrée)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    cle_produit: str
+    reference: str | None
+    designation: str
+    unite_brut: str | None
+    prix_ht: Decimal
+    remise_pct: Decimal | None
+    prix_net: Decimal
+    marque: str | None
+    famille: str | None
+    date_effet: date
+
+
+class GrilleFournisseurReponse(BaseModel):
+    """`GET /api/grilles/fournisseurs/{id}` -- mêmes attributs
+    qu'`ingest.grilles.GrilleFournisseur`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    fournisseur_id: uuid.UUID
+    nom_fournisseur: str
+    nb_produits: int
+    dernier_import_le: datetime | None
+    page: int
+    pages: int
+    produits: list[ProduitGrilleReponse]
+
+
+class LigneHistoriqueReponse(BaseModel):
+    """`GET /api/grilles/fournisseurs/{id}/produits/{cle}/historique` --
+    mêmes attributs qu'`ingest.grilles.LigneHistorique`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    reference: str | None
+    designation: str
+    unite_brut: str | None
+    unite: str | None
+    prix_ht: Decimal
+    remise_pct: Decimal | None
+    prix_net: Decimal
+    marque: str | None
+    famille: str | None
+    date_effet: date
+    retire: bool
+    source: str
+    document_id: uuid.UUID | None
+    ligne_libelle: str | None
+    auteur: str | None
+    created_at: datetime
+
+
+class SaisiePrixRequete(BaseModel):
+    """Corps de `POST /api/grilles/fournisseurs/{id}/prix` (spec §7.4) :
+    `date_effet` absente -> aujourd'hui, résolu par le routeur (le service
+    ne connaît que des dates déjà choisies, comme `ingest.grilles.SaisiePrix`
+    l'exige)."""
+
+    reference: str | None = Field(default=None, max_length=200)
+    designation: str = Field(min_length=1, max_length=500)
+    unite: str | None = Field(default=None, max_length=50)
+    prix_ht: Decimal
+    remise_pct: Decimal | None = None
+    date_effet: date | None = None
+    marque: str | None = Field(default=None, max_length=200)
+    famille: str | None = Field(default=None, max_length=200)
+
+
+class RetraitProduitRequete(BaseModel):
+    """Corps de `POST /api/grilles/fournisseurs/{id}/retrait`."""
+
+    # 4 (préfixe "ref:" ou "nom:") + 500 (désignation maximale, cf.
+    # `SaisiePrixRequete.designation`) : `cle_produit` peut produire jusqu'à
+    # 504 caractères, la colonne `grille_prix.cle_produit` étant un `Text`
+    # non borné (constat relecture qualité, tour 3).
+    cle_produit: str = Field(min_length=1, max_length=504)
+    date_effet: date
+
+
+class LigneCompareeGrilleReponse(BaseModel):
+    """Une ligne « nouveau » ou « modifié » d'un aperçu d'import de grille --
+    mêmes attributs qu'`ingest.grilles.LigneComparee`. Nommée distinctement
+    de `LigneCompareeReponse` (comparaison BL/facture, ci-dessus) : même
+    mot, deux objets métier sans rapport."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    reference: str | None
+    designation: str
+    nouveau_prix_net: Decimal
+    ancien_prix_net: Decimal | None
+    nouvelle_unite: str | None
+    ancienne_unite: str | None
+
+
+class ProduitAbsentReponse(BaseModel):
+    """Un produit en vigueur absent du fichier importé -- mêmes attributs
+    qu'`ingest.grilles.ProduitAbsent`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    reference: str | None
+    designation: str
+    prix_net: Decimal
+
+
+class ErreurImportReponse(BaseModel):
+    """Une ligne du fichier non retenue -- mêmes attributs
+    qu'`ingest.grilles.ErreurImport`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    feuille: str
+    numero_ligne: int
+    message: str
+
+
+class ApercuImportReponse(BaseModel):
+    """`POST /api/grilles/fournisseurs/{id}/import/apercu` -- mêmes
+    attributs qu'`ingest.grilles.ApercuImport`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    nb_nouveaux: int
+    nb_modifies: int
+    nb_inchanges: int
+    nb_erreurs: int
+    nouveaux: list[LigneCompareeGrilleReponse]
+    modifies: list[LigneCompareeGrilleReponse]
+    absents_du_fichier: list[ProduitAbsentReponse]
+    erreurs: list[ErreurImportReponse]
+    feuilles_ignorees: list[str]
+
+
+class ImportEffectueReponse(BaseModel):
+    """`POST /api/grilles/fournisseurs/{id}/import` -- mêmes attributs
+    qu'`ingest.grilles.ImportEffectue`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    import_id: uuid.UUID
+    nb_nouveaux: int
+    nb_modifies: int
+    nb_inchanges: int
+    nb_erreurs: int
