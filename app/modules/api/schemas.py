@@ -721,7 +721,11 @@ class ChantierSilencieuxReponse(BaseModel):
 
 
 class ParametreReponse(BaseModel):
-    """Un seuil administrable avec ses métadonnées de présentation."""
+    """Un seuil administrable avec ses métadonnées de présentation.
+
+    `interrupteur` et `groupe` (phase 3, §3.4 de la conception des prix) :
+    ajoutés à la fin, présents pour tous les réglages (défauts `False`/``""``
+    pour ceux d'avant cette phase)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -732,6 +736,8 @@ class ParametreReponse(BaseModel):
     minimum: str
     maximum: str
     entier: bool
+    interrupteur: bool = False
+    groupe: str = ""
 
 
 class ModificationParametreRequete(BaseModel):
