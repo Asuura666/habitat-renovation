@@ -81,13 +81,20 @@ ENV_FILE="${HABITAT_RENO_ENV_FILE:-$ROOT_DIR/.env.${INSTANCE}}"
 COMPOSE="$DOCKER compose -p $PROJET --env-file $ENV_FILE -f $ROOT_DIR/deploy/docker-compose.yml -f $ROOT_DIR/deploy/docker-compose.vps.yml"
 
 if [[ "$DESINSTALLER" -eq 1 ]]; then
+  # Avec --dossier/--sans-activer, systemctl n'est JAMAIS appelé : un essai
+  # de désinstallation ne doit pas couper les vraies tâches de l'instance
+  # (constat de la relecture de la phase 2).
   for tache in sauvegarde controles photos; do
-    systemctl --user disable --now "${PREFIXE}-${tache}.timer" 2>/dev/null || true
+    if [[ "$ACTIVER" -eq 1 ]]; then
+      systemctl --user disable --now "${PREFIXE}-${tache}.timer" 2>/dev/null || true
+    fi
     rm -f "$DOSSIER/${PREFIXE}-${tache}.timer" "$DOSSIER/${PREFIXE}-${tache}.service"
   done
   rm -f "$DOSSIER/${PREFIXE}-alerte@.service"
-  systemctl --user daemon-reload
-  echo "Tâches de l'instance $INSTANCE désinstallées."
+  if [[ "$ACTIVER" -eq 1 ]]; then
+    systemctl --user daemon-reload
+  fi
+  echo "Tâches de l'instance $INSTANCE désinstallées ($DOSSIER)."
   exit 0
 fi
 
@@ -95,6 +102,21 @@ if [[ ! -f "$ENV_FILE" ]]; then
   echo "installer-taches.sh : $ENV_FILE introuvable" >&2
   exit 1
 fi
+IFS=',' read -r -a LISTE <<< "$TACHES"
+for tache in "${LISTE[@]}"; do
+  case "$tache" in
+    sauvegarde|controles|photos) ;;
+    *)
+      echo "installer-taches.sh : tâche inconnue « $tache » (sauvegarde, controles, photos)" >&2
+      exit 2
+      ;;
+  esac
+done
+for cle in TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_SUPERVISION_ID; do
+  if ! grep -qE "^${cle}=.+" "$ENV_FILE"; then
+    echo "installer-taches.sh : attention, $cle absent de $ENV_FILE : les échecs ne seront pas signalés sur Telegram" >&2
+  fi
+done
 if [[ ",$TACHES," == *",sauvegarde,"* ]]; then
   for cle in RESTIC_REPOSITORY RESTIC_PASSWORD; do
     if ! grep -qE "^${cle}=.+" "$ENV_FILE"; then
@@ -150,7 +172,6 @@ EOF
 
 ecrire_alerte
 TIMERS=()
-IFS=',' read -r -a LISTE <<< "$TACHES"
 for tache in "${LISTE[@]}"; do
   case "$tache" in
     sauvegarde)

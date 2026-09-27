@@ -209,3 +209,48 @@ def test_alerte_refusee_sans_jeton(tmp_path: Path) -> None:
     assert resultat.returncode == 1
     assert "jeton ou canal de supervision absent" in resultat.stderr
     assert not (tmp_path / "args-curl").exists()
+
+
+def _faux_systemctl(tmp_path: Path) -> Path:
+    """Faux `systemctl` : note chaque appel (il ne doit y en avoir aucun en
+    mode essai)."""
+    dossier = tmp_path / "bin-systemctl"
+    dossier.mkdir()
+    script = dossier / "systemctl"
+    script.write_text(
+        f'#!/usr/bin/env bash\necho "$@" >> "{tmp_path}/appels-systemctl"\n',
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return dossier
+
+
+def test_desinstaller_en_essai_ne_touche_jamais_systemd(tmp_path: Path) -> None:
+    dossier = tmp_path / "unites"
+    assert _installer(tmp_path, "prod", "--dossier", str(dossier)).returncode == 0
+    env = dict(os.environ)
+    env["HABITAT_RENO_ENV_FILE"] = str(_env_file(tmp_path))
+    env["PATH"] = f"{_faux_systemctl(tmp_path)}:{env['PATH']}"
+
+    resultat = subprocess.run(  # noqa: S603 -- script du dépôt, arguments de test fixes
+        [str(INSTALLEUR), "prod", "--desinstaller", "--dossier", str(dossier)],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert resultat.returncode == 0, resultat.stderr
+    assert not (tmp_path / "appels-systemctl").exists()
+    assert list(dossier.iterdir()) == []
+
+
+def test_tache_inconnue_refusee_avant_toute_ecriture(tmp_path: Path) -> None:
+    dossier = tmp_path / "unites"
+    resultat = _installer(
+        tmp_path, "prod", "--taches", "controles,inconnue", "--dossier", str(dossier)
+    )
+
+    assert resultat.returncode == 2
+    assert "tâche inconnue" in resultat.stderr
+    assert not dossier.exists()
