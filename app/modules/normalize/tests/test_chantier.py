@@ -1,8 +1,28 @@
-"""Tests de `decomposer_chantier` (`chantier.py`, L3-D6)."""
+"""Tests de `decomposer_chantier`, `reconnaitre_chantier` et
+`decider_chantier` (`chantier.py`, L3-D6, avenant du 27/09/2026)."""
 
 from __future__ import annotations
 
-from app.modules.normalize.chantier import LibelleChantier, decomposer_chantier
+import uuid
+
+from app.modules.normalize.chantier import (
+    Correspondance,
+    DecisionChantier,
+    EtatCorrespondance,
+    LibelleChantier,
+    NomConnu,
+    SourceNom,
+    TypeDecision,
+    correspondance_exacte,
+    decider_chantier,
+    decomposer_chantier,
+    nom_pour_creation,
+    reconnaitre_chantier,
+)
+
+A = uuid.UUID(int=1)
+B = uuid.UUID(int=2)
+C = uuid.UUID(int=3)
 
 
 def test_decomposer_chantier_retire_prefixe_et_extrait_le_code() -> None:
@@ -55,3 +75,169 @@ def test_decomposer_chantier_libelle_vide_renvoie_none() -> None:
 
 def test_decomposer_chantier_none_renvoie_none() -> None:
     assert decomposer_chantier(None) is None
+
+
+def test_correspondance_exacte_reconnu_a_100() -> None:
+    """Alias exact déjà rattaché chez ce fournisseur : reconnu à 100 sans
+    comparaison de ressemblance (comportement actuel conservé, spec §2.2)."""
+    assert correspondance_exacte(
+        "Chantier : VILLA TEST (99887766)", A
+    ) == Correspondance(
+        EtatCorrespondance.RECONNU, libelle="villa test", chantier_id=A, score=100
+    )
+
+
+def test_correspondance_exacte_brut_vide_libelle_none() -> None:
+    assert correspondance_exacte("(99887766)", A) == Correspondance(
+        EtatCorrespondance.RECONNU, libelle=None, chantier_id=A, score=100
+    )
+
+
+def test_reconnaitre_vide() -> None:
+    assert (
+        reconnaitre_chantier("  ", [NomConnu(A, "Villa Test")], 90).etat
+        is EtatCorrespondance.VIDE
+    )
+    assert (
+        reconnaitre_chantier("(12345)", [NomConnu(A, "Villa Test")], 90).etat
+        is EtatCorrespondance.VIDE
+    )
+
+
+def test_reconnaitre_au_seuil_exact() -> None:
+    noms = [NomConnu(A, "Villa test")]
+    assert (
+        reconnaitre_chantier("Villa tes", noms, 94).etat is EtatCorrespondance.RECONNU
+    )
+    assert (
+        reconnaitre_chantier("Villa tes", noms, 95).etat is EtatCorrespondance.INCONNU
+    )
+
+
+def test_reconnaitre_ignore_code_et_prefixe() -> None:
+    c = reconnaitre_chantier(
+        "Chantier : VILLA TEST (99887766)", [NomConnu(A, "Villa Test")], 90
+    )
+    assert (
+        c.etat is EtatCorrespondance.RECONNU and c.chantier_id == A and c.score == 100
+    )
+
+
+def test_reconnaitre_meilleur_nom_du_chantier() -> None:
+    noms = [NomConnu(A, "Villa Test"), NomConnu(A, "vt nord"), NomConnu(B, "Tilleuls")]
+    c = reconnaitre_chantier("VT NORD", noms, 90)
+    assert c.chantier_id == A
+
+
+def test_reconnaitre_egalite_entre_deux_chantiers_est_ambigue() -> None:
+    noms = [NomConnu(A, "Residence les Pins 1"), NomConnu(B, "Residence les Pins 2")]
+    c = reconnaitre_chantier("Residence les Pins", noms, 90)
+    assert c.etat is EtatCorrespondance.AMBIGU
+    assert c.candidats == tuple(sorted((A, B), key=str))
+
+
+def test_reconnaitre_meme_chantier_deux_noms_egaux_reste_reconnu() -> None:
+    noms = [NomConnu(A, "Villa Test"), NomConnu(A, "VILLA TEST")]
+    assert (
+        reconnaitre_chantier("villa test", noms, 90).etat is EtatCorrespondance.RECONNU
+    )
+
+
+def test_nom_pour_creation_retire_code_et_prefixe() -> None:
+    assert nom_pour_creation("  Chantier : VILLA TEST (99887766) ") == "VILLA TEST"
+    assert nom_pour_creation("(99887766)") is None
+    assert nom_pour_creation(None) is None
+
+
+def reconnu(x: uuid.UUID) -> Correspondance:
+    return Correspondance(
+        EtatCorrespondance.RECONNU, libelle="x", chantier_id=x, score=95
+    )
+
+
+def ambigu(*xs: uuid.UUID) -> Correspondance:
+    return Correspondance(
+        EtatCorrespondance.AMBIGU, libelle="x", score=95, candidats=xs
+    )
+
+
+def inconnu() -> Correspondance:
+    return Correspondance(EtatCorrespondance.INCONNU, libelle="x")
+
+
+def vide() -> Correspondance:
+    return Correspondance(EtatCorrespondance.VIDE)
+
+
+def test_lu_reconnu_legende_vide_rattache_nom_lu() -> None:
+    d = decider_chantier(reconnu(A), vide())
+    assert d == DecisionChantier(
+        TypeDecision.RATTACHER, chantier_id=A, source=SourceNom.NOM_LU, apprendre=True
+    )
+
+
+def test_legende_bavarde_ignoree_si_nom_lu_reconnu() -> None:
+    assert decider_chantier(reconnu(A), inconnu()).chantier_id == A
+
+
+def test_lu_et_legende_meme_chantier() -> None:
+    assert decider_chantier(reconnu(A), reconnu(A)).type is TypeDecision.RATTACHER
+
+
+def test_lu_reconnu_legende_ambigue_contenant_lu() -> None:
+    assert decider_chantier(reconnu(A), ambigu(A, B)).chantier_id == A
+
+
+def test_lu_reconnu_legende_autre_chantier_alerte() -> None:
+    d = decider_chantier(reconnu(A), reconnu(B))
+    assert d.type is TypeDecision.ALERTE and d.candidats == (A, B)
+
+
+def test_lu_reconnu_legende_ambigue_sans_lu_alerte() -> None:
+    assert decider_chantier(reconnu(A), ambigu(B, C)).candidats == (A, B, C)
+
+
+def test_lu_ambigu_alerte_avec_legende_reconnue() -> None:
+    assert decider_chantier(ambigu(A, B), reconnu(C)).candidats == (A, B, C)
+
+
+def test_lu_ambigu_legende_parmi_candidats_sans_doublon() -> None:
+    assert decider_chantier(ambigu(A, B), reconnu(B)).candidats == (A, B)
+
+
+def test_lu_inconnu_legende_reconnue_rattache_legende_et_apprend() -> None:
+    d = decider_chantier(inconnu(), reconnu(B))
+    assert d == DecisionChantier(
+        TypeDecision.RATTACHER, chantier_id=B, source=SourceNom.LEGENDE, apprendre=True
+    )
+
+
+def test_lu_inconnu_sans_legende_cree_depuis_nom_lu() -> None:
+    assert decider_chantier(inconnu(), vide()) == DecisionChantier(
+        TypeDecision.CREER, source=SourceNom.NOM_LU, apprendre=True
+    )
+    assert decider_chantier(inconnu(), inconnu()).type is TypeDecision.CREER
+
+
+def test_lu_inconnu_legende_ambigue_alerte() -> None:
+    assert decider_chantier(inconnu(), ambigu(A, B)).candidats == (A, B)
+
+
+def test_lu_vide_legende_reconnue_rattache_sans_apprendre() -> None:
+    assert decider_chantier(vide(), reconnu(B)) == DecisionChantier(
+        TypeDecision.RATTACHER, chantier_id=B, source=SourceNom.LEGENDE, apprendre=False
+    )
+
+
+def test_lu_vide_legende_inconnue_cree_depuis_legende() -> None:
+    assert decider_chantier(vide(), inconnu()) == DecisionChantier(
+        TypeDecision.CREER, source=SourceNom.LEGENDE, apprendre=False
+    )
+
+
+def test_lu_vide_legende_ambigue_alerte() -> None:
+    assert decider_chantier(vide(), ambigu(A, B)).type is TypeDecision.ALERTE
+
+
+def test_rien_du_tout_aucun() -> None:
+    assert decider_chantier(vide(), vide()).type is TypeDecision.AUCUN
