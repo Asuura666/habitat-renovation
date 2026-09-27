@@ -477,10 +477,18 @@ class CompteProblemesReponse(BaseModel):
 
 
 class ChantierReponse(BaseModel):
-    """Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest
-    .referentiels.ChantierResume`. `client` : ajout hors CDC demandé le
-    23/09/2026 (`docs/dette.md`). `a_completer` (Task 6, avenant du
-    27/09/2026) : chantier créé automatiquement, pas encore complété."""
+    """Une ligne de `GET /api/chantiers`, et la fiche `GET /api
+    /chantiers/{id}` (Task 7) — mêmes attributs qu'`ingest.referentiels
+    .ChantierResume`. `client` : ajout hors CDC demandé le 23/09/2026
+    (`docs/dette.md`). `a_completer` (Task 6, avenant du 27/09/2026) :
+    chantier créé automatiquement, pas encore complété.
+
+    `fusionne_dans_id`/`fusionne_dans_nom` (Task 7, avenant du 27/09/2026,
+    spec §2.7) : chantier absorbé par un autre (« Fusionner avec… ») --
+    toujours `None` sur `GET /api/chantiers` (qui exclut déjà les chantiers
+    fusionnés, Task 6) ; non `None` seulement quand `GET /api/chantiers
+    /{id}` renvoie un chantier fusionné, pour son bandeau « Ce chantier a
+    été fusionné dans <cible> »."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -490,6 +498,8 @@ class ChantierReponse(BaseModel):
     client: str | None
     actif: bool
     a_completer: bool
+    fusionne_dans_id: uuid.UUID | None
+    fusionne_dans_nom: str | None
 
 
 class ChantierCreationRequete(BaseModel):
@@ -523,6 +533,26 @@ class ChantierModificationRequete(BaseModel):
         if not valeur.strip():
             raise ValueError("nom vide")
         return valeur
+
+
+class FusionChantierRequete(BaseModel):
+    """Corps de `POST /api/chantiers/{id}/fusionner` (Task 7, avenant du
+    27/09/2026, spec §2.7) : `{id}` (source) est fusionné dans `cible_id`."""
+
+    cible_id: uuid.UUID
+
+
+class ResultatFusionReponse(BaseModel):
+    """Réponse de `POST /api/chantiers/{id}/fusionner` — mêmes attributs
+    qu'`ingest.fusion_chantier.ResultatFusion`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    cible_id: uuid.UUID
+    nb_documents: int
+    nb_blocs: int
+    nb_alias: int
+    nb_anomalies: int
 
 
 class AgenceFournisseurReponse(BaseModel):

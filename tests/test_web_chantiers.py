@@ -582,3 +582,86 @@ def test_fiche_chantier_mene_aux_problemes_de_chaque_livraison() -> None:
     carte = fiche.split("function LigneLivraisonCarte", 1)[1].split("\nfunction ", 1)[0]
     assert "to={lienProblemesLivraison(livraison)}" in carte
     assert 'parametres.get("blocId")' in _lire("pages", "ARegler.tsx")
+
+
+# ---------------------------------------------------------------------------
+# Task 7 (avenant du 27/09/2026, spec §2.7) : fusion de deux chantiers
+# ---------------------------------------------------------------------------
+
+
+def test_client_referentiels_expose_la_fusion_et_la_fiche_par_id() -> None:
+    client = _lire("api", "referentiels.ts")
+
+    assert "export function obtenirChantier" in client
+    assert '"/api/chantiers/{chantier_id}"' in client
+    assert "export function cleChantier" in client
+    assert "export function fusionnerChantiers" in client
+    assert '"/api/chantiers/{chantier_id}/fusionner"' in client
+    assert (
+        '"POST"'
+        in client.split("export function fusionnerChantiers", 1)[1].split("\n\n", 1)[0]
+    )
+    assert "cible_id: cibleId" in client
+
+
+def test_fiche_chantier_permet_de_fusionner_avec_un_autre_chantier() -> None:
+    """Bouton « Fusionner avec… » (spec §2.7) : ouvre un formulaire avec un
+    sélecteur des autres chantiers, la phrase de confirmation exacte
+    (« Tous les bons, factures et problèmes de … passeront sur … »,
+    « … disparaîtra de la liste. ») et un bouton « Fusionner » -- au succès,
+    navigation vers la fiche cible et invalidation du bilan/tableau de
+    bord/à régler/chantiers (mêmes conséquences qu'un rattachement)."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    assert "function FormulaireFusion" in page
+    assert "Fusionner avec…" in page
+    assert "fusionnerChantiers(chantier.id, cibleId)" in page
+
+    formulaire = page.split("function FormulaireFusion", 1)[1].split(
+        "\nexport function FicheChantier", 1
+    )[0]
+    assert (
+        "Tous les bons, factures et problèmes de {chantier.nom_canonique} passeront"
+        in formulaire
+    )
+    assert (
+        "sur {cible.nom_canonique}. {chantier.nom_canonique} disparaîtra de la liste."
+        in formulaire
+    )
+    assert 'type="submit" disabled={cibleId === "" || fusion.isPending}' in formulaire
+    assert "navigate(`/chantiers/${resultat.cible_id}`)" in formulaire
+    assert "invaliderApresChangementAnomalies(queryClient)" in formulaire
+    assert "CLE_CHANTIERS" in formulaire
+
+    # Le formulaire est bien monté depuis la fiche, avec le référentiel
+    # complet privé du chantier courant (jamais une fusion avec soi-même).
+    assert "autresChantiers={autresChantiers}" in page
+    assert "chantiersListe.data?.filter((c) => c.id !== id)" in page
+
+
+def test_fiche_chantier_affiche_le_bandeau_fusionne() -> None:
+    """Un chantier déjà fusionné (`fusionne_dans_id` non `null`, renvoyé par
+    `GET /api/chantiers/{id}`, seule route qui l'atteigne encore) affiche
+    un bandeau vers la cible et rien d'autre à éditer -- ni « Modifier », ni
+    « Fusionner avec… », ni les cartes Livraisons/Problèmes."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    assert "chantier.fusionne_dans_id !== null" in page
+    banniere = page.split("chantier.fusionne_dans_id !== null", 1)[1].split(
+        '\n  return (\n    <div className="space-y-6">', 1
+    )[0]
+    assert "Ce chantier a été fusionné dans" in banniere
+    assert "to={`/chantiers/${chantier.fusionne_dans_id}`}" in banniere
+    assert "chantier.fusionne_dans_nom" in banniere
+
+
+def test_fiche_chantier_utilise_obtenirChantier_pour_la_fiche() -> None:
+    """`GET /api/chantiers/{id}` (et non plus `listerChantiers().find(…)`) :
+    seule façon d'atteindre un chantier fusionné, exclu de la liste
+    (Task 6)."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    assert "obtenirChantier(id)" in page
+    assert "cleChantier(id)" in page
+    assert "chantierQuery" in page
+    assert "chantiers.data?.find((c) => c.id === id)" not in page

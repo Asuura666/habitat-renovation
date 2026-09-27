@@ -349,10 +349,28 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Obtenir Chantier Endpoint */
+        get: operations["obtenir_chantier_endpoint_api_chantiers__chantier_id__get"];
         /** Modifier Chantier Endpoint */
         put: operations["modifier_chantier_endpoint_api_chantiers__chantier_id__put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chantiers/{chantier_id}/fusionner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Fusionner Chantiers Endpoint */
+        post: operations["fusionner_chantiers_endpoint_api_chantiers__chantier_id__fusionner_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1102,10 +1120,18 @@ export interface components {
         };
         /**
          * ChantierReponse
-         * @description Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest
-         *     .referentiels.ChantierResume`. `client` : ajout hors CDC demandé le
-         *     23/09/2026 (`docs/dette.md`). `a_completer` (Task 6, avenant du
-         *     27/09/2026) : chantier créé automatiquement, pas encore complété.
+         * @description Une ligne de `GET /api/chantiers`, et la fiche `GET /api
+         *     /chantiers/{id}` (Task 7) — mêmes attributs qu'`ingest.referentiels
+         *     .ChantierResume`. `client` : ajout hors CDC demandé le 23/09/2026
+         *     (`docs/dette.md`). `a_completer` (Task 6, avenant du 27/09/2026) :
+         *     chantier créé automatiquement, pas encore complété.
+         *
+         *     `fusionne_dans_id`/`fusionne_dans_nom` (Task 7, avenant du 27/09/2026,
+         *     spec §2.7) : chantier absorbé par un autre (« Fusionner avec… ») --
+         *     toujours `None` sur `GET /api/chantiers` (qui exclut déjà les chantiers
+         *     fusionnés, Task 6) ; non `None` seulement quand `GET /api/chantiers
+         *     /{id}` renvoie un chantier fusionné, pour son bandeau « Ce chantier a
+         *     été fusionné dans <cible> ».
          */
         ChantierReponse: {
             /**
@@ -1123,6 +1149,10 @@ export interface components {
             actif: boolean;
             /** A Completer */
             a_completer: boolean;
+            /** Fusionne Dans Id */
+            fusionne_dans_id: string | null;
+            /** Fusionne Dans Nom */
+            fusionne_dans_nom: string | null;
         };
         /**
          * ChantierSilencieuxReponse
@@ -1548,6 +1578,18 @@ export interface components {
             /** Agences */
             agences: components["schemas"]["AgenceFournisseurReponse"][];
         };
+        /**
+         * FusionChantierRequete
+         * @description Corps de `POST /api/chantiers/{id}/fusionner` (Task 7, avenant du
+         *     27/09/2026, spec §2.7) : `{id}` (source) est fusionné dans `cible_id`.
+         */
+        FusionChantierRequete: {
+            /**
+             * Cible Id
+             * Format: uuid
+             */
+            cible_id: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1875,6 +1917,26 @@ export interface components {
             anomalie: components["schemas"]["AnomalieReponse"];
             /** Montant En Jeu */
             montant_en_jeu: string | null;
+        };
+        /**
+         * ResultatFusionReponse
+         * @description Réponse de `POST /api/chantiers/{id}/fusionner` — mêmes attributs
+         *     qu'`ingest.fusion_chantier.ResultatFusion`.
+         */
+        ResultatFusionReponse: {
+            /**
+             * Cible Id
+             * Format: uuid
+             */
+            cible_id: string;
+            /** Nb Documents */
+            nb_documents: number;
+            /** Nb Blocs */
+            nb_blocs: number;
+            /** Nb Alias */
+            nb_alias: number;
+            /** Nb Anomalies */
+            nb_anomalies: number;
         };
         /**
          * TableauDeBordReponse
@@ -2647,6 +2709,37 @@ export interface operations {
             };
         };
     };
+    obtenir_chantier_endpoint_api_chantiers__chantier_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chantier_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChantierReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     modifier_chantier_endpoint_api_chantiers__chantier_id__put: {
         parameters: {
             query?: never;
@@ -2669,6 +2762,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChantierReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fusionner_chantiers_endpoint_api_chantiers__chantier_id__fusionner_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chantier_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FusionChantierRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultatFusionReponse"];
                 };
             };
             /** @description Validation Error */

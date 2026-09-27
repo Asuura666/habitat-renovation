@@ -424,10 +424,18 @@ async def definir_fournisseur(
 
 @dataclass(frozen=True)
 class ChantierResume:
-    """Une ligne de `GET /api/chantiers`. `a_completer` (avenant du
-    27/09/2026, `ingest.rattachement_chantier`) : chantier créé
+    """Une ligne de `GET /api/chantiers`, et la fiche `GET /api
+    /chantiers/{id}` (`obtenir_chantier` ci-dessous). `a_completer` (avenant
+    du 27/09/2026, `ingest.rattachement_chantier`) : chantier créé
     automatiquement, pas encore complété par un humain -- pastille « À
-    compléter » des écrans « Chantiers » et fiche chantier (spec §2.6)."""
+    compléter » des écrans « Chantiers » et fiche chantier (spec §2.6).
+
+    `fusionne_dans_id`/`fusionne_dans_nom` (Task 7, avenant du 27/09/2026,
+    spec §2.7, « Fusionner avec… ») : chantier absorbé par un autre --
+    toujours `None` ici (`lister_chantiers` exclut déjà les chantiers
+    fusionnés, Task 6), non `None` seulement quand `obtenir_chantier` lit un
+    chantier fusionné pour sa fiche (seule route qui doit encore l'atteindre,
+    par son lien direct)."""
 
     id: uuid.UUID
     nom_canonique: str
@@ -435,6 +443,8 @@ class ChantierResume:
     client: str | None
     actif: bool
     a_completer: bool
+    fusionne_dans_id: uuid.UUID | None = None
+    fusionne_dans_nom: str | None = None
 
 
 @dataclass(frozen=True)
@@ -510,6 +520,45 @@ async def lister_chantiers(session: AsyncSession) -> list[ChantierResume]:
         )
         for chantier in resultat.scalars().all()
     ]
+
+
+async def obtenir_chantier(
+    session: AsyncSession, chantier_id: uuid.UUID
+) -> ChantierResume | None:
+    """Un chantier par son identifiant, fusionné ou non (Task 7, avenant du
+    27/09/2026, spec §2.7) -- pour `GET /api/chantiers/{id}`, seule route
+    qui doit encore pouvoir atteindre un chantier fusionné (exclu de
+    `lister_chantiers` depuis Task 6, jamais supprimé physiquement).
+    `None` si `chantier_id` n'existe pas du tout.
+
+    `fusionne_dans_nom` : nom de la cible, résolu ici (une seconde requête,
+    seulement quand le chantier est fusionné) -- le front n'a pas le
+    référentiel d'un chantier absent de ses listes, il ne peut donc pas
+    l'afficher lui-même (« Ce chantier a été fusionné dans <cible> »)."""
+    chantier = await session.get(Chantier, chantier_id)
+    if chantier is None:
+        return None
+
+    nom_cible: str | None = None
+    if chantier.fusionne_dans_id is not None:
+        nom_cible = (
+            await session.execute(
+                select(Chantier.nom_canonique).where(
+                    Chantier.id == chantier.fusionne_dans_id
+                )
+            )
+        ).scalar_one_or_none()
+
+    return ChantierResume(
+        id=chantier.id,
+        nom_canonique=chantier.nom_canonique,
+        agence=chantier.agence,
+        client=chantier.client,
+        actif=chantier.actif,
+        a_completer=chantier.a_completer,
+        fusionne_dans_id=chantier.fusionne_dans_id,
+        fusionne_dans_nom=nom_cible,
+    )
 
 
 def _texte_ou_none(valeur: str | None) -> str | None:

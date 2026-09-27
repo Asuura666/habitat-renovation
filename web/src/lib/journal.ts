@@ -306,6 +306,12 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   // entrée, la clé brute (« nb_demandes_alias ») afficherait le mot
   // interdit « alias » (constat de la revue, fix round 1 de la Task 10).
   nb_demandes_alias: "Noms de chantier fournisseur à confirmer",
+  // `chantier_fusionne` (`ingest/fusion_chantier.py`, Task 7, avenant du
+  // 27/09/2026) : nombre d'« autres noms » (alias) appris pour le chantier
+  // source, déplacés vers la cible -- sans cette entrée, la clé brute
+  // (« nb_alias ») afficherait le mot interdit « alias », même raison que
+  // `nb_demandes_alias` ci-dessus.
+  nb_alias: "Autres noms déplacés",
   // Complété au tour 2 (constat de la revue) : mêmes entrées
   // `facture_deposee` (`factures.py::deposer_facture`) que ci-dessus,
   // trois clés qui s'affichaient brutes sur les 4 entrées « Facture

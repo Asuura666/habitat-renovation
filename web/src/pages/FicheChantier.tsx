@@ -18,15 +18,19 @@ import {
 import { cleAnomalies, type FiltresAnomalies, listerAnomalies } from "../api/anomalies";
 import { CLE_COMPTE_A_REGLER, obtenirCompteARegler } from "../api/aTraiter";
 import { ErreurApi } from "../api/client";
+import { invaliderApresChangementAnomalies } from "../api/invalidations";
 import {
   CLE_AGENCES,
   CLE_CHANTIERS,
   CLE_CHANTIERS_SILENCIEUX,
   type Chantier,
   ChantierEnDoubleErreur,
+  cleChantier,
+  fusionnerChantiers,
   listerChantiers,
   type ModificationChantier,
   modifierChantier,
+  obtenirChantier,
 } from "../api/referentiels";
 import { cleTableauDeBord, obtenirTableauDeBord } from "../api/tableauDeBord";
 import { estMontantNul, formaterDate, formaterMontant, libelleMois, lireMois, moisApi, TIRET } from "../lib/formats";
@@ -389,10 +393,104 @@ function FormulaireEdition({
   );
 }
 
+/** « Fusionner avec… » (Task 7, avenant du 27/09/2026, spec §2.7) : tout ce
+ * que porte `chantier` (bons, factures, problèmes) passe sur le chantier
+ * choisi, qui absorbe le doublon -- résorbe les doublons produits par le
+ * rattachement automatique (« Ormeaux » / « Résidence les Ormeaux »).
+ * `autresChantiers` : référentiel complet déjà chargé par la fiche, sans
+ * `chantier` lui-même (un chantier ne peut pas se fusionner avec lui-même)
+ * ni aucun chantier déjà fusionné (`listerChantiers` les exclut déjà,
+ * Task 6). */
+function FormulaireFusion({
+  chantier,
+  autresChantiers,
+  onFermer,
+}: {
+  chantier: Chantier;
+  autresChantiers: Chantier[];
+  onFermer: () => void;
+}): ReactElement {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [cibleId, setCibleId] = useState(autresChantiers[0]?.id ?? "");
+  const cible = autresChantiers.find((c) => c.id === cibleId);
+
+  const fusion = useMutation({
+    mutationFn: () => fusionnerChantiers(chantier.id, cibleId),
+    onSuccess: async (resultat) => {
+      // Une fusion déplace des bons/factures/problèmes entiers : mêmes
+      // invalidations qu'un rattachement de chantier (bilan, tableau de
+      // bord, à régler), plus le référentiel chantier lui-même (le
+      // sélecteur ne doit plus proposer la source).
+      await Promise.all([
+        invaliderApresChangementAnomalies(queryClient),
+        queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS }),
+        queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS_SILENCIEUX }),
+      ]);
+      navigate(`/chantiers/${resultat.cible_id}`);
+    },
+  });
+
+  function messageErreur(erreur: unknown): string {
+    if (erreur instanceof ErreurApi) return erreur.detail;
+    return "Une erreur est survenue, réessayez.";
+  }
+
+  function soumettre(evenement: FormEvent<HTMLFormElement>): void {
+    evenement.preventDefault();
+    if (cibleId === "") return;
+    fusion.mutate();
+  }
+
+  return (
+    <Carte titre="Fusionner avec…">
+      <form onSubmit={soumettre} className="space-y-3">
+        <div>
+          <label htmlFor="fusion-cible" className={CLASSES_LABEL}>
+            Fusionner avec
+          </label>
+          <select
+            id="fusion-cible"
+            value={cibleId}
+            onChange={(evenement) => setCibleId(evenement.target.value)}
+            className={CLASSES_CHAMP}
+          >
+            {autresChantiers.map((autre) => (
+              <option key={autre.id} value={autre.id}>
+                {autre.nom_canonique}
+              </option>
+            ))}
+          </select>
+        </div>
+        {cible !== undefined && (
+          <p className="text-sm text-encre">
+            Tous les bons, factures et problèmes de {chantier.nom_canonique} passeront
+            sur {cible.nom_canonique}. {chantier.nom_canonique} disparaîtra de la liste.
+          </p>
+        )}
+        <div className="flex gap-2">
+          <Bouton type="submit" disabled={cibleId === "" || fusion.isPending}>
+            Fusionner
+          </Bouton>
+          <Bouton type="button" variante="secondaire" onClick={onFermer}>
+            Annuler
+          </Bouton>
+        </div>
+        {fusion.isError && (
+          <p role="alert" className="text-sm text-alerte">
+            {messageErreur(fusion.error)}
+          </p>
+        )}
+      </form>
+    </Carte>
+  );
+}
+
 export function FicheChantier(): ReactElement {
   const { chantierId } = useParams();
   const [parametres] = useSearchParams();
   const [editionOuverte, setEditionOuverte] = useState(false);
+  const [fusionOuverte, setFusionOuverte] = useState(false);
   const id = chantierId ?? "";
 
   // Mois choisi (fix round 1, constat 3) : lu depuis `?mois=` — `AAAA-MM`
@@ -419,7 +517,16 @@ export function FicheChantier(): ReactElement {
       ? `Aucune livraison en ${periodeLivraisons}.`
       : "Aucune livraison enregistrée pour ce chantier.";
 
-  const chantiers = useQuery({ queryKey: CLE_CHANTIERS, queryFn: listerChantiers });
+  // `GET /api/chantiers/{id}` (Task 7) et non plus `listerChantiers().find(…)` :
+  // seule cette route renvoie encore un chantier fusionné (`fusionne_dans_id`
+  // non `null`), pour son bandeau -- `listerChantiers` (encore utilisée
+  // ci-dessous, pour le sélecteur « Fusionner avec… ») les exclut (Task 6).
+  const chantierQuery = useQuery({
+    queryKey: cleChantier(id),
+    queryFn: () => obtenirChantier(id),
+    enabled: chantierId !== undefined,
+  });
+  const chantiersListe = useQuery({ queryKey: CLE_CHANTIERS, queryFn: listerChantiers });
   const bilanChantiers = useQuery({
     queryKey: cleBilanChantiers(filtresActifs),
     queryFn: () => listerBilanChantiers(filtresActifs),
@@ -488,7 +595,8 @@ export function FicheChantier(): ReactElement {
     })),
   });
 
-  const chantier = chantiers.data?.find((c) => c.id === id);
+  const chantier = chantierQuery.data;
+  const autresChantiers = chantiersListe.data?.filter((c) => c.id !== id) ?? [];
   const ligneBilan = bilanChantiers.data?.find((l) => l.chantier_id === id);
   // Pastille d'état (fix round 1, constat 3) : uniquement quand un mois est
   // choisi — avant, elle portait toujours sur le mois courant implicite,
@@ -568,17 +676,46 @@ export function FicheChantier(): ReactElement {
   // dans le second cas.
   const derniereLivraisonRecue = livraisonsRecues[0] ?? null;
 
-  if (chantiers.isPending) {
+  if (chantierQuery.isPending) {
     return <p role="status" className="text-sm text-encre-2">Chargement…</p>;
   }
-  if (chantiers.isError) {
-    return <p role="alert" className="text-sm text-alerte">Impossible de charger ce chantier.</p>;
+  if (chantierQuery.isError) {
+    return (
+      <div className="space-y-4">
+        <FilAriane elements={[{ libelle: "Chantiers", vers: "/chantiers" }, { libelle: "Chantier introuvable" }]} />
+        <EtatVide message="Ce chantier est introuvable." />
+      </div>
+    );
   }
   if (chantier === undefined) {
     return (
       <div className="space-y-4">
         <FilAriane elements={[{ libelle: "Chantiers", vers: "/chantiers" }, { libelle: "Chantier introuvable" }]} />
         <EtatVide message="Ce chantier est introuvable." />
+      </div>
+    );
+  }
+
+  // Chantier fusionné (Task 7, spec §2.7) : plus rien à afficher (tout a
+  // été déplacé vers la cible) ni à éditer -- seul un bandeau vers la
+  // cible, pas la Carte « Modifier le chantier » ni les livraisons/
+  // problèmes (qui n'existent plus que sur la cible).
+  if (chantier.fusionne_dans_id !== null) {
+    return (
+      <div className="space-y-4">
+        <FilAriane elements={[{ libelle: "Chantiers", vers: "/chantiers" }, { libelle: chantier.nom_canonique }]} />
+        <Carte titre={chantier.nom_canonique}>
+          <p className="text-sm text-encre">
+            Ce chantier a été fusionné dans{" "}
+            <Link
+              to={`/chantiers/${chantier.fusionne_dans_id}`}
+              className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {chantier.fusionne_dans_nom ?? "un autre chantier"}
+            </Link>
+            .
+          </p>
+        </Carte>
       </div>
     );
   }
@@ -627,10 +764,24 @@ export function FicheChantier(): ReactElement {
           <Bouton variante="secondaire" onClick={() => setEditionOuverte((ouvert) => !ouvert)}>
             Modifier
           </Bouton>
+          {/* « Fusionner avec… » n'a de sens que s'il existe un autre
+              chantier à choisir comme cible (spec §2.7). */}
+          {autresChantiers.length > 0 && (
+            <Bouton variante="secondaire" onClick={() => setFusionOuverte((ouvert) => !ouvert)}>
+              Fusionner avec…
+            </Bouton>
+          )}
         </div>
       </header>
 
       {editionOuverte && <FormulaireEdition chantier={chantier} onFermer={() => setEditionOuverte(false)} />}
+      {fusionOuverte && (
+        <FormulaireFusion
+          chantier={chantier}
+          autresChantiers={autresChantiers}
+          onFermer={() => setFusionOuverte(false)}
+        />
+      )}
 
       {/* Quatre chiffres (spec §4, maquette `FicheChantier`) : « Conforme »
           est désormais fourni par le serveur pour chaque chantier

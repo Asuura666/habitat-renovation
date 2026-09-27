@@ -886,6 +886,94 @@
       }
      }
     }
+   },
+   "get": {
+    "summary": "Obtenir Chantier Endpoint",
+    "operationId": "obtenir_chantier_endpoint_api_chantiers__chantier_id__get",
+    "parameters": [
+     {
+      "name": "chantier_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Chantier Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ChantierReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/chantiers/{chantier_id}/fusionner": {
+   "post": {
+    "summary": "Fusionner Chantiers Endpoint",
+    "operationId": "fusionner_chantiers_endpoint_api_chantiers__chantier_id__fusionner_post",
+    "parameters": [
+     {
+      "name": "chantier_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Chantier Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FusionChantierRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ResultatFusionReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
    }
   },
   "/api/fournisseurs": {
@@ -3325,6 +3413,29 @@
      "a_completer": {
       "type": "boolean",
       "title": "A Completer"
+     },
+     "fusionne_dans_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fusionne Dans Id"
+     },
+     "fusionne_dans_nom": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fusionne Dans Nom"
      }
     },
     "type": "object",
@@ -3334,10 +3445,12 @@
      "agence",
      "client",
      "actif",
-     "a_completer"
+     "a_completer",
+     "fusionne_dans_id",
+     "fusionne_dans_nom"
     ],
     "title": "ChantierReponse",
-    "description": "Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest\n.referentiels.ChantierResume`. `client` : ajout hors CDC demandé le\n23/09/2026 (`docs/dette.md`). `a_completer` (Task 6, avenant du\n27/09/2026) : chantier créé automatiquement, pas encore complété."
+    "description": "Une ligne de `GET /api/chantiers`, et la fiche `GET /api\n/chantiers/{id}` (Task 7) — mêmes attributs qu'`ingest.referentiels\n.ChantierResume`. `client` : ajout hors CDC demandé le 23/09/2026\n(`docs/dette.md`). `a_completer` (Task 6, avenant du 27/09/2026) :\nchantier créé automatiquement, pas encore complété.\n\n`fusionne_dans_id`/`fusionne_dans_nom` (Task 7, avenant du 27/09/2026,\nspec §2.7) : chantier absorbé par un autre (« Fusionner avec… ») --\ntoujours `None` sur `GET /api/chantiers` (qui exclut déjà les chantiers\nfusionnés, Task 6) ; non `None` seulement quand `GET /api/chantiers\n/{id}` renvoie un chantier fusionné, pour son bandeau « Ce chantier a\nété fusionné dans <cible> »."
    },
    "ChantierSilencieuxReponse": {
     "properties": {
@@ -4493,6 +4606,21 @@
     "title": "FournisseurReponse",
     "description": "Une ligne de `GET /api/fournisseurs` — mêmes attributs qu'`ingest\n.referentiels.FournisseurResume`. `agences` : liste vide si le\nfournisseur n'en a aucune, jamais `null` (Ruling L5-R9)."
    },
+   "FusionChantierRequete": {
+    "properties": {
+     "cible_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Cible Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "cible_id"
+    ],
+    "title": "FusionChantierRequete",
+    "description": "Corps de `POST /api/chantiers/{id}/fusionner` (Task 7, avenant du\n27/09/2026, spec §2.7) : `{id}` (source) est fusionné dans `cible_id`."
+   },
    "HTTPValidationError": {
     "properties": {
      "detail": {
@@ -5511,6 +5639,41 @@
     ],
     "title": "ProblemePrioritaireReponse",
     "description": "Une ligne de `priorites` dans `GET /api/tableau-de-bord` — mêmes\nattributs qu'`ingest.tableau_de_bord.ProblemePrioritaire`.\n`montant_en_jeu` vaut `None` quand la règle de l'anomalie n'en porte\npas ou que la valeur lue sur `detail` n'est pas convertible."
+   },
+   "ResultatFusionReponse": {
+    "properties": {
+     "cible_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Cible Id"
+     },
+     "nb_documents": {
+      "type": "integer",
+      "title": "Nb Documents"
+     },
+     "nb_blocs": {
+      "type": "integer",
+      "title": "Nb Blocs"
+     },
+     "nb_alias": {
+      "type": "integer",
+      "title": "Nb Alias"
+     },
+     "nb_anomalies": {
+      "type": "integer",
+      "title": "Nb Anomalies"
+     }
+    },
+    "type": "object",
+    "required": [
+     "cible_id",
+     "nb_documents",
+     "nb_blocs",
+     "nb_alias",
+     "nb_anomalies"
+    ],
+    "title": "ResultatFusionReponse",
+    "description": "Réponse de `POST /api/chantiers/{id}/fusionner` — mêmes attributs\nqu'`ingest.fusion_chantier.ResultatFusion`."
    },
    "TableauDeBordReponse": {
     "properties": {

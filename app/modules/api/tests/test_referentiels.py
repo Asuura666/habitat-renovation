@@ -88,9 +88,15 @@ async def _creer_fournisseur(db_session: AsyncSession, *, nom: str) -> Fournisse
 
 
 async def _creer_chantier(
-    db_session: AsyncSession, *, nom: str = "Chantier Existant"
+    db_session: AsyncSession,
+    *,
+    nom: str = "Chantier Existant",
+    actif: bool = True,
+    fusionne_dans_id: uuid.UUID | None = None,
 ) -> Chantier:
-    chantier = Chantier(nom_canonique=nom)
+    chantier = Chantier(
+        nom_canonique=nom, actif=actif, fusionne_dans_id=fusionne_dans_id
+    )
     db_session.add(chantier)
     await db_session.commit()
     await db_session.refresh(chantier)
@@ -418,6 +424,246 @@ async def test_put_chantier_agent_403(
             "client": None,
             "actif": True,
         },
+    )
+
+    assert reponse.status_code == 403
+
+
+# --------------------------------------------------------------------------
+# GET /api/chantiers/{id} (Task 7, avenant du 27/09/2026)
+# --------------------------------------------------------------------------
+
+
+async def test_get_chantier_admin_renvoie_la_fiche(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.chantierfiche1@example.invalid", role="admin"
+    )
+    chantier = await _creer_chantier(db_session, nom="Chantier Fiche API")
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test, "GET", f"/api/chantiers/{chantier.id}", cookie=cookie
+    )
+
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert corps["id"] == str(chantier.id)
+    assert corps["fusionne_dans_id"] is None
+    assert corps["fusionne_dans_nom"] is None
+
+
+async def test_get_chantier_fusionne_renvoie_la_cible(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Contrairement à `GET /api/chantiers` (qui les exclut depuis Task 6),
+    `GET /api/chantiers/{id}` doit encore renvoyer un chantier fusionné --
+    seule route qui l'atteint, pour le bandeau de sa fiche."""
+    admin = await _creer_utilisateur(
+        db_session, email="admin.chantierfiche2@example.invalid", role="admin"
+    )
+    cible = await _creer_chantier(db_session, nom="Chantier Cible API")
+    source = await _creer_chantier(
+        db_session, nom="Chantier Source API", actif=False, fusionne_dans_id=cible.id
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test, "GET", f"/api/chantiers/{source.id}", cookie=cookie
+    )
+
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert corps["fusionne_dans_id"] == str(cible.id)
+    assert corps["fusionne_dans_nom"] == "Chantier Cible API"
+
+
+async def test_get_chantier_introuvable_404(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.chantierfiche3@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test, "GET", f"/api/chantiers/{uuid.uuid4()}", cookie=cookie
+    )
+
+    assert reponse.status_code == 404
+
+
+async def test_get_chantier_agent_403(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    agent = await _creer_utilisateur(
+        db_session, email="agent.chantierfiche1@example.invalid", role="agent"
+    )
+    chantier = await _creer_chantier(db_session, nom="Chantier Fiche Agent")
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=agent.email)
+
+    reponse = await _requete(
+        app_test, "GET", f"/api/chantiers/{chantier.id}", cookie=cookie
+    )
+
+    assert reponse.status_code == 403
+
+
+# --------------------------------------------------------------------------
+# POST /api/chantiers/{id}/fusionner (Task 7, avenant du 27/09/2026)
+# --------------------------------------------------------------------------
+
+
+async def test_post_fusion_admin_200(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.fusion1@example.invalid", role="admin"
+    )
+    source = await _creer_chantier(db_session, nom="Ormeaux")
+    cible = await _creer_chantier(db_session, nom="Résidence les Ormeaux")
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test,
+        "POST",
+        f"/api/chantiers/{source.id}/fusionner",
+        cookie=cookie,
+        json_body={"cible_id": str(cible.id)},
+    )
+
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert corps == {
+        "cible_id": str(cible.id),
+        "nb_documents": 0,
+        "nb_blocs": 0,
+        "nb_alias": 0,
+        "nb_anomalies": 0,
+    }
+
+    reponse_source = await _requete(
+        app_test, "GET", f"/api/chantiers/{source.id}", cookie=cookie
+    )
+    assert reponse_source.json()["fusionne_dans_id"] == str(cible.id)
+
+    reponse_liste = await _requete(app_test, "GET", "/api/chantiers", cookie=cookie)
+    ids = {c["id"] for c in reponse_liste.json()}
+    assert str(source.id) not in ids
+    assert str(cible.id) in ids
+
+
+async def test_post_fusion_meme_chantier_409(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.fusion2@example.invalid", role="admin"
+    )
+    chantier = await _creer_chantier(db_session, nom="Chantier Seul")
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test,
+        "POST",
+        f"/api/chantiers/{chantier.id}/fusionner",
+        cookie=cookie,
+        json_body={"cible_id": str(chantier.id)},
+    )
+
+    assert reponse.status_code == 409
+
+
+async def test_post_fusion_source_introuvable_404(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.fusion3@example.invalid", role="admin"
+    )
+    cible = await _creer_chantier(db_session, nom="Chantier Cible Seule")
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test,
+        "POST",
+        f"/api/chantiers/{uuid.uuid4()}/fusionner",
+        cookie=cookie,
+        json_body={"cible_id": str(cible.id)},
+    )
+
+    assert reponse.status_code == 404
+
+
+async def test_post_fusion_cible_deja_fusionnee_409(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.fusion4@example.invalid", role="admin"
+    )
+    ailleurs = await _creer_chantier(db_session, nom="Chantier Ailleurs")
+    cible = await _creer_chantier(
+        db_session,
+        nom="Cible Déjà Fusionnée",
+        actif=False,
+        fusionne_dans_id=ailleurs.id,
+    )
+    source = await _creer_chantier(db_session, nom="Source Fusion 4")
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test,
+        "POST",
+        f"/api/chantiers/{source.id}/fusionner",
+        cookie=cookie,
+        json_body={"cible_id": str(cible.id)},
+    )
+
+    assert reponse.status_code == 409
+
+
+async def test_post_fusion_agent_403(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    agent = await _creer_utilisateur(
+        db_session, email="agent.fusion1@example.invalid", role="agent"
+    )
+    source = await _creer_chantier(db_session, nom="Source Agent Fusion")
+    cible = await _creer_chantier(db_session, nom="Cible Agent Fusion")
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=agent.email)
+
+    reponse = await _requete(
+        app_test,
+        "POST",
+        f"/api/chantiers/{source.id}/fusionner",
+        cookie=cookie,
+        json_body={"cible_id": str(cible.id)},
     )
 
     assert reponse.status_code == 403
