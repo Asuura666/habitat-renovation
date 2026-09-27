@@ -15,6 +15,7 @@ leur résultat.
 
 from __future__ import annotations
 
+import asyncio
 import itertools
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -26,7 +27,7 @@ from fastapi import Depends, FastAPI
 from fastapi_users.password import PasswordHelper
 from httpx import ASGITransport
 from sqlalchemy import func, select, update
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.auth import (
     NOM_COOKIE,
@@ -48,6 +49,7 @@ from app.core.auth import (
     retirer_acces,
 )
 from app.core.auth import router as auth_router
+from app.core.db import creer_sessionmaker
 from app.core.origine import ControleOrigineMiddleware
 from app.modules.api import router as api_router
 from app.modules.ingest.models import JetonSession, Journal, Utilisateur
@@ -1515,3 +1517,100 @@ async def test_retablir_acces_introuvable(db_session: AsyncSession) -> None:
 
     with pytest.raises(UtilisateurIntrouvable):
         await retablir_acces(db_session, uuid.uuid4(), auteur_id=admin.id)
+
+
+# ---------------------------------------------------------------------------
+# Fix round 1 (constat de revue) : condition de course sur la garde
+# « dernier administrateur actif » -- `pg_advisory_xact_lock(VERROU_ADMINS)`.
+# Même schéma que `test_creation_concurrente_un_seul_chantier`
+# (`app/modules/ingest/tests/test_rattachement_chantier.py`) : `db_engine`
+# directement (pas `db_session`), une session indépendante par tâche
+# concurrente (chacune ouvre/ferme sa propre transaction), `asyncio.gather`.
+# ---------------------------------------------------------------------------
+
+
+async def test_deux_retrogradations_croisees_simultanees_une_seule_reussit(
+    db_engine: AsyncEngine,
+) -> None:
+    """Deux admins qui se rétrogradent l'un l'autre en `agent` en même temps
+    (A rétrograde B, B rétrograde A) : sans verrou, chaque transaction peut
+    lire « un autre admin actif existe » avant que l'autre n'ait commité, et
+    les deux réussiraient -- plus aucun admin actif, contrairement au
+    garde-fou (spec §3). Avec `pg_advisory_xact_lock(VERROU_ADMINS)`, les
+    deux transactions sont sérialisées : exactement l'une réussit, l'autre
+    lève `DernierAdmin` (à ce moment-là, sa propre cible est bien devenue le
+    dernier admin actif puisque l'autre a déjà été rétrogradé)."""
+    sessionmaker = creer_sessionmaker(db_engine)
+
+    async with sessionmaker() as preparation:
+        admin_a = await creer_utilisateur(
+            preparation,
+            email="course.admin.a@example.invalid",
+            nom="Admin A",
+            role="admin",
+            agence="Toulouse",
+            mot_de_passe=_MOT_DE_PASSE_VALIDE,
+        )
+        admin_b = await creer_utilisateur(
+            preparation,
+            email="course.admin.b@example.invalid",
+            nom="Admin B",
+            role="admin",
+            agence="Toulouse",
+            mot_de_passe=_MOT_DE_PASSE_VALIDE,
+        )
+    admin_a_id, admin_a_email = admin_a.id, admin_a.email
+    admin_b_id, admin_b_email = admin_b.id, admin_b.email
+
+    async def _retrograder(
+        *, cible_id: uuid.UUID, cible_email: str, nom: str, auteur_id: uuid.UUID
+    ) -> None:
+        async with sessionmaker() as session:
+            await modifier_compte(
+                session,
+                cible_id,
+                email=cible_email,
+                nom=nom,
+                role="agent",
+                agence="Toulouse",
+                telegram_user_id=None,
+                auteur_id=auteur_id,
+            )
+
+    resultats = await asyncio.gather(
+        _retrograder(
+            cible_id=admin_b_id,
+            cible_email=admin_b_email,
+            nom="Admin B",
+            auteur_id=admin_a_id,
+        ),
+        _retrograder(
+            cible_id=admin_a_id,
+            cible_email=admin_a_email,
+            nom="Admin A",
+            auteur_id=admin_b_id,
+        ),
+        return_exceptions=True,
+    )
+
+    reussites = [r for r in resultats if r is None]
+    echecs_dernier_admin = [r for r in resultats if isinstance(r, DernierAdmin)]
+    autres_echecs = [
+        r for r in resultats if r is not None and not isinstance(r, DernierAdmin)
+    ]
+
+    assert autres_echecs == []
+    assert len(reussites) == 1
+    assert len(echecs_dernier_admin) == 1
+
+    async with sessionmaker() as verification:
+        nb_admins_actifs = (
+            await verification.execute(
+                select(func.count())
+                .select_from(Utilisateur)
+                .where(Utilisateur.role == "admin")
+                .where(Utilisateur.is_active.is_(True))
+                .where(Utilisateur.id.in_([admin_a_id, admin_b_id]))
+            )
+        ).scalar_one()
+    assert nb_admins_actifs == 1

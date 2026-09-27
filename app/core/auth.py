@@ -97,6 +97,13 @@ DELAI_RAFRAICHISSEMENT_S = 5 * 60
 LONGUEUR_MOT_DE_PASSE_MIN = 12
 ROLES_VALIDES = ("admin", "agent")
 
+# Clé de verrou consultatif (`pg_advisory_xact_lock`) qui sérialise la garde
+# « dernier administrateur actif » (Task 10, fix round 1) : valeur arbitraire
+# mais fixe, jamais réutilisée ailleurs dans le projet (voir `rattachement_
+# chantier.VERROU_CHANTIERS = 727_000_018` pour le seul autre verrou de ce
+# type, une valeur distincte).
+VERROU_ADMINS = 727_000_010
+
 # Voir la note mypy en tête de fichier : chaque paramétrage générique porte
 # ici son unique `type: ignore[type-var]`.
 UtilisateurDB = SQLAlchemyUserDatabase[Utilisateur, uuid.UUID]  # type: ignore[type-var]
@@ -649,7 +656,18 @@ async def modifier_compte(
     `admin` (garde-fou, spec §3) — l'inactif ne compte pas comme protection,
     voir `_est_dernier_admin_actif`. Lève `UtilisateurIntrouvable` si l'id
     n'existe pas. Journalise `compte_modifie` (`avant`/`apres` : jamais le
-    mot de passe ni son empreinte, qui n'y figurent déjà pas)."""
+    mot de passe ni son empreinte, qui n'y figurent déjà pas).
+
+    Fix round 1 (constat de revue, condition de course) : `pg_advisory_xact_
+    lock(VERROU_ADMINS)` est pris en tout premier, avant même de lire le
+    compte visé, et tenu jusqu'au commit ci-dessous -- sans lui, deux
+    rétrogradations croisées concurrentes (chacune lisant « un autre admin
+    actif existe » avant que l'autre n'ait commité) pouvaient toutes les
+    deux passer la garde `_est_dernier_admin_actif` et laisser zéro
+    administrateur actif. Voir `test_deux_retrogradations_croisees_
+    simultanees_une_seule_reussit` (`app/core/tests/test_auth.py`)."""
+    await session.execute(select(func.pg_advisory_xact_lock(VERROU_ADMINS)))
+
     utilisateur = await session.get(Utilisateur, compte_id)
     if utilisateur is None:
         raise UtilisateurIntrouvable(f"compte introuvable : {compte_id}")
@@ -756,7 +774,13 @@ async def retirer_acces(
     `compte_id == auteur_id` (un admin ne peut pas se retirer lui-même son
     propre accès), `DernierAdmin` si `compte_id` est le seul administrateur
     actif (`_est_dernier_admin_actif`), `UtilisateurIntrouvable` si l'id
-    n'existe pas. Journalise `acces_retire`."""
+    n'existe pas. Journalise `acces_retire`.
+
+    Fix round 1 (constat de revue, condition de course) : même verrou que
+    `modifier_compte` (`pg_advisory_xact_lock(VERROU_ADMINS)`), pris en
+    tout premier -- voir son docstring pour le scénario de course évité."""
+    await session.execute(select(func.pg_advisory_xact_lock(VERROU_ADMINS)))
+
     if compte_id == auteur_id:
         raise ActionSurSoiInterdite("impossible de retirer son propre accès")
 
