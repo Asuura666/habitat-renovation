@@ -59,13 +59,29 @@ chantier (décision du contrôleur). Elle enchaîne R06, R14, R15, R16 dans
 l'ordre des champs de `ContexteSuivi`, déclenchée par la commande
 `controles-differes` (L4-T11), pas à chaque dépôt.
 
-`REGLES_FACTURE` et `REGLES_SUIVI` (adjonction du contrôleur, L4-T5) sont
-la source de vérité des codes de règle que produit chacun des deux points
-d'entrée : `ingest.anomalies.synchroniser_anomalies` les importe pour son
-paramètre obligatoire `portee_regles` plutôt que de retyper la liste des
-règles à chaque appel. `test_engine.py` vérifie qu'ils sont disjoints et
-que leur union couvre exactement R01 à R17 — une règle ajoutée plus tard
-sans mise à jour de l'un des deux ensembles fait donc échouer la suite.
+`evaluer_chantier` (avenant du 27/09/2026) est un troisième point d'entrée,
+séparé des deux précédents : R18 (chantier à confirmer) ne porte ni sur une
+facture en cours de contrôle, ni sur le temps écoulé, mais sur le résultat
+de la décision de chantier prise à l'extraction d'un BL/enlèvement. Elle
+n'enchaîne qu'une seule règle (R18) — pas de garde ni de filtrage par
+`regles_actives`, ce paramètre n'ayant de sens qu'une fois plusieurs règles
+désactivables dans ce scope. `evaluer_chantier` n'est pas encore appelée par
+`ingest` (câblage prévu à une tâche ultérieure) : elle est ajoutée ici avec
+son propre ensemble `REGLES_CHANTIER`, sur le modèle de `REGLES_FACTURE`/
+`REGLES_SUIVI`, pour que le catalogue complet des règles (R01 à R18) reste
+dérivable d'une seule source de vérité dès l'ajout de R18, plutôt que d'
+attendre son câblage.
+
+`REGLES_FACTURE`, `REGLES_SUIVI` et `REGLES_CHANTIER` (adjonction du
+contrôleur, L4-T5, étendue par l'avenant du 27/09/2026) sont la source de
+vérité des codes de règle que produit chacun des trois points d'entrée :
+`ingest.anomalies.synchroniser_anomalies` importe `REGLES_FACTURE`/
+`REGLES_SUIVI` pour son paramètre obligatoire `portee_regles` plutôt que de
+retyper la liste des règles à chaque appel (R18 n'y est pas encore ajoutée,
+`evaluer_chantier` n'étant pas encore persistée). `test_engine.py` vérifie
+que les trois ensembles sont disjoints deux à deux et que leur union couvre
+exactement R01 à R18 — une règle ajoutée plus tard sans mise à jour de l'un
+des trois ensembles fait donc échouer la suite.
 
 `regles_actives` d'`evaluer_facture` et d'`evaluer_suivi` (décision d'Ilane
 du 24/09/2026, `docs/dette.md` : contrôles de prix désactivés tant que
@@ -107,6 +123,7 @@ from app.modules.rules.modeles import (
     Anomalie,
     ArticleControle,
     BlocControle,
+    ChantierIncertainControle,
     ContexteSuivi,
     FactureControlee,
     HistoriqueArticle,
@@ -131,11 +148,13 @@ from app.modules.rules.rules.R14 import R14
 from app.modules.rules.rules.R15 import R15
 from app.modules.rules.rules.R16 import R16
 from app.modules.rules.rules.R17 import R17
+from app.modules.rules.rules.R18 import R18
 
-# Adjonction du contrôleur (L4-T5) : scopes des deux points d'entrée du
-# moteur, source de vérité pour `ingest.anomalies.synchroniser_anomalies`
-# (paramètre obligatoire `portee_regles`) — voir le test de couverture dans
-# `test_engine.py`.
+# Adjonction du contrôleur (L4-T5), étendue par l'avenant du 27/09/2026 :
+# scopes des trois points d'entrée du moteur, source de vérité pour
+# `ingest.anomalies.synchroniser_anomalies` (paramètre obligatoire
+# `portee_regles`, REGLES_FACTURE/REGLES_SUIVI seulement pour l'instant) —
+# voir le test de couverture dans `test_engine.py`.
 REGLES_FACTURE: frozenset[str] = frozenset(
     {
         "R01",
@@ -154,6 +173,7 @@ REGLES_FACTURE: frozenset[str] = frozenset(
     }
 )
 REGLES_SUIVI: frozenset[str] = frozenset({"R06", "R14", "R15", "R16"})
+REGLES_CHANTIER: frozenset[str] = frozenset({"R18"})
 
 
 def _filtrees(
@@ -246,6 +266,15 @@ def evaluer_suivi(
             anomalies.append(anomalie_r16)
 
     return _filtrees(tuple(anomalies), regles_actives)
+
+
+def evaluer_chantier(controle: ChantierIncertainControle) -> tuple[Anomalie, ...]:
+    """Point d'entrée du moteur pour R18 (chantier à confirmer, avenant du
+    27/09/2026), distinct de `evaluer_facture` et `evaluer_suivi` (voir le
+    docstring de module). Pas de `regles_actives` : un seul point de garde
+    n'a pas d'utilité tant que R18 est la seule règle de ce scope."""
+    anomalie_r18 = R18(controle)
+    return (anomalie_r18,) if anomalie_r18 is not None else ()
 
 
 def _evaluer_bloc(

@@ -303,7 +303,10 @@ function DetailAnomalie({
   // le bloc (`bl_document_id`, joint depuis `BlocFacture`,
   // `app/modules/ingest/anomalies.py::_requete_anomalies`) dès que ce
   // bloc est apparié à un BL. `cibleBon` vaut `document_id` lui-même pour
-  // R11/R15 (`document_id` porte déjà l'identifiant du BL, `type = "bl"`)
+  // R11/R15/R18 (`document_id` porte déjà l'identifiant du BL, `type =
+  // "bl"` -- R18 ajoutée par l'avenant du 27/09/2026, pas encore câblée
+  // dans `ingest` mais dont `ChantierIncertainControle.document_id` porte
+  // déjà le même document)
   // ou `bl_document_id` pour tout le reste -- y compris une anomalie de
   // facture, qui peut donc afficher les deux liens à la fois (ex. R01/R02,
   // maquette `ARegler` : « Voir la facture · Voir le bon de livraison »).
@@ -321,8 +324,8 @@ function DetailAnomalie({
   // alors que c'est justement une ligne de ce bon qui est en cause. On ne
   // retient `document_id` que lorsqu'il est réellement connu -- sinon on
   // se rabat toujours sur `bl_document_id` (R01-R09/R12/R13/R17 comme
-  // avant, et désormais R06 ; R11/R15 gardent `document_id`, seules règles
-  // dont ce champ porte déjà l'identifiant du BL).
+  // avant, et désormais R06 ; R11/R15/R18 gardent `document_id`, seules
+  // règles dont ce champ porte déjà l'identifiant du BL).
   const cibleBon =
     anomalie.document_id !== null && anomalie.type !== "facture" ? anomalie.document_id : anomalie.bl_document_id;
   return (
@@ -353,8 +356,8 @@ function DetailAnomalie({
 
       {/* Lien facture : seulement pour une anomalie dont le document résolu
           par `document_id` est bien une facture (`type === "facture"`) —
-          jamais pour R11/R15, dont `document_id` porte l'identifiant du BL
-          lui-même (`type = "bl"`). Dépend de la Task 8 tant qu'elle n'est
+          jamais pour R11/R15/R18, dont `document_id` porte l'identifiant du
+          BL lui-même (`type = "bl"`). Dépend de la Task 8 tant qu'elle n'est
           pas fusionnée (`/documents/:id` refuse une facture,
           `_document_pour_lecture`, `app/modules/ingest/corrections.py`).
           Lien bon : voir `cibleBon` ci-dessus (fix round 2 finding 1, affiné
