@@ -217,6 +217,7 @@ def _entrant(
     update_id: int = 1,
     expediteur_id: int | None = None,
     expediteur_nom: str | None = None,
+    legende: str | None = None,
 ) -> FichierEntrant:
     return FichierEntrant(
         update_id=update_id,
@@ -228,6 +229,7 @@ def _entrant(
         nom_fichier=None,
         compresse=True,
         expediteur_nom=expediteur_nom,
+        legende=legende,
     )
 
 
@@ -500,6 +502,34 @@ async def test_traiter_fichier_photo_compressee_false_pour_un_document_envoye(
 
     document = (await db_session.execute(select(Document))).scalar_one()
     assert document.photo_compressee is False
+
+
+async def test_depot_conserve_la_legende(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    tmp_path: Path,
+) -> None:
+    """La légende Telegram (`message.caption`, avenant du 27/09/2026) est
+    conservée sur le document déposé, telle que déjà nettoyée par
+    `lire_update` (`FichierEntrant.legende`) -- `traiter_fichier` la reprend
+    sans la retoucher."""
+    utilisateur = await _creer_utilisateur(db_session, telegram_user_id=9012)
+    deposant = _deposant_depuis(utilisateur)
+    messagerie = MessagerieFactice()
+    entrant = _entrant(update_id=32, legende="Villa Test")
+
+    await traiter_fichier(
+        entrant,
+        messagerie,
+        sessions_test,
+        tmp_path,
+        _ocr_avec_numero_bl,
+        deposant,
+        CHAT_SUPERVISION_INVENTE,
+    )
+
+    document = (await db_session.execute(select(Document))).scalar_one()
+    assert document.legende == "Villa Test"
 
 
 async def test_traiter_fichier_signature_non_conforme_signale_echec_sans_ecrire(
@@ -1069,6 +1099,48 @@ async def test_traiter_fichier_ligne_supervision_fournisseur_et_chantier_resolus
     assert "chantier MAISON TEST (9900000001)" in texte
     assert "fournisseur —" not in texte
     assert "chantier —" not in texte
+
+
+# --------------------------------------------------------------------------
+# Rangement des photos (Task 9, spec §5) : `traiter_fichier` pose un lien
+# physique après l'OCR. La logique de `chemin_range`/`ranger_document` est
+# testée en profondeur dans `test_rangement.py` -- ici, seul le câblage
+# (appelé, et bien après l'OCR) est sous test.
+# --------------------------------------------------------------------------
+
+
+async def test_depot_telegram_range_la_photo(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    tmp_path: Path,
+) -> None:
+    utilisateur = await _creer_utilisateur(
+        db_session, telegram_user_id=9077, nom="Agent Rangement"
+    )
+    deposant = _deposant_depuis(utilisateur)
+    messagerie = MessagerieFactice()
+    entrant = _entrant(update_id=77)
+
+    await traiter_fichier(
+        entrant,
+        messagerie,
+        sessions_test,
+        tmp_path,
+        _ocr_avec_numero_bl,
+        deposant,
+        CHAT_SUPERVISION_INVENTE,
+    )
+
+    document = (await db_session.execute(select(Document))).scalar_one()
+    liens = list(tmp_path.glob("bl/*/*/*"))
+    assert len(liens) == 1
+    lien = liens[0]
+    # Même inode que l'original (lien physique, jamais une copie).
+    assert lien.stat().st_ino == Path(document.fichier_path).stat().st_ino
+    assert f"_n{document.numero_interne}." in lien.name
+    assert "agent-rangement" in lien.name
+    # Aucun chantier résolu par `_ocr_avec_numero_bl` (pas d'annotation).
+    assert "sans-chantier" in lien.name
 
 
 # --------------------------------------------------------------------------

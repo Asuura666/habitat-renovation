@@ -81,14 +81,15 @@ from app.modules.extract.verification import (
 )
 from app.modules.ingest.models import Document, Journal, Ligne
 from app.modules.ingest.rapprochement import rapprocher_factures_du_bl
+from app.modules.ingest.rattachement_chantier import rattacher_chantier_document
 from app.modules.ingest.referentiels import (
     charger_agences,
     charger_fournisseurs,
     lire_parametre_decimal,
     rattacher_article,
-    resoudre_chantier,
 )
 from app.modules.normalize.article import proposer_article_bl
+from app.modules.normalize.chantier import decomposer_chantier
 from app.modules.normalize.fournisseur import resoudre_agence, resoudre_fournisseur
 from app.modules.normalize.texte import normaliser_libelle
 
@@ -416,18 +417,6 @@ async def _extraire_et_committer(
             )
             numero = None
 
-    chantier_id: uuid.UUID | None = None
-    chantier_libelle: str | None = None
-    methode_chantier: str | None = None
-    if fournisseur_id is not None:
-        resolution_chantier = await resoudre_chantier(
-            session, fournisseur_id, extrait.chantier_brut.brut
-        )
-        chantier_id = resolution_chantier.chantier_id
-        chantier_libelle = resolution_chantier.libelle
-        if chantier_libelle is not None:
-            methode_chantier = "alias"
-
     confiances_champs = (
         getattr(extrait, champ).confiance for champ in CHAMPS_OBLIGATOIRES_BL
     )
@@ -450,7 +439,6 @@ async def _extraire_et_committer(
     document.agence_fournisseur_id = agence_id
     document.date_doc = extrait.date_doc.valeur
     document.chantier_brut = extrait.chantier_brut.brut
-    document.chantier_id = chantier_id
     document.numero_commande = extrait.numero_commande.brut
     document.enleve_par = extrait.enleve_par.brut
     document.total_ht = extrait.total_ht.valeur
@@ -464,6 +452,18 @@ async def _extraire_et_committer(
     document.motifs = [motif_en_json(m) for m in motifs]
     document.confiance_min = confiance_min
     document.statut = statut
+
+    # Avenant du 27/09/2026 (décision d'Ilane, spec §2.3) : rattachement
+    # automatique du chantier (nom lu + légende Telegram déjà posée par le
+    # dépôt) — après `document.chantier_brut`/`fournisseur_id`, avant le
+    # journal (`rattachement_chantier.rattacher_chantier_document` pose déjà
+    # `document.chantier_id`, apprend un alias le cas échéant et
+    # synchronise R18).
+    resultat_chantier = await rattacher_chantier_document(session, document)
+    decompose_chantier = decomposer_chantier(document.chantier_brut)
+    chantier_libelle = (
+        decompose_chantier.libelle if decompose_chantier is not None else None
+    )
 
     for ligne_extraite, ligne_vue in zip(extrait.lignes, vue.lignes, strict=True):
         # L3-D26 : une ligne d'éco-participation/contribution n'est jamais
@@ -521,8 +521,13 @@ async def _extraire_et_committer(
                     else None
                 ),
                 "chantier_libelle": chantier_libelle,
-                "chantier_id": str(chantier_id) if chantier_id is not None else None,
-                "methode_chantier": methode_chantier,
+                "chantier_id": (
+                    str(resultat_chantier.chantier_id)
+                    if resultat_chantier.chantier_id is not None
+                    else None
+                ),
+                "methode_chantier": resultat_chantier.methode,
+                "score_chantier": resultat_chantier.score,
             },
         )
     )

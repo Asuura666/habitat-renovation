@@ -41,6 +41,12 @@ class FichierEntrant:
     # Défaut `None` pour ne pas casser les constructions existantes qui ne
     # le renseignent pas.
     expediteur_nom: str | None = None
+    # Légende Telegram (`message.caption`, avenant du 27/09/2026) : nom de
+    # chantier tapé par l'employé au moment d'envoyer la photo, déjà
+    # nettoyée par `telegram.lire_update` (`strip()`, vide -> `None`,
+    # tronquée à 200 caractères). Dernier champ, défaut `None`, pour ne pas
+    # casser les constructions existantes qui ne le renseignent pas.
+    legende: str | None = None
 
 
 @dataclass(frozen=True)

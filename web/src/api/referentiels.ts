@@ -6,6 +6,7 @@ export type Fournisseur = components["schemas"]["FournisseurReponse"];
 export type ValidationAliasReponse = components["schemas"]["ValidationAliasReponse"];
 export type DepotAgent = components["schemas"]["DepotAgentReponse"];
 export type ChantierSilencieux = components["schemas"]["ChantierSilencieuxReponse"];
+export type ResultatFusion = components["schemas"]["ResultatFusionReponse"];
 
 export const CLE_CHANTIERS = ["chantiers"] as const;
 export const CLE_FOURNISSEURS = ["fournisseurs"] as const;
@@ -15,6 +16,35 @@ export const CLE_AGENCES = ["referentiels", "agences"] as const;
 
 export function listerChantiers(): Promise<Chantier[]> {
   return appelerApi<Chantier[]>("/api/chantiers");
+}
+
+export function cleChantier(chantierId: string): readonly [string, string] {
+  return ["chantier", chantierId] as const;
+}
+
+/** `GET /api/chantiers/{id}` (Task 7, avenant du 27/09/2026, spec §2.7) :
+ * seule route qui renvoie encore un chantier fusionné (`fusionne_dans_id`/
+ * `fusionne_dans_nom` non `null`), pour le bandeau de sa fiche -- `GET
+ * /api/chantiers` (`listerChantiers`) les exclut depuis Task 6. */
+export function obtenirChantier(chantierId: string): Promise<Chantier> {
+  return appelerApi<Chantier>("/api/chantiers/{chantier_id}", {
+    url: `/api/chantiers/${chantierId}`,
+  });
+}
+
+/** `POST /api/chantiers/{id}/fusionner` (Task 7, avenant du 27/09/2026,
+ * spec §2.7) : « Fusionner avec… » de la fiche chantier -- `chantierId`
+ * (source) est fusionné dans `cibleId`. */
+export function fusionnerChantiers(
+  chantierId: string,
+  cibleId: string,
+): Promise<ResultatFusion> {
+  return appelerApi<ResultatFusion>("/api/chantiers/{chantier_id}/fusionner", {
+    url: `/api/chantiers/${chantierId}/fusionner`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cible_id: cibleId }),
+  });
 }
 
 /** Référentiel fournisseur complet — consommé par le formulaire de

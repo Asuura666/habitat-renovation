@@ -22,11 +22,13 @@ from app.modules.ingest.bilan import (
     LigneBilanBl,
     LigneBilanChantier,
     LigneBilanFournisseur,
+    LigneLivraison,
     bilan_chantiers_du_fournisseur,
     bilan_par_bl,
     bilan_par_chantier,
     bilan_par_fournisseur,
     bilan_par_fournisseur_global,
+    lister_livraisons,
 )
 from app.modules.ingest.models import (
     Anomalie,
@@ -1683,3 +1685,274 @@ async def test_bilan_par_fournisseur_tri_ordonne_par_fournisseur_id_dans_la_requ
         and "fournisseur.id" in requetes_avec_tri[0].split("ORDER BY", 1)[1]
     )
     assert ok, "fournisseur_id doit être une clé de l'ORDER BY généré par la requête"
+
+
+# --------------------------------------------------------------------------
+# Task 13 (mise en production du 1er octobre, spec §4.3) : liste des
+# livraisons -- mêmes montants que `bilan_par_bl` (`_expressions_montants`,
+# jamais une nouvelle définition de « conforme »), plus le chantier et le
+# fournisseur de chaque ligne.
+# --------------------------------------------------------------------------
+
+
+def _ligne_de_livraison(
+    lignes: list[LigneLivraison], bloc_id: uuid.UUID
+) -> LigneLivraison | None:
+    for ligne in lignes:
+        if ligne.bloc_id == bloc_id:
+            return ligne
+    return None
+
+
+async def test_lister_livraisons_par_fournisseur_tous_chantiers(
+    db_session: AsyncSession,
+) -> None:
+    """`fournisseur_id` filtre sur ce seul fournisseur, mais jamais sur un
+    seul chantier -- au contraire de `bilan_par_bl`, cette liste n'est
+    jamais imbriquée sous un chantier déjà fixé par l'URL."""
+    chantier_a = await _creer_chantier(db_session, nom="Chantier Livraisons A")
+    chantier_b = await _creer_chantier(db_session, nom="Chantier Livraisons B")
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur Livraisons")
+    autre_fournisseur = await _creer_fournisseur(db_session, nom="Autre Fournisseur")
+
+    facture_a = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="LIV-A"
+    )
+    bloc_a = await _creer_bloc(
+        db_session, facture=facture_a, chantier_id=chantier_a.id, numero_bl="LIV-BL-A"
+    )
+    await _creer_ligne(
+        db_session, document=facture_a, bloc=bloc_a, montant_ht=Decimal("40.00")
+    )
+
+    facture_b = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="LIV-B"
+    )
+    bloc_b = await _creer_bloc(
+        db_session, facture=facture_b, chantier_id=chantier_b.id, numero_bl="LIV-BL-B"
+    )
+    await _creer_ligne(
+        db_session, document=facture_b, bloc=bloc_b, montant_ht=Decimal("60.00")
+    )
+
+    facture_autre = await _creer_facture(
+        db_session, fournisseur=autre_fournisseur, numero="LIV-AUTRE"
+    )
+    bloc_autre = await _creer_bloc(
+        db_session,
+        facture=facture_autre,
+        chantier_id=chantier_a.id,
+        numero_bl="LIV-BL-AUTRE",
+    )
+    await _creer_ligne(
+        db_session, document=facture_autre, bloc=bloc_autre, montant_ht=Decimal("15.00")
+    )
+
+    lignes = await lister_livraisons(
+        db_session,
+        mois=None,
+        agence=None,
+        chantier_id=None,
+        fournisseur_id=fournisseur.id,
+    )
+
+    ids = {ligne.bloc_id for ligne in lignes}
+    ligne_a = _ligne_de_livraison(lignes, bloc_a.id)
+    ligne_b = _ligne_de_livraison(lignes, bloc_b.id)
+    ok = (
+        ids == {bloc_a.id, bloc_b.id}
+        and ligne_a is not None
+        and ligne_a.chantier == "Chantier Livraisons A"
+        and ligne_a.fournisseur == "Fournisseur Livraisons"
+        and ligne_b is not None
+        and ligne_b.chantier == "Chantier Livraisons B"
+    )
+    assert ok, (
+        "lister_livraisons(fournisseur_id=...) doit retrouver les livraisons "
+        "de ce fournisseur sur tous les chantiers, jamais un seul"
+    )
+
+
+async def test_lister_livraisons_par_chantier_tous_fournisseurs(
+    db_session: AsyncSession,
+) -> None:
+    (
+        chantier,
+        fournisseur_1,
+        _fournisseur_2,
+        bloc_1a,
+        bloc_1b,
+        bloc_2a,
+    ) = await _construire_jeu_non_trivial(db_session)
+    autre_chantier = await _creer_chantier(db_session, nom="Chantier Sans Rapport")
+    autre_facture = await _creer_facture(
+        db_session, fournisseur=fournisseur_1, numero="LIV-SANS-RAPPORT"
+    )
+    autre_bloc = await _creer_bloc(
+        db_session, facture=autre_facture, chantier_id=autre_chantier.id
+    )
+    await _creer_ligne(db_session, document=autre_facture, bloc=autre_bloc)
+
+    lignes = await lister_livraisons(
+        db_session,
+        mois=None,
+        agence=None,
+        chantier_id=chantier.id,
+        fournisseur_id=None,
+    )
+
+    ids = {ligne.bloc_id for ligne in lignes}
+    ok = ids == {bloc_1a.id, bloc_1b.id, bloc_2a.id}
+    assert ok, (
+        "lister_livraisons(chantier_id=...) doit retrouver les livraisons de "
+        "ce chantier venant de tous les fournisseurs, jamais un chantier "
+        "étranger"
+    )
+
+
+async def test_lister_livraisons_conforme_meme_definition_que_bilan(
+    db_session: AsyncSession,
+) -> None:
+    """Le total des montants « conforme » de la liste doit égaler celui du
+    bilan par chantier du même mois -- même source, même définition,
+    jamais un second calcul (consigne de la fiche de tâche)."""
+    chantier, _f1, _f2, *_ = await _construire_jeu_non_trivial(db_session)
+
+    lignes = await lister_livraisons(
+        db_session,
+        mois=date(2026, 8, 1),
+        agence=None,
+        chantier_id=chantier.id,
+        fournisseur_id=None,
+    )
+    lignes_chantier = await bilan_par_chantier(
+        db_session, mois=date(2026, 8, 1), agence=None
+    )
+    ligne_chantier = _ligne_du_chantier(lignes_chantier, chantier.id)
+
+    total_conforme = sum((ligne.montants.conforme for ligne in lignes), Decimal("0"))
+    ok = (
+        ligne_chantier is not None
+        and len(lignes) == 3
+        and total_conforme == ligne_chantier.montants.conforme
+        # Vérifie aussi que ce n'est pas un total nul par accident : le
+        # jeu non trivial porte un bloc reçu sans anomalie (bloc_1a, 100€).
+        and total_conforme == Decimal("100.00")
+    )
+    assert ok, (
+        "la somme des montants « conforme » de lister_livraisons doit égaler "
+        "le montant « conforme » du bilan par chantier du même périmètre"
+    )
+
+
+async def test_lister_livraisons_sans_filtre_retrouve_tout(
+    db_session: AsyncSession,
+) -> None:
+    _chantier, _f1, _f2, bloc_1a, bloc_1b, bloc_2a = await _construire_jeu_non_trivial(
+        db_session
+    )
+
+    lignes = await lister_livraisons(
+        db_session, mois=None, agence=None, chantier_id=None, fournisseur_id=None
+    )
+
+    ids = {ligne.bloc_id for ligne in lignes}
+    ok = {bloc_1a.id, bloc_1b.id, bloc_2a.id}.issubset(ids)
+    assert ok, "sans filtre, lister_livraisons doit retrouver toutes les livraisons"
+
+
+async def test_lister_livraisons_conserve_chantier_et_fournisseur_non_resolus(
+    db_session: AsyncSession,
+) -> None:
+    facture = await _creer_facture_sans_fournisseur(db_session, numero="LIV-SANS-RIEN")
+    bloc = await _creer_bloc(
+        db_session, facture=facture, chantier_id=None, numero_bl="LIV-BL-SANS-RIEN"
+    )
+    await _creer_ligne(
+        db_session, document=facture, bloc=bloc, montant_ht=Decimal("21.00")
+    )
+
+    lignes = await lister_livraisons(
+        db_session, mois=None, agence=None, chantier_id=None, fournisseur_id=None
+    )
+
+    ligne = _ligne_de_livraison(lignes, bloc.id)
+    ok = (
+        ligne is not None
+        and ligne.chantier_id is None
+        and ligne.chantier is None
+        and ligne.fournisseur_id is None
+        and ligne.fournisseur is None
+        and ligne.montants.facture_ht == Decimal("21.00")
+    )
+    assert ok, (
+        "un bloc sans chantier ni fournisseur résolu doit rester dans la "
+        "liste, jamais disparaître silencieusement"
+    )
+
+
+async def test_lister_livraisons_tri_par_date_bl_decroissante_nulls_en_dernier(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur Tri Livraisons")
+    chantier = await _creer_chantier(db_session, nom="Chantier Tri Livraisons")
+
+    facture_recente = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="TRI-RECENT"
+    )
+    bloc_recent = await _creer_bloc(
+        db_session,
+        facture=facture_recente,
+        chantier_id=chantier.id,
+        numero_bl="TRI-RECENT",
+    )
+    bloc_recent.date_bl = date(2026, 8, 20)
+    db_session.add(bloc_recent)
+    await db_session.commit()
+    await _creer_ligne(db_session, document=facture_recente, bloc=bloc_recent)
+
+    facture_ancienne = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="TRI-ANCIEN"
+    )
+    bloc_ancien = await _creer_bloc(
+        db_session,
+        facture=facture_ancienne,
+        chantier_id=chantier.id,
+        numero_bl="TRI-ANCIEN",
+    )
+    bloc_ancien.date_bl = date(2026, 8, 1)
+    db_session.add(bloc_ancien)
+    await db_session.commit()
+    await _creer_ligne(db_session, document=facture_ancienne, bloc=bloc_ancien)
+
+    facture_sans_date = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="TRI-SANS-DATE"
+    )
+    bloc_sans_date = await _creer_bloc(
+        db_session,
+        facture=facture_sans_date,
+        chantier_id=chantier.id,
+        numero_bl="TRI-SANS-DATE",
+    )
+    # `date_bl` reste `None` : `_creer_bloc` ne le renseigne jamais (défaut
+    # du modèle), ce bloc représente donc un BL sans date lisible.
+    await _creer_ligne(db_session, document=facture_sans_date, bloc=bloc_sans_date)
+
+    lignes = await lister_livraisons(
+        db_session,
+        mois=None,
+        agence=None,
+        chantier_id=chantier.id,
+        fournisseur_id=None,
+    )
+
+    ok = [ligne.bloc_id for ligne in lignes] == [
+        bloc_recent.id,
+        bloc_ancien.id,
+        bloc_sans_date.id,
+    ]
+    assert ok, (
+        "lister_livraisons doit trier par date de BL décroissante, la date "
+        "absente en dernier (jamais en tête, contrairement au NULLS FIRST "
+        "par défaut de PostgreSQL en tri décroissant)"
+    )

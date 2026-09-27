@@ -39,6 +39,10 @@ def test_page_bl_contrat() -> None:
         "Contrôle",
         "md:hidden",
         "FilAriane",
+        # Task 4 (avenant du 27/09/2026) : légende Telegram (nom de chantier
+        # tapé par l'employé), affichée à côté du chantier rattaché.
+        "donnees.legende",
+        "Indiqué par l'employé",
     ):
         assert chaine in page, chaine
 
@@ -488,6 +492,17 @@ def test_document_detail_reste_la_correction_montee_par_pagebl() -> None:
         "bg-green-",
     ):
         assert jargon not in page, jargon
+
+
+def test_document_detail_affiche_la_legende_en_lecture_seule() -> None:
+    """Task 4 (avenant du 27/09/2026) : légende Telegram affichée près du
+    chantier rattaché, dans le panneau admin en lecture seule (jamais dans
+    `FormulaireEntete`, qui reste inchangé — seul `chantier_brut` s'y
+    corrige)."""
+    page = (WEB / "pages" / "DocumentDetail.tsx").read_text()
+
+    assert "Nom indiqué par l'employé" in page
+    assert "donnees.legende" in page
 
 
 # ---------------------------------------------------------------------------

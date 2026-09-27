@@ -5,12 +5,14 @@ import { EcouteAuthentification } from "./components/EcouteAuthentification";
 import { Gabarit } from "./components/Gabarit";
 import { ARegler } from "./pages/ARegler";
 import { ChantiersListe } from "./pages/ChantiersListe";
+import { Comptes } from "./pages/Comptes";
 import { Connexion } from "./pages/Connexion";
 import { DocumentsListe } from "./pages/DocumentsListe";
 import { FicheChantier } from "./pages/FicheChantier";
 import { FicheFournisseur } from "./pages/FicheFournisseur";
 import { FournisseursListe } from "./pages/FournisseursListe";
 import { Journal } from "./pages/Journal";
+import { Livraisons } from "./pages/Livraisons";
 import { PageBl } from "./pages/PageBl";
 import { Reglages } from "./pages/Reglages";
 import { GardeAdmin } from "./routes/GardeAdmin";
@@ -133,6 +135,20 @@ export function App(): ReactElement {
             }
           />
 
+          {/* Livraisons (Task 13, mise en production du 1er octobre, spec
+              §4.3) : liste des bons conformes cliquables, point d'arrivée
+              des montants « Conforme » de l'accueil, de la fiche chantier
+              et de la fiche fournisseur (`?mois=`/`?agence=`/`?chantier=`/
+              `?fournisseur=`/`?etat=`) -- aussi accessible seule. */}
+          <Route
+            path="livraisons"
+            element={
+              <GardeAdmin>
+                <Livraisons />
+              </GardeAdmin>
+            }
+          />
+
           {/* Documents (remplace « Factures »/« BL déposés », Task 8) —
               admin (tous) et agent (ses dépôts, lecture seule) : aucune
               `GardeAdmin` ici, comme avant Task 4, `DocumentsListe` gère
@@ -158,6 +174,18 @@ export function App(): ReactElement {
             element={
               <GardeAdmin>
                 <Reglages />
+              </GardeAdmin>
+            }
+          />
+          {/* Comptes (Task 11, spec §3) : gestion des comptes par un admin
+              (créer, modifier, mot de passe, accès) — lien discret comme
+              Réglages/Journal (`Gabarit.tsx`), atteignable aussi depuis
+              Réglages (« Gérer les comptes »). */}
+          <Route
+            path="comptes"
+            element={
+              <GardeAdmin>
+                <Comptes />
               </GardeAdmin>
             }
           />

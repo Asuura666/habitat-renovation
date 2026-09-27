@@ -54,6 +54,15 @@ orchestration.md`) :
   quoi elles restaient `ouverte` pour toujours (`rapprocher_facture` sur un
   document non `recu` ne les recalcule jamais). Un BL/enlèvement archivé
   n'a pas ce traitement (hors périmètre de ce constat).
+
+Task 9 (avenant du 27/09/2026, spec §5) : `relancer_extraction` appelle
+`ingest.rangement.ranger_document` juste après son propre commit (le
+chantier a pu être re-résolu par la nouvelle extraction) — `docs_dir`
+qu'elle reçoit déjà en paramètre, aucun appel à `get_settings()` ici.
+`corriger_entete`, elle, ne le fait pas : c'est son appelant
+(`api.documents.corriger_entete_endpoint`) qui lit `get_settings().docs_dir`
+et range le document après coup (une route peut importer `app.core`, pas ce
+module).
 """
 
 from __future__ import annotations
@@ -103,11 +112,12 @@ from app.modules.ingest.models import (
     Ligne,
     Utilisateur,
 )
+from app.modules.ingest.rangement import ranger_document
 from app.modules.ingest.rapprochement import rapprocher_factures_du_bl
+from app.modules.ingest.rattachement_chantier import rattacher_chantier_document
 from app.modules.ingest.referentiels import (
     lire_parametre_decimal,
     rattacher_article,
-    resoudre_chantier,
 )
 from app.modules.normalize.article import proposer_article_bl
 from app.modules.rules.engine import REGLES_FACTURE
@@ -205,6 +215,11 @@ class DocumentDetail:
     agence_fournisseur: str | None
     chantier_id: uuid.UUID | None
     chantier: str | None
+    # Légende Telegram (`message.caption`, avenant du 27/09/2026) : nom de
+    # chantier tapé par l'employé au moment d'envoyer la photo, affichée à
+    # côté du chantier rattaché -- `None` si la photo n'avait pas de
+    # légende ou si le document ne vient pas de Telegram.
+    legende: str | None
     champs: dict[str, ChampLu]
     lignes: list[LigneLue]
     motifs: list[MotifLu]
@@ -544,6 +559,7 @@ async def _charger_detail(
         agence_fournisseur=nom_agence,
         chantier_id=document.chantier_id,
         chantier=nom_chantier,
+        legende=document.legende,
         champs=_construire_champs(document, nom_fournisseur, corrections),
         lignes=[_ligne_lue(ligne) for ligne in lignes_db],
         motifs=motifs_lus(document.motifs),
@@ -713,16 +729,13 @@ async def _document_en_double(
 async def _resoudre_chantier_document(
     session: AsyncSession, document: Document
 ) -> None:
-    """Renseigne `document.chantier_id` à partir de `document.chantier_brut`
-    et `document.fournisseur_id` courants (nouvelle résolution après une
-    correction qui touche l'un des deux, L3-D13)."""
-    if document.fournisseur_id is None:
-        document.chantier_id = None
-        return
-    resolution = await resoudre_chantier(
-        session, document.fournisseur_id, document.chantier_brut
-    )
-    document.chantier_id = resolution.chantier_id
+    """Relance le rattachement automatique du chantier (`ingest
+    .rattachement_chantier.rattacher_chantier_document`, avenant du
+    27/09/2026) à partir de `document.chantier_brut`/`fournisseur_id`
+    courants, après une correction qui touche l'un des deux (L3-D13) — la
+    logique gère déjà un fournisseur absent (plus de retour anticipé à
+    `None` ici)."""
+    await rattacher_chantier_document(session, document)
 
 
 async def _rattacher_articles_du_document(
@@ -1157,6 +1170,13 @@ async def relancer_extraction(
         )
     )
     await session.commit()
+
+    # Task 9 (spec §5) : le chantier a pu être re-résolu par la nouvelle
+    # extraction (`enregistrer_extraction_bl` -> `rattacher_chantier
+    # _document`, déjà commité ci-dessus) -- lien physique renommé après le
+    # commit de cette fonction, `docs_dir` déjà reçu en paramètre (aucun
+    # appel à `get_settings()` ici, contrairement aux routeurs).
+    await ranger_document(session, docs_dir, document_id)
 
     await session.refresh(document)
     return await _charger_detail(session, document, role="admin")

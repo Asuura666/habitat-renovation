@@ -160,9 +160,13 @@ def test_fournisseurs_referentiel_complet_et_liens_de_la_fiche() -> None:
 
 def test_fiche_fournisseur_filtre_par_mois_et_agence() -> None:
     """Mêmes filtres que la liste (correction de revue, tour 1) : la fiche
-    ne montre pas son propre sélecteur (c'est la liste qui filtre), mais lit
-    `mois`/`agence` dans l'URL et les reporte à toutes ses requêtes, à son
-    export et au fil d'Ariane."""
+    lit `mois`/`agence` dans l'URL et les reporte à toutes ses requêtes, à
+    son export et au fil d'Ariane -- `agence` reste posée uniquement par la
+    liste (pas de sélecteur propre à la fiche pour ce filtre). `mois`, lui,
+    gagne son propre sélecteur sur la fiche à la Task 13 (mise en production
+    du 1er octobre, spec §4.2, correction 2) : même schéma que
+    `FournisseursListe.tsx::FormulaireFiltres` (`<input type="month">` +
+    `setSearchParams`/`{replace: true}`)."""
     page = _page("FicheFournisseur.tsx")
 
     assert "useSearchParams" in page
@@ -174,6 +178,16 @@ def test_fiche_fournisseur_filtre_par_mois_et_agence() -> None:
     assert "lienAvecFiltres(" in page
     assert "Tous les mois" in page
     assert "surtitre" in page
+
+    # Sélecteur de mois (Task 13) : `<input type="month">`, reporté dans
+    # l'URL via `setSearchParams`, `{ replace: true }` (même idiome que
+    # `FournisseursListe.tsx`, jamais un `setSearchParams` sans `replace`
+    # qui empilerait une entrée d'historique par frappe).
+    assert 'id="filtre-mois"' in page
+    assert 'type="month"' in page
+    assert "changerMois" in page
+    assert "setParametres(suivants, { replace: true })" in page
+    assert "value={filtresUrl.mois ?? " in page
 
 
 def test_fiche_fournisseur_precise_la_portee_des_problemes_ouverts() -> None:
@@ -233,3 +247,46 @@ def test_fournisseurs_n_importent_pas_bilan_fournisseur() -> None:
         page = _page(nom)
         assert 'BilanFournisseur"' not in page, nom
         assert "./BilanFournisseur" not in page, nom
+
+
+# ---------------------------------------------------------------------------
+# Task 13 (mise en production du 1er octobre, spec §4.2/§4.3) : fiche
+# fournisseur par mois et bons conformes cliquables.
+# ---------------------------------------------------------------------------
+
+
+def test_fiche_fournisseur_a_une_carte_livraisons() -> None:
+    """Spec §4.3, deuxième volet : la fiche fournisseur montre désormais
+    aussi les livraisons (« pas seulement les problèmes »), via le nouveau
+    `GET /api/bilan/livraisons` (Task 13) filtré sur ce fournisseur, tous
+    chantiers confondus -- le composant partagé `TableauLivraisons`
+    (extrait de la fiche chantier) affiche le chantier de chaque ligne
+    (`colonneChantier`, la fiche chantier ne l'affiche pas -- elle fixe déjà
+    le sien par son URL)."""
+    page = _page("FicheFournisseur.tsx")
+
+    assert 'from "../components/TableauLivraisons"' in page
+    assert "<TableauLivraisons" in page
+    assert "colonneChantier" in page
+    assert "listerLivraisons" in page
+    assert "cleLivraisons" in page
+    assert "fournisseurId" in page.split("filtresLivraisons = ", 1)[1].split(";", 1)[0]
+
+
+def test_fiche_fournisseur_tuile_conforme_ouvre_les_livraisons_conformes() -> None:
+    """Spec §4.3, premier volet : le montant « Conforme » de la fiche
+    fournisseur devient cliquable et mène à la liste des bons conformes du
+    même périmètre (mois, agence, fournisseur) -- ancre `#livraisons` vers
+    la carte ci-dessus, filtrée sur l'état « conforme »."""
+    page = _page("FicheFournisseur.tsx")
+
+    assert "lienLivraisonsConformes" in page
+    assert 'parametresLivraisonsConformes.set("etat", "conforme")' in page
+    assert "#livraisons" in page
+    assert "vers={lienLivraisonsConformes}" in page
+
+    # Défilement jusqu'à la carte une fois chargée (même mécanique que
+    # `#bloc-…` sur `FactureDetail.tsx`).
+    assert "useLocation" in page
+    assert 'hash === "#livraisons"' in page
+    assert 'getElementById("livraisons")?.scrollIntoView' in page

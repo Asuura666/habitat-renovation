@@ -29,7 +29,9 @@ from app.core.auth import router as auth_router
 from app.core.config import get_settings
 from app.modules.api import router as api_router
 from app.modules.ingest.models import (
+    Anomalie,
     BlocFacture,
+    Chantier,
     Document,
     Fournisseur,
     Journal,
@@ -94,6 +96,17 @@ async def _get(app_test: FastAPI, chemin: str, *, cookie: str | None) -> httpx.R
         transport=transport, base_url="http://test", cookies=cookies
     ) as client:
         return await client.get(chemin)
+
+
+async def _put(
+    app_test: FastAPI, chemin: str, corps: dict[str, Any], *, cookie: str | None
+) -> httpx.Response:
+    transport = ASGITransport(app=app_test, client=("10.0.2.2", 12345))
+    cookies = {NOM_COOKIE: cookie} if cookie is not None else None
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", cookies=cookies
+    ) as client:
+        return await client.put(chemin, json=corps)
 
 
 async def _creer_document_bl(
@@ -641,6 +654,125 @@ async def test_fichier_agent_ne_telecharge_pas_le_bon_dun_autre(
     reponse = await _get(
         app_test,
         f"/api/documents/{document.id}/fichier?telechargement=true",
+        cookie=cookie,
+    )
+
+    assert reponse.status_code == 404
+
+
+# --------------------------------------------------------------------------
+# `PUT /api/documents/{id}/chantier` (Task 6, avenant du 27/09/2026)
+# --------------------------------------------------------------------------
+
+
+async def test_put_chantier_document_admin(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.docchantier1@example.invalid", role="admin"
+    )
+    document = await _creer_document_bl(db_session, numero="L700-chantier")
+    chantier = Chantier(nom_canonique="Villa Choisie")
+    anomalie = Anomalie(
+        regle="R18",
+        gravite="moyenne",
+        document_id=document.id,
+        detail={"nom_lu": "-", "legende": "-", "candidats": "", "candidats_ids": ""},
+        statut="ouverte",
+    )
+    db_session.add_all([chantier, anomalie])
+    await db_session.commit()
+    document_id, chantier_id, anomalie_id = document.id, chantier.id, anomalie.id
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _put(
+        app_test,
+        f"/api/documents/{document_id}/chantier",
+        {"chantier_id": str(chantier_id)},
+        cookie=cookie,
+    )
+
+    assert reponse.status_code == 200
+    assert reponse.json() == {"chantier_id": str(chantier_id)}
+
+    db_session.expire_all()
+    document_relu = await db_session.get(Document, document_id)
+    assert document_relu is not None
+    assert document_relu.chantier_id == chantier_id
+    anomalie_relue = await db_session.get(Anomalie, anomalie_id)
+    assert anomalie_relue is not None
+    assert anomalie_relue.statut == "traitee"
+    assert anomalie_relue.commentaire == "Chantier choisi : Villa Choisie"
+
+
+async def test_put_chantier_document_agent_403(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    agent = await _creer_utilisateur(
+        db_session, email="agent.docchantier1@example.invalid", role="agent"
+    )
+    document = await _creer_document_bl(db_session, numero="L701-chantier")
+    chantier = Chantier(nom_canonique="Villa Refusée")
+    db_session.add(chantier)
+    await db_session.commit()
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=agent.email)
+
+    reponse = await _put(
+        app_test,
+        f"/api/documents/{document.id}/chantier",
+        {"chantier_id": str(chantier.id)},
+        cookie=cookie,
+    )
+
+    assert reponse.status_code == 403
+
+
+async def test_put_chantier_document_introuvable_renvoie_404(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.docchantier2@example.invalid", role="admin"
+    )
+    chantier = Chantier(nom_canonique="Villa Orpheline")
+    db_session.add(chantier)
+    await db_session.commit()
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _put(
+        app_test,
+        "/api/documents/00000000-0000-0000-0000-000000000000/chantier",
+        {"chantier_id": str(chantier.id)},
+        cookie=cookie,
+    )
+
+    assert reponse.status_code == 404
+
+
+async def test_put_chantier_inconnu_renvoie_404(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.docchantier3@example.invalid", role="admin"
+    )
+    document = await _creer_document_bl(db_session, numero="L702-chantier")
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _put(
+        app_test,
+        f"/api/documents/{document.id}/chantier",
+        {"chantier_id": "00000000-0000-0000-0000-000000000000"},
         cookie=cookie,
     )
 

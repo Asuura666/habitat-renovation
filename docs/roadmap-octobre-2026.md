@@ -331,8 +331,8 @@ deux mois, formation, procès-verbal). Voir `memory.md` et `docs/dette.md`.
 
 ## 10. Suivi
 
-- [ ] Socle commun fusionné dans `dev` (S1 → S5)
-- [ ] Session B lancée (Ilane)
+- [x] Socle commun fusionné dans `dev` (S1 → S5) — PR #1, 27/09
+- [x] Session B lancée (Ilane) — commentaires faits, spec et plan du lot Prix écrits (27/09)
 - [ ] Phase 1 : PR vers `dev`
 - [ ] Phase 1 : déployée (`dev` → `main`, démo puis production)
 - [ ] Phase 2 : sauvegardes, tâches planifiées, clés

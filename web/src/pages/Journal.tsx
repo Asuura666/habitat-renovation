@@ -42,11 +42,13 @@ const OPTIONS_FILTRE_LIMITE = OPTIONS_LIMITE.map((valeur) => ({
 function DetailAvantApres({
   avant,
   apres,
+  noms,
 }: {
   avant: EntreeJournal["avant"];
   apres: EntreeJournal["apres"];
+  noms: EntreeJournal["noms"];
 }): ReactElement {
-  const lignes = lignesAvantApres(avant, apres);
+  const lignes = lignesAvantApres(avant, apres, noms);
   if (lignes.length === 0) {
     return <p className="text-encre-2">Aucun détail conservé pour cette action.</p>;
   }
@@ -108,7 +110,7 @@ function LigneJournal({ entree }: { entree: EntreeJournal }): ReactElement {
         )}
       </td>
       <td className="px-4 py-3 align-top text-encre-2 [overflow-wrap:anywhere]">
-        <DetailAvantApres avant={entree.avant} apres={entree.apres} />
+        <DetailAvantApres avant={entree.avant} apres={entree.apres} noms={entree.noms} />
       </td>
     </tr>
   );
@@ -150,7 +152,7 @@ function CarteJournal({ entree }: { entree: EntreeJournal }): ReactElement {
         </Link>
       )}
       <div className="mt-3 border-t border-bordure pt-3 text-sm">
-        <DetailAvantApres avant={entree.avant} apres={entree.apres} />
+        <DetailAvantApres avant={entree.avant} apres={entree.apres} noms={entree.noms} />
       </div>
     </Carte>
   );

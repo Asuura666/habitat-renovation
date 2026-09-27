@@ -578,6 +578,91 @@ def test_chantier_non_rattache_nomme_et_pourcentages_francais() -> None:
     assert "garde(detail, cle, formaterPoints)" in libelles
 
 
+# ---------------------------------------------------------------------------
+# Task 6 (avenant du 27/09/2026) : « À régler », chantiers à compléter et
+# choix du chantier d'un bon
+# ---------------------------------------------------------------------------
+
+
+def test_a_regler_liste_les_chantiers_a_completer() -> None:
+    """Spec §2.6 : nouvelle section « Nouveaux chantiers à compléter »,
+    intégrée à la file unique de problèmes (même discipline que documents/
+    alias/articles, décision du contrôleur : un seul compte, une seule
+    liste -- voir le docstring de module d'`ingest.a_traiter`)."""
+    page = _lire("pages", "ARegler.tsx")
+
+    assert '{ kind: "chantier"; id: string; chantier: ChantierACompleter }' in page
+    assert "chantiers_a_completer" in page
+    assert "Créé automatiquement le" in page
+    # Périmètre document (fix round 1, finding 10) : jamais de chantier à
+    # compléter pour un périmètre restreint à un bon précis.
+    garde = page.split("function aTraiterDuPerimetre", 1)[1].split("\nfunction ", 1)[0]
+    assert "chantiers_a_completer: []" in garde
+
+    detail = _lire("pages", "ProblemeDetail.tsx")
+    assert "function DetailChantierACompleter" in detail
+    assert (
+        "<LienPrincipal to={`/chantiers/${chantier.id}`}>Compléter</LienPrincipal>"
+        in detail
+    )
+
+
+def test_probleme_detail_r18_propose_un_choix_de_chantier() -> None:
+    """Spec §2.4 : l'alerte « Chantier à confirmer » (R18) ne montre jamais
+    le formulaire générique Contesté/Ignorer -- un bouton par candidat
+    (« C'est <nom> ») et « Autre chantier… » (liste des chantiers), chaque
+    choix appelant `choisirChantierDocument` (même route que le sélecteur
+    admin de `DocumentDetail.tsx`)."""
+    page = _lire("pages", "ProblemeDetail.tsx")
+
+    assert 'anomalie.regle === "R18" ? (' in page
+    assert "<DetailR18" in page
+    assert "`C'est ${candidat.nom}`" in page
+    assert "Autre chantier…" in page
+    assert "choisirChantierDocument(documentId" in page
+    assert 'detail.candidats.split(" / ")' in page
+    assert 'detail.candidats_ids.split(",")' in page
+
+    client = _lire("api", "documents.ts")
+    assert "export function choisirChantierDocument" in client
+    assert '"PUT"' in client
+    assert "/chantier" in client
+
+
+def test_probleme_detail_r18_autre_chantier_permet_de_creer() -> None:
+    """Fix round 1 (revue de cette tâche, spec §2.4 « avec création
+    possible ») : « Autre chantier… » doit permettre de créer un chantier,
+    pas seulement d'en choisir un existant -- même formulaire (nom, client,
+    agence) et même API (`creerChantier`) que la carte « Chantier à
+    rattacher » (`AliasCarte.tsx`), puis choix du chantier créé pour le bon
+    (`choisirChantierDocument`)."""
+    page = _lire("pages", "ProblemeDetail.tsx")
+
+    assert "function DetailR18" in page
+    detail_r18 = page.split("function DetailR18", 1)[1].split(
+        "\nfunction DetailAnomalie", 1
+    )[0]
+
+    assert "setModeCreation" in detail_r18
+    assert "creerChantier(" in detail_r18
+    assert '"Créer et choisir"' in detail_r18
+    assert '"Créer un chantier"' in detail_r18
+    assert "Nom du chantier" in detail_r18
+    assert "Client" in detail_r18
+    assert "Agence" in detail_r18
+    # Choisit le chantier créé pour ce bon, même route que les candidats.
+    assert "choisirChantierDocument(documentId" in detail_r18
+    # Même garde-fou qu'`AliasCarte` contre un doublon de nom.
+    assert "ChantierEnDoubleErreur" in detail_r18
+
+    referentiels = _lire("api", "referentiels.ts")
+    assert "export async function creerChantier" in referentiels
+    assert "export class ChantierEnDoubleErreur" in referentiels
+
+    dette = (Path(__file__).parents[1] / "docs" / "dette.md").read_text()
+    assert "ne permet pas de créer un chantier" not in dette
+
+
 def test_un_seul_compte_de_problemes_a_regler() -> None:
     """Revue finale (constats LIENS-2, ECRAN-6, TELEPHONE-2, COUVERTURE-2) :
     la tuile du mois, le lien « Voir les N problèmes », la pastille de

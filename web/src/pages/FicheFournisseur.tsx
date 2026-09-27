@@ -1,18 +1,22 @@
-import type { ReactElement } from "react";
+import { type ReactElement, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams, useSearchParams } from "react-router";
+import { Link, useLocation, useParams, useSearchParams } from "react-router";
 
 import {
   cleBilanFournisseurs,
+  cleLivraisons,
   type FiltresBilan,
   type LigneBilanChantier,
+  type LigneLivraison,
   listerBilanChantiersFournisseur,
   listerBilanFournisseursGlobal,
+  listerLivraisons,
   urlExportBilanChantiersFournisseur,
 } from "../api/bilan";
 import { type Anomalie, cleAnomalies, listerAnomalies } from "../api/anomalies";
 import { CLE_COMPTE_A_REGLER, obtenirCompteARegler } from "../api/aTraiter";
 import { CLE_FOURNISSEURS, listerFournisseurs } from "../api/referentiels";
+import { type LivraisonAffichee, TableauLivraisons } from "../components/TableauLivraisons";
 import { estMontantNul, formaterMontant, libelleMois, lireMois, moisApi } from "../lib/formats";
 import { lienChantier } from "../lib/liens";
 import {
@@ -27,6 +31,25 @@ import {
   titreRegle,
   urgence,
 } from "../ui";
+
+const CLASSES_CHAMP_MOIS =
+  "min-h-[44px] rounded-lg border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent";
+
+/** Une ligne de `GET /api/bilan/livraisons`, mise à la forme attendue par
+ * `TableauLivraisons` (Task 13, spec §4.3) -- le chantier de chaque ligne
+ * varie (`colonneChantier`), le fournisseur non (toujours celui de cette
+ * fiche), même principe que le repli « Fournisseur à rattacher » des autres
+ * écrans quand le référentiel ne l'a pas résolu. */
+function versLivraisonAffichee(ligne: LigneLivraison): LivraisonAffichee {
+  return {
+    blocId: ligne.bloc_id,
+    numeroBl: ligne.numero_bl,
+    dateBl: ligne.date_bl,
+    fournisseur: ligne.fournisseur ?? "Fournisseur à rattacher",
+    chantier: ligne.chantier ?? "Chantier à rattacher",
+    ligne,
+  };
+}
 
 const CLASSES_BOUTON_LIEN =
   "inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-bordure bg-surface px-4 py-2 text-sm font-medium text-encre outline-none transition-colors hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
@@ -248,7 +271,8 @@ function SectionProblemesOuverts({ anomalies }: { anomalies: Anomalie[] }): Reac
  */
 export function FicheFournisseur(): ReactElement {
   const { fournisseurId } = useParams();
-  const [parametres] = useSearchParams();
+  const [parametres, setParametres] = useSearchParams();
+  const { hash } = useLocation();
   const filtresUrl: FiltresUrl = {
     mois: lireMois(parametres.get("mois")),
     agence: parametres.get("agence") || undefined,
@@ -257,6 +281,27 @@ export function FicheFournisseur(): ReactElement {
     mois: filtresUrl.mois !== undefined ? moisApi(filtresUrl.mois) : undefined,
     agence: filtresUrl.agence,
   };
+
+  // Sélecteur de mois (Task 13, spec §4.2, correction 2) : même schéma que
+  // `FournisseursListe.tsx::FormulaireFiltres` (`<input type="month">` +
+  // `setSearchParams`/`{replace: true}`) -- les requêtes de cette fiche
+  // lisent déjà `filtres.mois`, ce sélecteur ne fait qu'écrire dans l'URL.
+  function changerMois(valeur: string): void {
+    const suivants = new URLSearchParams(parametres);
+    if (valeur.trim() === "") {
+      suivants.delete("mois");
+    } else {
+      suivants.set("mois", valeur);
+    }
+    setParametres(suivants, { replace: true });
+  }
+
+  // Tuile « Conforme » cliquable (spec §4.3) : mène à la carte
+  // « Livraisons » ci-dessous (ancre `#livraisons`), filtrée sur les bons
+  // conformes (`?etat=conforme`) -- mois et agence affichés préservés.
+  const parametresLivraisonsConformes = new URLSearchParams(parametres);
+  parametresLivraisonsConformes.set("etat", "conforme");
+  const lienLivraisonsConformes = `?${parametresLivraisonsConformes.toString()}#livraisons`;
 
   const fournisseurs = useQuery({ queryKey: CLE_FOURNISSEURS, queryFn: listerFournisseurs });
   const bilanGlobal = useQuery({
@@ -275,6 +320,32 @@ export function FicheFournisseur(): ReactElement {
     queryFn: () => listerAnomalies({ fournisseurId, limite: 500 }),
     enabled: fournisseurId !== undefined,
   });
+  // Carte « Livraisons » (Task 13, spec §4.3) : `GET /api/bilan/livraisons`
+  // filtré sur ce fournisseur, tous chantiers confondus (`colonneChantier`,
+  // voir `components/TableauLivraisons.tsx`) -- déjà trié par date de BL
+  // décroissante par le serveur, jamais un second tri ici.
+  const filtresLivraisons = { mois: filtres.mois, agence: filtres.agence, fournisseurId };
+  const livraisonsQuery = useQuery({
+    queryKey: cleLivraisons(filtresLivraisons),
+    queryFn: () => listerLivraisons(filtresLivraisons),
+    enabled: fournisseurId !== undefined,
+  });
+  const livraisons: LivraisonAffichee[] = (livraisonsQuery.data ?? []).map(versLivraisonAffichee);
+  const periodeLivraisons = filtresUrl.mois !== undefined ? libelleMois(filtresUrl.mois) : null;
+  const titreLivraisons = periodeLivraisons !== null ? `Livraisons — ${periodeLivraisons}` : "Livraisons";
+  const messageAucuneLivraison =
+    periodeLivraisons !== null
+      ? `Aucune livraison en ${periodeLivraisons}.`
+      : "Aucune livraison enregistrée pour ce fournisseur.";
+
+  // Défilement jusqu'à la carte « Livraisons » une fois chargée (ancre
+  // `#livraisons`, même mécanique que `#bloc-…` sur `FactureDetail.tsx`).
+  useEffect(() => {
+    if (livraisonsQuery.isSuccess && hash === "#livraisons") {
+      window.document.getElementById("livraisons")?.scrollIntoView({ block: "start" });
+    }
+  }, [livraisonsQuery.isSuccess, hash]);
+
   // Même clé que `Gabarit`/`VueEnsemble`/`ARegler` (décision d'Ilane du
   // 24/09/2026, `docs/dette.md`) : seul endroit qui porte `controle_prix_
   // actif`, lu ici pour la tuile « Écart … » ci-dessous — `@tanstack/
@@ -305,9 +376,23 @@ export function FicheFournisseur(): ReactElement {
         surtitre={texteSurtitre(filtresUrl)}
         titre={nom}
         actions={
-          <a href={urlExportBilanChantiersFournisseur(fournisseurId ?? "", filtres)} className={CLASSES_BOUTON_LIEN}>
-            Exporter pour Excel
-          </a>
+          <>
+            <div className="flex items-center gap-2">
+              <label htmlFor="filtre-mois" className="text-sm text-encre-2">
+                Mois
+              </label>
+              <input
+                id="filtre-mois"
+                type="month"
+                value={filtresUrl.mois ?? ""}
+                onChange={(evenement) => changerMois(evenement.target.value)}
+                className={CLASSES_CHAMP_MOIS}
+              />
+            </div>
+            <a href={urlExportBilanChantiersFournisseur(fournisseurId ?? "", filtres)} className={CLASSES_BOUTON_LIEN}>
+              Exporter pour Excel
+            </a>
+          </>
         }
       />
 
@@ -331,6 +416,7 @@ export function FicheFournisseur(): ReactElement {
                 libelle="Conforme"
                 valeur={formaterMontant(ligneMontants.montants.conforme)}
                 ton={estMontantNul(ligneMontants.montants.conforme) ? "neutre" : "conforme"}
+                vers={lienLivraisonsConformes}
               />
               <Chiffre
                 libelle={libelleEcart(controlePrixActif)}
@@ -347,6 +433,23 @@ export function FicheFournisseur(): ReactElement {
           ) : (
             <EtatVide message="Aucune facture enregistrée pour ce fournisseur sur ces filtres." />
           )}
+
+          <section aria-label="Livraisons" className={CLASSES_CARTE}>
+            <h2 className="mb-4 font-titre text-xl font-medium text-encre">{titreLivraisons}</h2>
+            {livraisonsQuery.isPending && (
+              <p role="status" className="text-sm text-encre-2">
+                Chargement…
+              </p>
+            )}
+            {livraisonsQuery.isError && (
+              <p role="alert" className="text-sm text-alerte">
+                Impossible de charger les livraisons de ce fournisseur.
+              </p>
+            )}
+            {livraisonsQuery.isSuccess && (
+              <TableauLivraisons livraisons={livraisons} colonneChantier messageVide={messageAucuneLivraison} />
+            )}
+          </section>
 
           <section aria-label="Chantiers concernés" className={CLASSES_CARTE}>
             <h2 className="mb-4 font-titre text-xl font-medium text-encre">Chantiers concernés</h2>

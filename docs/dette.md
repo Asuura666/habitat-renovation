@@ -1147,3 +1147,18 @@ tombent d'eux-mêmes sur le serveur dédié.
   marche ou non), avec un test dans `tests/test_restore_script.py`. À
   traiter avec la mise en place des sauvegardes restic (priorité n° 1),
   en rejouant `deploy/test-restauration.sh` de bout en bout.
+
+## Mise en production du 1er octobre (27/09/2026) — reporté
+
+Relevé par les relectures (tâche par tâche et finale) et laissé de côté
+volontairement ; aucun ne met en jeu les montants, les règles ni la sécurité.
+Recette : `docs/mise-en-production-1er-octobre-recette.md`.
+
+- **Compteur `nb_demandes_alias`** (journal `facture_deposee`, `ingest/factures.py`) : compte aussi un bloc dont le chantier brut se réduit à un code entre parenthèses. Chiffre de journal seulement.
+- **Docstrings d'`ingest/anomalies.py`** : disent encore que `evaluer_chantier` n'est pas appelée par `ingest` (elle l'est depuis le rattachement automatique).
+- **Tests manquants** : bon d'un fournisseur inconnu rattaché ou créé sans apprentissage ; repli de `_exemple_brut_alias` quand aucun brut n'existe ; course `retirer_acces` × `retirer_acces` ; `..` explicite dans `normaliser_segment`. Comportements vérifiés à la lecture.
+- **Photos rangées** : si l'ancien lien est retiré et que le nouveau échoue, le bon n'a plus de lien jusqu'au prochain `ranger-photos` ; `corriger_entete` range la photo à chaque correction, même sans changement de chantier (idempotent). Les bons dont le chantier change par propagation d'un nom appris attendent `ranger-photos` (timer nocturne à poser en phase 2).
+- **Écran** : colonne « Fournisseur » redondante dans les livraisons de la fiche fournisseur ; classe du champ mois dupliquée entre deux pages ; petite duplication du formulaire de création de chantier entre l'alerte et « Noms à rattacher » ; si une création puis un choix échouent, un second essai réutilise le chantier déjà créé même si le nom a été modifié.
+- **Journal** : le libellé « Livraisons (total) » sert aussi au nombre de lignes de facture déplacées par une fusion ; le front traite `cible_id` comme un chantier sans connaître `cible_table` (sûr tant que seule la fusion l'écrit).
+- **Comptes** : pas de longueur maximale du mot de passe (coût argon2, administrateur de confiance seul) ; identifiant Telegram sans contrainte `> 0` ; unicité de l'identifiant Telegram garantie par verrou applicatif, pas par un index en base (à ajouter dans une migration planifiée).
+- **Reprise** : `rattacher-chantiers` garde le verrou des chantiers pendant toute sa durée (bloquerait les dépôts sur un gros arriéré).

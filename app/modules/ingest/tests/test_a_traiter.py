@@ -463,6 +463,85 @@ async def test_article_sans_ratio_absent(db_session: AsyncSession) -> None:
 
 
 # --------------------------------------------------------------------------
+# Chantiers à compléter (avenant du 27/09/2026, spec §2.6)
+# --------------------------------------------------------------------------
+
+
+async def _creer_chantier(
+    db_session: AsyncSession,
+    *,
+    nom: str = "Chantier Testeur",
+    a_completer: bool = False,
+    created_at: datetime | None = None,
+) -> Chantier:
+    chantier = Chantier(nom_canonique=nom, a_completer=a_completer)
+    db_session.add(chantier)
+    await db_session.flush()
+    if created_at is not None:
+        chantier.created_at = created_at
+    await db_session.commit()
+    await db_session.refresh(chantier)
+    return chantier
+
+
+async def test_chantier_cree_auto_apparait_a_completer(
+    db_session: AsyncSession,
+) -> None:
+    chantier = await _creer_chantier(
+        db_session, nom="Villa Créée Auto", a_completer=True, created_at=_instant(0)
+    )
+    await _creer_document(
+        db_session, numero="L500", chantier_id=chantier.id, statut="a_verifier"
+    )
+    await _creer_document(
+        db_session, numero="L501", chantier_id=chantier.id, statut="recu"
+    )
+    # Une facture rattachée au même chantier ne compte pas comme un bon.
+    await _creer_document(
+        db_session, type_="facture", numero="F500", chantier_id=chantier.id
+    )
+
+    a_traiter = await lister_a_traiter(db_session)
+
+    lignes = {c.id: c for c in a_traiter.chantiers_a_completer}
+    assert chantier.id in lignes
+    ligne = lignes[chantier.id]
+    assert ligne.nom == "Villa Créée Auto"
+    assert ligne.nb_bons == 2
+    assert ligne.cree_le == chantier.created_at
+
+
+async def test_chantier_non_a_completer_absent(db_session: AsyncSession) -> None:
+    chantier = await _creer_chantier(db_session, a_completer=False)
+
+    a_traiter = await lister_a_traiter(db_session)
+
+    assert chantier.id not in {c.id for c in a_traiter.chantiers_a_completer}
+
+
+async def test_chantier_a_completer_exclut_les_bons_archives(
+    db_session: AsyncSession,
+) -> None:
+    """Fix round 1 : un bon archivé ne compte pas dans `nb_bons` -- même
+    exclusion que partout ailleurs où un compte porte sur des documents
+    (`ingest.bilan`, `corrections.archiver_document`)."""
+    chantier = await _creer_chantier(
+        db_session, nom="Villa Avec Archive", a_completer=True
+    )
+    await _creer_document(
+        db_session, numero="L510", chantier_id=chantier.id, statut="a_verifier"
+    )
+    await _creer_document(
+        db_session, numero="L511", chantier_id=chantier.id, statut="archive"
+    )
+
+    a_traiter = await lister_a_traiter(db_session)
+
+    ligne = next(c for c in a_traiter.chantiers_a_completer if c.id == chantier.id)
+    assert ligne.nb_bons == 1
+
+
+# --------------------------------------------------------------------------
 # Compte unique des problèmes « à régler » (revue finale de la refonte du
 # front, constats LIENS-2, ECRAN-6, TELEPHONE-2, COUVERTURE-2)
 # --------------------------------------------------------------------------
@@ -523,11 +602,26 @@ async def test_compte_a_regler_vaut_la_liste_de_l_ecran(
         + len(a_traiter.documents)
         + len(a_traiter.alias)
         + len(a_traiter.articles)
+        + len(a_traiter.chantiers_a_completer)
     )
     assert compte.nb_urgents == sum(1 for a in ouvertes if a.gravite == "haute")
     # Valeurs attendues du scénario (base vidée entre deux tests).
     assert compte.nb_problemes == 5
     assert compte.nb_urgents == 1
+
+
+async def test_compte_a_regler_inclut_chantiers_a_completer(
+    db_session: AsyncSession,
+) -> None:
+    """Un chantier créé automatiquement, encore à compléter, compte comme un
+    problème « à régler » de plus (spec §2.6) -- même invariant que le test
+    ci-dessus, isolé sur ce seul ajout."""
+    await _creer_chantier(db_session, nom="Chantier À Compléter", a_completer=True)
+
+    compte = await compter_problemes_a_regler(db_session)
+
+    assert compte.nb_problemes == 1
+    assert compte.nb_urgents == 0
 
 
 async def test_compte_a_regler_vide(db_session: AsyncSession) -> None:

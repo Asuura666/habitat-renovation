@@ -27,7 +27,7 @@ from app.core.auth import router as auth_router
 from app.core.config import get_settings
 from app.modules.api import router as api_router
 from app.modules.ingest import commun
-from app.modules.ingest.models import Document, Utilisateur
+from app.modules.ingest.models import Chantier, Document, Utilisateur
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
 
@@ -151,9 +151,40 @@ async def test_a_traiter_admin_renvoie_le_contenu(
     corps = reponse.json()
     # `anomalies_hautes` ajouté en L4-T9 (L4-D18) : les scénarios détaillés
     # de cette section vivent dans `app/modules/api/tests/test_anomalies.py`.
-    assert set(corps.keys()) == {"documents", "alias", "articles", "anomalies_hautes"}
+    # `chantiers_a_completer` ajouté par Task 6 (avenant du 27/09/2026) :
+    # les scénarios détaillés vivent dans `app/modules/ingest/tests
+    # /test_a_traiter.py`.
+    assert set(corps.keys()) == {
+        "documents",
+        "alias",
+        "articles",
+        "anomalies_hautes",
+        "chantiers_a_completer",
+    }
     ids_documents = {d["id"] for d in corps["documents"]}
     assert str(document.id) in ids_documents
+
+
+async def test_a_traiter_admin_liste_les_chantiers_a_completer(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.atraiter2@example.invalid", role="admin"
+    )
+    chantier = Chantier(nom_canonique="Chantier À Compléter Testeur", a_completer=True)
+    db_session.add(chantier)
+    await db_session.commit()
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(app_test, "GET", "/api/a-traiter", cookie=cookie)
+
+    assert reponse.status_code == 200
+    lignes = reponse.json()["chantiers_a_completer"]
+    ids = {ligne["id"] for ligne in lignes}
+    assert str(chantier.id) in ids
 
 
 # --------------------------------------------------------------------------

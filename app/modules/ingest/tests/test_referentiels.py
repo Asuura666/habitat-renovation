@@ -13,13 +13,15 @@ toutes les tables après chaque test : aucun nettoyage manuel nécessaire ici.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
+from app.core.db import creer_sessionmaker
 from app.modules.ingest.models import (
     AgenceFournisseur,
     Article,
@@ -540,6 +542,36 @@ async def test_lister_chantiers_actifs_dabord_puis_par_nom(
     assert noms == ["Chantier A Actif", "Chantier B Actif", "Chantier Z Inactif"]
 
 
+async def test_lister_chantiers_expose_a_completer(db_session: AsyncSession) -> None:
+    a_completer = Chantier(nom_canonique="Chantier Auto", a_completer=True)
+    complet = Chantier(nom_canonique="Chantier Complet", a_completer=False)
+    db_session.add_all([a_completer, complet])
+    await db_session.commit()
+
+    chantiers = {c.nom_canonique: c for c in await lister_chantiers(db_session)}
+
+    assert chantiers["Chantier Auto"].a_completer is True
+    assert chantiers["Chantier Complet"].a_completer is False
+
+
+async def test_lister_chantiers_exclut_les_fusionnes(db_session: AsyncSession) -> None:
+    """Task 7 (avenant du 27/09/2026, spec §2.7) : un chantier fusionné
+    (`fusionne_dans_id` renseigné) n'apparaît plus dans le référentiel --
+    aucun sélecteur ni écran « Chantiers » ne doit plus le proposer."""
+    cible = Chantier(nom_canonique="Chantier Cible Fusion")
+    db_session.add(cible)
+    await db_session.flush()
+    source = Chantier(nom_canonique="Chantier Source Fusion", fusionne_dans_id=cible.id)
+    db_session.add(source)
+    await db_session.commit()
+
+    chantiers = await lister_chantiers(db_session)
+
+    ids = {c.id for c in chantiers}
+    assert cible.id in ids
+    assert source.id not in ids
+
+
 async def test_creer_chantier_journalise(
     db_session: AsyncSession, admin: Utilisateur
 ) -> None:
@@ -629,6 +661,62 @@ async def test_creer_chantier_enregistre_le_client(
     assert chantier.client == "M. et Mme Martin"
 
 
+async def test_creation_concurrente_manuelle_un_seul_chantier(
+    db_engine: AsyncEngine,
+) -> None:
+    """Deux créations manuelles concurrentes du même nom (Ruling 16, A2,
+    revue finale du 27/09/2026) : sans `pg_advisory_xact_lock
+    (VERROU_CHANTIERS)`, chaque session peut lire « aucun chantier de ce nom
+    » (la boucle Python de `creer_chantier`) avant que l'autre n'ait commité,
+    et les deux créeraient leur propre doublon -- même schéma que
+    `test_creation_concurrente_un_seul_chantier`
+    (`app/modules/ingest/tests/test_rattachement_chantier.py`) : `db_engine`
+    directement (pas `db_session`), une session indépendante par tâche
+    concurrente, `asyncio.gather`. Exactement une des deux réussit, l'autre
+    lève `ChantierEnDouble`."""
+    sessionmaker = creer_sessionmaker(db_engine)
+
+    async with sessionmaker() as preparation:
+        admin_concurrence = await _creer_utilisateur(preparation)
+    admin_id = admin_concurrence.id
+
+    async def _creer(agence: str) -> None:
+        async with sessionmaker() as session:
+            await creer_chantier(
+                session,
+                nom_canonique="Chantier Concurrent",
+                agence=agence,
+                auteur_id=admin_id,
+            )
+
+    resultats = await asyncio.gather(
+        _creer("Agence A"), _creer("Agence B"), return_exceptions=True
+    )
+
+    reussites = [r for r in resultats if r is None]
+    echecs_doublon = [r for r in resultats if isinstance(r, ChantierEnDouble)]
+    autres_echecs = [
+        r for r in resultats if r is not None and not isinstance(r, ChantierEnDouble)
+    ]
+    assert autres_echecs == []
+    assert len(reussites) == 1
+    assert len(echecs_doublon) == 1
+
+    async with sessionmaker() as verification:
+        chantiers = (
+            (
+                await verification.execute(
+                    select(Chantier).where(
+                        Chantier.nom_canonique == "Chantier Concurrent"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(chantiers) == 1
+
+
 # ---------------------------------------------------------------------------
 # modifier_chantier (client du chantier, ajout hors CDC du 23/09/2026)
 # ---------------------------------------------------------------------------
@@ -664,6 +752,37 @@ async def test_modifier_chantier_change_tout_et_journalise(
     assert entree.apres is not None
     assert entree.avant["client"] is None
     assert entree.apres["client"] == "SCI Test"
+
+
+async def test_modifier_chantier_sort_de_a_completer(
+    db_session: AsyncSession, admin: Utilisateur
+) -> None:
+    """Enregistrer la fiche d'un chantier créé automatiquement le fait
+    sortir de la section « Nouveaux chantiers à compléter » (spec §2.6),
+    même sans agence ni client renseignés."""
+    chantier = await _creer_chantier(db_session, nom="Villa Auto", a_completer=True)
+
+    modifie = await modifier_chantier(
+        db_session,
+        chantier_id=chantier.id,
+        nom_canonique="Villa Auto",
+        agence=None,
+        client=None,
+        actif=True,
+        auteur_id=admin.id,
+    )
+
+    assert modifie.a_completer is False
+
+    entree = (
+        await db_session.execute(
+            select(Journal).where(Journal.action == "chantier_modifie")
+        )
+    ).scalar_one()
+    assert entree.avant is not None
+    assert entree.avant["a_completer"] is True
+    assert entree.apres is not None
+    assert entree.apres["a_completer"] is False
 
 
 async def test_modifier_chantier_vide_devient_none(
@@ -828,9 +947,15 @@ async def _creer_alias(
 
 
 async def _creer_chantier(
-    db_session: AsyncSession, *, nom: str = "Chantier Cible"
+    db_session: AsyncSession,
+    *,
+    nom: str = "Chantier Cible",
+    a_completer: bool = False,
+    fusionne_dans_id: uuid.UUID | None = None,
 ) -> Chantier:
-    chantier = Chantier(nom_canonique=nom)
+    chantier = Chantier(
+        nom_canonique=nom, a_completer=a_completer, fusionne_dans_id=fusionne_dans_id
+    )
     db_session.add(chantier)
     await db_session.commit()
     await db_session.refresh(chantier)

@@ -60,9 +60,14 @@ def test_fiche_chantier_couvre_le_contrat() -> None:
     assert "Livraisons" in page
     assert "Problèmes ouverts" in page
     assert "FilAriane" in page
-    assert "md:hidden" in page
-    assert "`/bl/${" in page
-    assert "/documents/${" in page
+    # Tableau/cartes de livraisons (ordinateur + téléphone, `md:hidden`/
+    # `md:block`, liens `/bl/${`/`/documents/${`) extraits dans
+    # `components/TableauLivraisons.tsx` par la Task 13 (mise en production
+    # du 1er octobre) : la fiche ne montre plus que le composant partagé --
+    # voir test_tableau_livraisons_partage_couvre_le_contrat_responsive
+    # ci-dessous pour le contrat déplacé.
+    assert "<TableauLivraisons" in page
+    assert 'from "../components/TableauLivraisons"' in page
     assert "modifierChantier" in page
     assert "Voir les documents du chantier" in page
     assert "Exporter pour Excel" in page
@@ -340,11 +345,15 @@ def test_fiche_chantier_ligne_livraison_ne_navigue_pas_deux_fois() -> None:
     remontait ensuite jusqu'à la `<tr>`, qui navigue une seconde fois (deux
     entrées d'historique identiques). Le gestionnaire de la `<tr>` doit
     désormais ignorer les clics déjà traités par un lien et les clics avec
-    modificateur (Ctrl/Cmd/Maj/Alt) ou autre que le bouton gauche."""
-    page = _lire("pages", "FicheChantier.tsx")
+    modificateur (Ctrl/Cmd/Maj/Alt) ou autre que le bouton gauche.
+
+    Extrait dans `components/TableauLivraisons.tsx` par la Task 13 (mise en
+    production du 1er octobre) : ce comportement n'est plus propre à la
+    fiche chantier, il est désormais vérifié sur le fichier partagé."""
+    page = _lire("components", "TableauLivraisons.tsx")
 
     ligne = page.split("function LigneLivraisonTableau", 1)[1].split(
-        "function TableauLivraisons", 1
+        "function TableauLivraisonsOrdi", 1
     )[0]
     assert "evenement.defaultPrevented" in ligne
     assert '.closest("a")' in ligne
@@ -526,19 +535,306 @@ def test_chantier_et_fournisseur_non_resolus_ont_un_libelle_courant() -> None:
     assert "Fournisseur à rattacher" in fiche
 
 
+# ---------------------------------------------------------------------------
+# Task 6 (avenant du 27/09/2026) : chantiers à compléter et choix du
+# chantier d'un bon
+# ---------------------------------------------------------------------------
+
+
+def test_liste_et_fiche_chantier_affichent_la_pastille_a_completer() -> None:
+    """Spec §2.6 : pastille « À compléter » (couleur écart, doublée du
+    libellé) sur l'écran « Chantiers » et sa fiche, quand `a_completer` est
+    vrai -- jamais la couleur seule (accessibilité)."""
+    pastille = _lire("ui", "PastilleACompleter.tsx")
+    assert "À compléter" in pastille
+    assert "#fbe9c6" in pastille
+    assert "#7a4a00" in pastille
+
+    liste = _lire("pages", "ChantiersListe.tsx")
+    assert "chantier.a_completer && <PastilleACompleter" in liste
+
+    fiche = _lire("pages", "FicheChantier.tsx")
+    assert "chantier.a_completer && <PastilleACompleter" in fiche
+
+
+def test_document_detail_propose_le_chantier_du_bon() -> None:
+    """Spec §2.4/§2.6 : panneau admin « Chantier du bon » (`<select>` des
+    chantiers + « Enregistrer »), même route que le règlement d'une alerte
+    R18 (`choisirChantierDocument`, `PUT /api/documents/{id}/chantier`) --
+    jamais montré à un agent (réservé aux documents `modifiable`)."""
+    page = _lire("pages", "DocumentDetail.tsx")
+
+    assert "function SelecteurChantierBon" in page
+    assert "Chantier du bon" in page
+    assert "Enregistrer" in page
+    assert "choisirChantierDocument(documentId, chantierChoisi)" in page
+    assert "{donnees.modifiable && (" in page
+    assert "<SelecteurChantierBon" in page
+
+    client = _lire("api", "documents.ts")
+    assert "export function choisirChantierDocument" in client
+
+
 def test_fiche_chantier_mene_aux_problemes_de_chaque_livraison() -> None:
     """Revue finale (constat COUVERTURE-1) : l'ancien lien « Voir les
     anomalies » de chaque BL (`/anomalies?blocId=`) n'existait plus sur
     aucun écran monté. Le nombre de problèmes d'une livraison ouvre « À
     régler » filtré sur elle (`?blocId=`, lu par l'écran cible), en tableau
-    comme en carte, avec une cible de 44 px."""
-    fiche = _lire("pages", "FicheChantier.tsx")
-    assert "new URLSearchParams({ blocId: livraison.blocId })" in fiche
-    tableau = fiche.split("function LigneLivraisonTableau", 1)[1].split(
+    comme en carte, avec une cible de 44 px.
+
+    Extrait dans `components/TableauLivraisons.tsx` par la Task 13 (mise en
+    production du 1er octobre) : vérifié sur le fichier partagé, monté par
+    la fiche chantier (`<TableauLivraisons`, voir
+    test_fiche_chantier_couvre_le_contrat) comme par la fiche fournisseur et
+    `/livraisons`."""
+    partage = _lire("components", "TableauLivraisons.tsx")
+    assert "new URLSearchParams({ blocId: livraison.blocId })" in partage
+    tableau = partage.split("function LigneLivraisonTableau", 1)[1].split(
         "\nfunction ", 1
     )[0]
     assert "to={lienProblemesLivraison(livraison)}" in tableau
     assert "min-h-[44px]" in tableau
-    carte = fiche.split("function LigneLivraisonCarte", 1)[1].split("\nfunction ", 1)[0]
+    carte = partage.split("function LigneLivraisonCarte", 1)[1].split("\nfunction ", 1)[
+        0
+    ]
     assert "to={lienProblemesLivraison(livraison)}" in carte
     assert 'parametres.get("blocId")' in _lire("pages", "ARegler.tsx")
+
+
+# ---------------------------------------------------------------------------
+# Task 7 (avenant du 27/09/2026, spec §2.7) : fusion de deux chantiers
+# ---------------------------------------------------------------------------
+
+
+def test_client_referentiels_expose_la_fusion_et_la_fiche_par_id() -> None:
+    client = _lire("api", "referentiels.ts")
+
+    assert "export function obtenirChantier" in client
+    assert '"/api/chantiers/{chantier_id}"' in client
+    assert "export function cleChantier" in client
+    assert "export function fusionnerChantiers" in client
+    assert '"/api/chantiers/{chantier_id}/fusionner"' in client
+    assert (
+        '"POST"'
+        in client.split("export function fusionnerChantiers", 1)[1].split("\n\n", 1)[0]
+    )
+    assert "cible_id: cibleId" in client
+
+
+def test_fiche_chantier_permet_de_fusionner_avec_un_autre_chantier() -> None:
+    """Bouton « Fusionner avec… » (spec §2.7) : ouvre un formulaire avec un
+    sélecteur des autres chantiers, la phrase de confirmation exacte
+    (« Tous les bons, factures et problèmes de … passeront sur … »,
+    « … disparaîtra de la liste. ») et un bouton « Fusionner » -- au succès,
+    navigation vers la fiche cible et invalidation du bilan/tableau de
+    bord/à régler/chantiers (mêmes conséquences qu'un rattachement)."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    assert "function FormulaireFusion" in page
+    assert "Fusionner avec…" in page
+    assert "fusionnerChantiers(chantier.id, cibleId)" in page
+
+    formulaire = page.split("function FormulaireFusion", 1)[1].split(
+        "\nexport function FicheChantier", 1
+    )[0]
+    assert (
+        "Tous les bons, factures et problèmes de {chantier.nom_canonique} passeront"
+        in formulaire
+    )
+    assert (
+        "sur {cible.nom_canonique}. {chantier.nom_canonique} disparaîtra de la liste."
+        in formulaire
+    )
+    assert 'type="submit" disabled={cibleId === "" || fusion.isPending}' in formulaire
+    assert "navigate(`/chantiers/${resultat.cible_id}`)" in formulaire
+    assert "invaliderApresChangementAnomalies(queryClient)" in formulaire
+    assert "CLE_CHANTIERS" in formulaire
+
+    # Le formulaire est bien monté depuis la fiche, avec le référentiel
+    # complet privé du chantier courant (jamais une fusion avec soi-même).
+    assert "autresChantiers={autresChantiers}" in page
+    assert "chantiersListe.data?.filter((c) => c.id !== id)" in page
+
+
+def test_fiche_chantier_affiche_le_bandeau_fusionne() -> None:
+    """Un chantier déjà fusionné (`fusionne_dans_id` non `null`, renvoyé par
+    `GET /api/chantiers/{id}`, seule route qui l'atteigne encore) affiche
+    un bandeau vers la cible et rien d'autre à éditer -- ni « Modifier », ni
+    « Fusionner avec… », ni les cartes Livraisons/Problèmes."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    assert "chantier.fusionne_dans_id !== null" in page
+    banniere = page.split("chantier.fusionne_dans_id !== null", 1)[1].split(
+        '\n  return (\n    <div className="space-y-6">', 1
+    )[0]
+    assert "Ce chantier a été fusionné dans" in banniere
+    assert "to={`/chantiers/${chantier.fusionne_dans_id}`}" in banniere
+    assert "chantier.fusionne_dans_nom" in banniere
+
+
+def test_fiche_chantier_utilise_obtenirChantier_pour_la_fiche() -> None:
+    """`GET /api/chantiers/{id}` (et non plus `listerChantiers().find(…)`) :
+    seule façon d'atteindre un chantier fusionné, exclu de la liste
+    (Task 6)."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    assert "obtenirChantier(id)" in page
+    assert "cleChantier(id)" in page
+    assert "chantierQuery" in page
+    assert "chantiers.data?.find((c) => c.id === id)" not in page
+
+
+# ---------------------------------------------------------------------------
+# Task 13 (mise en production du 1er octobre, spec §4.3) : fiche fournisseur
+# par mois et bons conformes cliquables -- volet « tableau des livraisons
+# partagé » et « tuile Conforme de la fiche chantier ».
+# ---------------------------------------------------------------------------
+
+
+def test_tableau_livraisons_partage_couvre_le_contrat_responsive() -> None:
+    """`components/TableauLivraisons.tsx` reprend le tableau ordinateur et
+    les cartes téléphone de l'ancienne fiche chantier (constat repris de
+    test_fiche_chantier_couvre_le_contrat, avant l'extraction de la
+    Task 13), plus le filtre d'état, nouveau à cette tâche."""
+    page = _lire("components", "TableauLivraisons.tsx")
+
+    assert "md:hidden" in page
+    assert "hidden" in page and "md:block" in page
+    assert "`/bl/${" in page
+    assert "/documents/${" in page
+
+    # Filtre d'état « Toutes/Conformes/À vérifier/Sans bon » (Task 13),
+    # initialisé par `?etat=` -- pastilles partagées (`ui/Filtres.tsx`),
+    # jamais une case à cocher déguisée.
+    assert 'parametres.get("etat")' in page
+    assert "Toutes" in page
+    assert "Conformes" in page
+    assert "À vérifier" in page
+    assert "Sans bon" in page
+    assert "<Filtres" in page
+
+    # Ancre fixe, cible du lien de la tuile « Conforme » sur les fiches qui
+    # montent ce composant.
+    assert 'id="livraisons"' in page
+
+    # Colonne « Chantier » optionnelle (fiche fournisseur, `/livraisons`) --
+    # absente par défaut (fiche chantier, qui fixe déjà son chantier par son
+    # URL).
+    assert "colonneChantier" in page
+
+    # Aucun calcul métier : les montants viennent tels quels du serveur.
+    assert "parseFloat" not in page
+    assert "Number(" not in page
+
+
+def test_fiche_chantier_tuile_conforme_ouvre_les_livraisons_conformes() -> None:
+    """Spec §4.3 : la tuile « Conforme » de la fiche chantier mène à la
+    carte « Livraisons » de la même fiche (ancre `#livraisons`), filtrée sur
+    les bons conformes (`?etat=conforme`) -- le mois affiché est préservé."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    assert "lienLivraisonsConformes" in page
+    assert 'parametresLivraisonsConformes.set("etat", "conforme")' in page
+    assert "#livraisons" in page
+    assert "vers={lienLivraisonsConformes}" in page
+
+    # Défilement jusqu'à la carte une fois chargée (même mécanique que
+    # `#bloc-…` sur `FactureDetail.tsx`/`#corriger` sur `PageBl.tsx`).
+    assert "useLocation" in page
+    assert 'hash === "#livraisons"' in page
+    assert 'getElementById("livraisons")?.scrollIntoView' in page
+
+
+# ---------------------------------------------------------------------------
+# Revue finale du 27/09/2026 (mise en production du 1er octobre) : commit
+# « web » -- FicheChantier plus sûre, libellés et filtres.
+# ---------------------------------------------------------------------------
+
+
+def test_fiche_chantier_edition_invalide_les_anomalies() -> None:
+    """C1 (Important) : enregistrer la fiche (qui fait sortir le chantier
+    de « à compléter » côté serveur, `referentiels.modifier_chantier`) doit
+    invalider les mêmes données que `FormulaireFusion`/`SelecteurChantierBon`
+    /`DetailR18` -- sinon le chantier reste listé dans « À régler » jusqu'à
+    30 s (staleTime)."""
+    contenu = _lire("pages", "FicheChantier.tsx")
+
+    formulaire = contenu.split("function FormulaireEdition", 1)[1].split(
+        "\nfunction FormulaireFusion", 1
+    )[0]
+    assert "invaliderApresChangementAnomalies(queryClient)" in formulaire
+
+
+def test_fiche_chantier_fusion_sans_cible_par_defaut_et_confirmation() -> None:
+    """C2 (Important) : pas de cible présélectionnée (la fusion est
+    irréversible côté écran) et confirmation obligatoire avant `fusion
+    .mutate()`, même geste que « Retirer l'accès » (`Comptes.tsx`)."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    formulaire = page.split("function FormulaireFusion", 1)[1].split(
+        "\nexport function FicheChantier", 1
+    )[0]
+    assert 'useState("")' in formulaire
+    assert "autresChantiers[0]" not in formulaire
+    assert '<option value="">' in formulaire
+
+    assert "window.confirm(" in formulaire
+    confirmation = formulaire.split("window.confirm(", 1)[1].split(")", 1)[0]
+    assert (
+        "Fusionner ${chantier.nom_canonique} dans ${cible.nom_canonique}"
+        in confirmation
+    )
+    assert "Cette action ne peut pas être annulée." in confirmation
+    assert "fusion.mutate();" in formulaire.split("window.confirm(", 1)[1]
+
+
+def test_fiche_chantier_action_row_flex_wrap() -> None:
+    """C3 (Minor) : la pastille + « Modifier » + « Fusionner avec… »
+    débordaient à 375 px, l'en-tête n'ayant pas `flex-wrap`."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    assert '<div className="flex flex-wrap items-center gap-3">' in page
+    assert "PastilleEtat etat={etatChoisi}" in page
+
+
+def test_fiche_chantier_erreur_reseau_distincte_du_404() -> None:
+    """C4 (Minor) : « Ce chantier est introuvable. » n'apparaît plus que
+    pour un vrai 404 (`ErreurApi.status === 404`) -- une panne réseau ou
+    serveur affiche désormais un message distinct."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    bloc_erreur = page.split("if (chantierQuery.isError)", 1)[1].split(
+        "if (chantier === undefined)", 1
+    )[0]
+    assert "chantierQuery.error instanceof ErreurApi" in bloc_erreur
+    assert "chantierQuery.error.status === 404" in bloc_erreur
+    assert (
+        "Impossible de charger ce chantier. Réessayez dans un instant." in bloc_erreur
+    )
+    assert "Ce chantier est introuvable." in bloc_erreur
+
+
+def test_role_agent_dit_employe_partout() -> None:
+    """C5 (Minor) : `ChantiersListe.tsx` (« Activité de terrain ») disait
+    « Agent » pour le rôle `agent` quand `Comptes.tsx` dit « Employé » --
+    même vocabulaire sur les deux écrans désormais."""
+    comptes = _lire("pages", "Comptes.tsx")
+    chantiers = _lire("pages", "ChantiersListe.tsx")
+
+    assert 'agent: "Employé"' in comptes
+    assert 'agent: "Employé"' in chantiers
+    table_role_chantiers = chantiers.split("const LIBELLES_ROLE", 1)[1].split("};", 1)[
+        0
+    ]
+    assert 'agent: "Agent"' not in table_role_chantiers
+
+
+def test_tableau_livraisons_etat_inconnu_replie_sur_toutes() -> None:
+    """T13 (Minor) : un `?etat=` hors des quatre valeurs connues affichait
+    une liste vide en silence (`categorieLivraison` ne renvoie jamais cette
+    valeur) -- repli sur « toutes »."""
+    page = _lire("components", "TableauLivraisons.tsx")
+
+    assert "VALEURS_ETAT_CONNUES" in page
+    assert "etatParam !== null && VALEURS_ETAT_CONNUES.has(etatParam)" in page
+    assert 'etatParam : "toutes";' in page

@@ -65,9 +65,31 @@ const LIBELLES_ACTION: Record<string, string> = {
   chantier_modifie: "Chantier modifié",
   alias_valide: "Nom de chantier fournisseur reconnu",
   article_valide: "Article validé",
+  // Avenant du 27/09/2026 (rattachement automatique du chantier, spec
+  // §2.3/§2.4, `app/modules/ingest/rattachement_chantier.py`) : quatre
+  // actions manquantes de ce recensement (Task 12, controller ruling 2 —
+  // s'affichaient jusqu'ici sous leur code technique brut).
+  chantier_cree_auto: "Chantier créé automatiquement",
+  alias_rattache_auto: "Nom de chantier fournisseur relié automatiquement",
+  // Choix manuel du chantier d'un bon (`rattachement_chantier.py
+  // ::choisir_chantier_document`) : règle une alerte « chantiers à
+  // confirmer » ou corrige le chantier d'un bon depuis sa fiche.
+  chantier_choisi: "Chantier choisi",
+  // Fusion de deux chantiers en doublon (`app/modules/ingest
+  // /fusion_chantier.py`, avenant du 27/09/2026, spec §2.7).
+  chantier_fusionne: "Chantier fusionné",
   utilisateur_cree: "Compte utilisateur créé",
   utilisateur_desactive: "Compte utilisateur désactivé",
   parametre_modifie: "Réglage modifié",
+  // Écran « Comptes » (Task 10, spec §3, `app/core/auth.py`) : gestion des
+  // comptes par un admin, distincte des deux actions ci-dessus (`utilisateur_
+  // cree`/`utilisateur_desactive`, propres à la CLI d'exploitation -- voir le
+  // docstring de module d'`app/core/auth.py`).
+  compte_cree: "Compte créé",
+  compte_modifie: "Compte modifié",
+  mot_de_passe_change: "Mot de passe changé",
+  acces_retire: "Accès retiré",
+  acces_retabli: "Accès rétabli",
 };
 
 export function libelleAction(action: string): string {
@@ -306,6 +328,12 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   // entrée, la clé brute (« nb_demandes_alias ») afficherait le mot
   // interdit « alias » (constat de la revue, fix round 1 de la Task 10).
   nb_demandes_alias: "Noms de chantier fournisseur à confirmer",
+  // `chantier_fusionne` (`ingest/fusion_chantier.py`, Task 7, avenant du
+  // 27/09/2026) : nombre d'« autres noms » (alias) appris pour le chantier
+  // source, déplacés vers la cible -- sans cette entrée, la clé brute
+  // (« nb_alias ») afficherait le mot interdit « alias », même raison que
+  // `nb_demandes_alias` ci-dessus.
+  nb_alias: "Autres noms déplacés",
   // Complété au tour 2 (constat de la revue) : mêmes entrées
   // `facture_deposee` (`factures.py::deposer_facture`) que ci-dessus,
   // trois clés qui s'affichaient brutes sur les 4 entrées « Facture
@@ -331,6 +359,11 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   methode_chantier: "Chantier retrouvé via",
   methode_fournisseur: "Fournisseur retrouvé via",
   methode: "Retrouvé via",
+  // `extraction_bl.py::_extraire_et_committer` (avenant du 27/09/2026) :
+  // pourcentage de ressemblance entre le nom lu (ou la légende) et le nom
+  // retenu, absent quand le chantier vient d'une correspondance exacte ou
+  // n'a pas pu être déterminé (Task 12, controller ruling 2).
+  score_chantier: "Ressemblance (%)",
   confirme_le: "Confirmé le",
   confirme_par: "Confirmé par",
   nom: "Nom",
@@ -339,6 +372,10 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   agences_ajoutees: "Agences ajoutées",
   client: "Client",
   actif: "Actif",
+  // `chantier.a_completer` (migration 0011, avenant du 27/09/2026) : un
+  // chantier créé automatiquement (nom lu inconnu) tant qu'un admin n'a pas
+  // enregistré sa fiche (`referentiels.py::modifier_chantier`).
+  a_completer: "Reste à compléter",
   siret: "Siret",
   tva: "TVA",
   aliases: "Autres noms connus",
@@ -355,6 +392,19 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   // que l'alias — s'affichait brut sur les 4 entrées « Nom de chantier
   // fournisseur reconnu » de la base de démo (constat de la revue, tour 2).
   nb_mis_a_jour: "Documents mis à jour",
+  // `chantier_cree_auto` (`rattachement_chantier.py`) : d'où vient le nom
+  // retenu pour la création automatique du chantier (« nom lu » ou
+  // « légende »).
+  source: "Trouvé grâce à",
+  // `chantier_fusionne` (`fusion_chantier.py::fusionner_chantiers`, Task 12,
+  // controller ruling 2) : `cible_id` désigne ici le chantier conservé
+  // (résolu en nom côté serveur, `ingest/journal.py`, comme `chantier_id`) ;
+  // `cible_nom` est déjà un nom lisible, jamais un identifiant.
+  cible_id: "Chantier conservé",
+  cible_nom: "Nom du chantier conservé",
+  // Nombre de bons/enlèvements déplacés du chantier fusionné vers le
+  // chantier conservé (`fusion_chantier.py`).
+  nb_documents: "Documents déplacés",
 };
 
 /** Un identifiant (`chantier_id`, `fournisseur_id`…) désigne l'élément
@@ -397,16 +447,40 @@ const LIBELLES_VALEUR_PAR_CLE: Record<string, Record<string, string>> = {
     recu: "Reçu",
     archive: "Archivé",
   },
+  // Six méthodes possibles (`rattachement_chantier.py
+  // ::ResultatRattachement.methode`, avenant du 27/09/2026) : un nom déjà
+  // appris pour ce fournisseur, une ressemblance de nom sous le seuil
+  // réglable, le message joint à la photo par l'employé, la création d'un
+  // nouveau chantier, une alerte (nom lu et message en désaccord — même
+  // libellé que `titreRegle("R18")`, `ui/libelles.ts`), ou une décision
+  // humaine déjà prise conservée face à un nouveau désaccord (Ruling 15 de
+  // la revue finale du 27/09/2026, A1 : une R18 déjà `traitee`/`ignoree`
+  // n'est jamais rouverte). Task 12 (controller ruling 2) : cette table
+  // portait encore une clé « alias » jamais produite par le code depuis cet
+  // avenant, remplacée ici par les valeurs réellement écrites.
   methode_chantier: {
-    alias: "Nom déjà reconnu",
+    "nom connu": "Nom déjà reconnu",
+    ressemblance: "Nom proche d'un chantier connu",
+    légende: "Indiqué par l'employé",
+    création: "Nouveau chantier",
+    alerte: "À confirmer",
+    "décision humaine conservée": "Choix déjà fait, conservé",
   },
   methode_fournisseur: {
     siret: "Numéro Siret",
     tva: "Numéro de TVA",
     nom: "Nom",
   },
+  // Mêmes trois méthodes que `methode_chantier` ci-dessus (hors « alerte »,
+  // jamais transmise ici) pour `alias_rattache_auto`
+  // (`rattachement_chantier.py::_apprendre_alias`), plus `validation_humaine`
+  // pour `alias_valide` (`referentiels.py::valider_alias`).
   methode: {
     validation_humaine: "Validation manuelle",
+    "nom connu": "Nom déjà reconnu",
+    ressemblance: "Nom proche d'un chantier connu",
+    légende: "Indiqué par l'employé",
+    création: "Nouveau chantier",
   },
   actif: {
     true: "Oui",
@@ -425,6 +499,12 @@ const LIBELLES_VALEUR_PAR_CLE: Record<string, Record<string, string>> = {
     enlevement: "Enlèvement",
     facture: "Facture",
     avoir: "Avoir",
+  },
+  // `chantier_cree_auto` (`rattachement_chantier.py`) : quelle source a
+  // fourni le nom retenu pour la création automatique.
+  source: {
+    "nom lu": "Nom lu sur le bon",
+    légende: "Indiqué par l'employé",
   },
 };
 
@@ -569,18 +649,46 @@ function formaterDetailAnomalie(detail: Record<string, unknown>, contexte: Recor
   return phraseProbleme(anomalie);
 }
 
+/** Identifiant absent quand la clé en désigne un connu (Task 12, spec
+ * §4.1) : le client voyait auparavant l'UUID brut sous « Confirmé par » ou
+ * un fournisseur — le serveur résout maintenant ces identifiants
+ * (`ingest/journal.py::lister_journal`, `noms`), un identifiant introuvable
+ * (compte supprimé, par exemple) ou jamais résolu tombe sur ce libellé,
+ * jamais l'UUID. Mêmes clés que la résolution serveur : `confirme_par`,
+ * `utilisateur_id`, `deposant_id`, `traitee_par` (compte), `chantier_id`,
+ * `cible_id` (chantier conservé d'une fusion), `fournisseur_id`. */
+const AUCUN_NOM = "(inconnu)";
+
+const CLES_IDENTIFIANT_RESOLU = [
+  "confirme_par",
+  "utilisateur_id",
+  "deposant_id",
+  "traitee_par",
+  "chantier_id",
+  "cible_id",
+  "fournisseur_id",
+];
+
 /** Valeur affichée d'une clé de détail, pour un côté (`avant` ou `apres`)
- * donné — présentation uniquement, aucun calcul : un montant ou une date
- * passe par les mêmes formateurs que le reste du front (`lib/formats.ts`,
- * jamais affiché brut — constat de la revue, tour 2 : `total_ht : 456.30`,
- * `confirme_le` en ISO), une liste ou un objet connu a sa propre mise en
- * forme, la valeur brute reste le repli pour tout le reste (même principe
- * que `libelleCleDetail`). `contexte` est l'instantané complet de ce côté :
- * nécessaire pour `detail`, qui a besoin de la clé voisine `regle`. */
-function valeurDetail(cle: string, contexte: Record<string, unknown>): string {
+ * donné — présentation uniquement, aucun calcul : un identifiant connu de
+ * `noms` (Task 12) s'affiche en toutes lettres avant toute autre règle ; un
+ * montant ou une date passe par les mêmes formateurs que le reste du front
+ * (`lib/formats.ts`, jamais affiché brut — constat de la revue, tour 2 :
+ * `total_ht : 456.30`, `confirme_le` en ISO), une liste ou un objet connu a
+ * sa propre mise en forme, la valeur brute reste le repli pour tout le
+ * reste (même principe que `libelleCleDetail`). `contexte` est l'instantané
+ * complet de ce côté : nécessaire pour `detail`, qui a besoin de la clé
+ * voisine `regle`. */
+function valeurDetail(cle: string, contexte: Record<string, unknown>, noms: Record<string, string>): string {
   const brute = contexte[cle];
   if (brute === null) {
     return TIRET;
+  }
+  if (typeof brute === "string" && noms[brute] !== undefined) {
+    return noms[brute];
+  }
+  if (typeof brute === "string" && CLES_IDENTIFIANT_RESOLU.includes(cle)) {
+    return AUCUN_NOM;
   }
   if (cle === "detail" && estObjet(brute)) {
     return formaterDetailAnomalie(brute, contexte);
@@ -617,10 +725,14 @@ function valeurDetail(cle: string, contexte: Record<string, unknown>): string {
  * explicitement »). Aucun calcul d'écart, clés triées pour un affichage
  * stable : `libelle`/`valeurDetail` habillent la clé et la valeur en
  * langage courant quand ce fichier les connaît, sans jamais changer la
- * valeur avant/après elle-même. */
+ * valeur avant/après elle-même. `noms` (Task 12, `entree.noms` de l'API) :
+ * résolution serveur des identifiants, propagée telle quelle à
+ * `valeurDetail` — jamais recalculée ici (le front n'a pas les
+ * référentiels). */
 export function lignesAvantApres(
   avant: Record<string, unknown> | null,
   apres: Record<string, unknown> | null,
+  noms: Record<string, string> = {},
 ): LigneAvantApres[] {
   const cles = new Set([
     ...(avant !== null ? Object.keys(avant) : []),
@@ -629,7 +741,7 @@ export function lignesAvantApres(
   return [...cles].sort().map((cle) => ({
     cle,
     libelle: libelleCleDetail(cle),
-    avant: avant !== null && cle in avant ? valeurDetail(cle, avant) : ABSENT,
-    apres: apres !== null && cle in apres ? valeurDetail(cle, apres) : ABSENT,
+    avant: avant !== null && cle in avant ? valeurDetail(cle, avant, noms) : ABSENT,
+    apres: apres !== null && cle in apres ? valeurDetail(cle, apres, noms) : ABSENT,
   }));
 }
