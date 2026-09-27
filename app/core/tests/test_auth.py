@@ -1614,3 +1614,77 @@ async def test_deux_retrogradations_croisees_simultanees_une_seule_reussit(
             )
         ).scalar_one()
     assert nb_admins_actifs == 1
+
+
+async def test_deux_creations_concurrentes_meme_telegram_une_seule_reussit(
+    db_engine: AsyncEngine,
+) -> None:
+    """Ruling 14 (B1, revue finale du 27/09/2026) : deux créations de compte
+    concurrentes (écran « Comptes », `creer_compte`) avec le même
+    `telegram_user_id` -- sans `pg_advisory_xact_lock(VERROU_ADMINS)`, chaque
+    session peut lire « identifiant Telegram disponible » (`_telegram_
+    disponible`) avant que l'autre n'ait commité, et les deux créeraient un
+    compte avec le même identifiant (le dépôt Telegram suivant de ce
+    `telegram_user_id` s'attribuerait alors arbitrairement à l'un des deux,
+    `depot_telegram.utilisateur_rattache` prenant le premier trouvé par
+    `.first()`). Même schéma que
+    `test_deux_retrogradations_croisees_simultanees_une_seule_reussit` :
+    `db_engine` directement, une session indépendante par tâche concurrente,
+    `asyncio.gather`."""
+    sessionmaker = creer_sessionmaker(db_engine)
+
+    async with sessionmaker() as preparation:
+        admin = await creer_utilisateur(
+            preparation,
+            email="course.telegram.admin@example.invalid",
+            nom="Admin",
+            role="admin",
+            agence="Toulouse",
+            mot_de_passe=_MOT_DE_PASSE_VALIDE,
+        )
+    admin_id = admin.id
+
+    async def _creer(email: str) -> None:
+        async with sessionmaker() as session:
+            await creer_compte(
+                session,
+                email=email,
+                nom="Course Telegram",
+                role="agent",
+                agence="Toulouse",
+                telegram_user_id=444555666,
+                mot_de_passe=_MOT_DE_PASSE_VALIDE,
+                auteur_id=admin_id,
+            )
+
+    resultats = await asyncio.gather(
+        _creer("course.telegram.a@example.invalid"),
+        _creer("course.telegram.b@example.invalid"),
+        return_exceptions=True,
+    )
+
+    reussites = [r for r in resultats if r is None]
+    echecs_telegram = [
+        r for r in resultats if isinstance(r, TelegramUserIdDejaAttribue)
+    ]
+    autres_echecs = [
+        r
+        for r in resultats
+        if r is not None and not isinstance(r, TelegramUserIdDejaAttribue)
+    ]
+
+    assert autres_echecs == []
+    assert len(reussites) == 1
+    assert len(echecs_telegram) == 1
+
+    async with sessionmaker() as verification:
+        porteurs = (
+            (
+                await verification.execute(
+                    select(Utilisateur).where(Utilisateur.telegram_user_id == 444555666)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(porteurs) == 1

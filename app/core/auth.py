@@ -98,10 +98,15 @@ LONGUEUR_MOT_DE_PASSE_MIN = 12
 ROLES_VALIDES = ("admin", "agent")
 
 # Clé de verrou consultatif (`pg_advisory_xact_lock`) qui sérialise la garde
-# « dernier administrateur actif » (Task 10, fix round 1) : valeur arbitraire
-# mais fixe, jamais réutilisée ailleurs dans le projet (voir `rattachement_
-# chantier.VERROU_CHANTIERS = 727_000_018` pour le seul autre verrou de ce
-# type, une valeur distincte).
+# « dernier administrateur actif » (Task 10, fix round 1) ainsi que toute
+# création/modification de compte (`creer_compte`, `creer_utilisateur`,
+# `modifier_compte` -- Ruling 14 de la revue finale du 27/09/2026, B1) :
+# sans lui, deux créations concurrentes du même `telegram_user_id` peuvent
+# toutes les deux passer le `SELECT` de `_telegram_disponible` avant que
+# l'une des deux ne commite. Valeur arbitraire mais fixe, jamais réutilisée
+# ailleurs dans le projet (voir `app.modules.ingest.commun.VERROU_CHANTIERS
+# = 727_000_018` pour le seul autre verrou de ce type, une valeur
+# distincte).
 VERROU_ADMINS = 727_000_010
 
 # Voir la note mypy en tête de fichier : chaque paramétrage générique porte
@@ -396,15 +401,20 @@ async def creer_utilisateur(
     `apres` qui ne contient jamais le hash ni le mot de passe en clair.
 
     Les vérifications d'unicité ci-dessous (`_email_normalise_et_disponible`,
-    `_telegram_disponible`) sont de simples `SELECT` avant l'écriture, non
-    atomiques avec elle (`email` reste protégé par la contrainte `UNIQUE` de
-    la table en dernier recours, mais celle-ci reste sensible à la casse en
-    base — voir `docs/dette.md` ; `telegram_user_id` n'a aucune protection en
-    base — L2-T1b n'ajoute pas de migration). Acceptable pour une commande
-    d'exploitation qu'un seul administrateur exécute à la fois, jamais deux
-    créations concurrentes du même compte (Task 10 : `creer_compte`, exposée
-    par une route HTTP, hérite de la même limite documentée dans
-    `docs/dette.md`).
+    `_telegram_disponible`) restent de simples `SELECT` avant l'écriture
+    (`email` reste protégé par la contrainte `UNIQUE` de la table en dernier
+    recours, mais celle-ci reste sensible à la casse en base — voir
+    `docs/dette.md` ; `telegram_user_id` n'a toujours aucune protection en
+    base, L2-T1b n'ajoute pas de migration) : c'est désormais le verrou
+    `pg_advisory_xact_lock(VERROU_ADMINS)`, pris juste en dessous, qui les
+    rend atomiques vis-à-vis d'une création/modification concurrente (Ruling
+    14 de la revue finale du 27/09/2026, B1 — avant ce verrou, deux
+    créations concurrentes du même `telegram_user_id`, en CLI ou depuis
+    l'écran « Comptes » `creer_compte`, pouvaient toutes les deux passer ce
+    `SELECT` puis committer : le dépôt Telegram suivant de ce
+    `telegram_user_id` s'attribuait alors arbitrairement à l'un des deux
+    comptes, `depot_telegram.utilisateur_rattache` prenant le premier trouvé
+    par `.first()`).
 
     `email` est normalisé (`strip()` + minuscules) avant toute vérification
     et avant l'écriture (constat de revue, tour de correction 1/5) : c'est
@@ -416,6 +426,8 @@ async def creer_utilisateur(
     échouer le login des deux comptes en 500 (`MultipleResultsFound`,
     `get_by_email` les traitant comme un seul compte).
     """
+    await session.execute(select(func.pg_advisory_xact_lock(VERROU_ADMINS)))
+
     _role_valide(role)
     _mot_de_passe_valide(mot_de_passe)
     email_normalise = await _email_normalise_et_disponible(session, email)
@@ -596,7 +608,15 @@ async def creer_compte(
     de la dupliquer — voir `_role_valide`/`_mot_de_passe_valide`/
     `_email_normalise_et_disponible`/`_telegram_disponible`. Seule
     différence : journalise `compte_cree` avec `utilisateur_id=auteur_id`
-    (l'admin qui a créé le compte), jamais `None`."""
+    (l'admin qui a créé le compte), jamais `None`.
+
+    Même verrou qu'`creer_utilisateur`/`modifier_compte`
+    (`pg_advisory_xact_lock(VERROU_ADMINS)`, Ruling 14, B1) : pris en tout
+    premier, avant même la validation du rôle — deux créations concurrentes
+    (écran « Comptes » et/ou CLI) du même `telegram_user_id` sont ainsi
+    sérialisées, l'une des deux levant `TelegramUserIdDejaAttribue`."""
+    await session.execute(select(func.pg_advisory_xact_lock(VERROU_ADMINS)))
+
     _role_valide(role)
     _mot_de_passe_valide(mot_de_passe)
     email_normalise = await _email_normalise_et_disponible(session, email)
@@ -665,7 +685,10 @@ async def modifier_compte(
     actif existe » avant que l'autre n'ait commité) pouvaient toutes les
     deux passer la garde `_est_dernier_admin_actif` et laisser zéro
     administrateur actif. Voir `test_deux_retrogradations_croisees_
-    simultanees_une_seule_reussit` (`app/core/tests/test_auth.py`)."""
+    simultanees_une_seule_reussit` (`app/core/tests/test_auth.py`). Même
+    verrou que `creer_compte`/`creer_utilisateur` (Ruling 14, B1) : rend
+    aussi `_telegram_disponible` ci-dessous atomique vis-à-vis d'une
+    création/modification concurrente d'un autre compte."""
     await session.execute(select(func.pg_advisory_xact_lock(VERROU_ADMINS)))
 
     utilisateur = await session.get(Utilisateur, compte_id)
