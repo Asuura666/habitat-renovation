@@ -14,6 +14,20 @@ import { EtatVide } from "../ui";
 
 const LONGUEUR_COMMENTAIRE_MAX = 1000;
 
+/** Message d'erreur en français courant pour l'échec de l'envoi d'un
+ * commentaire (spec §6), sur le modèle de
+ * `pages/ProblemeDetail.tsx::messageErreurTraitement` : jamais le détail
+ * technique du serveur (`ErreurApi.detail`) affiché tel quel. */
+function messageErreurAjout(erreur: unknown): string {
+  if (erreur instanceof ErreurApi && erreur.status === 422) {
+    return "Le commentaire doit contenir entre 1 et 1 000 caractères.";
+  }
+  if (erreur instanceof ErreurApi && erreur.status === 404) {
+    return "Cette ligne n'existe plus : la lecture du bon a peut-être été refaite. Rechargez la page.";
+  }
+  return "L'envoi a échoué, réessayez.";
+}
+
 /** Un commentaire déjà enregistré (« Léa, 27/09/2026 14:05 — texte »,
  * maquette de la spec §6) — même formateur de date/heure que le reste de
  * l'application (`formaterDateHeure`), jamais un identifiant technique. */
@@ -95,7 +109,7 @@ function FormulaireAjoutCommentaire({
       </div>
       {mutation.isError && (
         <p role="alert" className="text-sm text-alerte">
-          {mutation.error instanceof ErreurApi ? mutation.error.detail : "Une erreur est survenue, réessayez."}
+          {messageErreurAjout(mutation.error)}
         </p>
       )}
     </form>
