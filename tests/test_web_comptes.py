@@ -109,6 +109,65 @@ def test_ecran_comptes_cartes_telephone_et_tableau_ordinateur() -> None:
     assert "hidden overflow-x-auto" in page and "md:block" in page
 
 
+def test_ecran_comptes_panneaux_de_modification_ont_une_cle_par_compte() -> None:
+    """Fix round 1 (constat Important 1) : `FormulaireCompte` (panneau
+    « modifier ») et `FormulaireMotDePasse` (panneau « mot-de-passe ») sont
+    montés avec une `key` qui dépend du compte visé — sans elle, cliquer
+    « Modifier » sur un second compte pendant qu'un premier panneau est
+    déjà ouvert réutilisait l'instance en place (titre à jour, champs
+    restés ceux du premier compte, soumission silencieuse sur le mauvais
+    compte). Même correctif que `ARegler.tsx::ProblemeDetail`
+    (`key={problemeActuel.id}`, fix round 1 finding 4)."""
+    page = (WEB / "pages" / "Comptes.tsx").read_text(encoding="utf-8")
+
+    assert "key={`modifier-${panneau.compte.id}`}" in page
+    assert "key={`mot-de-passe-${panneau.compte.id}`}" in page
+
+
+def test_ecran_comptes_identifiant_telegram_verifie() -> None:
+    """Fix round 1 (constat Important 2) : un identifiant Telegram non
+    numérique donnait `Number(...) === NaN`, silencieusement transformé en
+    `null` par `JSON.stringify` — la requête réussissait comme si le champ
+    était vide. Désormais vérifié par une expression régulière (vide
+    toujours valide, facultatif), soumission bloquée et erreur affichée
+    sous le champ, accessible (`aria-invalid`/`aria-describedby`)."""
+    page = (WEB / "pages" / "Comptes.tsx").read_text(encoding="utf-8")
+
+    assert (
+        'const telegramValide = telegramTrim === "" || /^\\d+$/.test(telegramTrim);'
+        in page
+    )
+    assert "telegramValide &&" in page  # dans `champsValides`
+    assert "L'identifiant Telegram ne contient que des chiffres." in page
+    assert "aria-invalid={!telegramValide}" in page
+    assert (
+        'aria-describedby={!telegramValide ? "compte-telegram-erreur" : undefined}'
+        in page
+    )
+    assert 'id="compte-telegram-erreur"' in page
+
+
+def test_ecran_comptes_changement_mot_de_passe_invalide_la_liste() -> None:
+    """Minor du fix round 1 : `FormulaireMotDePasse` invalide `CLE_COMPTES`
+    à son tour, comme les deux autres mutations d'écriture de l'écran
+    (`FormulaireCompte`, `ActionsCompte`) — une seule convention partout."""
+    page = (WEB / "pages" / "Comptes.tsx").read_text(encoding="utf-8")
+
+    bloc = page.split("function FormulaireMotDePasse(", 1)[1].split(
+        "function ActionsCompte(", 1
+    )[0]
+    assert "invalidateQueries({ queryKey: CLE_COMPTES })" in bloc
+
+
+def test_ecran_comptes_boutons_action_sans_hauteur_minimale_inefficace() -> None:
+    """Minor du fix round 1 : `min-h-[36px]` n'avait aucun effet sur les
+    boutons d'action (le `min-h-[44px]` de `Bouton.tsx` l'emporte dans la
+    cascade Tailwind) — classe morte retirée plutôt que laissée en place."""
+    page = (WEB / "pages" / "Comptes.tsx").read_text(encoding="utf-8")
+
+    assert "min-h-[36px]" not in page
+
+
 def test_client_comptes_appelle_les_six_routes() -> None:
     client = (WEB / "api" / "comptes.ts").read_text(encoding="utf-8")
 

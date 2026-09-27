@@ -79,6 +79,15 @@ function FormulaireCompte({
   });
   const [motDePasse, setMotDePasse] = useState("");
 
+  // Fix round 1 (constat Important 2) : un identifiant Telegram non
+  // numérique donnait `Number(...) === NaN`, silencieusement transformé en
+  // `null` par `JSON.stringify` — la requête réussissait comme si le champ
+  // était vide, sans jamais prévenir la personne. Vérifié ici (facultatif,
+  // donc vide reste valide) plutôt que dans `mutationFn`, pour bloquer la
+  // soumission et afficher une erreur sous le champ.
+  const telegramTrim = valeurs.telegramUserId.trim();
+  const telegramValide = telegramTrim === "" || /^\d+$/.test(telegramTrim);
+
   const mutation = useMutation({
     mutationFn: () => {
       const donnees = {
@@ -86,7 +95,7 @@ function FormulaireCompte({
         email: valeurs.email.trim(),
         role: valeurs.role,
         agence: valeurs.agence.trim() === "" ? null : valeurs.agence.trim(),
-        telegram_user_id: valeurs.telegramUserId.trim() === "" ? null : Number(valeurs.telegramUserId.trim()),
+        telegram_user_id: telegramTrim === "" ? null : Number(telegramTrim),
       };
       if (compte === undefined) {
         return creerCompte({ ...donnees, mot_de_passe: motDePasse });
@@ -112,6 +121,7 @@ function FormulaireCompte({
   const champsValides =
     valeurs.nom.trim() !== "" &&
     valeurs.email.trim() !== "" &&
+    telegramValide &&
     (compte !== undefined || motDePasse.length >= 12);
 
   return (
@@ -181,8 +191,15 @@ function FormulaireCompte({
             value={valeurs.telegramUserId}
             onChange={(evenement) => changer("telegramUserId", evenement.target.value)}
             placeholder="Facultatif"
+            aria-invalid={!telegramValide}
+            aria-describedby={!telegramValide ? "compte-telegram-erreur" : undefined}
             className={CLASSES_CHAMP}
           />
+          {!telegramValide && (
+            <p id="compte-telegram-erreur" role="alert" className="mt-1 text-xs text-alerte">
+              L'identifiant Telegram ne contient que des chiffres.
+            </p>
+          )}
         </div>
         {compte === undefined && (
           <div>
@@ -237,11 +254,20 @@ function FormulaireMotDePasse({
   onSucces: () => void;
   onAnnuler: () => void;
 }): ReactElement {
+  const queryClient = useQueryClient();
   const [motDePasse, setMotDePasse] = useState("");
 
   const mutation = useMutation({
     mutationFn: () => changerMotDePasse(compte.id, motDePasse),
-    onSuccess: onSucces,
+    onSuccess: async () => {
+      // Fix round 1 (minor) : les sessions ouvertes sont coupées côté
+      // serveur, mais rien côté liste ne dépendait jusqu'ici de ce
+      // changement — invalidé quand même pour rester cohérent avec les
+      // deux autres mutations d'écriture de cet écran (`FormulaireCompte`,
+      // `ActionsCompte`), qui invalident systématiquement `CLE_COMPTES`.
+      await queryClient.invalidateQueries({ queryKey: CLE_COMPTES });
+      onSucces();
+    },
   });
 
   function soumettre(evenement: FormEvent<HTMLFormElement>): void {
@@ -340,13 +366,13 @@ function ActionsCompte({
   return (
     <div>
       <div className="flex flex-wrap gap-2">
-        <Bouton variante="secondaire" onClick={onModifier} className="min-h-[36px] px-3 py-1.5 text-xs">
+        <Bouton variante="secondaire" onClick={onModifier} className="px-3 py-1.5 text-xs">
           Modifier
         </Bouton>
         <Bouton
           variante="secondaire"
           onClick={onChangerMotDePasse}
-          className="min-h-[36px] px-3 py-1.5 text-xs"
+          className="px-3 py-1.5 text-xs"
         >
           Changer le mot de passe
         </Bouton>
@@ -356,7 +382,7 @@ function ActionsCompte({
               variante="secondaire"
               onClick={confirmerRetrait}
               disabled={retrait.isPending}
-              className="min-h-[36px] px-3 py-1.5 text-xs"
+              className="px-3 py-1.5 text-xs"
             >
               Retirer l'accès
             </Bouton>
@@ -366,7 +392,7 @@ function ActionsCompte({
             variante="secondaire"
             onClick={() => retablissement.mutate()}
             disabled={retablissement.isPending}
-            className="min-h-[36px] px-3 py-1.5 text-xs"
+            className="px-3 py-1.5 text-xs"
           >
             Rétablir l'accès
           </Bouton>
@@ -566,11 +592,33 @@ export function Comptes(): ReactElement {
       {panneau !== null && panneau.type === "creation" && (
         <FormulaireCompte onSucces={fermerPanneau} onAnnuler={fermerPanneau} />
       )}
+      {/* `key` distincte par compte (fix round 1, constat Important 1,
+          même correctif que `ARegler.tsx::ProblemeDetail`, fix round 1
+          finding 4) : la liste reste cliquable pendant qu'un panneau est
+          ouvert. Sans clé, cliquer « Modifier » sur le compte B pendant que
+          « Modifier A » est déjà ouvert réutilisait l'instance en place —
+          le titre affichait B mais les champs restaient ceux d'A
+          (`useState` n'est initialisé qu'au montage), et la soumission
+          écrasait B avec les données d'A. Le préfixe distingue aussi les
+          deux panneaux entre eux (défensif : ils occupent déjà des
+          emplacements JSX différents, donc ne se confondraient pas sans
+          lui, mais la consigne du correctif demande une clé par type de
+          panneau en plus du compte). */}
       {panneau !== null && panneau.type === "modifier" && (
-        <FormulaireCompte compte={panneau.compte} onSucces={fermerPanneau} onAnnuler={fermerPanneau} />
+        <FormulaireCompte
+          key={`modifier-${panneau.compte.id}`}
+          compte={panneau.compte}
+          onSucces={fermerPanneau}
+          onAnnuler={fermerPanneau}
+        />
       )}
       {panneau !== null && panneau.type === "mot-de-passe" && (
-        <FormulaireMotDePasse compte={panneau.compte} onSucces={fermerPanneau} onAnnuler={fermerPanneau} />
+        <FormulaireMotDePasse
+          key={`mot-de-passe-${panneau.compte.id}`}
+          compte={panneau.compte}
+          onSucces={fermerPanneau}
+          onAnnuler={fermerPanneau}
+        />
       )}
 
       {comptes.isPending && (
