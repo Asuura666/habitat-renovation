@@ -57,6 +57,12 @@ files = ["app", "tests"]
 module = "asyncpg.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# openpyxl ne fournit pas de marqueur py.typed (stubs tiers non installés,
+# phase 3, `extract/grille_excel.py`).
+module = "openpyxl.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["app", "tests"]
 addopts = "--import-mode=importlib"
