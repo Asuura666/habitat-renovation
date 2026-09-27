@@ -65,6 +65,17 @@
   idempotente). Sans argument, à lancer une fois après la mise en
   production. Toujours code 0 (les deux fonctions rattachées absorbent déjà
   tous les cas, comme `controles-differes`).
+- `python -m app.cli ranger-photos` (Task 9, spec §5) : (re)construit le
+  rangement des photos de bon sous `<DOCS_DIR>/bl/<AAAA>/<MM>/...` — un lien
+  physique par bon `bl`/`enlevement` non archivé, jamais une copie. Rejoue
+  `ingest.rangement.ranger_tout` (idempotente) : pose les liens manquants,
+  laisse inchangés ceux déjà corrects. Rattrape en particulier les bons dont
+  le chantier a changé par propagation d'alias (jamais renommés à la volée,
+  décision du contrôleur, Task 9) et ceux de la reprise
+  (`rattacher-chantiers`). À lancer une fois au déploiement puis chaque nuit
+  (cron, hors périmètre de cette tâche). Toujours code 0 (un échec individuel
+  est absorbé et journalisé par `ingest.rangement.ranger_document`, jamais
+  remonté ici).
 
 N'importe comme couches applicatives que `app.core`, `app.modules.ingest` et
 `app.modules.jobs` ; l'import de `messaging.telegram` reste différé au seul
@@ -80,7 +91,8 @@ que construire ses dépendances (client HTTP, moteur DB) et les brancher vers
 `ingest` ou `jobs` (décisions du contrôleur
 T7/L2-T1b/L3-T5/L3-T11/L4-T11/L5-T11). L5-T11 ajoute le paquet `jobs`
 et un import différé de `messaging.telegram` pour le seul signalement.
-`rattachement_chantier.py` depuis Task 8 (avenant du 27/09/2026).
+`rattachement_chantier.py` depuis Task 8 (avenant du 27/09/2026),
+`rangement.py` depuis Task 9 (même avenant).
 
 Import différé de `app.core.auth` (dans le corps de `_utilisateur_creer`/
 `_utilisateur_desactiver`, pas en tête de fichier) : ce module appelle
@@ -122,6 +134,7 @@ from app.modules.ingest.factures import (
     lire_facture,
 )
 from app.modules.ingest.mistral import ErreurOCR, ocr_document
+from app.modules.ingest.rangement import ranger_tout
 from app.modules.ingest.rapport_ocr import (
     ecrire_rapport,
     mesurer_dossier,
@@ -624,6 +637,28 @@ async def _rattacher_chantiers() -> int:
     return 0
 
 
+async def _ranger_photos() -> int:
+    """Implémentation de `ranger-photos` (Task 9, spec §5). Toute la
+    logique (chemin cible, lien physique, dossiers en 0750, idempotence) est
+    déjà dans `ingest.rangement.ranger_tout` : cette CLI ne fait que
+    construire ses dépendances (moteur DB, `DOCS_DIR`) et les brancher,
+    comme les autres commandes de ce fichier. Toujours code 0 (un échec
+    individuel de rangement est absorbé et journalisé par
+    `ingest.rangement.ranger_document`, jamais remonté ici, comme
+    `rattacher-chantiers`)."""
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            nb_ranges = await ranger_tout(session, settings.docs_dir)
+    finally:
+        await engine.dispose()
+
+    print(f"{nb_ranges} bon(s) rangé(s)")
+    return 0
+
+
 def _construire_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="app.cli")
     sous_parsers = parser.add_subparsers(dest="commande", required=True)
@@ -754,6 +789,15 @@ def _construire_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    sous_parsers.add_parser(
+        "ranger-photos",
+        help=(
+            "(Re)construit le rangement des photos de bon sous "
+            "<DOCS_DIR>/bl/<AAAA>/<MM>/... (lien physique, jamais une copie) "
+            "-- idempotente, à lancer au déploiement puis chaque nuit"
+        ),
+    )
+
     return parser
 
 
@@ -802,6 +846,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_drive_sync(limite=args.limite))
     if args.commande == "rattacher-chantiers":
         return asyncio.run(_rattacher_chantiers())
+    if args.commande == "ranger-photos":
+        return asyncio.run(_ranger_photos())
     raise AssertionError(f"commande inconnue : {args.commande}")  # pragma: no cover
 
 

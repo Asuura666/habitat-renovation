@@ -19,6 +19,12 @@ Couche d'entrée (L2-D3) : ce routeur n'importe que `app.core` et
 `app.modules.ingest` (garde vérifiée par `tests/test_frontieres.py`). Toutes
 les routes sont réservées à l'admin (`admin_requis`) : un agent reçoit 403
 avant tout accès au service.
+
+Task 9 (avenant du 27/09/2026, spec §5) : `fusionner_chantiers_endpoint`
+renomme, après le commit de `fusionner_chantiers`, le lien physique de
+chaque bon déplacé (`ingest.rangement.ranger_document`, `docs_dir` lu via
+`get_settings().docs_dir`) — jamais une règle métier, seulement le point
+d'entrée qui peut lire `app.core`.
 """
 
 from __future__ import annotations
@@ -31,6 +37,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import Utilisateur, admin_requis
+from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.modules.api.schemas import (
     ChantierCreationRequete,
@@ -46,6 +53,7 @@ from app.modules.api.schemas import (
     ValidationArticleRequete,
 )
 from app.modules.ingest.fusion_chantier import FusionImpossible, fusionner_chantiers
+from app.modules.ingest.rangement import ranger_document
 from app.modules.ingest.referentiels import (
     AliasDejaValide,
     AliasIntrouvable,
@@ -174,6 +182,7 @@ async def fusionner_chantiers_endpoint(
     requete: FusionChantierRequete,
     utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> ResultatFusionReponse:
     try:
         resultat = await fusionner_chantiers(
@@ -190,6 +199,13 @@ async def fusionner_chantiers_endpoint(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc
+    # Task 9 (spec §5) : tous les bons déplacés changent de chantier -- lien
+    # physique renommé pour chacun après le commit de `fusionner_chantiers`
+    # (`ranger_document` est idempotent, sans effet pour un document qui
+    # n'était pas un `bl`/`enlevement` -- ex. une facture -- parmi les
+    # documents déplacés).
+    for document_id in resultat.documents_ids:
+        await ranger_document(session, settings.docs_dir, document_id)
     return ResultatFusionReponse.model_validate(resultat)
 
 

@@ -1102,6 +1102,48 @@ async def test_traiter_fichier_ligne_supervision_fournisseur_et_chantier_resolus
 
 
 # --------------------------------------------------------------------------
+# Rangement des photos (Task 9, spec §5) : `traiter_fichier` pose un lien
+# physique après l'OCR. La logique de `chemin_range`/`ranger_document` est
+# testée en profondeur dans `test_rangement.py` -- ici, seul le câblage
+# (appelé, et bien après l'OCR) est sous test.
+# --------------------------------------------------------------------------
+
+
+async def test_depot_telegram_range_la_photo(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    tmp_path: Path,
+) -> None:
+    utilisateur = await _creer_utilisateur(
+        db_session, telegram_user_id=9077, nom="Agent Rangement"
+    )
+    deposant = _deposant_depuis(utilisateur)
+    messagerie = MessagerieFactice()
+    entrant = _entrant(update_id=77)
+
+    await traiter_fichier(
+        entrant,
+        messagerie,
+        sessions_test,
+        tmp_path,
+        _ocr_avec_numero_bl,
+        deposant,
+        CHAT_SUPERVISION_INVENTE,
+    )
+
+    document = (await db_session.execute(select(Document))).scalar_one()
+    liens = list(tmp_path.glob("bl/*/*/*"))
+    assert len(liens) == 1
+    lien = liens[0]
+    # Même inode que l'original (lien physique, jamais une copie).
+    assert lien.stat().st_ino == Path(document.fichier_path).stat().st_ino
+    assert f"_n{document.numero_interne}." in lien.name
+    assert "agent-rangement" in lien.name
+    # Aucun chantier résolu par `_ocr_avec_numero_bl` (pas d'annotation).
+    assert "sans-chantier" in lien.name
+
+
+# --------------------------------------------------------------------------
 # `traiter_clic` (L2-T3, L2-D10) : clic sur un des deux boutons de
 # confirmation. Les documents cliqués sont créés directement en base (pas
 # via `traiter_fichier`) : seul `traiter_clic` est sous test ici.

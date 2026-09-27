@@ -54,6 +54,15 @@ orchestration.md`) :
   quoi elles restaient `ouverte` pour toujours (`rapprocher_facture` sur un
   document non `recu` ne les recalcule jamais). Un BL/enlèvement archivé
   n'a pas ce traitement (hors périmètre de ce constat).
+
+Task 9 (avenant du 27/09/2026, spec §5) : `relancer_extraction` appelle
+`ingest.rangement.ranger_document` juste après son propre commit (le
+chantier a pu être re-résolu par la nouvelle extraction) — `docs_dir`
+qu'elle reçoit déjà en paramètre, aucun appel à `get_settings()` ici.
+`corriger_entete`, elle, ne le fait pas : c'est son appelant
+(`api.documents.corriger_entete_endpoint`) qui lit `get_settings().docs_dir`
+et range le document après coup (une route peut importer `app.core`, pas ce
+module).
 """
 
 from __future__ import annotations
@@ -103,6 +112,7 @@ from app.modules.ingest.models import (
     Ligne,
     Utilisateur,
 )
+from app.modules.ingest.rangement import ranger_document
 from app.modules.ingest.rapprochement import rapprocher_factures_du_bl
 from app.modules.ingest.rattachement_chantier import rattacher_chantier_document
 from app.modules.ingest.referentiels import (
@@ -1160,6 +1170,13 @@ async def relancer_extraction(
         )
     )
     await session.commit()
+
+    # Task 9 (spec §5) : le chantier a pu être re-résolu par la nouvelle
+    # extraction (`enregistrer_extraction_bl` -> `rattacher_chantier
+    # _document`, déjà commité ci-dessus) -- lien physique renommé après le
+    # commit de cette fonction, `docs_dir` déjà reçu en paramètre (aucun
+    # appel à `get_settings()` ici, contrairement aux routeurs).
+    await ranger_document(session, docs_dir, document_id)
 
     await session.refresh(document)
     return await _charger_detail(session, document, role="admin")

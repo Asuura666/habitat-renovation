@@ -185,7 +185,12 @@ async def test_fusion_deplace_bons_blocs_noms(db_session: AsyncSession) -> None:
     )
 
     assert resultat == ResultatFusion(
-        cible_id=cible.id, nb_documents=1, nb_blocs=1, nb_alias=1, nb_anomalies=0
+        cible_id=cible.id,
+        nb_documents=1,
+        nb_blocs=1,
+        nb_alias=1,
+        nb_anomalies=0,
+        documents_ids=(bon.id,),
     )
 
     await db_session.refresh(bon)

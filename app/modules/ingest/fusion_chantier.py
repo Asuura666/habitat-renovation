@@ -85,6 +85,12 @@ class ResultatFusion:
     nb_blocs: int
     nb_alias: int
     nb_anomalies: int  # anomalies ouvertes de la source déplacées OU levées.
+    # Task 9 (spec §5) : identifiants des documents déplacés (`nb_documents`
+    # d'entre eux), pour que l'appelant (`api.referentiels`) renomme leur
+    # lien physique sur le serveur une fois la fusion commitée -- jamais
+    # sérialisé côté front (absent de `ResultatFusionReponse`, qui ne reprend
+    # que les compteurs).
+    documents_ids: tuple[uuid.UUID, ...]
 
 
 class FusionImpossible(Exception):
@@ -278,4 +284,5 @@ async def fusionner_chantiers(
         nb_blocs=nb_blocs,
         nb_alias=nb_alias,
         nb_anomalies=nb_anomalies,
+        documents_ids=tuple(documents_deplaces),
     )

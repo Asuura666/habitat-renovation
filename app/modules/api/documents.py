@@ -35,6 +35,12 @@ compare les lignes d'un BL à celles du bloc de facture qui le cite — voir
 une alerte « Chantier à confirmer » ou corriger le chantier depuis la fiche
 du bon) — voir `ingest/rattachement_chantier.py::choisir_chantier_document`
 pour toute la logique.
+
+Task 9 (même avenant, spec §5) : `corriger_entete_endpoint` et
+`choisir_chantier_document_endpoint` appellent `ingest.rangement
+.ranger_document` après le commit de leur service (le chantier a pu
+changer) — jamais une règle métier, seulement le point d'entrée qui peut
+lire `get_settings().docs_dir` (`app.core`, décision du contrôleur).
 """
 
 from __future__ import annotations
@@ -86,6 +92,7 @@ from app.modules.ingest.lecture import (
     fichier_document,
     lister_documents,
 )
+from app.modules.ingest.rangement import ranger_document
 from app.modules.ingest.rattachement_chantier import choisir_chantier_document
 from app.modules.ingest.referentiels import ChantierIntrouvable
 from app.modules.ingest.router import get_ocr
@@ -185,6 +192,7 @@ async def corriger_entete_endpoint(
     requete: CorrectionEnteteRequete,
     utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> DocumentDetailReponse | JSONResponse:
     valeurs = {champ: getattr(requete, champ) for champ in requete.model_fields_set}
     try:
@@ -215,6 +223,12 @@ async def corriger_entete_endpoint(
                 "original_id": str(exc.original_id),
             },
         )
+    # Task 9 (spec §5) : le chantier (`chantier_brut`/`fournisseur_id`) a pu
+    # changer -- `ranger_document`, appelé après le commit de
+    # `corriger_entete`, est idempotent (aucun effet si le chantier n'a pas
+    # bougé) : jamais une règle métier ici, seulement le point d'entrée qui
+    # peut lire `get_settings().docs_dir` (décision du contrôleur, Task 9).
+    await ranger_document(session, settings.docs_dir, document_id)
     return DocumentDetailReponse.model_validate(detail)
 
 
@@ -358,6 +372,7 @@ async def choisir_chantier_document_endpoint(
     requete: ChoixChantierDocumentRequete,
     utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> ChoixChantierDocumentReponse:
     try:
         chantier_id = await choisir_chantier_document(
@@ -374,4 +389,8 @@ async def choisir_chantier_document_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="chantier introuvable"
         ) from exc
+    # Task 9 (spec §5) : chantier posé/changé (alerte réglée ou correction
+    # depuis la fiche du bon) -- lien physique renommé après le commit de
+    # `choisir_chantier_document` (`ranger_document` est idempotent).
+    await ranger_document(session, settings.docs_dir, document_id)
     return ChoixChantierDocumentReponse(chantier_id=chantier_id)
