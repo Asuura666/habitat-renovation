@@ -404,3 +404,46 @@ Listée pour ne pas être découverte plus tard. Aucune n'est traitée en phase 
 - Pas d'extraction des mentions manuscrites.
 - Interface en français uniquement.
 - Un seul client par instance ; pas de multi-tenant.
+
+## 14. Avenant du 27 septembre 2026 — mise en production du 1er octobre
+
+Demandes de la réunion client rapportées par Ilane le 27/09/2026, validées
+par lui (conception détaillée :
+`docs/superpowers/specs/2026-09-27-mise-en-production-1er-octobre-design.md`).
+Elles remplacent les passages du CDC qu'elles contredisent.
+
+- **§4.1 — légende de la photo** : le bot lit la légende d'une photo ou
+  d'un fichier déposé ; l'employé y indique le chantier, ce qui sert de
+  confirmation. Il ignore toujours les messages texte seuls et n'y répond
+  jamais.
+- **§4.4 — chantier inconnu** : un nom de chantier lu (sur un BL ou une
+  facture) ou tapé en légende est comparé aux chantiers existants ; une
+  ressemblance d'au moins 90 % (seuil réglable) le rattache, sinon un
+  chantier est **créé automatiquement**, marqué « à compléter » et signalé
+  sur le site. Le nom lu est retenu comme autre nom du chantier. Si le nom
+  lu et la légende désignent deux chantiers différents, une alerte
+  « Chantier à confirmer » (règle R18, gravité moyenne) est levée et un
+  humain choisit. Un admin peut fusionner deux chantiers. La validation
+  manuelle des alias ne subsiste que pour un nom de facture ambigu.
+- **§5 — nouvelle règle R18** « Chantier à confirmer » : le nom lu et la
+  légende d'un BL désignent des chantiers différents, ou un nom ressemble
+  autant à plusieurs chantiers ; justification : nom lu, légende,
+  chantiers candidats.
+- **§3 / §4.6 — gestion des comptes à l'écran** : un admin crée, modifie,
+  change le mot de passe, retire ou rétablit l'accès d'un compte, avec
+  garde-fous (pas soi-même, jamais le dernier admin) ; tout est journalisé.
+- **§4.6 — corrections** : filtre par mois sur la fiche fournisseur ;
+  montants « Conforme » cliquables vers la liste des bons conformes ; noms
+  au lieu des identifiants dans le journal.
+- **§4.7 — photos rangées sur le serveur** : en attendant le Drive, chaque
+  photo de BL est aussi rangée (lien physique, sans copie) dans
+  `bl/<année>/<mois>/<jour>_<déposant>_<chantier>_n<numéro>.<ext>`. Ce
+  rangement n'est pas une sauvegarde.
+
+Suite annoncée pour octobre 2026 (specs séparées) : grilles de prix par
+fournisseur avec historique complet en base, contrôle des prix au BL
+(historique des factures et grille, seuil en % réglable, l'humain valide),
+page de suivi des alertes prix, commentaires sur les lignes de BL. Plus
+tard : prix trouvé sur internet par une IA (à titre indicatif) et synthèse
+hebdomadaire des commentaires sur la page d'accueil (l'IA commente, ne
+décide ni ne modifie rien).
