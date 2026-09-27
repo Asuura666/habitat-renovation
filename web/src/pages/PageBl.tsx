@@ -17,6 +17,7 @@ import { CLE_MOI, DUREE_CACHE_MOI, recupererMoi } from "../api/moi";
 import { formaterDate, formaterDateHeure, formaterMontant, formaterQuantite, TIRET } from "../lib/formats";
 import { CHANTIER_A_RATTACHER, lienFacture } from "../lib/liens";
 import { Carte, EtatVide, FilAriane, type ElementFilAriane, titreRegle } from "../ui";
+import { CommentairesLignes } from "../components/CommentairesLignes";
 import { DocumentDetail } from "./DocumentDetail";
 import { FactureDetail } from "./FactureDetail";
 
@@ -653,6 +654,8 @@ export function PageBl(): ReactElement {
           en lecture seule (`DocumentDetail` n'affiche aucun bouton quand
           `modifiable` vaut `false`), section repliée par défaut. */}
       {!donnees.modifiable && <SectionCorrection titre="Lecture du bon" ouvertParDefaut={estAdmin} />}
+
+      <CommentairesLignes documentId={donnees.id} />
     </div>
   );
 }

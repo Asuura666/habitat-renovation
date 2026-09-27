@@ -1170,3 +1170,28 @@ Recette : `docs/mise-en-production-1er-octobre-recette.md`.
 - **Contrôles différés et rangement des photos pas encore planifiés** : ils attendent le déploiement de la phase 1 (sinon ils tourneraient sur l'ancienne version et créeraient des rappels « chantier à rattacher » que la reprise résout).
 - **Unicité de l'identifiant Telegram** (rappel de la phase 1) : verrou applicatif ; index partiel en base à ajouter dans une migration planifiée.
 - **Alerte d'échec : angles morts** (relecture de la phase 2) : `controles-differes` et `ranger-photos` rendent toujours le code 0 (un échec sur un seul élément est journalisé mais ne fait pas échouer la tâche), donc seul un échec complet (base injoignable, conteneur arrêté) déclenche l'alerte Telegram ; la sauvegarde, elle, échoue au moindre problème. Si Telegram est injoignable, l'alerte elle-même échoue sans autre canal (journald seulement).
+
+## Phase 3 — commentaires (session B, 27/09/2026)
+
+Tâche C de la phase 3 (`docs/roadmap-octobre-2026.md` §6.2, §10) :
+commentaires sur les lignes d'un bon (migration `0012`, `ingest/
+commentaires.py`, `api/commentaires.py`, `web/src/components/
+CommentairesLignes.tsx`). Limites connues, prévues dès la conception
+(`docs/superpowers/specs/2026-09-27-commentaires-lignes-design.md` §3, §8) :
+
+- **Pas de verrou en base empêchant la modification ou la suppression d'un
+  commentaire.** La table `commentaire` n'a ni déclencheur ni règle qui
+  refuserait un `UPDATE`/`DELETE` fait hors de l'application (aucune route
+  n'en expose) : la mise à vide de `ligne_id` par `ON DELETE SET NULL`
+  quand la ligne commentée est supprimée en est déjà une, faite par la
+  base elle-même et voulue (garde le commentaire affichable via
+  `ligne_libelle`). La roadmap ne demande un tel verrou que pour
+  l'historique des prix (lot Prix, même session/branche) ; à réévaluer si
+  un usage réel montre le besoin d'un commentaire réellement immuable au
+  niveau base, pas seulement au niveau de l'API.
+- **Pas de nombre de commentaires dans la liste des documents.** Seule la
+  page d'un bon affiche « Commentaires (N) » (carte repliable) ; la liste
+  des documents (`web/src/pages/DocumentsListe.tsx`) n'indique nulle part
+  qu'un document en a. Hors périmètre de la demande client (§8 de la
+  spec, « possible plus tard si utile ») ; ajouterait une colonne calculée
+  (comptage par document) au routeur de la liste si demandé.

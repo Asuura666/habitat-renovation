@@ -336,6 +336,6 @@ deux mois, formation, procès-verbal). Voir `memory.md` et `docs/dette.md`.
 - [ ] Phase 1 : PR vers `dev`
 - [ ] Phase 1 : déployée (`dev` → `main`, démo puis production)
 - [~] Phase 2 : restauration corrigée et testée, tâches planifiées et alerte, sauvegardes locales posées (27/09) — restent OVH, clés, contrôles/photos après le déploiement de la phase 1 (`docs/phase-2-exploitation-recette.md`)
-- [ ] Phase 3 : commentaires
+- [x] Phase 3 : commentaires (session B ; fusionnés dans `feature/phase-4-ia` pour la synthèse IA)
 - [ ] Phase 3 : lot Prix (P0 → P6), PR vers `dev`
 - [ ] Phase 4

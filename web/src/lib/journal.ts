@@ -34,6 +34,14 @@
  * actuel. `formaterLignes` affiche maintenant le détail de chaque ligne
  * (mêmes libellés et formateurs que `pages/DocumentDetail.tsx`) à la suite
  * du résumé, jamais l'identifiant technique de la ligne.
+ *
+ * Tour 1 de la relecture qualité de la Task C3 (27/09/2026) : la nouvelle
+ * cible `commentaire` (`commentaire_ajoute`, `ingest/commentaires.py::
+ * ajouter_commentaire`) n'avait pas été ajoutée à `CIBLES_CONNUES` ni à
+ * `LIBELLES_CIBLE` -- chaque entrée « Commentaire ajouté » affichait le mot
+ * technique brut en minuscule (« commentaire ») sans lien vers le document
+ * commenté, alors que son `apres` porte justement `document_id`. Complété
+ * ci-dessous, même principe que `chantier_alias`.
  */
 
 import { formaterDate, formaterDateHeure, formaterMontant, formaterQuantite, TIRET } from "./formats";
@@ -90,6 +98,11 @@ const LIBELLES_ACTION: Record<string, string> = {
   mot_de_passe_change: "Mot de passe changé",
   acces_retire: "Accès retiré",
   acces_retabli: "Accès rétabli",
+  // Commentaire ajouté sur une ligne de BL/enlèvement (tâche C, phase 3,
+  // `ingest/commentaires.py::ajouter_commentaire`) — jamais sur une facture
+  // (spec §4 de `docs/superpowers/specs/2026-09-27-commentaires-lignes-
+  // design.md`).
+  commentaire_ajoute: "Commentaire ajouté",
 };
 
 export function libelleAction(action: string): string {
@@ -115,6 +128,7 @@ export const CIBLES_CONNUES = [
   "article",
   "utilisateur",
   "parametre",
+  "commentaire",
 ] as const;
 
 const LIBELLES_CIBLE: Record<string, string> = {
@@ -126,6 +140,12 @@ const LIBELLES_CIBLE: Record<string, string> = {
   article: "Article",
   utilisateur: "Compte utilisateur",
   parametre: "Réglage",
+  // `commentaire_ajoute` (`ingest/commentaires.py::ajouter_commentaire`) —
+  // sans cette entrée, `libelleCible` retombait sur le mot technique brut
+  // en minuscule (« commentaire ») au lieu d'un libellé capitalisé comme
+  // les autres cibles (constat de relecture, tour 1 de la Task C3,
+  // 27/09/2026).
+  commentaire: "Commentaire",
 };
 
 /** Libellé français de l'élément concerné par une entrée (`cible_table`) —
@@ -220,7 +240,19 @@ export function libelleCibleId(cibleTable: string | null, cibleId: string): stri
  * avant ce constat. Aucun outil de test front dans la stack (L2-D17) :
  * cette fonction et son appel (`pages/Journal.tsx`) sont gardés par
  * `tests/test_web_socle.py::test_journal_lien_direct_vers_chaque_
- * element_consultable`, qui lit ce fichier comme du texte. */
+ * element_consultable`, qui lit ce fichier comme du texte.
+ *
+ * Cas `commentaire` (constat de relecture, tour 1 de la Task C3,
+ * 27/09/2026) : la seule entrée journalisée sur cette cible est
+ * `commentaire_ajoute` (`ingest/commentaires.py::ajouter_commentaire`), au
+ * moment même où le commentaire est ajouté -- son `apres` porte alors
+ * `document_id` (chaîne), jamais affiché tel quel (`CLES_JAMAIS_AFFICHEES`
+ * plus bas) mais déjà présent pour retrouver le bon commenté. Même principe
+ * que `chantier_alias` ci-dessus : le lien pointe vers ce document plutôt
+ * que vers une liste (aucune liste des commentaires n'existe) ;
+ * `document_id` absent ou non-chaîne (jamais le cas aujourd'hui, repli
+ * défensif, même principe que le reste de ce fichier) : aucun lien plutôt
+ * qu'un lien mort. */
 export function lienCible(
   cibleTable: string | null,
   cibleId: string | null,
@@ -253,6 +285,13 @@ export function lienCible(
     }
     case "article":
       return { href: "/a-regler", libelle: "Voir les articles à valider" };
+    case "commentaire": {
+      const documentId = apres?.document_id;
+      if (typeof documentId === "string") {
+        return { href: `/documents/${documentId}`, libelle: "Voir le document" };
+      }
+      return null;
+    }
     default:
       return null;
   }
@@ -405,6 +444,12 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   // Nombre de bons/enlèvements déplacés du chantier fusionné vers le
   // chantier conservé (`fusion_chantier.py`).
   nb_documents: "Documents déplacés",
+  // `commentaire_ajoute` (`ingest/commentaires.py::ajouter_commentaire`,
+  // apres={document_id, numero, ligne, texte}) : `numero` est déjà listé
+  // ci-dessus, `document_id` n'a pas de libellé ici — jamais affiché (voir
+  // `CLES_JAMAIS_AFFICHEES` plus bas).
+  ligne: "Ligne",
+  texte: "Commentaire",
 };
 
 /** Un identifiant (`chantier_id`, `fournisseur_id`…) désigne l'élément
@@ -717,6 +762,14 @@ function valeurDetail(cle: string, contexte: Record<string, unknown>, noms: Reco
   return libelleValeurDetail(cle, typeof brute === "string" ? brute : String(brute));
 }
 
+/** Clés jamais affichées, quelle que soit l'action : identifiant technique
+ * sans intérêt pour le lecteur, déjà porté ailleurs quand il en a un
+ * (`commentaire_ajoute` porte `cible_id` = l'identifiant du commentaire,
+ * jamais celui du document — spec §6 de
+ * `docs/superpowers/specs/2026-09-27-commentaires-lignes-design.md` :
+ * « ne jamais afficher document_id »). */
+const CLES_JAMAIS_AFFICHEES = new Set(["document_id"]);
+
 /** Reconstruit, clé par clé, la comparaison `avant`/`apres` d'une entrée de
  * journal — deux instantanés JSON indépendants (`ingest/journal.py`) :
  * une clé présente d'un côté et absente de l'autre est un fait à afficher
@@ -738,10 +791,13 @@ export function lignesAvantApres(
     ...(avant !== null ? Object.keys(avant) : []),
     ...(apres !== null ? Object.keys(apres) : []),
   ]);
-  return [...cles].sort().map((cle) => ({
-    cle,
-    libelle: libelleCleDetail(cle),
-    avant: avant !== null && cle in avant ? valeurDetail(cle, avant, noms) : ABSENT,
-    apres: apres !== null && cle in apres ? valeurDetail(cle, apres, noms) : ABSENT,
-  }));
+  return [...cles]
+    .filter((cle) => !CLES_JAMAIS_AFFICHEES.has(cle))
+    .sort()
+    .map((cle) => ({
+      cle,
+      libelle: libelleCleDetail(cle),
+      avant: avant !== null && cle in avant ? valeurDetail(cle, avant, noms) : ABSENT,
+      apres: apres !== null && cle in apres ? valeurDetail(cle, apres, noms) : ABSENT,
+    }));
 }

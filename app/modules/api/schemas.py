@@ -978,3 +978,62 @@ class ChangementMotDePasseRequete(BaseModel):
     ci-dessus)."""
 
     mot_de_passe: str = Field(min_length=1)
+
+
+# --------------------------------------------------------------------------
+# Commentaires sur les lignes d'un bon (tâche C2, phase 3) : schémas
+# construits à partir des dataclasses d'`ingest.commentaires`
+# (`CommentaireLu`, `LigneCommentee`, `CommentairesBon`).
+# --------------------------------------------------------------------------
+
+
+class CommentaireReponse(BaseModel):
+    """Un commentaire, sous sa ligne, dans `sans_ligne`, ou seul (retour de
+    `POST /api/commentaires/lignes/{id}`) — mêmes attributs
+    qu'`ingest.commentaires.CommentaireLu`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    ligne_libelle: str
+    auteur: str | None
+    texte: str
+    cree_le: datetime
+
+
+class LigneCommenteeReponse(BaseModel):
+    """Une ligne du bon avec ses commentaires, dans `GET
+    /api/commentaires/documents/{id}` — mêmes attributs
+    qu'`ingest.commentaires.LigneCommentee`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    ligne_id: uuid.UUID
+    code: str | None
+    article: str | None
+    quantite: Decimal | None
+    unite: str | None
+    commentaires: list[CommentaireReponse]
+
+
+class CommentairesBonReponse(BaseModel):
+    """Réponse de `GET /api/commentaires/documents/{id}` — mêmes attributs
+    qu'`ingest.commentaires.CommentairesBon`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    nb_commentaires: int
+    lignes: list[LigneCommenteeReponse]
+    sans_ligne: list[CommentaireReponse]
+
+
+class CommentaireRequete(BaseModel):
+    """Corps de `POST /api/commentaires/lignes/{id}` : borne de taille dès
+    la validation Pydantic (comme `ArchivageRequete`), pour rejeter un corps
+    trop volumineux avant même de le charger entièrement en mémoire. Un
+    texte blanc une fois nettoyé (espaces seuls) passe encore cette borne
+    (`min_length` compte les espaces) : il reste refusé par le service
+    (`ingest.commentaires.ajouter_commentaire`, `str.strip()`,
+    `CommentaireInvalide`, 422)."""
+
+    texte: str = Field(min_length=1, max_length=1000)
