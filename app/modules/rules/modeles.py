@@ -48,7 +48,7 @@ class Anomalie:
     persistance (colonne par champ, inclusion dans l'index d'unicité de
     L4-D11) est de la responsabilité de L4-T11, pas de ce module pur."""
 
-    regle: str  # "R01" … "R17"
+    regle: str  # "R01" … "R18"
     gravite: Gravite
     detail: dict[str, str]
     document_id: uuid.UUID | None = None
@@ -218,6 +218,26 @@ class ContexteSuivi:
     alias_en_attente: tuple[AliasEnAttenteControle, ...]
     bl_sans_confirmation: tuple[DocumentControle, ...]
     chantiers: tuple[ChantierSuiviControle, ...]
+
+
+@dataclass(frozen=True)
+class ChantierIncertainControle:
+    """Vue d'un document (BL ou enlèvement) pour le contrôle du chantier
+    déduit à l'extraction (matière de R18, avenant du 27/09/2026). `nom_lu`
+    est le nom de chantier lu sur le bon, `legende` la légende saisie par
+    l'employé au dépôt Telegram (tous deux `None` si absents) ; `candidats`
+    et `candidats_ids` sont les chantiers retenus par la table de décision
+    de `normalize.chantier`, dans l'ordre de la décision. `incertain` est
+    calculé en amont par `ingest` (pas ici, module pur) : `True` quand le
+    nom lu et la légende ne désignent pas sans ambiguïté un seul et même
+    chantier."""
+
+    document_id: uuid.UUID
+    nom_lu: str | None
+    legende: str | None
+    candidats: tuple[str, ...]
+    candidats_ids: tuple[uuid.UUID, ...]
+    incertain: bool
 
 
 @dataclass(frozen=True)

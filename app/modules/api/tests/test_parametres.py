@@ -137,19 +137,20 @@ async def test_put_parametre_admin_modifie_et_journalise(
         cookies={NOM_COOKIE: cookie},
     ) as client:
         liste = await client.get("/api/parametres")
-        # `tolerance_total_ht` : le seul des neuf réglages qui n'appartient
-        # à aucun des deux contrôles désactivables (voir les tests de
-        # masquage plus bas dans ce fichier) -- jamais masqué, quel que
-        # soit l'état des deux drapeaux.
+        # `tolerance_total_ht` : un des dix réglages qui n'appartiennent à
+        # aucun des deux contrôles désactivables, avec `seuil_ressemblance_
+        # chantier_pct` (avenant du 27/09/2026) (voir les tests de masquage
+        # plus bas dans ce fichier) -- jamais masqué, quel que soit l'état
+        # des deux drapeaux.
         modification = await client.put(
             "/api/parametres/tolerance_total_ht", json={"valeur": "6.5"}
         )
 
     assert liste.status_code == 200
-    # Les deux contrôles étant désactivés ci-dessus, quatre des neuf
+    # Les deux contrôles étant désactivés ci-dessus, quatre des dix
     # réglages sont masqués -- voir les tests de masquage plus bas dans ce
     # fichier pour les deux drapeaux couverts indépendamment.
-    assert len(liste.json()) == 5
+    assert len(liste.json()) == 6
     assert modification.status_code == 200
     assert modification.json()["valeur"] == "6.5"
 
@@ -231,7 +232,7 @@ async def test_get_parametres_toutes_les_cles_quand_les_deux_controles_actifs(
     ) as client:
         reponse = await client.get("/api/parametres")
 
-    assert len(reponse.json()) == 9
+    assert len(reponse.json()) == 10
 
 
 async def test_put_parametre_masque_renvoie_422_comme_une_cle_inconnue(

@@ -60,6 +60,7 @@ const TITRES_REGLE: Record<string, string> = {
   // réel figure dans la phrase ci-dessous. À signaler à Ilane.
   R16: "Chantier sans bon déposé récemment",
   R17: "Quantité inhabituelle pour le conditionnement",
+  R18: "Chantier à confirmer",
 };
 
 /** Titre affiché pour un problème (« règle » en interne) — jamais le code
@@ -269,6 +270,12 @@ export function phraseProbleme(anomalie: Anomalie): string {
       return (
         `${articleAvecCode(detail)} : quantité ${quantiteOuTiret(detail, "qte")} inhabituelle pour ` +
         `un conditionnement de ${texteOuTiret(detail, "conditionnement")}.`
+      );
+    case "R18":
+      return (
+        `Le nom lu sur le bon (« ${texteOuTiret(detail, "nom_lu")} ») et le nom indiqué par l'employé ` +
+        `(« ${texteOuTiret(detail, "legende")} ») ne désignent pas un seul chantier. ` +
+        `Chantiers possibles : ${texteOuTiret(detail, "candidats")}.`
       );
     default:
       // Revue finale (constat COUVERTURE-19) : plus de liste brute

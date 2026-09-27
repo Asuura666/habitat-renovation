@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,18 +14,55 @@ from app.modules.ingest.rapprochement import _charger_parametres
 pytestmark = pytest.mark.anyio
 
 
-async def test_lister_parametres_retourne_les_neuf_cles_et_leurs_bornes(
+async def _creer_admin(db_session: AsyncSession) -> Utilisateur:
+    """Compte admin inventé, seulement pour porter `auteur_id` (même idiome
+    que `test_modifier_parametre_journalise_avant_et_apres`)."""
+    auteur = Utilisateur(email="admin.ressemblance@example.test", role="admin")
+    db_session.add(auteur)
+    await db_session.flush()
+    return auteur
+
+
+async def test_lister_parametres_retourne_les_dix_cles_et_leurs_bornes(
     db_session: AsyncSession,
 ) -> None:
     parametres = await lister_parametres(db_session)
 
-    assert len(parametres) == 9
+    assert len(parametres) == 10
     tolerance = next(p for p in parametres if p.cle == "tolerance_total_ht")
     assert tolerance.valeur == "0.05"
     assert tolerance.libelle == "Tolérance sur le total HT"
     assert tolerance.unite == "€"
     assert tolerance.minimum == "0"
     assert tolerance.maximum == "1000"
+
+
+async def test_seuil_ressemblance_chantier_liste_avec_defaut(
+    db_session: AsyncSession,
+) -> None:
+    """Avenant du 27/09/2026 (rattachement automatique des chantiers) :
+    dixième clé, jamais masquée par un des deux contrôles désactivables
+    (elle ne leur appartient pas, voir `_CLES_CONTROLE_PRIX` et
+    `_CLES_CONTROLE_LIVRE_NON_FACTURE`)."""
+    parametres = await lister_parametres(db_session)
+    seuil = next(p for p in parametres if p.cle == "seuil_ressemblance_chantier_pct")
+    assert Decimal(seuil.valeur) == Decimal("90")
+    assert seuil.unite == "%"
+    assert seuil.minimum == "50"
+    assert seuil.maximum == "100"
+
+
+async def test_seuil_ressemblance_chantier_refuse_hors_bornes(
+    db_session: AsyncSession,
+) -> None:
+    auteur = await _creer_admin(db_session)
+    with pytest.raises(ValueError):
+        await modifier_parametre(
+            db_session,
+            "seuil_ressemblance_chantier_pct",
+            "40",
+            auteur_id=auteur.id,
+        )
 
 
 async def test_modifier_parametre_refuse_une_cle_inconnue(
@@ -167,6 +206,7 @@ async def test_lister_parametres_masque_les_seuils_de_prix_quand_desactives(
         "tolerance_total_ht",
         "delai_ligne_bl_non_facturee_j",
         "delai_alias_non_resolu_h",
+        "seuil_ressemblance_chantier_pct",
         "delai_confirmation_bl_h",
         "delai_chantier_silencieux_j",
         "duree_ignorance_j",
@@ -188,6 +228,7 @@ async def test_lister_parametres_masque_le_seuil_r06_quand_desactive(
         "seuil_prix_fort_pct",
         "occurrences_prix_min",
         "delai_alias_non_resolu_h",
+        "seuil_ressemblance_chantier_pct",
         "delai_confirmation_bl_h",
         "delai_chantier_silencieux_j",
         "duree_ignorance_j",
@@ -200,7 +241,7 @@ async def test_lister_parametres_toutes_les_cles_quand_les_deux_controles_actifs
 ) -> None:
     _regler_controles(monkeypatch, prix_actif=True, livre_non_facture_actif=True)
 
-    assert len(await lister_parametres(db_session)) == 9
+    assert len(await lister_parametres(db_session)) == 10
 
 
 @pytest.mark.parametrize(

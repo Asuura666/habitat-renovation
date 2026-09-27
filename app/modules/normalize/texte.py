@@ -5,11 +5,19 @@
 comparaison d'unité (`unites.py`). Elle ne devine rien : elle ne fait que
 réduire une chaîne à une forme canonique comparable (accents, casse,
 ponctuation), sans jamais interpréter son contenu.
+
+`ressemblance` (décision d'Ilane du 27/09/2026, spec §2.2) mesure à quel
+point deux libellés se ressemblent, 0 à 100, insensible à la casse, aux
+accents, à la ponctuation et à l'ordre des mots. Générique : le socle commun
+l'utilise pour rapprocher un nom de chantier lu d'un chantier existant
+(`normalize/chantier.py`) et la phase 3 la réutilisera telle quelle pour la
+ressemblance des désignations de produits (page Prix).
 """
 
 from __future__ import annotations
 
 import unicodedata
+from difflib import SequenceMatcher
 
 
 def normaliser_libelle(texte: str | None) -> str:
@@ -28,3 +36,23 @@ def normaliser_libelle(texte: str | None) -> str:
     minuscules = sans_diacritiques.casefold()
     caracteres = (c if c.isalnum() else " " for c in minuscules)
     return " ".join("".join(caracteres).split())
+
+
+def _forme_triee(texte: str | None) -> str:
+    """Forme normalisée dont les mots sont triés : rend la comparaison
+    insensible à l'ordre des mots (« Tilleuls résidence » ~ « Résidence
+    Tilleuls »)."""
+    return " ".join(sorted(normaliser_libelle(texte).split()))
+
+
+def ressemblance(a: str | None, b: str | None) -> int:
+    """Ressemblance entière 0-100 entre deux noms, insensible à la casse, aux
+    accents, à la ponctuation et à l'ordre des mots (mots triés puis
+    `SequenceMatcher`). Calcul exact en entiers (200 * M // T) : jamais un
+    arrondi flottant qui ferait basculer un score pile au seuil."""
+    fa, fb = _forme_triee(a), _forme_triee(b)
+    if not fa or not fb:
+        return 0
+    appariement = SequenceMatcher(None, fa, fb, autojunk=False)
+    communs = sum(bloc.size for bloc in appariement.get_matching_blocks())
+    return (200 * communs) // (len(fa) + len(fb))

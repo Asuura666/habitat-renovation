@@ -150,7 +150,10 @@ Categorie = Literal["bl", "prix", "quantites", "rattacher", "autre"]
 # dépôt récent : un rappel sur le chantier, pas une livraison sans bon) et
 # R17 (conditionnement inhabituel, déjà exclu d'`en_ecart` par la décision
 # L5-T1 : « ce ne sont pas des écarts de quantité ou de prix sur une
-# ligne »).
+# ligne »). R18 (chantier à confirmer, avenant du 27/09/2026) rejoint R14
+# dans « rattacher » -- même famille de problème (un chantier pas encore
+# identifié avec certitude), bien qu'`evaluer_chantier` ne soit pas encore
+# appelée par `ingest`.
 CATEGORIES_REGLE: dict[str, Categorie] = {
     "R01": "bl",
     "R02": "bl",
@@ -162,6 +165,7 @@ CATEGORIES_REGLE: dict[str, Categorie] = {
     "R08": "prix",
     "R09": "prix",
     "R14": "rattacher",
+    "R18": "rattacher",
 }
 
 

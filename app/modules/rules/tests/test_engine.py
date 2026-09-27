@@ -25,8 +25,10 @@ from decimal import Decimal
 from typing import Any
 
 from app.modules.rules.engine import (
+    REGLES_CHANTIER,
     REGLES_FACTURE,
     REGLES_SUIVI,
+    evaluer_chantier,
     evaluer_facture,
     evaluer_suivi,
 )
@@ -34,10 +36,12 @@ from app.modules.rules.modeles import (
     AliasEnAttenteControle,
     ArticleControle,
     BlocControle,
+    ChantierIncertainControle,
     ChantierSuiviControle,
     ContexteSuivi,
     DocumentControle,
     FactureControlee,
+    Gravite,
     HistoriqueArticle,
     LigneControlee,
     LigneRapprochee,
@@ -1021,11 +1025,44 @@ def test_evaluer_suivi_regles_actives_filtre_regle_sans_garde_dediee() -> None:
 
 
 def test_regles_facture_et_suivi_sont_disjointes_et_couvrent_r01_a_r17() -> None:
-    """Adjonction du contrôleur (L4-T5) : `REGLES_FACTURE`/`REGLES_SUIVI`
-    sont l'unique source de vérité des scopes que `ingest` utilisera pour
-    `synchroniser_anomalies` — une règle ajoutée plus tard sans mise à jour
-    de l'un des deux ensembles doit faire échouer ce test."""
-    toutes_les_regles = {f"R{i:02d}" for i in range(1, 18)}
+    """Adjonction du contrôleur (L4-T5), étendue par l'avenant du
+    27/09/2026 : `REGLES_FACTURE`/`REGLES_SUIVI`/`REGLES_CHANTIER` sont
+    l'unique source de vérité des scopes du moteur — une règle ajoutée plus
+    tard sans mise à jour de l'un des trois ensembles doit faire échouer ce
+    test."""
+    toutes_les_regles = {f"R{i:02d}" for i in range(1, 19)}
 
     assert REGLES_FACTURE.isdisjoint(REGLES_SUIVI)
-    assert toutes_les_regles == REGLES_FACTURE | REGLES_SUIVI
+    assert REGLES_FACTURE.isdisjoint(REGLES_CHANTIER)
+    assert REGLES_SUIVI.isdisjoint(REGLES_CHANTIER)
+    assert toutes_les_regles == REGLES_FACTURE | REGLES_SUIVI | REGLES_CHANTIER
+
+
+def test_evaluer_chantier_renvoie_R18() -> None:
+    """`evaluer_chantier` (avenant du 27/09/2026) : point d'entrée séparé,
+    une anomalie R18 quand le contrôle est incertain, rien sinon."""
+    document_id = uuid.uuid4()
+    a, b = uuid.uuid4(), uuid.uuid4()
+
+    controle_incertain = ChantierIncertainControle(
+        document_id=document_id,
+        nom_lu="VILLA TEST",
+        legende="tilleuls",
+        candidats=("Villa Test", "Résidence des Tilleuls"),
+        candidats_ids=(a, b),
+        incertain=True,
+    )
+    anomalies = evaluer_chantier(controle_incertain)
+    assert [a.regle for a in anomalies] == ["R18"]
+    assert anomalies[0].gravite is Gravite.MOYENNE
+    assert anomalies[0].document_id == document_id
+
+    controle_certain = ChantierIncertainControle(
+        document_id=document_id,
+        nom_lu="VILLA TEST",
+        legende="villa test",
+        candidats=("Villa Test",),
+        candidats_ids=(a,),
+        incertain=False,
+    )
+    assert evaluer_chantier(controle_certain) == ()

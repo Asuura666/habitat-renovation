@@ -15,7 +15,7 @@ from app.modules.ingest.anomalies import (
     regles_de_categorie,
 )
 from app.modules.ingest.bilan import REGLES_BL_MANQUANT, REGLES_QUANTITE_OU_PRIX
-from app.modules.rules.engine import REGLES_FACTURE, REGLES_SUIVI
+from app.modules.rules.engine import REGLES_CHANTIER, REGLES_FACTURE, REGLES_SUIVI
 
 
 def test_prix_et_quantites_valent_exactement_l_ancien_perimetre_en_ecart() -> None:
@@ -31,8 +31,11 @@ def test_bon_manquant_vaut_r01_et_r02() -> None:
 
 
 def test_toute_regle_du_moteur_a_une_categorie_connue() -> None:
+    """`REGLES_CHANTIER` (avenant du 27/09/2026, R18) rejoint l'union bien
+    qu'`evaluer_chantier` ne soit pas encore appelée par `ingest` : R18 a
+    déjà sa catégorie (`CATEGORIES_REGLE["R18"]`, voir ci-dessous)."""
     categories_connues = set(get_args(Categorie))
-    regles_moteur = set(REGLES_FACTURE) | set(REGLES_SUIVI)
+    regles_moteur = set(REGLES_FACTURE) | set(REGLES_SUIVI) | set(REGLES_CHANTIER)
     assert set(CATEGORIES_REGLE) <= regles_moteur
     for regle in regles_moteur:
         assert categorie_regle(regle) in categories_connues, regle
@@ -43,3 +46,4 @@ def test_regle_inconnue_tombe_dans_autre() -> None:
     for regle in ("R10", "R11", "R12", "R13", "R15", "R16", "R17"):
         assert categorie_regle(regle) == "autre", regle
     assert categorie_regle("R14") == "rattacher"
+    assert categorie_regle("R18") == "rattacher"

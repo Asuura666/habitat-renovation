@@ -1,4 +1,4 @@
-"""Une règle par module (`R01.py` … `R17.py`, L4-D2).
+"""Une règle par module (`R01.py` … `R18.py`, L4-D2).
 
 Chaque fichier expose une unique fonction `Rxx(...) -> Anomalie | None` (ou
 `tuple[Anomalie, ...]` pour une règle qui balaie une collection), pure et

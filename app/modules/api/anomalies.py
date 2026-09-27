@@ -75,10 +75,13 @@ router = APIRouter()
 _LIMITE_MIN = 1
 _LIMITE_MAX = 500
 
-# Catalogue des 17 règles (CDC §5, Ruling R22) : couverture verrouillée par
-# `test_regle_anomalie_couvre_exactement_les_regles_du_moteur`
-# (`app/modules/api/tests/test_anomalies.py`), seul endroit autorisé à
-# importer à la fois `api` et `rules` pour comparer les deux ensembles.
+# Catalogue des règles de `REGLES_FACTURE`/`REGLES_SUIVI` (CDC §5, Ruling
+# R22, R18 ajoutée par l'avenant du 27/09/2026 même si `evaluer_chantier`
+# n'est pas encore câblée dans `ingest` -- une valeur de filtre acceptée
+# sans jamais renvoyer d'anomalie tant qu'elle n'est pas persistée) :
+# couverture verrouillée par `tests/test_regle_anomalie_couverture.py`, seul
+# endroit autorisé à importer à la fois `api` et `rules` pour comparer les
+# deux ensembles.
 RegleAnomalie = Literal[
     "R01",
     "R02",
@@ -97,6 +100,7 @@ RegleAnomalie = Literal[
     "R15",
     "R16",
     "R17",
+    "R18",
 ]
 
 
