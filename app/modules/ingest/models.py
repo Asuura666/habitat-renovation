@@ -22,7 +22,12 @@ contrôleur pour T3) :
   (décision D4) : plus simple à faire évoluer par migration.
 - Montants et quantités en `numeric` sans précision imposée (décision D3),
   mappés en `Decimal` côté Python.
-- Aucun `ondelete` en cascade : aucune suppression physique de document.
+- Aucun `ondelete` en cascade : aucune suppression physique de document --
+  sauf `commentaire` (migration 0012, §3 de la conception des commentaires
+  du 27/09/2026) : `document_id` en `ON DELETE CASCADE` et `ligne_id` en
+  `ON DELETE SET NULL`, pour qu'un commentaire ne disparaisse jamais avec sa
+  ligne (recréée à chaque lecture ou relance de la lecture) et reste
+  rattaché au bon tant que celui-ci existe.
 """
 
 from __future__ import annotations
@@ -600,6 +605,53 @@ class Journal(Base):
     horodatage: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    created_at: Mapped[datetime] = _created_at()
+
+
+class Commentaire(Base):
+    """Commentaire libre sur une ligne d'un bon (append-only, comme
+    `journal`) : migration 0012, §3 de
+    `docs/superpowers/specs/2026-09-27-commentaires-lignes-design.md`.
+    Décisions d'Ilane du 27/09/2026 : tout compte connecté qui voit la page
+    du bon peut commenter ; un commentaire n'est ni modifiable ni
+    supprimable (pour se corriger, on en ajoute un autre) ; chaque ajout est
+    journalisé (`commentaire_ajoute`).
+
+    - `document_id` (`ON DELETE CASCADE`) : garde le commentaire rattaché au
+      bon même si sa ligne disparaît -- les lignes d'un bon sont supprimées
+      puis recréées à chaque lecture ou relance de la lecture
+      (`extraction_bl.enregistrer_extraction_bl`), et une correction
+      manuelle peut en supprimer (`corrections.corriger_lignes`).
+    - `ligne_id` (`ON DELETE SET NULL`) : ligne commentée ; devient vide si
+      la ligne est supprimée. Le commentaire reste alors affichable grâce à
+      `ligne_libelle`, figé au moment de l'ajout (« code — désignation », ou
+      la partie présente seule, ou « Ligne <n> » si les deux manquent).
+    - Pas de colonne `updated_*` : aucune modification n'est prévue, et
+      aucune route ne modifie ni ne supprime un commentaire.
+    """
+
+    __tablename__ = "commentaire"
+    __table_args__ = (
+        CheckConstraint("char_length(texte) BETWEEN 1 AND 1000", name="texte_longueur"),
+    )
+
+    id: Mapped[uuid.UUID] = _id()
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("document.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    ligne_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("ligne.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    ligne_libelle: Mapped[str] = mapped_column(Text, nullable=False)
+    auteur_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("utilisateur.id"), nullable=True
+    )
+    texte: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = _created_at()
 
 
