@@ -431,60 +431,48 @@ de faux identifiants en production.
 
 ## 9. Tâches planifiées
 
-Créer d'abord le dossier de logs :
+Depuis la phase 2 (27/09/2026), les tâches planifiées sont des **timers
+systemd utilisateur** (le compte `debian` a `Linger=yes` ; `cron` n'est pas
+installé sur le VPS). Un seul script les installe par instance :
 
 ```bash
-mkdir -p /home/debian/habitat_reno/logs
+cd /home/debian/habitat_reno
+deploy/installer-taches.sh prod                          # les trois tâches
+deploy/installer-taches.sh demo --taches controles,photos  # sans sauvegarde
+deploy/installer-taches.sh prod --desinstaller           # tout retirer
 ```
 
-La ligne « Sauvegarde nocturne » ci-dessous peut tourner sous n'importe quel
-compte hôte, root ou non : depuis le correctif R1 de la revue finale du
-25/09/2026, `backup.sh` ajoute lui-même le gid propriétaire de
-`DOCS_HOST_DIR` (10001 en pratique, `Dockerfile`, `USER 10001`, tâche T3)
-comme groupe supplémentaire du conteneur restic (`--group-add`), qui peut
-donc lire les documents 0640 écrits par l'API sans que le compte hôte qui
-invoque le script en soit propriétaire. Détail :
-`deploy/RESTAURATION.md` § « Permissions de `DOCS_HOST_DIR` ».
+| Tâche | Commande | Production | Démo |
+| --- | --- | --- | --- |
+| `photos` | `python -m app.cli ranger-photos` (rattrapage du rangement des photos) | 02:30 | 02:45 |
+| `sauvegarde` | `deploy/backup.sh` (dump + documents, restic) | 03:00 | 03:40 |
+| `controles` | `python -m app.cli controles-differes` (rappels R14, R15, R16 ; R06 désactivée) | 06:15 | 06:30 |
 
-Après validation du déploiement seulement, configurer une adresse
-d'exploitation dans la crontab. `MAILTO` nécessite un MTA fonctionnel. Les
-blocs d'échec réémettent la fin du log sur la sortie de cron et conservent le
-code non nul :
+Heures de Paris (`OnCalendar=… Europe/Paris`), `Persistent=true` (une tâche
+manquée pendant un arrêt du serveur est rattrapée au redémarrage). Les deux
+instances ne tournent jamais en même temps (mémoire du VPS). La sauvegarde
+exige `RESTIC_REPOSITORY` et `RESTIC_PASSWORD` dans `.env.<instance>` :
+l'installateur refuse de la poser sinon. La synchronisation Drive n'est pas
+planifiée (bloquée, `docs/dette.md`).
 
-```cron
-MAILTO=ops@example.invalid
+**Alerte d'échec** : chaque tâche a `OnFailure=habitat-<instance>-alerte@%n`,
+qui lance `deploy/alerte-echec.sh` : un message part dans le canal Telegram
+de supervision de l'instance (`TELEGRAM_CHAT_SUPERVISION_ID`). Le jeton du
+bot n'apparaît ni dans la ligne de commande ni dans une sortie.
 
-# Sauvegarde nocturne
-0 3 * * * cd /home/debian/habitat_reno && ./deploy/backup.sh >> /home/debian/habitat_reno/logs/backup.log 2>&1 || { code=$?; tail -n 50 /home/debian/habitat_reno/logs/backup.log; exit $code; }
+**Journaux** : dans journald (taille plafonnée), pas de fichier ni de
+logrotate :
 
-# Règles différées R06, R14, R15, R16
-15 6 * * * cd /home/debian/habitat_reno && docker compose -p habitat_reno --env-file .env -f deploy/docker-compose.yml exec -T api python -m app.cli controles-differes >> /home/debian/habitat_reno/logs/controles-differes.log 2>&1 || { code=$?; tail -n 50 /home/debian/habitat_reno/logs/controles-differes.log; exit $code; }
-
-# Synchronisation Drive — uniquement après recette Drive réelle
-10 * * * * cd /home/debian/habitat_reno && /usr/bin/flock -n /tmp/habitat-drive-sync.lock docker compose -p habitat_reno --env-file .env -f deploy/docker-compose.yml exec -T api python -m app.cli drive-sync --limite 100 >> /home/debian/habitat_reno/logs/drive-sync.log 2>&1 || { code=$?; tail -n 50 /home/debian/habitat_reno/logs/drive-sync.log; exit $code; }
+```bash
+systemctl --user list-timers 'habitat-*'
+journalctl --user -u habitat-prod-sauvegarde.service -n 50
+systemctl --user start habitat-prod-controles.service   # lancer à la main
 ```
 
-Remplacer l'adresse factice et provoquer un échec contrôlé pour vérifier la
-réception de l'alerte. Sans MTA, brancher le code non nul sur la supervision du
-VPS ; la seule présence d'un fichier de log n'est pas une alerte.
-
-Installer aussi `/etc/logrotate.d/habitat-reno` :
-
-```text
-/home/debian/habitat_reno/logs/*.log {
-    daily
-    rotate 14
-    compress
-    delaycompress
-    missingok
-    notifempty
-    copytruncate
-}
-```
-
-Tester avec `logrotate --debug /etc/logrotate.d/habitat-reno`. Surveiller les
-codes de sortie, l'espace disque et la rotation. Ne pas planifier Drive avant
-la recette réelle et le premier téléversement limité.
+La sauvegarde peut tourner sous le compte `debian` : `backup.sh` ajoute le
+gid propriétaire de `DOCS_HOST_DIR` (10001) comme groupe supplémentaire du
+conteneur restic pour lire les documents 0640 (`deploy/RESTAURATION.md`,
+« Permissions de `DOCS_HOST_DIR` »).
 
 ## 10. Mettre à jour une installation existante
 

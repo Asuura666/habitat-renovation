@@ -1137,7 +1137,7 @@ tombent d'eux-mêmes sur le serveur dédié.
   test partagée entre tous les tests, incompatible avec une exécution
   parallèle sans base par worker).
 
-- **`restore.sh` refuse de restaurer quand l'API est arrêtée (bogue
+- **[Corrigé le 27/09/2026, phase 2 : `ps -a -q api`]** **`restore.sh` refuse de restaurer quand l'API est arrêtée (bogue
   antérieur aux optimisations, constaté le 25/09/2026).** Le garde-fou
   `docker compose … ps -q api` (`deploy/restore.sh`, vers la ligne 131)
   ne liste que les conteneurs **en marche** : après un `stop api` (fait
@@ -1162,3 +1162,10 @@ Recette : `docs/mise-en-production-1er-octobre-recette.md`.
 - **Journal** : le libellé « Livraisons (total) » sert aussi au nombre de lignes de facture déplacées par une fusion ; le front traite `cible_id` comme un chantier sans connaître `cible_table` (sûr tant que seule la fusion l'écrit).
 - **Comptes** : pas de longueur maximale du mot de passe (coût argon2, administrateur de confiance seul) ; identifiant Telegram sans contrainte `> 0` ; unicité de l'identifiant Telegram garantie par verrou applicatif, pas par un index en base (à ajouter dans une migration planifiée).
 - **Reprise** : `rattacher-chantiers` garde le verrou des chantiers pendant toute sa durée (bloquerait les dépôts sur un gros arriéré).
+
+## Phase 2 — exploitation (27/09/2026)
+
+- **Sauvegardes dans un dépôt restic local** (`/home/debian/sauvegardes-habitat/restic-<instance>`, décision d'Ilane du 27/09) : protège d'une erreur ou d'une suppression, **pas de la perte du serveur** (même disque). Bascule vers OVH Object Storage (CDC §9) dès qu'Ilane a créé le conteneur et ses clés : changer `RESTIC_REPOSITORY` et ajouter `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` dans `.env.<instance>`, `restic init`, puis relancer une sauvegarde. Mots de passe restic dans `~/.secrets/restic-habitat.txt` : à recopier par Ilane dans son gestionnaire de mots de passe (sans eux, les sauvegardes sont illisibles).
+- **Tâches planifiées lancées depuis l'arbre de travail** `/home/debian/habitat_reno` (scripts `deploy/*.sh`) : un changement de branche qui retirerait ces scripts casserait les tâches. Sur le serveur dédié, installer depuis une copie propre de `main`.
+- **Contrôles différés et rangement des photos pas encore planifiés** : ils attendent le déploiement de la phase 1 (sinon ils tourneraient sur l'ancienne version et créeraient des rappels « chantier à rattacher » que la reprise résout).
+- **Unicité de l'identifiant Telegram** (rappel de la phase 1) : verrou applicatif ; index partiel en base à ajouter dans une migration planifiée.
