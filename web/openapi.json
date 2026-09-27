@@ -2318,6 +2318,96 @@
     }
    }
   },
+  "/api/commentaires/documents/{document_id}": {
+   "get": {
+    "summary": "Commentaires Du Bon Endpoint",
+    "operationId": "commentaires_du_bon_endpoint_api_commentaires_documents__document_id__get",
+    "parameters": [
+     {
+      "name": "document_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Document Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CommentairesBonReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/commentaires/lignes/{ligne_id}": {
+   "post": {
+    "summary": "Ajouter Commentaire Endpoint",
+    "operationId": "ajouter_commentaire_endpoint_api_commentaires_lignes__ligne_id__post",
+    "parameters": [
+     {
+      "name": "ligne_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Ligne Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CommentaireRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CommentaireReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/health": {
    "get": {
     "summary": "Health",
@@ -3370,6 +3460,93 @@
     ],
     "title": "ChantierTableauReponse",
     "description": "Une ligne de `chantiers` dans `GET /api/tableau-de-bord` — mêmes\nattributs qu'`ingest.tableau_de_bord.ChantierTableau`. `chantier_id`\n(et `nom_canonique`/`client`/`agence`) valent `None` pour les blocs\ndont le chantier n'a pas pu être résolu (`etat=\"a_rattacher\"` dans ce\ncas), même principe que `LigneBilanChantierReponse.chantier_id`."
+   },
+   "CommentaireReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "ligne_libelle": {
+      "type": "string",
+      "title": "Ligne Libelle"
+     },
+     "auteur": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Auteur"
+     },
+     "texte": {
+      "type": "string",
+      "title": "Texte"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "ligne_libelle",
+     "auteur",
+     "texte",
+     "cree_le"
+    ],
+    "title": "CommentaireReponse",
+    "description": "Un commentaire, sous sa ligne, dans `sans_ligne`, ou seul (retour de\n`POST /api/commentaires/lignes/{id}`) — mêmes attributs\nqu'`ingest.commentaires.CommentaireLu`."
+   },
+   "CommentaireRequete": {
+    "properties": {
+     "texte": {
+      "type": "string",
+      "title": "Texte"
+     }
+    },
+    "type": "object",
+    "required": [
+     "texte"
+    ],
+    "title": "CommentaireRequete",
+    "description": "Corps de `POST /api/commentaires/lignes/{id}` : le texte est nettoyé\net validé (1 à 1000 caractères une fois nettoyé) par le service\n(`ingest.commentaires.ajouter_commentaire`, `CommentaireInvalide`, 422)\n— pas de contrainte Pydantic redondante ici, contrairement à\n`ArchivageRequete`."
+   },
+   "CommentairesBonReponse": {
+    "properties": {
+     "nb_commentaires": {
+      "type": "integer",
+      "title": "Nb Commentaires"
+     },
+     "lignes": {
+      "items": {
+       "$ref": "#/components/schemas/LigneCommenteeReponse"
+      },
+      "type": "array",
+      "title": "Lignes"
+     },
+     "sans_ligne": {
+      "items": {
+       "$ref": "#/components/schemas/CommentaireReponse"
+      },
+      "type": "array",
+      "title": "Sans Ligne"
+     }
+    },
+    "type": "object",
+    "required": [
+     "nb_commentaires",
+     "lignes",
+     "sans_ligne"
+    ],
+    "title": "CommentairesBonReponse",
+    "description": "Réponse de `GET /api/commentaires/documents/{id}` — mêmes attributs\nqu'`ingest.commentaires.CommentairesBon`."
    },
    "ComparaisonBlReponse": {
     "properties": {
@@ -4645,6 +4822,78 @@
     ],
     "title": "LigneBilanFournisseurReponse",
     "description": "Une ligne de `GET /api/bilan/chantiers/{id}/fournisseurs` et de sa\nvue inverse `GET /api/bilan/fournisseurs` — mêmes attributs\nqu'`ingest.bilan.LigneBilanFournisseur`. `fournisseur_id`/`nom` valent\n`None` pour les blocs dont le fournisseur n'a pas pu être résolu, même\nprincipe que `LigneBilanChantierReponse.chantier_id`."
+   },
+   "LigneCommenteeReponse": {
+    "properties": {
+     "ligne_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Ligne Id"
+     },
+     "code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Code"
+     },
+     "article": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Article"
+     },
+     "quantite": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Quantite"
+     },
+     "unite": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite"
+     },
+     "commentaires": {
+      "items": {
+       "$ref": "#/components/schemas/CommentaireReponse"
+      },
+      "type": "array",
+      "title": "Commentaires"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ligne_id",
+     "code",
+     "article",
+     "quantite",
+     "unite",
+     "commentaires"
+    ],
+    "title": "LigneCommenteeReponse",
+    "description": "Une ligne du bon avec ses commentaires, dans `GET\n/api/commentaires/documents/{id}` — mêmes attributs\nqu'`ingest.commentaires.LigneCommentee`."
    },
    "LigneCompareeReponse": {
     "properties": {

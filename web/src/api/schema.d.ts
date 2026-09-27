@@ -748,6 +748,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/commentaires/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Commentaires Du Bon Endpoint */
+        get: operations["commentaires_du_bon_endpoint_api_commentaires_documents__document_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/commentaires/lignes/{ligne_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ajouter Commentaire Endpoint */
+        post: operations["ajouter_commentaire_endpoint_api_commentaires_lignes__ligne_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1123,6 +1157,55 @@ export interface components {
             montants: components["schemas"]["MontantsBilanReponse"];
             /** A Verifier */
             a_verifier: string;
+        };
+        /**
+         * CommentaireReponse
+         * @description Un commentaire, sous sa ligne, dans `sans_ligne`, ou seul (retour de
+         *     `POST /api/commentaires/lignes/{id}`) — mêmes attributs
+         *     qu'`ingest.commentaires.CommentaireLu`.
+         */
+        CommentaireReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Ligne Libelle */
+            ligne_libelle: string;
+            /** Auteur */
+            auteur: string | null;
+            /** Texte */
+            texte: string;
+            /**
+             * Cree Le
+             * Format: date-time
+             */
+            cree_le: string;
+        };
+        /**
+         * CommentaireRequete
+         * @description Corps de `POST /api/commentaires/lignes/{id}` : le texte est nettoyé
+         *     et validé (1 à 1000 caractères une fois nettoyé) par le service
+         *     (`ingest.commentaires.ajouter_commentaire`, `CommentaireInvalide`, 422)
+         *     — pas de contrainte Pydantic redondante ici, contrairement à
+         *     `ArchivageRequete`.
+         */
+        CommentaireRequete: {
+            /** Texte */
+            texte: string;
+        };
+        /**
+         * CommentairesBonReponse
+         * @description Réponse de `GET /api/commentaires/documents/{id}` — mêmes attributs
+         *     qu'`ingest.commentaires.CommentairesBon`.
+         */
+        CommentairesBonReponse: {
+            /** Nb Commentaires */
+            nb_commentaires: number;
+            /** Lignes */
+            lignes: components["schemas"]["LigneCommenteeReponse"][];
+            /** Sans Ligne */
+            sans_ligne: components["schemas"]["CommentaireReponse"][];
         };
         /**
          * ComparaisonBlReponse
@@ -1581,6 +1664,29 @@ export interface components {
             /** Nom */
             nom: string | null;
             montants: components["schemas"]["MontantsBilanReponse"];
+        };
+        /**
+         * LigneCommenteeReponse
+         * @description Une ligne du bon avec ses commentaires, dans `GET
+         *     /api/commentaires/documents/{id}` — mêmes attributs
+         *     qu'`ingest.commentaires.LigneCommentee`.
+         */
+        LigneCommenteeReponse: {
+            /**
+             * Ligne Id
+             * Format: uuid
+             */
+            ligne_id: string;
+            /** Code */
+            code: string | null;
+            /** Article */
+            article: string | null;
+            /** Quantite */
+            quantite: string | null;
+            /** Unite */
+            unite: string | null;
+            /** Commentaires */
+            commentaires: components["schemas"]["CommentaireReponse"][];
         };
         /**
          * LigneCompareeReponse
@@ -3281,6 +3387,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TableauDeBordReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    commentaires_du_bon_endpoint_api_commentaires_documents__document_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentairesBonReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ajouter_commentaire_endpoint_api_commentaires_lignes__ligne_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ligne_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommentaireRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentaireReponse"];
                 };
             };
             /** @description Validation Error */
