@@ -104,10 +104,10 @@ from app.modules.ingest.models import (
     Utilisateur,
 )
 from app.modules.ingest.rapprochement import rapprocher_factures_du_bl
+from app.modules.ingest.rattachement_chantier import rattacher_chantier_document
 from app.modules.ingest.referentiels import (
     lire_parametre_decimal,
     rattacher_article,
-    resoudre_chantier,
 )
 from app.modules.normalize.article import proposer_article_bl
 from app.modules.rules.engine import REGLES_FACTURE
@@ -719,16 +719,13 @@ async def _document_en_double(
 async def _resoudre_chantier_document(
     session: AsyncSession, document: Document
 ) -> None:
-    """Renseigne `document.chantier_id` à partir de `document.chantier_brut`
-    et `document.fournisseur_id` courants (nouvelle résolution après une
-    correction qui touche l'un des deux, L3-D13)."""
-    if document.fournisseur_id is None:
-        document.chantier_id = None
-        return
-    resolution = await resoudre_chantier(
-        session, document.fournisseur_id, document.chantier_brut
-    )
-    document.chantier_id = resolution.chantier_id
+    """Relance le rattachement automatique du chantier (`ingest
+    .rattachement_chantier.rattacher_chantier_document`, avenant du
+    27/09/2026) à partir de `document.chantier_brut`/`fournisseur_id`
+    courants, après une correction qui touche l'un des deux (L3-D13) — la
+    logique gère déjà un fournisseur absent (plus de retour anticipé à
+    `None` ici)."""
+    await rattacher_chantier_document(session, document)
 
 
 async def _rattacher_articles_du_document(

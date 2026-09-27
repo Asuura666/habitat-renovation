@@ -53,10 +53,10 @@ from app.modules.ingest.lecture import _normaliser_numero, documents_bl_par_nume
 from app.modules.ingest.mistral import ErreurOCR
 from app.modules.ingest.models import BlocFacture, Document, Fournisseur, Journal, Ligne
 from app.modules.ingest.rapprochement import rapprocher_facture_sans_echec
+from app.modules.ingest.rattachement_chantier import rattacher_chantier_bloc
 from app.modules.ingest.referentiels import (
     lire_parametre_decimal,
     rattacher_article,
-    resoudre_chantier,
 )
 from app.modules.normalize.article import proposer_article_facture
 
@@ -413,17 +413,20 @@ async def deposer_facture(
         articles_rattaches: set[uuid.UUID] = set()
 
         for position, bloc in enumerate(facture.blocs):
-            # L3-T7 (décision du contrôleur) : résolution seulement pour un
-            # bloc dont le chantier brut n'est pas vide (`resoudre_chantier`
-            # gère déjà un brut vide, mais l'appel est alors superflu et ne
-            # compterait jamais comme une demande d'alias).
+            # L3-T7, avenant du 27/09/2026 (décision d'Ilane, spec §2.4) :
+            # résolution seulement pour un bloc dont le chantier brut n'est
+            # pas vide (`rattacher_chantier_bloc` gère déjà un brut vide,
+            # mais l'appel est alors superflu). `nb_demandes_alias` compte
+            # désormais les blocs laissés sans chantier après l'appel (un nom
+            # ambigu retombe sur l'ancien flux, alias en attente, spec §2.4
+            # « Factures ») -- un nom lu inconnu ne compte plus, il crée
+            # maintenant directement un chantier « à compléter ».
             chantier_id: uuid.UUID | None = None
             if bloc.chantier_brut:
-                resolution_chantier = await resoudre_chantier(
+                chantier_id = await rattacher_chantier_bloc(
                     session, fournisseur_id, bloc.chantier_brut
                 )
-                chantier_id = resolution_chantier.chantier_id
-                if resolution_chantier.demande_creee:
+                if chantier_id is None:
                     nb_demandes_alias += 1
 
             bloc_facture = BlocFacture(

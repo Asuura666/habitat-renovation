@@ -361,9 +361,15 @@ async def test_depot_reussi_cree_fournisseur_document_blocs_lignes_et_journal(
     assert len(blocs_db) == 1
     assert blocs_db[0].numero_bl == bloc.numero_bl
     assert blocs_db[0].chantier_brut == bloc.chantier_brut
-    # L3-T7 : demande d'alias créée (aucun chantier du référentiel ne
-    # correspond) -> `chantier_id` reste `NULL` (L3-D7).
-    assert blocs_db[0].chantier_id is None
+    # Avenant du 27/09/2026 (décision d'Ilane, spec §2.4) : un nom lu inconnu
+    # (aucun chantier du référentiel ne correspond) crée désormais un
+    # chantier « à compléter » directement rattaché au bloc, remplace
+    # l'ancien alias en attente (L3-D7).
+    assert blocs_db[0].chantier_id is not None
+    chantier = await db_session.get(Chantier, blocs_db[0].chantier_id)
+    assert chantier is not None
+    assert chantier.nom_canonique == "INVENTE"
+    assert chantier.a_completer is True
     assert blocs_db[0].commentaire is None
 
     lignes_db = (
@@ -404,7 +410,11 @@ async def test_depot_reussi_cree_fournisseur_document_blocs_lignes_et_journal(
     assert journaux[0].apres is not None
     assert journaux[0].apres["statut"] == "recu"
     assert journaux[0].apres["motifs"] == []
-    assert journaux[0].apres["nb_demandes_alias"] == 1
+    # Avenant du 27/09/2026 : un nom lu inconnu crée désormais directement un
+    # chantier (voir plus haut) -- il ne compte plus comme une demande à
+    # confirmer (`nb_demandes_alias` ne compte plus que les blocs restés
+    # sans chantier, nom ambigu, spec §2.4).
+    assert journaux[0].apres["nb_demandes_alias"] == 0
     assert journaux[0].apres["nb_articles"] == 1
 
     fichiers = list(tmp_path.glob("*.pdf"))
@@ -675,9 +685,14 @@ async def test_depot_confiance_min_calculee_depuis_les_pages(
     assert document.confiance_min == Decimal("0.62")
 
 
-async def test_depot_bloc_avec_chantier_cree_une_demande_dalias(
+async def test_depot_bloc_avec_chantier_inconnu_cree_un_chantier_a_completer(
     db_session: AsyncSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Avenant du 27/09/2026 (décision d'Ilane, spec §2.4) : un nom lu inconnu
+    sur un bloc de facture (aucun chantier ne lui ressemble) crée désormais
+    directement un chantier « à compléter » -- remplace l'ancien alias en
+    attente (renommé, ancien `test_depot_bloc_avec_chantier_cree_une_
+    demande_dalias`)."""
     facture = _facture_invente(blocs=(_bloc_invente(lignes=(_ligne_invente(),)),))
     monkeypatch.setattr(
         ingest_factures, "analyser_facture_unikalo", lambda reponse: facture
@@ -694,6 +709,20 @@ async def test_depot_bloc_avec_chantier_cree_une_demande_dalias(
 
     document = await db_session.get(Document, resultat.id)
     assert document is not None
+
+    bloc_db = (
+        await db_session.execute(
+            select(BlocFacture).where(BlocFacture.facture_id == resultat.id)
+        )
+    ).scalar_one()
+    assert bloc_db.chantier_id is not None
+    chantier = await db_session.get(Chantier, bloc_db.chantier_id)
+    assert chantier is not None
+    # « CHANTIER INVENTE » -> préfixe « CHANTIER » retiré (`nom_pour_
+    # creation`), reste « INVENTE » (casse d'origine conservée).
+    assert chantier.nom_canonique == "INVENTE"
+    assert chantier.a_completer is True
+
     alias = (
         await db_session.execute(
             select(ChantierAlias).where(
@@ -701,17 +730,9 @@ async def test_depot_bloc_avec_chantier_cree_une_demande_dalias(
             )
         )
     ).scalar_one()
-    # « CHANTIER INVENTE » -> préfixe « CHANTIER » retiré (`decomposer_
-    # chantier`), reste normalisé « invente ».
+    # `decomposer_chantier` normalise le libellé de l'alias (casse, accents).
     assert alias.libelle_brut == "invente"
-    assert alias.chantier_id is None
-
-    bloc_db = (
-        await db_session.execute(
-            select(BlocFacture).where(BlocFacture.facture_id == resultat.id)
-        )
-    ).scalar_one()
-    assert bloc_db.chantier_id is None
+    assert alias.chantier_id == chantier.id
 
     journal = (
         await db_session.execute(
@@ -722,7 +743,7 @@ async def test_depot_bloc_avec_chantier_cree_une_demande_dalias(
         )
     ).scalar_one()
     assert journal.apres is not None
-    assert journal.apres["nb_demandes_alias"] == 1
+    assert journal.apres["nb_demandes_alias"] == 0
 
 
 async def test_depot_bloc_avec_alias_valide_propage_le_chantier_id(
