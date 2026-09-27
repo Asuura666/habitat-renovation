@@ -2,9 +2,15 @@ import { type FormEvent, type ReactElement, type ReactNode, useState } from "rea
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 
-import { type AliasEnAttente, type ArticleAValider, type DocumentATraiter } from "../api/aTraiter";
+import {
+  type AliasEnAttente,
+  type ArticleAValider,
+  type ChantierACompleter,
+  type DocumentATraiter,
+} from "../api/aTraiter";
 import { type Anomalie, traiterAnomalie } from "../api/anomalies";
 import { ErreurApi } from "../api/client";
+import { choisirChantierDocument } from "../api/documents";
 import { invaliderApresChangementAnomalies } from "../api/invalidations";
 import { type Chantier, CLE_CHANTIERS, validerArticle } from "../api/referentiels";
 import { AliasCarte } from "../components/AliasCarte";
@@ -162,6 +168,11 @@ function chiffresProbleme(anomalie: Anomalie): ChiffreProbleme[] {
         { libelle: "Quantité", valeur: quantiteOuTiret(detail, "qte") },
         { libelle: "Conditionnement", valeur: texteOuTiret(detail, "conditionnement") },
       ];
+    case "R18":
+      return [
+        { libelle: "Nom lu sur le bon", valeur: texteOuTiret(detail, "nom_lu") },
+        { libelle: "Nom indiqué par l'employé", valeur: texteOuTiret(detail, "legende") },
+      ];
     default:
       return [];
   }
@@ -287,11 +298,145 @@ function FormulaireTraitement({
   );
 }
 
-function DetailAnomalie({
+interface CandidatR18 {
+  id: string;
+  nom: string;
+}
+
+/** Candidats d'une alerte R18, dans l'ordre de la décision de chantier
+ * (`detail.candidats` séparés par « / », `detail.candidats_ids` par « , »
+ * -- `rules/rules/R18.py`) : un bouton « C'est <nom> » par candidat. Un
+ * candidat sans id correspondant (jamais censé arriver, `nom_pour_creation`
+ * garantit toujours autant de noms que d'ids) est ignoré, défensif. */
+function candidatsR18(anomalie: Anomalie): CandidatR18[] {
+  const { detail } = anomalie;
+  const noms = detail.candidats !== undefined && detail.candidats !== "" ? detail.candidats.split(" / ") : [];
+  const ids =
+    detail.candidats_ids !== undefined && detail.candidats_ids !== "" ? detail.candidats_ids.split(",") : [];
+  return noms.flatMap((nom, index) => {
+    const id = ids[index];
+    return id !== undefined && id !== "" ? [{ id, nom }] : [];
+  });
+}
+
+/** Action de l'alerte « Chantier à confirmer » (R18, spec §2.4) : un
+ * bouton « C'est <nom> » par candidat, plus « Autre chantier… » (liste
+ * `listerChantiers`, déjà chargée par `ARegler.tsx`) -- jamais le
+ * formulaire générique Contesté/Ignorer (`FormulaireTraitement`), qui n'a
+ * pas de sens ici : choisir le chantier ferme l'alerte de son côté
+ * (`choisir_chantier_document`, journal `chantier_choisi` +
+ * `anomalie_traitee` automatique). Simplification notée `docs/dette.md` :
+ * pas de création de chantier depuis ce panneau (contrairement à
+ * `AliasCarte`) -- un admin qui en a besoin le crée depuis l'écran
+ * « Chantiers », puis le choisit ici. */
+function DetailR18({
   anomalie,
+  chantiers,
   onTraitementReussi,
 }: {
   anomalie: Anomalie;
+  chantiers: Chantier[];
+  onTraitementReussi: () => void;
+}): ReactElement {
+  const queryClient = useQueryClient();
+  const [autreOuvert, setAutreOuvert] = useState(false);
+  const [chantierChoisi, setChantierChoisi] = useState("");
+  const candidats = candidatsR18(anomalie);
+  const documentId = anomalie.document_id;
+
+  const choix = useMutation({
+    mutationFn: (chantierId: string) => choisirChantierDocument(documentId ?? "", chantierId),
+    onSuccess: async () => {
+      // Ferme l'alerte côté serveur (`choisir_chantier_document`) : mêmes
+      // invalidations que tout traitement de problème
+      // (`invaliderApresChangementAnomalies`), plus le référentiel chantier
+      // (`document.chantier_id` vient de changer, comme `AliasCarte`).
+      await Promise.all([
+        invaliderApresChangementAnomalies(queryClient),
+        queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS }),
+      ]);
+      onTraitementReussi();
+    },
+  });
+
+  if (documentId === null) {
+    return (
+      <p role="alert" className="text-sm text-alerte">
+        Bon introuvable pour ce problème.
+      </p>
+    );
+  }
+
+  function soumettreAutre(evenement: FormEvent<HTMLFormElement>): void {
+    evenement.preventDefault();
+    choix.mutate(chantierChoisi);
+  }
+
+  return (
+    <div className="mt-auto flex flex-col gap-3">
+      <div className="flex flex-col gap-2">
+        {candidats.map((candidat) => (
+          <Bouton
+            key={candidat.id}
+            type="button"
+            onClick={() => choix.mutate(candidat.id)}
+            disabled={choix.isPending}
+            className="w-full"
+          >
+            {`C'est ${candidat.nom}`}
+          </Bouton>
+        ))}
+      </div>
+      <Bouton
+        type="button"
+        variante="secondaire"
+        onClick={() => setAutreOuvert((valeur) => !valeur)}
+        className="w-full"
+      >
+        Autre chantier…
+      </Bouton>
+      {autreOuvert && (
+        <form onSubmit={soumettreAutre} className="flex flex-col gap-3">
+          <div>
+            <label htmlFor={`chantier-r18-${anomalie.id}`} className="mb-1 block text-sm font-semibold text-encre">
+              Chantier
+            </label>
+            <select
+              id={`chantier-r18-${anomalie.id}`}
+              value={chantierChoisi}
+              onChange={(evenement) => setChantierChoisi(evenement.target.value)}
+              className="min-h-[44px] w-full rounded-lg border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <option value="">— Choisir un chantier —</option>
+              {chantiers.map((chantier) => (
+                <option key={chantier.id} value={chantier.id}>
+                  {chantier.nom_canonique}
+                  {chantier.agence !== null ? ` (${chantier.agence})` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Bouton type="submit" disabled={chantierChoisi === "" || choix.isPending} className="w-full">
+            Choisir ce chantier
+          </Bouton>
+        </form>
+      )}
+      {choix.isError && (
+        <p role="alert" className="text-sm text-alerte">
+          {choix.error instanceof ErreurApi ? choix.error.detail : "Une erreur est survenue, réessayez."}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function DetailAnomalie({
+  anomalie,
+  chantiers,
+  onTraitementReussi,
+}: {
+  anomalie: Anomalie;
+  chantiers: Chantier[];
   onTraitementReussi: () => void;
 }): ReactElement {
   // Fix round 2, finding 1 : régression du fix round 1 (finding 6,
@@ -379,7 +524,11 @@ function DetailAnomalie({
         )}
       </div>
 
-      <FormulaireTraitement anomalie={anomalie} onTraitementReussi={onTraitementReussi} />
+      {anomalie.regle === "R18" ? (
+        <DetailR18 anomalie={anomalie} chantiers={chantiers} onTraitementReussi={onTraitementReussi} />
+      ) : (
+        <FormulaireTraitement anomalie={anomalie} onTraitementReussi={onTraitementReussi} />
+      )}
     </>
   );
 }
@@ -592,6 +741,33 @@ function DetailArticle({
   );
 }
 
+/** Section « Nouveaux chantiers à compléter » (spec §2.6) : le panneau ne
+ * propose ici qu'un lien vers la fiche du chantier (`LienPrincipal`, même
+ * navigation réelle que « Corriger le bon ») -- compléter la fiche
+ * (agence, client) et sortir de cette liste se fait sur l'écran
+ * « Chantiers », jamais ici (aucune règle métier dans ce panneau). */
+function DetailChantierACompleter({ chantier }: { chantier: ChantierACompleter }): ReactElement {
+  return (
+    <>
+      <div className="flex flex-col gap-1">
+        <Kicker probleme={{ kind: "chantier", id: "", chantier }} />
+        <h2 className="font-titre text-2xl font-medium text-encre">{chantier.nom}</h2>
+        <p className="text-sm text-encre-2">
+          Créé automatiquement le {formaterDateHeure(chantier.cree_le)} · {chantier.nb_bons} bon
+          {chantier.nb_bons > 1 ? "s" : ""}
+        </p>
+      </div>
+
+      <p className="text-sm text-encre-2">
+        Ce chantier a été créé automatiquement à partir d'un nom lu sur un bon, sans agence ni client renseignés.
+        Complétez sa fiche pour qu'il ne soit plus « à compléter ».
+      </p>
+
+      <LienPrincipal to={`/chantiers/${chantier.id}`}>Compléter</LienPrincipal>
+    </>
+  );
+}
+
 export function ProblemeDetail({
   probleme,
   chantiers,
@@ -615,9 +791,10 @@ export function ProblemeDetail({
         ← Retour à la liste
       </Link>
       {probleme.kind === "anomalie" && (
-        <DetailAnomalie anomalie={probleme.anomalie} onTraitementReussi={onTraitementReussi} />
+        <DetailAnomalie anomalie={probleme.anomalie} chantiers={chantiers} onTraitementReussi={onTraitementReussi} />
       )}
       {probleme.kind === "document" && <DetailDocument document={probleme.document} />}
+      {probleme.kind === "chantier" && <DetailChantierACompleter chantier={probleme.chantier} />}
       {probleme.kind === "alias" && (
         <DetailAlias alias={probleme.alias} chantiers={chantiers} onTraitementReussi={onTraitementReussi} />
       )}

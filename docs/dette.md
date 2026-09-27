@@ -1147,3 +1147,15 @@ tombent d'eux-mêmes sur le serveur dédié.
   marche ou non), avec un test dans `tests/test_restore_script.py`. À
   traiter avec la mise en place des sauvegardes restic (priorité n° 1),
   en rejouant `deploy/test-restauration.sh` de bout en bout.
+
+- **Choix du chantier d'un bon (Task 6, avenant du 27/09/2026) : « Autre
+  chantier… » de l'alerte R18 ne permet pas de créer un chantier.** Spec
+  §2.4 mentionne « liste des chantiers, avec création possible » ; le
+  panneau (`ProblemeDetail.tsx::DetailR18`) n'offre qu'un `<select>` du
+  référentiel déjà chargé (brief Task 6, plus strict : « liste
+  `listerChantiers` », sans mention de création) -- décision du
+  contrôleur, simplicité (CLAUDE.md) : `AliasCarte` couvre déjà la
+  création pour le flux existant (« Chantier à rattacher ») ; un admin
+  qui a besoin d'un chantier neuf pour régler une R18 le crée depuis
+  l'écran « Chantiers », puis revient le choisir ici. À revoir si Ilane
+  juge le détour gênant en usage réel.

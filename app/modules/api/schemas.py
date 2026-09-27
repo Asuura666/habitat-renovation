@@ -293,6 +293,23 @@ class ArchivageRequete(BaseModel):
         return valeur
 
 
+class ChoixChantierDocumentRequete(BaseModel):
+    """Corps de `PUT /api/documents/{id}/chantier` (Task 6, avenant du
+    27/09/2026, spec §2.4/§2.6) : le chantier choisi par un humain, pour
+    régler une alerte « Chantier à confirmer » (R18) ou corriger le
+    chantier d'un bon depuis sa fiche."""
+
+    chantier_id: uuid.UUID
+
+
+class ChoixChantierDocumentReponse(BaseModel):
+    """Réponse de `PUT /api/documents/{id}/chantier` : le chantier
+    réellement retenu (`ingest.rattachement_chantier.chantier_effectif` du
+    chantier choisi, Task 7)."""
+
+    chantier_id: uuid.UUID
+
+
 # --------------------------------------------------------------------------
 # Écran « À traiter » et référentiels admin (L3-T8b) : schémas construits à
 # partir des dataclasses d'`ingest/a_traiter.py` (`DocumentATraiter`,
@@ -409,10 +426,23 @@ class TraitementAnomalieRequete(BaseModel):
         return valeur
 
 
+class ChantierACompleterReponse(BaseModel):
+    """Un chantier créé automatiquement encore à compléter, dans `GET /api
+    /a-traiter` — mêmes attributs qu'`ingest.a_traiter.ChantierACompleter`
+    (Task 6, avenant du 27/09/2026, spec §2.6)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    nom: str
+    nb_bons: int
+    cree_le: datetime
+
+
 class ATraiterReponse(BaseModel):
     """`GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18),
     complété par `anomalies_hautes` (anomalies ouvertes de gravité haute,
-    L4-D18)."""
+    L4-D18) et `chantiers_a_completer` (Task 6, avenant du 27/09/2026)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -420,6 +450,7 @@ class ATraiterReponse(BaseModel):
     alias: list[AliasEnAttenteReponse]
     articles: list[ArticleAValiderReponse]
     anomalies_hautes: list[AnomalieReponse]
+    chantiers_a_completer: list[ChantierACompleterReponse]
 
 
 class CompteProblemesReponse(BaseModel):
@@ -448,7 +479,8 @@ class CompteProblemesReponse(BaseModel):
 class ChantierReponse(BaseModel):
     """Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest
     .referentiels.ChantierResume`. `client` : ajout hors CDC demandé le
-    23/09/2026 (`docs/dette.md`)."""
+    23/09/2026 (`docs/dette.md`). `a_completer` (Task 6, avenant du
+    27/09/2026) : chantier créé automatiquement, pas encore complété."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -457,6 +489,7 @@ class ChantierReponse(BaseModel):
     agence: str | None
     client: str | None
     actif: bool
+    a_completer: bool
 
 
 class ChantierCreationRequete(BaseModel):

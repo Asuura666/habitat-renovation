@@ -49,9 +49,17 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ingest.anomalies import synchroniser_anomalies
-from app.modules.ingest.models import Chantier, ChantierAlias, Document, Journal
+from app.modules.ingest.lecture import DocumentIntrouvable
+from app.modules.ingest.models import (
+    Anomalie,
+    Chantier,
+    ChantierAlias,
+    Document,
+    Journal,
+)
 from app.modules.ingest.parametres import CLE_SEUIL_RESSEMBLANCE_CHANTIER
 from app.modules.ingest.referentiels import (
+    ChantierIntrouvable,
     candidats_alias,
     lire_parametre_decimal,
     resoudre_chantier,
@@ -486,3 +494,102 @@ async def rattacher_chantier_bloc(
         )
 
     return chantier_id
+
+
+async def choisir_chantier_document(
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    *,
+    chantier_id: uuid.UUID,
+    auteur_id: uuid.UUID,
+) -> uuid.UUID:
+    """Pose le chantier d'un bon (BL/enlèvement) choisi par un humain --
+    `PUT /api/documents/{id}/chantier` (Task 6, spec §2.4/§2.6). Deux
+    usages : régler l'alerte R18 (« C'est <nom> »/« Autre chantier… ») ou
+    corriger a posteriori le chantier d'un bon depuis sa fiche (« Chantier
+    du bon » de l'admin, DocumentDetail) -- même route, même fonction, la
+    présence d'une R18 ouverte n'est jamais une condition d'entrée.
+
+    Lève `DocumentIntrouvable` (document absent, ni BL ni enlèvement, ou
+    déjà archivé -- même périmètre que `corrections._document_pour_ecriture`,
+    mais toujours ce même 404, jamais un 409 : décision du contrôleur, cette
+    route n'a pas de notion de document « non modifiable » distincte d'un
+    document qui n'existe plus pour elle) et `ChantierIntrouvable`.
+
+    Pose `document.chantier_id = chantier_effectif(chantier_id)` (Task 7,
+    une fusion éventuelle du chantier choisi est toujours suivie). Ferme la
+    R18 ouverte du bon si elle existe (`statut="traitee"`, commentaire
+    automatique « Chantier choisi : <nom> », `traitee_par`/`traitee_le`,
+    journal `anomalie_traitee` -- mêmes champs que `anomalies
+    .traiter_anomalie`, mais sans repasser par elle : pas de commentaire
+    saisi par un humain ici) ; absente (choix depuis la fiche du bon, hors
+    alerte), rien n'est touché côté anomalie. Journalise ensuite
+    `chantier_choisi` (avant/après `chantier_id`) et commite -- action admin
+    de premier niveau, comme `referentiels.valider_article`."""
+    document = await session.get(Document, document_id)
+    if (
+        document is None
+        or document.type not in ("bl", "enlevement")
+        or document.statut == "archive"
+    ):
+        raise DocumentIntrouvable(str(document_id))
+
+    if await session.get(Chantier, chantier_id) is None:
+        raise ChantierIntrouvable(str(chantier_id))
+
+    effectif = await chantier_effectif(session, chantier_id)
+    nom_chantier = (
+        await session.execute(
+            select(Chantier.nom_canonique).where(Chantier.id == effectif)
+        )
+    ).scalar_one()
+
+    avant_chantier_id = document.chantier_id
+    document.chantier_id = effectif
+
+    anomalie_r18 = (
+        await session.execute(
+            select(Anomalie).where(
+                Anomalie.regle == "R18",
+                Anomalie.document_id == document_id,
+                Anomalie.statut == "ouverte",
+            )
+        )
+    ).scalar_one_or_none()
+    if anomalie_r18 is not None:
+        avant_anomalie = {
+            "statut": anomalie_r18.statut,
+            "commentaire": anomalie_r18.commentaire,
+        }
+        commentaire = f"Chantier choisi : {nom_chantier}"
+        anomalie_r18.statut = "traitee"
+        anomalie_r18.commentaire = commentaire
+        anomalie_r18.traitee_par = auteur_id
+        anomalie_r18.traitee_le = datetime.now(UTC)
+        session.add(
+            Journal(
+                utilisateur_id=auteur_id,
+                action="anomalie_traitee",
+                cible_table="anomalie",
+                cible_id=str(anomalie_r18.id),
+                avant=avant_anomalie,
+                apres={"statut": "traitee", "commentaire": commentaire},
+            )
+        )
+
+    session.add(
+        Journal(
+            utilisateur_id=auteur_id,
+            action="chantier_choisi",
+            cible_table="document",
+            cible_id=str(document_id),
+            avant={
+                "chantier_id": str(avant_chantier_id)
+                if avant_chantier_id is not None
+                else None
+            },
+            apres={"chantier_id": str(effectif)},
+        )
+    )
+    await session.commit()
+    return effectif

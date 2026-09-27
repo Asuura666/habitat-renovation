@@ -526,6 +526,46 @@ def test_chantier_et_fournisseur_non_resolus_ont_un_libelle_courant() -> None:
     assert "Fournisseur à rattacher" in fiche
 
 
+# ---------------------------------------------------------------------------
+# Task 6 (avenant du 27/09/2026) : chantiers à compléter et choix du
+# chantier d'un bon
+# ---------------------------------------------------------------------------
+
+
+def test_liste_et_fiche_chantier_affichent_la_pastille_a_completer() -> None:
+    """Spec §2.6 : pastille « À compléter » (couleur écart, doublée du
+    libellé) sur l'écran « Chantiers » et sa fiche, quand `a_completer` est
+    vrai -- jamais la couleur seule (accessibilité)."""
+    pastille = _lire("ui", "PastilleACompleter.tsx")
+    assert "À compléter" in pastille
+    assert "#fbe9c6" in pastille
+    assert "#7a4a00" in pastille
+
+    liste = _lire("pages", "ChantiersListe.tsx")
+    assert "chantier.a_completer && <PastilleACompleter" in liste
+
+    fiche = _lire("pages", "FicheChantier.tsx")
+    assert "chantier.a_completer && <PastilleACompleter" in fiche
+
+
+def test_document_detail_propose_le_chantier_du_bon() -> None:
+    """Spec §2.4/§2.6 : panneau admin « Chantier du bon » (`<select>` des
+    chantiers + « Enregistrer »), même route que le règlement d'une alerte
+    R18 (`choisirChantierDocument`, `PUT /api/documents/{id}/chantier`) --
+    jamais montré à un agent (réservé aux documents `modifiable`)."""
+    page = _lire("pages", "DocumentDetail.tsx")
+
+    assert "function SelecteurChantierBon" in page
+    assert "Chantier du bon" in page
+    assert "Enregistrer" in page
+    assert "choisirChantierDocument(documentId, chantierChoisi)" in page
+    assert "{donnees.modifiable && (" in page
+    assert "<SelecteurChantierBon" in page
+
+    client = _lire("api", "documents.ts")
+    assert "export function choisirChantierDocument" in client
+
+
 def test_fiche_chantier_mene_aux_problemes_de_chaque_livraison() -> None:
     """Revue finale (constat COUVERTURE-1) : l'ancien lien « Voir les
     anomalies » de chaque BL (`/anomalies?blocId=`) n'existait plus sur

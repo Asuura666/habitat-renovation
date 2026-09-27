@@ -165,3 +165,22 @@ export function relancerExtraction(id: string): Promise<DocumentDetail> {
     method: "POST",
   });
 }
+
+export type ChoixChantierDocument = components["schemas"]["ChoixChantierDocumentReponse"];
+
+/** `PUT /api/documents/{id}/chantier` (Task 6, avenant du 27/09/2026, spec
+ * §2.4/§2.6) : pose le chantier d'un bon choisi par un humain -- régler une
+ * alerte « Chantier à confirmer » (bouton par candidat ou « Autre
+ * chantier… », `ProblemeDetail.tsx`) ou corriger le chantier depuis la
+ * fiche du bon (« Chantier du bon », `DocumentDetail.tsx`). Même route pour
+ * les deux usages. */
+export function choisirChantierDocument(
+  documentId: string,
+  chantierId: string,
+): Promise<ChoixChantierDocument> {
+  return appelerApi<ChoixChantierDocument>("/api/documents/{document_id}/chantier", {
+    url: `/api/documents/${documentId}/chantier`,
+    method: "PUT",
+    json: { chantier_id: chantierId },
+  });
+}

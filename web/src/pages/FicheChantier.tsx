@@ -37,6 +37,7 @@ import {
   EtatVide,
   FilAriane,
   libelleEcart,
+  PastilleACompleter,
   PastilleEtat,
   PastilleUrgence,
   phraseProbleme,
@@ -605,6 +606,7 @@ export function FicheChantier(): ReactElement {
                     : formaterDate(derniereLivraisonRecue.dateBl)}
             </span>
             {!chantier.actif && <span className="font-medium text-alerte">Chantier inactif</span>}
+            {chantier.a_completer && <PastilleACompleter />}
             {moisChoisi && (
               // Lien isolé dans l'en-tête, sans autre repère de mise en page
               // pour agrandir sa zone cliquable (corrections de revue, tour

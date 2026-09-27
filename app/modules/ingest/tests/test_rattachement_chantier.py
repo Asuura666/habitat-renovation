@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.core.db import creer_sessionmaker
+from app.modules.ingest.lecture import DocumentIntrouvable
 from app.modules.ingest.models import (
     Anomalie,
     BlocFacture,
@@ -25,12 +26,15 @@ from app.modules.ingest.models import (
     Fournisseur,
     Journal,
     Parametre,
+    Utilisateur,
 )
 from app.modules.ingest.parametres import CLE_SEUIL_RESSEMBLANCE_CHANTIER
 from app.modules.ingest.rattachement_chantier import (
+    choisir_chantier_document,
     rattacher_chantier_bloc,
     rattacher_chantier_document,
 )
+from app.modules.ingest.referentiels import ChantierIntrouvable
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
 
@@ -49,6 +53,17 @@ async def _chantier(db_session: AsyncSession, nom: str) -> Chantier:
     db_session.add(chantier)
     await db_session.flush()
     return chantier
+
+
+async def _admin(db_session: AsyncSession) -> Utilisateur:
+    utilisateur = Utilisateur(
+        email=f"admin.{uuid.uuid4()}@example.invalid",
+        role="admin",
+        is_active=True,
+    )
+    db_session.add(utilisateur)
+    await db_session.flush()
+    return utilisateur
 
 
 async def _bon(
@@ -393,3 +408,138 @@ async def test_alias_en_attente_rattache_et_propage(db_session: AsyncSession) ->
     assert journal.apres["nb_mis_a_jour"] == 1
 
     assert bloc.chantier_id == villa.id
+
+
+# --------------------------------------------------------------------------
+# choisir_chantier_document (Task 6, avenant du 27/09/2026, spec §2.4/§2.6)
+# --------------------------------------------------------------------------
+
+
+async def test_choisir_chantier_ferme_R18_et_journalise(
+    db_session: AsyncSession,
+) -> None:
+    f = await _fournisseur(db_session)
+    villa = await _chantier(db_session, "Villa Test")
+    await _chantier(db_session, "Résidence des Tilleuls")
+    admin = await _admin(db_session)
+    bon = await _bon(
+        db_session,
+        fournisseur_id=f.id,
+        chantier_brut="VILLA TEST",
+        legende="tilleuls residence",
+    )
+    # Désaccord : lève la R18, le bon reste sans chantier.
+    await rattacher_chantier_document(db_session, bon)
+    await db_session.commit()
+    anomalie = (
+        await db_session.execute(
+            select(Anomalie).where(
+                Anomalie.document_id == bon.id, Anomalie.regle == "R18"
+            )
+        )
+    ).scalar_one()
+    assert anomalie.statut == "ouverte"
+
+    resultat = await choisir_chantier_document(
+        db_session, bon.id, chantier_id=villa.id, auteur_id=admin.id
+    )
+    await db_session.refresh(bon)
+    await db_session.refresh(anomalie)
+
+    assert resultat == villa.id
+    assert bon.chantier_id == villa.id
+    assert anomalie.statut == "traitee"
+    assert anomalie.commentaire == "Chantier choisi : Villa Test"
+    assert anomalie.traitee_par == admin.id
+    assert anomalie.traitee_le is not None
+
+    journal_anomalie = (
+        await db_session.execute(
+            select(Journal).where(
+                Journal.cible_id == str(anomalie.id),
+                Journal.action == "anomalie_traitee",
+            )
+        )
+    ).scalar_one()
+    assert journal_anomalie.apres == {
+        "statut": "traitee",
+        "commentaire": "Chantier choisi : Villa Test",
+    }
+
+    journal_chantier = (
+        await db_session.execute(
+            select(Journal).where(
+                Journal.cible_id == str(bon.id),
+                Journal.action == "chantier_choisi",
+            )
+        )
+    ).scalar_one()
+    assert journal_chantier.avant == {"chantier_id": None}
+    assert journal_chantier.apres == {"chantier_id": str(villa.id)}
+
+
+async def test_choisir_chantier_sans_r18_ouverte_ne_touche_aucune_anomalie(
+    db_session: AsyncSession,
+) -> None:
+    """Choix du chantier depuis la fiche du bon (admin, hors alerte R18) :
+    aucune anomalie à fermer, seul le journal `chantier_choisi` est écrit."""
+    villa = await _chantier(db_session, "Villa Test")
+    admin = await _admin(db_session)
+    bon = await _bon(db_session, fournisseur_id=None, chantier_brut=None, legende=None)
+
+    resultat = await choisir_chantier_document(
+        db_session, bon.id, chantier_id=villa.id, auteur_id=admin.id
+    )
+    await db_session.refresh(bon)
+
+    assert resultat == villa.id
+    assert bon.chantier_id == villa.id
+    nb_anomalies_traitees = (
+        (await db_session.execute(select(Anomalie).where(Anomalie.regle == "R18")))
+        .scalars()
+        .all()
+    )
+    assert nb_anomalies_traitees == []
+    journal_chantier = (
+        await db_session.execute(
+            select(Journal).where(
+                Journal.cible_id == str(bon.id), Journal.action == "chantier_choisi"
+            )
+        )
+    ).scalar_one()
+    assert journal_chantier.apres == {"chantier_id": str(villa.id)}
+
+
+async def test_choisir_chantier_document_archive_refuse(
+    db_session: AsyncSession,
+) -> None:
+    villa = await _chantier(db_session, "Villa Test")
+    admin = await _admin(db_session)
+    bon = await _bon(db_session, fournisseur_id=None, chantier_brut=None, legende=None)
+    bon.statut = "archive"
+    await db_session.commit()
+
+    with pytest.raises(DocumentIntrouvable):
+        await choisir_chantier_document(
+            db_session, bon.id, chantier_id=villa.id, auteur_id=admin.id
+        )
+
+
+async def test_choisir_chantier_document_inconnu(db_session: AsyncSession) -> None:
+    villa = await _chantier(db_session, "Villa Test")
+    admin = await _admin(db_session)
+
+    with pytest.raises(DocumentIntrouvable):
+        await choisir_chantier_document(
+            db_session, uuid.uuid4(), chantier_id=villa.id, auteur_id=admin.id
+        )
+
+
+async def test_choisir_chantier_inconnu(db_session: AsyncSession) -> None:
+    admin = await _admin(db_session)
+    bon = await _bon(db_session, fournisseur_id=None, chantier_brut=None, legende=None)
+
+    with pytest.raises(ChantierIntrouvable):
+        await choisir_chantier_document(
+            db_session, bon.id, chantier_id=uuid.uuid4(), auteur_id=admin.id
+        )

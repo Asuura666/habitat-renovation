@@ -29,7 +29,7 @@ import {
 import { CLE_PARAMETRES, listerParametres } from "../api/parametres";
 import { cleTableauDeBord, obtenirTableauDeBord, type TableauDeBord } from "../api/tableauDeBord";
 import { estMontantNul, formaterDateHeure, formaterMontant, lireMois, moisApi, TIRET } from "../lib/formats";
-import { Bouton, Carte, EnTetePage, type Etat, EtatVide, PastilleEtat } from "../ui";
+import { Bouton, Carte, EnTetePage, type Etat, EtatVide, PastilleACompleter, PastilleEtat } from "../ui";
 
 const CLASSES_CHAMP =
   "min-h-[44px] w-full rounded-lg border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent";
@@ -430,6 +430,7 @@ function CarteTousLesChantiers({
                   <p className={`mt-1 text-xs font-medium ${chantier.actif ? "text-conforme" : "text-encre-2"}`}>
                     {chantier.actif ? "Actif" : "Inactif"}
                   </p>
+                  {chantier.a_completer && <PastilleACompleter className="mt-1" />}
                 </Link>
               </li>
             ))}
@@ -461,6 +462,7 @@ function CarteTousLesChantiers({
                       <span className={`font-medium ${chantier.actif ? "text-conforme" : "text-encre-2"}`}>
                         {chantier.actif ? "Actif" : "Inactif"}
                       </span>
+                      {chantier.a_completer && <PastilleACompleter className="ml-2" />}
                     </td>
                   </tr>
                 ))}

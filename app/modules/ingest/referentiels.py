@@ -424,13 +424,17 @@ async def definir_fournisseur(
 
 @dataclass(frozen=True)
 class ChantierResume:
-    """Une ligne de `GET /api/chantiers`."""
+    """Une ligne de `GET /api/chantiers`. `a_completer` (avenant du
+    27/09/2026, `ingest.rattachement_chantier`) : chantier créé
+    automatiquement, pas encore complété par un humain -- pastille « À
+    compléter » des écrans « Chantiers » et fiche chantier (spec §2.6)."""
 
     id: uuid.UUID
     nom_canonique: str
     agence: str | None
     client: str | None
     actif: bool
+    a_completer: bool
 
 
 @dataclass(frozen=True)
@@ -484,9 +488,16 @@ class ArticleIntrouvable(Exception):
 
 async def lister_chantiers(session: AsyncSession) -> list[ChantierResume]:
     """Référentiel chantier complet, actifs d'abord puis par nom (décision du
-    contrôleur) — pour le formulaire de validation d'un alias."""
+    contrôleur) — pour le formulaire de validation d'un alias. Exclut les
+    chantiers fusionnés (`fusionne_dans_id IS NOT NULL`, Task 7, avenant du
+    27/09/2026, spec §2.7) : ni sélecteur, ni écran « Chantiers » ne doivent
+    plus proposer un chantier absorbé par un autre -- sa fiche reste
+    atteignable par son lien direct (`GET /api/chantiers/{id}`), hors
+    périmètre de cette fonction."""
     resultat = await session.execute(
-        select(Chantier).order_by(Chantier.actif.desc(), Chantier.nom_canonique.asc())
+        select(Chantier)
+        .where(Chantier.fusionne_dans_id.is_(None))
+        .order_by(Chantier.actif.desc(), Chantier.nom_canonique.asc())
     )
     return [
         ChantierResume(
@@ -495,6 +506,7 @@ async def lister_chantiers(session: AsyncSession) -> list[ChantierResume]:
             agence=chantier.agence,
             client=chantier.client,
             actif=chantier.actif,
+            a_completer=chantier.a_completer,
         )
         for chantier in resultat.scalars().all()
     ]
@@ -574,6 +586,7 @@ async def creer_chantier(
         agence=chantier.agence,
         client=chantier.client,
         actif=chantier.actif,
+        a_completer=chantier.a_completer,
     )
 
 
@@ -589,7 +602,13 @@ async def modifier_chantier(
 ) -> ChantierResume:
     """Remplace nom, agence, client et état actif d'un chantier. Même règle
     de doublon que `creer_chantier` (autres chantiers seulement). Journalise
-    `chantier_modifie` avec l'état avant/après."""
+    `chantier_modifie` avec l'état avant/après.
+
+    `a_completer` retombe toujours à faux (avenant du 27/09/2026, spec
+    §2.6) : enregistrer la fiche d'un chantier créé automatiquement est
+    précisément l'action qui le « complète » -- même sans agence ni client
+    renseignés, un admin qui a revu et enregistré la fiche ne doit plus la
+    revoir dans la section « Nouveaux chantiers à compléter »."""
     chantier = await session.get(Chantier, chantier_id)
     if chantier is None:
         raise ChantierIntrouvable(str(chantier_id))
@@ -606,17 +625,20 @@ async def modifier_chantier(
         "agence": chantier.agence,
         "client": chantier.client,
         "actif": chantier.actif,
+        "a_completer": chantier.a_completer,
     }
     chantier.nom_canonique = nom
     chantier.agence = _texte_ou_none(agence)
     chantier.client = _texte_ou_none(client)
     chantier.actif = actif
+    chantier.a_completer = False
     chantier.updated_by = auteur_id
     apres = {
         "nom_canonique": chantier.nom_canonique,
         "agence": chantier.agence,
         "client": chantier.client,
         "actif": chantier.actif,
+        "a_completer": chantier.a_completer,
     }
     session.add(
         Journal(
@@ -636,6 +658,7 @@ async def modifier_chantier(
         agence=chantier.agence,
         client=chantier.client,
         actif=chantier.actif,
+        a_completer=chantier.a_completer,
     )
 
 

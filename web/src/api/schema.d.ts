@@ -273,6 +273,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{document_id}/chantier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Choisir Chantier Document Endpoint */
+        put: operations["choisir_chantier_document_endpoint_api_documents__document_id__chantier_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/a-traiter": {
         parameters: {
             query?: never;
@@ -777,7 +794,7 @@ export interface components {
          * ATraiterReponse
          * @description `GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18),
          *     complété par `anomalies_hautes` (anomalies ouvertes de gravité haute,
-         *     L4-D18).
+         *     L4-D18) et `chantiers_a_completer` (Task 6, avenant du 27/09/2026).
          */
         ATraiterReponse: {
             /** Documents */
@@ -788,6 +805,8 @@ export interface components {
             articles: components["schemas"]["ArticleAValiderReponse"][];
             /** Anomalies Hautes */
             anomalies_hautes: components["schemas"]["AnomalieReponse"][];
+            /** Chantiers A Completer */
+            chantiers_a_completer: components["schemas"]["ChantierACompleterReponse"][];
         };
         /**
          * AgenceFournisseurReponse
@@ -1032,6 +1051,28 @@ export interface components {
             total_ttc: components["schemas"]["ChampReponse"];
         };
         /**
+         * ChantierACompleterReponse
+         * @description Un chantier créé automatiquement encore à compléter, dans `GET /api
+         *     /a-traiter` — mêmes attributs qu'`ingest.a_traiter.ChantierACompleter`
+         *     (Task 6, avenant du 27/09/2026, spec §2.6).
+         */
+        ChantierACompleterReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Nom */
+            nom: string;
+            /** Nb Bons */
+            nb_bons: number;
+            /**
+             * Cree Le
+             * Format: date-time
+             */
+            cree_le: string;
+        };
+        /**
          * ChantierCreationRequete
          * @description Corps de `POST /api/chantiers` : nom obligatoire (1 à 200 caractères,
          *     blanc refusé), agence et client optionnels.
@@ -1063,7 +1104,8 @@ export interface components {
          * ChantierReponse
          * @description Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest
          *     .referentiels.ChantierResume`. `client` : ajout hors CDC demandé le
-         *     23/09/2026 (`docs/dette.md`).
+         *     23/09/2026 (`docs/dette.md`). `a_completer` (Task 6, avenant du
+         *     27/09/2026) : chantier créé automatiquement, pas encore complété.
          */
         ChantierReponse: {
             /**
@@ -1079,6 +1121,8 @@ export interface components {
             client: string | null;
             /** Actif */
             actif: boolean;
+            /** A Completer */
+            a_completer: boolean;
         };
         /**
          * ChantierSilencieuxReponse
@@ -1123,6 +1167,33 @@ export interface components {
             montants: components["schemas"]["MontantsBilanReponse"];
             /** A Verifier */
             a_verifier: string;
+        };
+        /**
+         * ChoixChantierDocumentReponse
+         * @description Réponse de `PUT /api/documents/{id}/chantier` : le chantier
+         *     réellement retenu (`ingest.rattachement_chantier.chantier_effectif` du
+         *     chantier choisi, Task 7).
+         */
+        ChoixChantierDocumentReponse: {
+            /**
+             * Chantier Id
+             * Format: uuid
+             */
+            chantier_id: string;
+        };
+        /**
+         * ChoixChantierDocumentRequete
+         * @description Corps de `PUT /api/documents/{id}/chantier` (Task 6, avenant du
+         *     27/09/2026, spec §2.4/§2.6) : le chantier choisi par un humain, pour
+         *     régler une alerte « Chantier à confirmer » (R18) ou corriger le
+         *     chantier d'un bon depuis sa fiche.
+         */
+        ChoixChantierDocumentRequete: {
+            /**
+             * Chantier Id
+             * Format: uuid
+             */
+            chantier_id: string;
         };
         /**
          * ComparaisonBlReponse
@@ -2435,6 +2506,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentDetailReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    choisir_chantier_document_endpoint_api_documents__document_id__chantier_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChoixChantierDocumentRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChoixChantierDocumentReponse"];
                 };
             };
             /** @description Validation Error */
