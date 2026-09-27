@@ -90,6 +90,8 @@ from app.modules.ingest.mistral import ErreurOCR
 from app.modules.ingest.models import (
     AgenceFournisseur,
     Anomalie,
+    Chantier,
+    ChantierAlias,
     Document,
     Fournisseur,
     Journal,
@@ -1333,3 +1335,89 @@ def test_controles_differes_rejeu_meme_compte_sans_doublon(
         )
     finally:
         asyncio.run(_nettoyer_bl_controles_differes(db_engine))
+
+
+# ---------------------------------------------------------------------------
+# `rattacher-chantiers` (Task 8, spec §2.8) — câblage CLI seulement, la
+# logique métier (`ingest.rattachement_chantier.reprendre_chantiers`) est
+# déjà testée en profondeur dans
+# `app/modules/ingest/tests/test_rattachement_chantier.py`.
+# ---------------------------------------------------------------------------
+
+_BILAN_RATTACHER_CHANTIERS_RE = re.compile(
+    r"^Noms rattachés : (\d+) · chantiers créés : (\d+) · "
+    r"noms ambigus : (\d+) · bons rattachés : (\d+) · bons en alerte : (\d+)$"
+)
+
+
+async def _preparer_alias_en_attente(
+    engine: AsyncEngine,
+) -> tuple[uuid.UUID, uuid.UUID]:
+    """Sème un fournisseur, un chantier déjà connu et un alias en attente qui
+    lui ressemble exactement (`chantier_id IS NULL`, ancien flux) :
+    suffisant pour prouver que la CLI appelle bien `reprendre_chantiers` et
+    affiche son bilan au format attendu, sans re-tester la logique de
+    rattachement elle-même."""
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        fournisseur = Fournisseur(nom=f"Fournisseur CLI {uuid.uuid4()}")
+        session.add(fournisseur)
+        chantier = Chantier(nom_canonique=f"Villa CLI {uuid.uuid4()}")
+        session.add(chantier)
+        await session.flush()
+        alias = ChantierAlias(
+            fournisseur_id=fournisseur.id,
+            libelle_brut=chantier.nom_canonique.casefold(),
+            code_brut=None,
+            chantier_id=None,
+        )
+        session.add(alias)
+        await session.commit()
+        return fournisseur.id, chantier.id
+
+
+async def _nettoyer_alias_en_attente(
+    engine: AsyncEngine, fournisseur_id: uuid.UUID, chantier_id: uuid.UUID
+) -> None:
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        await session.execute(
+            delete(ChantierAlias).where(ChantierAlias.fournisseur_id == fournisseur_id)
+        )
+        await session.execute(
+            delete(Journal).where(Journal.cible_id == str(chantier_id))
+        )
+        await session.execute(delete(Chantier).where(Chantier.id == chantier_id))
+        await session.execute(
+            delete(Fournisseur).where(Fournisseur.id == fournisseur_id)
+        )
+        await session.commit()
+
+
+@pytest.mark.db
+def test_cli_rattacher_chantiers(
+    db_engine: AsyncEngine, _env_bl_test: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fournisseur_id, chantier_id = asyncio.run(_preparer_alias_en_attente(db_engine))
+    try:
+        code = cli.main(["rattacher-chantiers"])
+        sortie = capsys.readouterr().out
+
+        assert code == 0
+        correspondance = _BILAN_RATTACHER_CHANTIERS_RE.match(sortie.strip())
+        assert correspondance is not None, "sortie au format inattendu"
+        rattaches, _crees, _ambigus, _bons_rattaches, _bons_alerte = (
+            int(g) for g in correspondance.groups()
+        )
+        assert rattaches >= 1
+    finally:
+        asyncio.run(_nettoyer_alias_en_attente(db_engine, fournisseur_id, chantier_id))
+
+
+def test_rattacher_chantiers_sans_argument_supplementaire() -> None:
+    """`rattacher-chantiers` ne prend aucun argument : un argument superflu
+    est rejeté par `argparse` lui-même, avant tout accès à la base."""
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["rattacher-chantiers", "--inconnu"])
+
+    assert exc_info.value.code == 2

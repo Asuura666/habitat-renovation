@@ -30,9 +30,11 @@ from app.modules.ingest.models import (
 )
 from app.modules.ingest.parametres import CLE_SEUIL_RESSEMBLANCE_CHANTIER
 from app.modules.ingest.rattachement_chantier import (
+    BilanReprise,
     choisir_chantier_document,
     rattacher_chantier_bloc,
     rattacher_chantier_document,
+    reprendre_chantiers,
 )
 from app.modules.ingest.referentiels import ChantierIntrouvable
 
@@ -543,3 +545,205 @@ async def test_choisir_chantier_inconnu(db_session: AsyncSession) -> None:
         await choisir_chantier_document(
             db_session, bon.id, chantier_id=uuid.uuid4(), auteur_id=admin.id
         )
+
+
+# --------------------------------------------------------------------------
+# reprendre_chantiers (Task 8, spec §2.8, avenant du 27/09/2026) — reprise,
+# au déploiement, des noms en attente de l'ancien flux et des bons non
+# archivés encore sans chantier.
+# --------------------------------------------------------------------------
+
+
+async def test_reprise_rattache_les_alias_en_attente(db_session: AsyncSession) -> None:
+    """Trois alias en attente (`chantier_id IS NULL`, ancien flux), un par
+    issue possible :
+    - « villa existante » ressemble à un chantier déjà connu -> rattaché,
+      sans création ;
+    - « villa test » ne ressemble à rien -> un chantier est créé. Ruling du
+      contrôleur (27/09/2026) : son nom vient du libellé BRUT le plus récent
+      qui attend cet alias (« VILLA TEST (123) » sur le bloc de facture),
+      jamais du libellé normalisé de l'alias (« villa test ») ;
+    - « residence les pins » est ambigu entre deux chantiers homonymes ->
+      reste en attente."""
+    f = await _fournisseur(db_session)
+    villa_existante = await _chantier(db_session, "Villa Existante")
+    await _chantier(db_session, "Residence les Pins 1")
+    await _chantier(db_session, "Residence les Pins 2")
+
+    db_session.add_all(
+        [
+            ChantierAlias(
+                fournisseur_id=f.id,
+                libelle_brut="villa existante",
+                code_brut=None,
+                chantier_id=None,
+            ),
+            ChantierAlias(
+                fournisseur_id=f.id,
+                libelle_brut="villa test",
+                code_brut=None,
+                chantier_id=None,
+            ),
+            ChantierAlias(
+                fournisseur_id=f.id,
+                libelle_brut="residence les pins",
+                code_brut=None,
+                chantier_id=None,
+            ),
+        ]
+    )
+    facture = Document(
+        type="facture",
+        source="upload",
+        statut="recu",
+        fichier_path=f"facture-invente-{uuid.uuid4()}.pdf",
+        fournisseur_id=f.id,
+    )
+    db_session.add(facture)
+    await db_session.flush()
+    bloc = BlocFacture(
+        facture_id=facture.id,
+        ordre=0,
+        chantier_brut="VILLA TEST (123)",
+        chantier_id=None,
+    )
+    db_session.add(bloc)
+    await db_session.commit()
+
+    bilan = await reprendre_chantiers(db_session)
+
+    assert bilan.alias_rattaches == 2  # villa existante + villa test
+    assert bilan.chantiers_crees == 1  # seule « villa test » en a créé un
+    assert bilan.alias_ambigus == 1  # residence les pins
+    assert bilan.bons_rattaches == 0
+    assert bilan.bons_en_alerte == 0
+
+    alias_existante = (
+        await db_session.execute(
+            select(ChantierAlias).where(ChantierAlias.libelle_brut == "villa existante")
+        )
+    ).scalar_one()
+    assert alias_existante.chantier_id == villa_existante.id
+
+    alias_cree = (
+        await db_session.execute(
+            select(ChantierAlias).where(ChantierAlias.libelle_brut == "villa test")
+        )
+    ).scalar_one()
+    assert alias_cree.chantier_id is not None
+    chantier_cree = await db_session.get(Chantier, alias_cree.chantier_id)
+    assert chantier_cree is not None
+    assert chantier_cree.nom_canonique == "VILLA TEST"  # brut, jamais « villa test »
+    assert chantier_cree.a_completer is True
+
+    await db_session.refresh(bloc)
+    assert bloc.chantier_id == chantier_cree.id
+
+    alias_ambigu = (
+        await db_session.execute(
+            select(ChantierAlias).where(
+                ChantierAlias.libelle_brut == "residence les pins"
+            )
+        )
+    ).scalar_one()
+    assert alias_ambigu.chantier_id is None
+
+
+async def test_reprise_rattache_les_bons_sans_chantier(
+    db_session: AsyncSession,
+) -> None:
+    """Aucun alias en attente ici : seule la seconde passe (bons non
+    archivés, `chantier_id IS NULL`) est exercée -- un bon reconnu par
+    ressemblance, un bon en désaccord (R18) et un bon archivé, exclu."""
+    f = await _fournisseur(db_session)
+    await _chantier(db_session, "Résidence des Tilleuls")
+    await _chantier(db_session, "Atelier Nord")
+    await _chantier(db_session, "Atelier Sud")
+
+    reconnu = await _bon(
+        db_session,
+        fournisseur_id=f.id,
+        chantier_brut="RESIDENCE DES TILLEULS",
+        legende=None,
+    )
+    reconnu.type = "enlevement"
+    en_alerte = await _bon(
+        db_session,
+        fournisseur_id=f.id,
+        chantier_brut="ATELIER NORD",
+        legende="atelier sud",
+    )
+    archive = await _bon(
+        db_session,
+        fournisseur_id=f.id,
+        chantier_brut="RESIDENCE DES TILLEULS",
+        legende=None,
+    )
+    archive.statut = "archive"
+    await db_session.commit()
+
+    bilan = await reprendre_chantiers(db_session)
+
+    assert bilan.alias_rattaches == 0
+    assert bilan.chantiers_crees == 0
+    assert bilan.alias_ambigus == 0
+    assert bilan.bons_rattaches == 1
+    assert bilan.bons_en_alerte == 1
+
+    await db_session.refresh(reconnu)
+    await db_session.refresh(en_alerte)
+    await db_session.refresh(archive)
+    assert reconnu.chantier_id is not None
+    assert en_alerte.chantier_id is None
+    assert archive.chantier_id is None  # exclu (archivé), jamais touché
+
+    anomalie = (
+        await db_session.execute(
+            select(Anomalie).where(
+                Anomalie.document_id == en_alerte.id, Anomalie.regle == "R18"
+            )
+        )
+    ).scalar_one()
+    assert anomalie.statut == "ouverte"
+
+
+async def test_reprise_idempotente(db_session: AsyncSession) -> None:
+    """Un second appel ne retrouve plus rien à traiter (alias déjà rattaché,
+    bon déjà rattaché) -> bilan entièrement à zéro."""
+    f = await _fournisseur(db_session)
+    await _chantier(db_session, "Villa Test")
+    await _chantier(db_session, "Résidence des Tilleuls")
+
+    db_session.add(
+        ChantierAlias(
+            fournisseur_id=f.id,
+            libelle_brut="villa test",
+            code_brut=None,
+            chantier_id=None,
+        )
+    )
+    await _bon(
+        db_session,
+        fournisseur_id=f.id,
+        chantier_brut="RESIDENCE DES TILLEULS",
+        legende=None,
+    )
+    await db_session.commit()
+
+    premier = await reprendre_chantiers(db_session)
+    assert premier == BilanReprise(
+        alias_rattaches=1,
+        chantiers_crees=0,
+        alias_ambigus=0,
+        bons_rattaches=1,
+        bons_en_alerte=0,
+    )
+
+    second = await reprendre_chantiers(db_session)
+    assert second == BilanReprise(
+        alias_rattaches=0,
+        chantiers_crees=0,
+        alias_ambigus=0,
+        bons_rattaches=0,
+        bons_en_alerte=0,
+    )

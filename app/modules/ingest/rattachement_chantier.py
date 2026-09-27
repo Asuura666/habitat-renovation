@@ -35,6 +35,11 @@ rattaché à un autre chantier n'est modifié.
 Chantier fusionné (Task 7, avenant du 27/09/2026) : un chantier fusionné
 (`Chantier.fusionne_dans_id`) compte pour sa cible — `charger_noms_chantiers`
 et `chantier_effectif` suivent la chaîne de fusion, au plus deux sauts.
+
+Reprise (Task 8, spec §2.8) : `reprendre_chantiers` fait passer par cette
+même logique les données de production laissées par l'ancien flux (alias
+« en attente », bons sans chantier) — commande `python -m app.cli
+rattacher-chantiers`, lancée une fois au déploiement, idempotente.
 """
 
 from __future__ import annotations
@@ -44,7 +49,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -102,6 +107,18 @@ class ResultatRattachement:
     score: int | None
     cree: bool  # un chantier vient d'être créé (jamais vrai en cas de doublon repris).
     alerte: bool  # R18 ouverte sur le bon (`document.chantier_id` reste `None`).
+
+
+@dataclass(frozen=True)
+class BilanReprise:
+    """Bilan de `reprendre_chantiers` (Task 8, spec §2.8), affiché tel quel
+    par `python -m app.cli rattacher-chantiers`."""
+
+    alias_rattaches: int  # alias en attente rattachés (existant ou créé).
+    chantiers_crees: int  # chantiers créés, alias + bons confondus.
+    alias_ambigus: int  # alias en attente restés ambigus (inchangés).
+    bons_rattaches: int  # bons rattachés par la seconde passe (documents).
+    bons_en_alerte: int  # bons ayant ouvert une R18 (désaccord nom lu/légende).
 
 
 async def chantier_effectif(session: AsyncSession, chantier_id: uuid.UUID) -> uuid.UUID:
@@ -494,6 +511,135 @@ async def rattacher_chantier_bloc(
         )
 
     return chantier_id
+
+
+async def _exemple_brut_alias(
+    session: AsyncSession, alias: ChantierAlias
+) -> str | None:
+    """Libellé brut le plus récent parmi les documents/blocs qui attendent
+    encore `alias` (même sélection que `ingest.a_traiter
+    ._lister_alias_en_attente`, qui calcule `exemple_brut` de la même façon
+    -- décision du contrôleur, ruling Task 8 : jamais dupliquer cette
+    sélection, `referentiels.candidats_alias` en est l'unique source).
+    `None` si plus aucun document/bloc n'attend cet alias (improbable pour
+    un alias encore en attente, mais jamais bloquant : l'appelant se replie
+    alors sur le libellé normalisé de l'alias)."""
+    documents, blocs = await candidats_alias(
+        session, alias.fournisseur_id, alias.libelle_brut
+    )
+    brut_par_date = [(d.chantier_brut, d.created_at) for d in documents] + [
+        (b.chantier_brut, b.created_at) for b in blocs
+    ]
+    if not brut_par_date:
+        return None
+    return max(brut_par_date, key=lambda paire: paire[1])[0]
+
+
+async def reprendre_chantiers(session: AsyncSession) -> BilanReprise:
+    """Reprise, au déploiement, des données laissées par l'ancien flux
+    (spec §2.8, brief Task 8) : `python -m app.cli rattacher-chantiers`,
+    idempotente, appelle cette fonction une seule fois.
+
+    Deux passes séquentielles (la seconde profite des rattachements et
+    propagations de la première, `_apprendre_alias` pouvant déjà avoir posé
+    le chantier de certains bons) :
+
+    1. chaque alias chantier `chantier_id IS NULL` (ordre `created_at`)
+       repasse par `rattacher_chantier_bloc` (rattache à un chantier connu,
+       en crée un « à compléter », ou laisse l'alias en attente s'il reste
+       ambigu -- comportement déjà idempotent, inchangé ici). Ruling du
+       contrôleur (27/09/2026) : quand cet appel crée un chantier, son nom
+       ne doit jamais être le libellé normalisé de l'alias (minuscule,
+       ex. « villa test ») mais le libellé BRUT le plus récent qui attendait
+       cet alias (`_exemple_brut_alias`, ex. « VILLA TEST (123) » ->
+       « VILLA TEST ») -- obtenu en passant ce brut à `rattacher_chantier_bloc`
+       (qui le décompose lui-même) plutôt qu'en dupliquant sa logique de
+       création ; repli sur le libellé de l'alias si plus aucun document/bloc
+       ne l'attend.
+    2. chaque bon (BL/enlèvement) non archivé, encore sans chantier, dont le
+       nom lu ou la légende est renseigné, repasse par la logique complète
+       (`rattacher_chantier_document`) -- rattache, crée, ou ouvre une R18.
+
+    Un chantier est compté « créé » par comparaison à l'ensemble des
+    chantiers connus avant l'appel (mis à jour au fil des deux passes) :
+    aucune des deux fonctions rattachées n'expose elle-même ce booléen pour
+    un alias (seul `ResultatRattachement.cree` le fait pour un bon).
+
+    Idempotent : un second appel ne retrouve plus d'alias/bon à traiter --
+    seuls les alias restés ambigus (et les bons restés en R18) sont
+    réévalués sans effet, les deux fonctions rattachées l'étant déjà.
+    Commite une fois à la fin (reprise ponctuelle au déploiement, pas un
+    flux par document)."""
+    chantiers_connus = set((await session.execute(select(Chantier.id))).scalars().all())
+
+    alias_rattaches = 0
+    alias_ambigus = 0
+    chantiers_crees = 0
+    aliases_en_attente = (
+        (
+            await session.execute(
+                select(ChantierAlias)
+                .where(ChantierAlias.chantier_id.is_(None))
+                .order_by(ChantierAlias.created_at.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for alias in aliases_en_attente:
+        brut = await _exemple_brut_alias(session, alias)
+        chantier_id = await rattacher_chantier_bloc(
+            session,
+            alias.fournisseur_id,
+            brut if brut is not None else alias.libelle_brut,
+        )
+        if chantier_id is None:
+            alias_ambigus += 1
+            continue
+        alias_rattaches += 1
+        if chantier_id not in chantiers_connus:
+            chantiers_connus.add(chantier_id)
+            chantiers_crees += 1
+
+    bons_rattaches = 0
+    bons_en_alerte = 0
+    documents_en_attente = (
+        (
+            await session.execute(
+                select(Document)
+                .where(
+                    Document.type.in_(("bl", "enlevement")),
+                    Document.statut != "archive",
+                    Document.chantier_id.is_(None),
+                    or_(
+                        Document.chantier_brut.is_not(None),
+                        Document.legende.is_not(None),
+                    ),
+                )
+                .order_by(Document.created_at.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for document in documents_en_attente:
+        resultat = await rattacher_chantier_document(session, document)
+        if resultat.cree:
+            chantiers_crees += 1
+        if resultat.alerte:
+            bons_en_alerte += 1
+        elif resultat.chantier_id is not None:
+            bons_rattaches += 1
+
+    await session.commit()
+
+    return BilanReprise(
+        alias_rattaches=alias_rattaches,
+        chantiers_crees=chantiers_crees,
+        alias_ambigus=alias_ambigus,
+        bons_rattaches=bons_rattaches,
+        bons_en_alerte=bons_en_alerte,
+    )
 
 
 async def choisir_chantier_document(

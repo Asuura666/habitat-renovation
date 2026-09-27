@@ -58,6 +58,13 @@
 - `python -m app.cli drive-sync` (L5-T11) : synchronise par lot les originaux
   vers le dossier Google Drive configuré. Refuse de démarrer sans les deux
   variables Drive ; réessaie les échecs et signale après 24 h sur Telegram.
+- `python -m app.cli rattacher-chantiers` (Task 8, spec §2.8) : reprise, au
+  déploiement, des noms de chantier en attente de l'ancien flux (alias
+  `chantier_id IS NULL`) et des bons non archivés encore sans chantier —
+  rejoue `ingest.rattachement_chantier.reprendre_chantiers` (déjà commité,
+  idempotente). Sans argument, à lancer une fois après la mise en
+  production. Toujours code 0 (les deux fonctions rattachées absorbent déjà
+  tous les cas, comme `controles-differes`).
 
 N'importe comme couches applicatives que `app.core`, `app.modules.ingest` et
 `app.modules.jobs` ; l'import de `messaging.telegram` reste différé au seul
@@ -73,6 +80,7 @@ que construire ses dépendances (client HTTP, moteur DB) et les brancher vers
 `ingest` ou `jobs` (décisions du contrôleur
 T7/L2-T1b/L3-T5/L3-T11/L4-T11/L5-T11). L5-T11 ajoute le paquet `jobs`
 et un import différé de `messaging.telegram` pour le seul signalement.
+`rattachement_chantier.py` depuis Task 8 (avenant du 27/09/2026).
 
 Import différé de `app.core.auth` (dans le corps de `_utilisateur_creer`/
 `_utilisateur_desactiver`, pas en tête de fichier) : ce module appelle
@@ -126,6 +134,7 @@ from app.modules.ingest.rapprochement import (
     rapprocher_facture,
     rapprocher_facture_sans_echec,
 )
+from app.modules.ingest.rattachement_chantier import reprendre_chantiers
 from app.modules.ingest.referentiels import definir_fournisseur
 from app.modules.ingest.router import DELAI_OCR_BL
 from app.modules.ingest.suivi import controles_differes
@@ -587,6 +596,34 @@ async def _drive_sync(*, limite: int) -> int:
     return 1 if resultat.echecs else 0
 
 
+async def _rattacher_chantiers() -> int:
+    """Implémentation de `rattacher-chantiers` (Task 8, spec §2.8). Toute la
+    logique (deux passes -- alias en attente puis bons sans chantier,
+    ruling du contrôleur sur le nom d'un chantier créé à cette occasion) est
+    déjà dans `ingest.rattachement_chantier.reprendre_chantiers` (idempotente,
+    commite elle-même) : cette CLI ne fait que construire ses dépendances
+    (moteur DB) et les brancher, comme les autres commandes de ce fichier.
+    Toujours code 0 (aucune validation ne peut échouer ici, comme
+    `controles-differes`)."""
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            bilan = await reprendre_chantiers(session)
+    finally:
+        await engine.dispose()
+
+    print(
+        f"Noms rattachés : {bilan.alias_rattaches} · "
+        f"chantiers créés : {bilan.chantiers_crees} · "
+        f"noms ambigus : {bilan.alias_ambigus} · "
+        f"bons rattachés : {bilan.bons_rattaches} · "
+        f"bons en alerte : {bilan.bons_en_alerte}"
+    )
+    return 0
+
+
 def _construire_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="app.cli")
     sous_parsers = parser.add_subparsers(dest="commande", required=True)
@@ -708,6 +745,15 @@ def _construire_parser() -> argparse.ArgumentParser:
         help="nombre maximal de documents à traiter (défaut : 100)",
     )
 
+    sous_parsers.add_parser(
+        "rattacher-chantiers",
+        help=(
+            "Reprise des noms de chantier en attente (ancien flux) et des "
+            "bons non archivés encore sans chantier -- à lancer une fois au "
+            "déploiement, idempotente"
+        ),
+    )
+
     return parser
 
 
@@ -754,6 +800,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_controles_differes())
     if args.commande == "drive-sync":
         return asyncio.run(_drive_sync(limite=args.limite))
+    if args.commande == "rattacher-chantiers":
+        return asyncio.run(_rattacher_chantiers())
     raise AssertionError(f"commande inconnue : {args.commande}")  # pragma: no cover
 
 
