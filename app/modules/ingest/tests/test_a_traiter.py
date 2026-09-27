@@ -519,6 +519,28 @@ async def test_chantier_non_a_completer_absent(db_session: AsyncSession) -> None
     assert chantier.id not in {c.id for c in a_traiter.chantiers_a_completer}
 
 
+async def test_chantier_a_completer_exclut_les_bons_archives(
+    db_session: AsyncSession,
+) -> None:
+    """Fix round 1 : un bon archivé ne compte pas dans `nb_bons` -- même
+    exclusion que partout ailleurs où un compte porte sur des documents
+    (`ingest.bilan`, `corrections.archiver_document`)."""
+    chantier = await _creer_chantier(
+        db_session, nom="Villa Avec Archive", a_completer=True
+    )
+    await _creer_document(
+        db_session, numero="L510", chantier_id=chantier.id, statut="a_verifier"
+    )
+    await _creer_document(
+        db_session, numero="L511", chantier_id=chantier.id, statut="archive"
+    )
+
+    a_traiter = await lister_a_traiter(db_session)
+
+    ligne = next(c for c in a_traiter.chantiers_a_completer if c.id == chantier.id)
+    assert ligne.nb_bons == 1
+
+
 # --------------------------------------------------------------------------
 # Compte unique des problèmes « à régler » (revue finale de la refonte du
 # front, constats LIENS-2, ECRAN-6, TELEPHONE-2, COUVERTURE-2)

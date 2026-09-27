@@ -629,6 +629,40 @@ def test_probleme_detail_r18_propose_un_choix_de_chantier() -> None:
     assert "/chantier" in client
 
 
+def test_probleme_detail_r18_autre_chantier_permet_de_creer() -> None:
+    """Fix round 1 (revue de cette tâche, spec §2.4 « avec création
+    possible ») : « Autre chantier… » doit permettre de créer un chantier,
+    pas seulement d'en choisir un existant -- même formulaire (nom, client,
+    agence) et même API (`creerChantier`) que la carte « Chantier à
+    rattacher » (`AliasCarte.tsx`), puis choix du chantier créé pour le bon
+    (`choisirChantierDocument`)."""
+    page = _lire("pages", "ProblemeDetail.tsx")
+
+    assert "function DetailR18" in page
+    detail_r18 = page.split("function DetailR18", 1)[1].split(
+        "\nfunction DetailAnomalie", 1
+    )[0]
+
+    assert "setModeCreation" in detail_r18
+    assert "creerChantier(" in detail_r18
+    assert '"Créer et choisir"' in detail_r18
+    assert '"Créer un chantier"' in detail_r18
+    assert "Nom du chantier" in detail_r18
+    assert "Client" in detail_r18
+    assert "Agence" in detail_r18
+    # Choisit le chantier créé pour ce bon, même route que les candidats.
+    assert "choisirChantierDocument(documentId" in detail_r18
+    # Même garde-fou qu'`AliasCarte` contre un doublon de nom.
+    assert "ChantierEnDoubleErreur" in detail_r18
+
+    referentiels = _lire("api", "referentiels.ts")
+    assert "export async function creerChantier" in referentiels
+    assert "export class ChantierEnDoubleErreur" in referentiels
+
+    dette = (Path(__file__).parents[1] / "docs" / "dette.md").read_text()
+    assert "ne permet pas de créer un chantier" not in dette
+
+
 def test_un_seul_compte_de_problemes_a_regler() -> None:
     """Revue finale (constats LIENS-2, ECRAN-6, TELEPHONE-2, COUVERTURE-2) :
     la tuile du mois, le lien « Voir les N problèmes », la pastille de

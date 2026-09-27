@@ -325,7 +325,10 @@ async def _lister_chantiers_a_completer(
     complétés ni fusionnés -- un chantier fusionné repasse `a_completer` à
     faux, spec §2.7), du plus ancien au plus récent. `nb_bons` (BL/
     enlèvements rattachés, jointure externe groupée) en une seule requête,
-    jamais une par chantier (même décision que le reste de ce fichier)."""
+    jamais une par chantier (même décision que le reste de ce fichier) --
+    un bon archivé ne compte pas (fix round 1, même exclusion que partout
+    ailleurs où un compte porte sur des documents, `ingest.bilan` et
+    `corrections.archiver_document`)."""
     resultat = await session.execute(
         select(
             Chantier.id,
@@ -336,7 +339,8 @@ async def _lister_chantiers_a_completer(
         .outerjoin(
             Document,
             (Document.chantier_id == Chantier.id)
-            & (Document.type.in_(("bl", "enlevement"))),
+            & (Document.type.in_(("bl", "enlevement")))
+            & (Document.statut != "archive"),
         )
         .where(Chantier.a_completer.is_(True))
         .group_by(Chantier.id)
