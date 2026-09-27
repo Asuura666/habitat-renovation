@@ -12,6 +12,7 @@ import { FicheChantier } from "./pages/FicheChantier";
 import { FicheFournisseur } from "./pages/FicheFournisseur";
 import { FournisseursListe } from "./pages/FournisseursListe";
 import { Journal } from "./pages/Journal";
+import { Livraisons } from "./pages/Livraisons";
 import { PageBl } from "./pages/PageBl";
 import { Reglages } from "./pages/Reglages";
 import { GardeAdmin } from "./routes/GardeAdmin";
@@ -130,6 +131,20 @@ export function App(): ReactElement {
             element={
               <GardeAdmin>
                 <FicheFournisseur />
+              </GardeAdmin>
+            }
+          />
+
+          {/* Livraisons (Task 13, mise en production du 1er octobre, spec
+              §4.3) : liste des bons conformes cliquables, point d'arrivée
+              des montants « Conforme » de l'accueil, de la fiche chantier
+              et de la fiche fournisseur (`?mois=`/`?agence=`/`?chantier=`/
+              `?fournisseur=`/`?etat=`) -- aussi accessible seule. */}
+          <Route
+            path="livraisons"
+            element={
+              <GardeAdmin>
+                <Livraisons />
               </GardeAdmin>
             }
           />

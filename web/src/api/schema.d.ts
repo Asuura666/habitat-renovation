@@ -603,6 +603,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bilan/livraisons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bilan Livraisons Endpoint
+         * @description Liste des livraisons (Task 13, mise en production du 1er octobre,
+         *     spec §4.3) : bons conformes cliquables (accueil, fiche chantier, fiche
+         *     fournisseur) et écran `/livraisons`. `chantier`/`fournisseur` absents ->
+         *     aucun filtre sur ce côté (voir `ingest.bilan.lister_livraisons`, dont le
+         *     docstring explique pourquoi `None` n'y sélectionne pas le côté non
+         *     résolu comme les autres routes de ce module).
+         */
+        get: operations["bilan_livraisons_endpoint_api_bilan_livraisons_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/bilan/chantiers.csv": {
         parameters: {
             query?: never;
@@ -1974,6 +1999,43 @@ export interface components {
             montant_ht: string | null;
             /** Tva */
             tva: string | null;
+        };
+        /**
+         * LigneLivraisonReponse
+         * @description Une ligne de `GET /api/bilan/livraisons` (Task 13, mise en production
+         *     du 1er octobre) -- mêmes attributs qu'`ingest.bilan.LigneLivraison` :
+         *     ceux de `LigneBilanBlReponse`, plus le chantier et le fournisseur de
+         *     chaque ligne (cette liste n'est jamais imbriquée sous un chantier et un
+         *     fournisseur déjà fixés par l'URL, contrairement à `LigneBilanBlReponse`).
+         */
+        LigneLivraisonReponse: {
+            /**
+             * Bloc Id
+             * Format: uuid
+             */
+            bloc_id: string;
+            /** Numero Bl */
+            numero_bl: string | null;
+            /** Date Bl */
+            date_bl: string | null;
+            /** Statut Rapprochement */
+            statut_rapprochement: string | null;
+            /** Bl Document Id */
+            bl_document_id: string | null;
+            /**
+             * Facture Id
+             * Format: uuid
+             */
+            facture_id: string;
+            /** Chantier Id */
+            chantier_id: string | null;
+            /** Chantier */
+            chantier: string | null;
+            /** Fournisseur Id */
+            fournisseur_id: string | null;
+            /** Fournisseur */
+            fournisseur: string | null;
+            montants: components["schemas"]["MontantsBilanReponse"];
         };
         /**
          * LigneSaisieRequete
@@ -3383,6 +3445,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LigneBilanChantierReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bilan_livraisons_endpoint_api_bilan_livraisons_get: {
+        parameters: {
+            query?: {
+                mois?: string | null;
+                agence?: string | null;
+                chantier?: string | null;
+                fournisseur?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LigneLivraisonReponse"][];
                 };
             };
             /** @description Validation Error */

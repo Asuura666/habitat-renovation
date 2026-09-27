@@ -1,13 +1,12 @@
-import { type FormEvent, type MouseEvent, type ReactElement, useState } from "react";
+import { type FormEvent, type ReactElement, useEffect, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 
 import {
   cleBilanBl,
   cleBilanChantiers,
   cleBilanFournisseurs,
   type FiltresBilan,
-  type LigneBilanBl,
   type LigneBilanFournisseur,
   listerBilanBl,
   listerBilanChantiers,
@@ -33,7 +32,8 @@ import {
   obtenirChantier,
 } from "../api/referentiels";
 import { cleTableauDeBord, obtenirTableauDeBord } from "../api/tableauDeBord";
-import { estMontantNul, formaterDate, formaterMontant, libelleMois, lireMois, moisApi, TIRET } from "../lib/formats";
+import { type LivraisonAffichee, TableauLivraisons } from "../components/TableauLivraisons";
+import { estMontantNul, formaterDate, formaterMontant, libelleMois, lireMois, moisApi } from "../lib/formats";
 import {
   Bouton,
   Carte,
@@ -74,202 +74,22 @@ function libellePeriodeCourte(mois: string | undefined): string | null {
   return mois !== undefined ? libelleMois(mois) : null;
 }
 
-function libelleStatutBon(statut: string | null): string {
-  if (statut === "recu") return "Reçu";
-  if (statut === "non_recu") return "Jamais reçu";
-  if (statut === "pas_de_bon") return "Livré sans bon";
-  return "Statut inconnu";
-}
-
-const CLASSES_POINT_STATUT: Record<string, string> = {
-  conforme: "bg-conforme",
-  ecart: "bg-ecart",
-  alerte: "bg-alerte",
-  inconnu: "bg-encre-2",
-};
-
-/** Point de couleur + libellé (jamais la couleur seule, spec §2) résumant
- * l'état d'une ligne de livraison : reçu sans problème (vert), reçu avec un
- * problème ouvert (ambre, `nb_anomalies_ouvertes` déjà fourni par le
- * serveur — aucun calcul ici), jamais reçu/livré sans bon (rouge). */
-function EtatBon({ ligne }: { ligne: LigneBilanBl }): ReactElement {
-  let categorie: keyof typeof CLASSES_POINT_STATUT = "inconnu";
-  if (ligne.statut_rapprochement === "recu") {
-    categorie = ligne.montants.nb_anomalies_ouvertes > 0 ? "ecart" : "conforme";
-  } else if (ligne.statut_rapprochement === "non_recu" || ligne.statut_rapprochement === "pas_de_bon") {
-    categorie = "alerte";
-  }
-  return (
-    <span className="inline-flex items-center gap-2 whitespace-nowrap">
-      <span aria-hidden="true" className={`h-2.5 w-2.5 shrink-0 rounded-full ${CLASSES_POINT_STATUT[categorie]}`} />
-      {libelleStatutBon(ligne.statut_rapprochement)}
-    </span>
-  );
-}
-
-interface LivraisonAffichee {
-  blocId: string;
-  numeroBl: string | null;
-  dateBl: string | null;
-  fournisseur: string;
-  ligne: LigneBilanBl;
-}
+/** Extrait dans `components/TableauLivraisons.tsx` (Task 13, mise en
+ * production du 1er octobre, spec §4.3) : `EtatBon`, `lienLivraison`,
+ * `LigneLivraisonCarte`/`LigneLivraisonTableau`/`TableauLivraisons`
+ * (tableau ordinateur + cartes téléphone), plus le filtre d'état
+ * « Toutes/Conformes/À vérifier/Sans bon », désormais partagés avec la
+ * fiche fournisseur et l'écran `/livraisons` -- jamais deux définitions
+ * divergentes de « conforme » d'un écran à l'autre. Seuls `LivraisonAffichee`
+ * (le type des lignes que cette fiche construit) et `comparerDateDesc` (le
+ * tri, propre à la façon dont cette fiche combine plusieurs requêtes par
+ * fournisseur) restent ici. */
 
 function comparerDateDesc(a: LivraisonAffichee, b: LivraisonAffichee): number {
   if (a.dateBl === null && b.dateBl === null) return 0;
   if (a.dateBl === null) return 1;
   if (b.dateBl === null) return -1;
   return b.dateBl.localeCompare(a.dateBl);
-}
-
-function lienLivraison(ligne: LigneBilanBl): string {
-  return ligne.bl_document_id !== null ? `/bl/${ligne.bl_document_id}` : `/documents/${ligne.facture_id}`;
-}
-
-/** Problèmes d'une livraison précise (revue finale, constat COUVERTURE-1 :
- * l'ancien lien « Voir les anomalies » de chaque BL n'existait plus sur
- * aucun écran monté) : « À régler » filtré sur cette livraison
- * (`?blocId=`), exactement les problèmes comptés dans la colonne
- * « Problèmes » (anomalies ouvertes portées par la livraison). */
-function lienProblemesLivraison(livraison: LivraisonAffichee): string {
-  return `/a-regler?${new URLSearchParams({ blocId: livraison.blocId }).toString()}`;
-}
-
-function libelleProblemesLivraison(nombre: number): string {
-  return nombre > 1 ? `Voir les ${nombre} problèmes de cette livraison` : "Voir le problème de cette livraison";
-}
-
-function LigneLivraisonCarte({ livraison }: { livraison: LivraisonAffichee }): ReactElement {
-  const nbProblemes = livraison.ligne.montants.nb_anomalies_ouvertes;
-  return (
-    <li className="rounded-lg border border-bordure bg-surface">
-      <Link
-        to={lienLivraison(livraison.ligne)}
-        className="block rounded-lg p-4 outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
-      >
-        <div className="mb-2 flex items-start justify-between gap-3">
-          <div>
-            <p className="font-medium text-encre">BL {livraison.numeroBl ?? TIRET}</p>
-            <p className="text-xs text-encre-2">{formaterDate(livraison.dateBl)} · {livraison.fournisseur}</p>
-          </div>
-          <p className="font-mono text-sm tabular-nums text-encre">
-            {formaterMontant(livraison.ligne.montants.facture_ht)}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-          <EtatBon ligne={livraison.ligne} />
-          <span className="text-encre-2">
-            {livraison.ligne.montants.nb_anomalies_ouvertes} problème
-            {livraison.ligne.montants.nb_anomalies_ouvertes > 1 ? "s" : ""}
-          </span>
-        </div>
-      </Link>
-      {nbProblemes > 0 && (
-        <Link
-          to={lienProblemesLivraison(livraison)}
-          className="flex min-h-[44px] items-center border-t border-bordure px-4 text-sm font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          {libelleProblemesLivraison(nbProblemes)}
-        </Link>
-      )}
-    </li>
-  );
-}
-
-/** Toute la ligne mène vers la page BL (brief : « chaque ligne vers
- * /bl/:bl_document_id […] sinon vers /documents/:facture_id »), comme dans
- * la maquette `FicheChantier` : navigation au clic sur la `<tr>` pour la
- * cible tactile la plus large possible, **et** un vrai lien accessible (N°
- * BL) pour le clavier et les lecteurs d'écran — jamais la `<tr>` seule, qui
- * ne serait pas atteignable sans souris. */
-function LigneLivraisonTableau({ livraison, naviguer }: { livraison: LivraisonAffichee; naviguer: () => void }): ReactElement {
-  // Garde contre la double navigation (fix round 2, constat 2) : le n° BL
-  // porte un vrai <Link> (accessibilité clavier/lecteur d'écran) dont le
-  // gestionnaire de clic (react-router `useLinkClickHandler`) fait
-  // `preventDefault` puis navigue, mais ne fait jamais `stopPropagation` —
-  // le clic remonte ensuite jusqu'à cette <tr>, qui naviguait une seconde
-  // fois (deux entrées d'historique identiques, un premier « Retour » sans
-  // effet visible) et, pour un Ctrl/Cmd+clic ouvrant le lien dans un
-  // nouvel onglet, faisait quand même naviguer l'onglet courant. On
-  // ignore donc les clics déjà traités par un lien (`defaultPrevented`
-  // ou une cible à l'intérieur d'un `<a>`) et les clics avec modificateur
-  // ou bouton autre que le clic gauche.
-  function gererClicLigne(evenement: MouseEvent<HTMLTableRowElement>): void {
-    if (evenement.defaultPrevented) return;
-    if ((evenement.target as HTMLElement).closest("a") !== null) return;
-    if (evenement.button !== 0 || evenement.metaKey || evenement.ctrlKey || evenement.shiftKey || evenement.altKey) {
-      return;
-    }
-    naviguer();
-  }
-
-  return (
-    <tr
-      onClick={gererClicLigne}
-      className="cursor-pointer outline-none hover:bg-fond focus-within:bg-fond"
-    >
-      <td className="py-2.5 pl-2 text-encre">{formaterDate(livraison.dateBl)}</td>
-      <td className="py-2.5 font-mono text-encre">
-        <Link
-          to={lienLivraison(livraison.ligne)}
-          className="rounded font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          {livraison.numeroBl ?? TIRET}
-        </Link>
-      </td>
-      <td className="py-2.5 pr-2 text-encre">{livraison.fournisseur}</td>
-      <td className="py-2.5 pr-2">
-        <EtatBon ligne={livraison.ligne} />
-      </td>
-      <td className="py-2.5 pr-2 text-right font-mono tabular-nums text-encre">
-        {formaterMontant(livraison.ligne.montants.facture_ht)}
-      </td>
-      <td className="py-2.5 pr-2 text-right text-encre">
-        {livraison.ligne.montants.nb_anomalies_ouvertes > 0 ? (
-          <Link
-            to={lienProblemesLivraison(livraison)}
-            aria-label={libelleProblemesLivraison(livraison.ligne.montants.nb_anomalies_ouvertes)}
-            title={libelleProblemesLivraison(livraison.ligne.montants.nb_anomalies_ouvertes)}
-            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-end rounded font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            {livraison.ligne.montants.nb_anomalies_ouvertes}
-          </Link>
-        ) : (
-          livraison.ligne.montants.nb_anomalies_ouvertes
-        )}
-      </td>
-    </tr>
-  );
-}
-
-function TableauLivraisons({ livraisons }: { livraisons: LivraisonAffichee[] }): ReactElement {
-  const navigate = useNavigate();
-  return (
-    <div className="hidden overflow-x-auto md:block">
-      <table className="w-full text-sm">
-        <caption className="sr-only">Livraisons du chantier</caption>
-        <thead className="text-left text-xs font-medium uppercase tracking-wide text-encre-2">
-          <tr>
-            <th scope="col" className="py-2 pl-2">Date</th>
-            <th scope="col" className="py-2">N° BL</th>
-            <th scope="col" className="py-2 pr-2">Fournisseur</th>
-            <th scope="col" className="py-2 pr-2">Bon de livraison</th>
-            <th scope="col" className="py-2 pr-2 text-right">Montant</th>
-            <th scope="col" className="py-2 pr-2 text-right">Problèmes</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-bordure">
-          {livraisons.map((livraison) => (
-            <LigneLivraisonTableau
-              key={livraison.blocId}
-              livraison={livraison}
-              naviguer={() => navigate(lienLivraison(livraison.ligne))}
-            />
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
 }
 
 /** Formulaire d'édition (nom, client, agence, actif — `PUT /api/chantiers
@@ -489,6 +309,7 @@ function FormulaireFusion({
 export function FicheChantier(): ReactElement {
   const { chantierId } = useParams();
   const [parametres] = useSearchParams();
+  const { hash } = useLocation();
   const [editionOuverte, setEditionOuverte] = useState(false);
   const [fusionOuverte, setFusionOuverte] = useState(false);
   const id = chantierId ?? "";
@@ -504,6 +325,14 @@ export function FicheChantier(): ReactElement {
   const moisChoisi = moisParam !== undefined;
   const moisPourApi = moisParam !== undefined ? moisApi(moisParam) : "";
   const filtresActifs: FiltresBilan = moisChoisi ? { mois: moisPourApi } : FILTRES_TOUS_MOIS;
+
+  // Tuile « Conforme » cliquable (Task 13, spec §4.3) : mène à la carte
+  // « Livraisons » ci-dessous (ancre `#livraisons`, posée par
+  // `TableauLivraisons`), filtrée sur les bons conformes (`?etat=conforme`)
+  // -- le mois affiché par la fiche est préservé, jamais perdu en route.
+  const parametresLivraisonsConformes = new URLSearchParams(parametres);
+  parametresLivraisonsConformes.set("etat", "conforme");
+  const lienLivraisonsConformes = `?${parametresLivraisonsConformes.toString()}#livraisons`;
 
   // Titre et état vide de la carte « Livraisons » (fix round 2, constat 1) :
   // précisent désormais la période affichée, comme les trois `Chiffre`.
@@ -676,6 +505,17 @@ export function FicheChantier(): ReactElement {
   // dans le second cas.
   const derniereLivraisonRecue = livraisonsRecues[0] ?? null;
 
+  // Ancre `#livraisons` (Task 13, spec §4.3, tuile « Conforme » cliquable) :
+  // même mécanique que `#bloc-…` sur `FactureDetail.tsx`/`#corriger` sur
+  // `PageBl.tsx` -- `Gabarit.tsx` laisse volontairement la page où elle est
+  // quand une ancre est présente, c'est à l'écran cible d'y défiler une
+  // fois l'élément apparu (ici, une fois la carte « Livraisons » chargée).
+  useEffect(() => {
+    if (livraisonsChargees && hash === "#livraisons") {
+      window.document.getElementById("livraisons")?.scrollIntoView({ block: "start" });
+    }
+  }, [livraisonsChargees, hash]);
+
   if (chantierQuery.isPending) {
     return <p role="status" className="text-sm text-encre-2">Chargement…</p>;
   }
@@ -797,6 +637,7 @@ export function FicheChantier(): ReactElement {
           libelle={libelleAvecPeriode("Conforme", moisParam)}
           valeur={formaterMontant(ligneBilan?.montants.conforme ?? null)}
           ton={estMontantNul(ligneBilan?.montants.conforme ?? null) ? "neutre" : "conforme"}
+          vers={lienLivraisonsConformes}
         />
         <Chiffre
           libelle={libelleAvecPeriode(libelleEcart(controlePrixActif), moisParam)}
@@ -818,16 +659,8 @@ export function FicheChantier(): ReactElement {
           {fournisseurs.isSuccess && !livraisonsChargees && (
             <p role="status" className="text-sm text-encre-2">Chargement…</p>
           )}
-          {livraisonsChargees && livraisons.length === 0 && <EtatVide message={messageAucuneLivraison} />}
-          {livraisonsChargees && livraisons.length > 0 && (
-            <>
-              <ul className="space-y-3 md:hidden">
-                {livraisons.map((livraison) => (
-                  <LigneLivraisonCarte key={livraison.blocId} livraison={livraison} />
-                ))}
-              </ul>
-              <TableauLivraisons livraisons={livraisons} />
-            </>
+          {livraisonsChargees && (
+            <TableauLivraisons livraisons={livraisons} messageVide={messageAucuneLivraison} />
           )}
 
           {/* Pied de carte (fix round 2, constat 3) : la maquette FicheChantier

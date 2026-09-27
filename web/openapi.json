@@ -1812,6 +1812,108 @@
     }
    }
   },
+  "/api/bilan/livraisons": {
+   "get": {
+    "summary": "Bilan Livraisons Endpoint",
+    "description": "Liste des livraisons (Task 13, mise en production du 1er octobre,\nspec §4.3) : bons conformes cliquables (accueil, fiche chantier, fiche\nfournisseur) et écran `/livraisons`. `chantier`/`fournisseur` absents ->\naucun filtre sur ce côté (voir `ingest.bilan.lister_livraisons`, dont le\ndocstring explique pourquoi `None` n'y sélectionne pas le côté non\nrésolu comme les autres routes de ce module).",
+    "operationId": "bilan_livraisons_endpoint_api_bilan_livraisons_get",
+    "parameters": [
+     {
+      "name": "mois",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Mois"
+      }
+     },
+     {
+      "name": "agence",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Agence"
+      }
+     },
+     {
+      "name": "chantier",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uuid"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Chantier"
+      }
+     },
+     {
+      "name": "fournisseur",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uuid"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Fournisseur"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/LigneLivraisonReponse"
+         },
+         "title": "Response Bilan Livraisons Endpoint Api Bilan Livraisons Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/bilan/chantiers.csv": {
    "get": {
     "summary": "Bilan Chantiers Csv Endpoint",
@@ -5734,6 +5836,131 @@
     ],
     "title": "LigneFactureReponse",
     "description": "Une ligne d'un bloc, dans `GET /api/factures/{id}`."
+   },
+   "LigneLivraisonReponse": {
+    "properties": {
+     "bloc_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Bloc Id"
+     },
+     "numero_bl": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero Bl"
+     },
+     "date_bl": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date Bl"
+     },
+     "statut_rapprochement": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Statut Rapprochement"
+     },
+     "bl_document_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Bl Document Id"
+     },
+     "facture_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Facture Id"
+     },
+     "chantier_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chantier Id"
+     },
+     "chantier": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chantier"
+     },
+     "fournisseur_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fournisseur Id"
+     },
+     "fournisseur": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fournisseur"
+     },
+     "montants": {
+      "$ref": "#/components/schemas/MontantsBilanReponse"
+     }
+    },
+    "type": "object",
+    "required": [
+     "bloc_id",
+     "numero_bl",
+     "date_bl",
+     "statut_rapprochement",
+     "bl_document_id",
+     "facture_id",
+     "chantier_id",
+     "chantier",
+     "fournisseur_id",
+     "fournisseur",
+     "montants"
+    ],
+    "title": "LigneLivraisonReponse",
+    "description": "Une ligne de `GET /api/bilan/livraisons` (Task 13, mise en production\ndu 1er octobre) -- mêmes attributs qu'`ingest.bilan.LigneLivraison` :\nceux de `LigneBilanBlReponse`, plus le chantier et le fournisseur de\nchaque ligne (cette liste n'est jamais imbriquée sous un chantier et un\nfournisseur déjà fixés par l'URL, contrairement à `LigneBilanBlReponse`)."
    },
    "LigneSaisieRequete": {
     "properties": {

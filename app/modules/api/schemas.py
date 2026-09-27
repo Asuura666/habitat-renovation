@@ -677,6 +677,28 @@ class LigneBilanBlReponse(BaseModel):
     montants: MontantsBilanReponse
 
 
+class LigneLivraisonReponse(BaseModel):
+    """Une ligne de `GET /api/bilan/livraisons` (Task 13, mise en production
+    du 1er octobre) -- mêmes attributs qu'`ingest.bilan.LigneLivraison` :
+    ceux de `LigneBilanBlReponse`, plus le chantier et le fournisseur de
+    chaque ligne (cette liste n'est jamais imbriquée sous un chantier et un
+    fournisseur déjà fixés par l'URL, contrairement à `LigneBilanBlReponse`)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    bloc_id: uuid.UUID
+    numero_bl: str | None
+    date_bl: date | None
+    statut_rapprochement: str | None
+    bl_document_id: uuid.UUID | None
+    facture_id: uuid.UUID
+    chantier_id: uuid.UUID | None
+    chantier: str | None
+    fournisseur_id: uuid.UUID | None
+    fournisseur: str | None
+    montants: MontantsBilanReponse
+
+
 # --------------------------------------------------------------------------
 # Tableau de bord du mois (refonte front T2) : schémas construits à partir
 # des dataclasses d'`ingest.tableau_de_bord` (`TotauxMois`,

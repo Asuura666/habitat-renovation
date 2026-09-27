@@ -60,9 +60,14 @@ def test_fiche_chantier_couvre_le_contrat() -> None:
     assert "Livraisons" in page
     assert "Problèmes ouverts" in page
     assert "FilAriane" in page
-    assert "md:hidden" in page
-    assert "`/bl/${" in page
-    assert "/documents/${" in page
+    # Tableau/cartes de livraisons (ordinateur + téléphone, `md:hidden`/
+    # `md:block`, liens `/bl/${`/`/documents/${`) extraits dans
+    # `components/TableauLivraisons.tsx` par la Task 13 (mise en production
+    # du 1er octobre) : la fiche ne montre plus que le composant partagé --
+    # voir test_tableau_livraisons_partage_couvre_le_contrat_responsive
+    # ci-dessous pour le contrat déplacé.
+    assert "<TableauLivraisons" in page
+    assert 'from "../components/TableauLivraisons"' in page
     assert "modifierChantier" in page
     assert "Voir les documents du chantier" in page
     assert "Exporter pour Excel" in page
@@ -340,11 +345,15 @@ def test_fiche_chantier_ligne_livraison_ne_navigue_pas_deux_fois() -> None:
     remontait ensuite jusqu'à la `<tr>`, qui navigue une seconde fois (deux
     entrées d'historique identiques). Le gestionnaire de la `<tr>` doit
     désormais ignorer les clics déjà traités par un lien et les clics avec
-    modificateur (Ctrl/Cmd/Maj/Alt) ou autre que le bouton gauche."""
-    page = _lire("pages", "FicheChantier.tsx")
+    modificateur (Ctrl/Cmd/Maj/Alt) ou autre que le bouton gauche.
+
+    Extrait dans `components/TableauLivraisons.tsx` par la Task 13 (mise en
+    production du 1er octobre) : ce comportement n'est plus propre à la
+    fiche chantier, il est désormais vérifié sur le fichier partagé."""
+    page = _lire("components", "TableauLivraisons.tsx")
 
     ligne = page.split("function LigneLivraisonTableau", 1)[1].split(
-        "function TableauLivraisons", 1
+        "function TableauLivraisonsOrdi", 1
     )[0]
     assert "evenement.defaultPrevented" in ligne
     assert '.closest("a")' in ligne
@@ -571,15 +580,23 @@ def test_fiche_chantier_mene_aux_problemes_de_chaque_livraison() -> None:
     anomalies » de chaque BL (`/anomalies?blocId=`) n'existait plus sur
     aucun écran monté. Le nombre de problèmes d'une livraison ouvre « À
     régler » filtré sur elle (`?blocId=`, lu par l'écran cible), en tableau
-    comme en carte, avec une cible de 44 px."""
-    fiche = _lire("pages", "FicheChantier.tsx")
-    assert "new URLSearchParams({ blocId: livraison.blocId })" in fiche
-    tableau = fiche.split("function LigneLivraisonTableau", 1)[1].split(
+    comme en carte, avec une cible de 44 px.
+
+    Extrait dans `components/TableauLivraisons.tsx` par la Task 13 (mise en
+    production du 1er octobre) : vérifié sur le fichier partagé, monté par
+    la fiche chantier (`<TableauLivraisons`, voir
+    test_fiche_chantier_couvre_le_contrat) comme par la fiche fournisseur et
+    `/livraisons`."""
+    partage = _lire("components", "TableauLivraisons.tsx")
+    assert "new URLSearchParams({ blocId: livraison.blocId })" in partage
+    tableau = partage.split("function LigneLivraisonTableau", 1)[1].split(
         "\nfunction ", 1
     )[0]
     assert "to={lienProblemesLivraison(livraison)}" in tableau
     assert "min-h-[44px]" in tableau
-    carte = fiche.split("function LigneLivraisonCarte", 1)[1].split("\nfunction ", 1)[0]
+    carte = partage.split("function LigneLivraisonCarte", 1)[1].split("\nfunction ", 1)[
+        0
+    ]
     assert "to={lienProblemesLivraison(livraison)}" in carte
     assert 'parametres.get("blocId")' in _lire("pages", "ARegler.tsx")
 
@@ -665,3 +682,64 @@ def test_fiche_chantier_utilise_obtenirChantier_pour_la_fiche() -> None:
     assert "cleChantier(id)" in page
     assert "chantierQuery" in page
     assert "chantiers.data?.find((c) => c.id === id)" not in page
+
+
+# ---------------------------------------------------------------------------
+# Task 13 (mise en production du 1er octobre, spec §4.3) : fiche fournisseur
+# par mois et bons conformes cliquables -- volet « tableau des livraisons
+# partagé » et « tuile Conforme de la fiche chantier ».
+# ---------------------------------------------------------------------------
+
+
+def test_tableau_livraisons_partage_couvre_le_contrat_responsive() -> None:
+    """`components/TableauLivraisons.tsx` reprend le tableau ordinateur et
+    les cartes téléphone de l'ancienne fiche chantier (constat repris de
+    test_fiche_chantier_couvre_le_contrat, avant l'extraction de la
+    Task 13), plus le filtre d'état, nouveau à cette tâche."""
+    page = _lire("components", "TableauLivraisons.tsx")
+
+    assert "md:hidden" in page
+    assert "hidden" in page and "md:block" in page
+    assert "`/bl/${" in page
+    assert "/documents/${" in page
+
+    # Filtre d'état « Toutes/Conformes/À vérifier/Sans bon » (Task 13),
+    # initialisé par `?etat=` -- pastilles partagées (`ui/Filtres.tsx`),
+    # jamais une case à cocher déguisée.
+    assert 'parametres.get("etat")' in page
+    assert "Toutes" in page
+    assert "Conformes" in page
+    assert "À vérifier" in page
+    assert "Sans bon" in page
+    assert "<Filtres" in page
+
+    # Ancre fixe, cible du lien de la tuile « Conforme » sur les fiches qui
+    # montent ce composant.
+    assert 'id="livraisons"' in page
+
+    # Colonne « Chantier » optionnelle (fiche fournisseur, `/livraisons`) --
+    # absente par défaut (fiche chantier, qui fixe déjà son chantier par son
+    # URL).
+    assert "colonneChantier" in page
+
+    # Aucun calcul métier : les montants viennent tels quels du serveur.
+    assert "parseFloat" not in page
+    assert "Number(" not in page
+
+
+def test_fiche_chantier_tuile_conforme_ouvre_les_livraisons_conformes() -> None:
+    """Spec §4.3 : la tuile « Conforme » de la fiche chantier mène à la
+    carte « Livraisons » de la même fiche (ancre `#livraisons`), filtrée sur
+    les bons conformes (`?etat=conforme`) -- le mois affiché est préservé."""
+    page = _lire("pages", "FicheChantier.tsx")
+
+    assert "lienLivraisonsConformes" in page
+    assert 'parametresLivraisonsConformes.set("etat", "conforme")' in page
+    assert "#livraisons" in page
+    assert "vers={lienLivraisonsConformes}" in page
+
+    # Défilement jusqu'à la carte une fois chargée (même mécanique que
+    # `#bloc-…` sur `FactureDetail.tsx`/`#corriger` sur `PageBl.tsx`).
+    assert "useLocation" in page
+    assert 'hash === "#livraisons"' in page
+    assert 'getElementById("livraisons")?.scrollIntoView' in page

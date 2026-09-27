@@ -51,9 +51,14 @@ def test_bilan_detail_lie_sources_et_anomalies_du_bloc() -> None:
     finale, constat LIENS-6) reste atteignable : la livraison mène à la page
     de son bon (fiche chantier, facture), la facture s'ouvre sur la
     livraison (ancre `#bloc-`), et les problèmes d'une livraison ou d'un bon
-    restent filtrables dans « À régler » (`?blocId=`, `?document=`)."""
-    fiche = (WEB / "pages" / "FicheChantier.tsx").read_text()
-    assert "ligne.bl_document_id !== null ? `/bl/${ligne.bl_document_id}`" in fiche
+    restent filtrables dans « À régler » (`?blocId=`, `?document=`).
+
+    `lienLivraison` a été extrait dans `components/TableauLivraisons.tsx`
+    par la Task 13 (mise en production du 1er octobre) : vérifié sur le
+    fichier partagé, monté par la fiche chantier (voir
+    test_web_chantiers.py::test_fiche_chantier_couvre_le_contrat)."""
+    partage = (WEB / "components" / "TableauLivraisons.tsx").read_text()
+    assert "ligne.bl_document_id !== null ? `/bl/${ligne.bl_document_id}`" in partage
 
     facture = (WEB / "pages" / "FactureDetail.tsx").read_text()
     assert "lienBon(bloc.bl_document_id)" in facture
@@ -74,12 +79,15 @@ def test_tableau_bl_affiche_le_nombre_anomalies_ouvertes() -> None:
     """Le nombre de problèmes ouverts par livraison (ancienne colonne
     « Anomalies ouvertes » du détail par livraison, supprimé) est repris par
     la carte « Livraisons » de la fiche chantier, en tableau comme en
-    cartes."""
-    fiche = (WEB / "pages" / "FicheChantier.tsx").read_text()
-    tableau = fiche.split("function LigneLivraisonTableau", 1)[1]
+    cartes.
+
+    Extrait dans `components/TableauLivraisons.tsx` par la Task 13 (mise en
+    production du 1er octobre) : vérifié sur le fichier partagé."""
+    partage = (WEB / "components" / "TableauLivraisons.tsx").read_text()
+    tableau = partage.split("function LigneLivraisonTableau", 1)[1]
     assert "livraison.ligne.montants.nb_anomalies_ouvertes" in tableau
-    assert ">Problèmes</th>" in fiche
-    carte = fiche.split("function LigneLivraisonCarte", 1)[1]
+    assert ">Problèmes</th>" in partage
+    carte = partage.split("function LigneLivraisonCarte", 1)[1]
     assert "livraison.ligne.montants.nb_anomalies_ouvertes" in carte
 
 
