@@ -858,7 +858,13 @@ class JournalReponse(BaseModel):
     `apres` sont exposés tels quels (JSON brut : `dict[str, Any] | None`,
     décision du contrôleur) — aucune interprétation métier ici, la mise en
     forme lisible revient au front (`Journal.tsx`), même principe que
-    `detail` sur `AnomalieReponse`."""
+    `detail` sur `AnomalieReponse`.
+
+    `noms` (Task 12, spec §4.1) : identifiant (texte) -> nom, pour toute
+    valeur d'`avant`/`apres` que le serveur a su résoudre (compte, chantier,
+    fournisseur — voir `ingest.journal.JournalLue`) ; jamais l'UUID brut
+    côté client, ni un calcul côté front, qui n'a pas accès aux
+    référentiels."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -871,6 +877,7 @@ class JournalReponse(BaseModel):
     avant: dict[str, Any] | None
     apres: dict[str, Any] | None
     horodatage: datetime
+    noms: dict[str, str]
 
 
 # --------------------------------------------------------------------------

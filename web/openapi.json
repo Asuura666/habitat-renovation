@@ -5152,6 +5152,13 @@
       "type": "string",
       "format": "date-time",
       "title": "Horodatage"
+     },
+     "noms": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Noms"
      }
     },
     "type": "object",
@@ -5164,10 +5171,11 @@
      "cible_id",
      "avant",
      "apres",
-     "horodatage"
+     "horodatage",
+     "noms"
     ],
     "title": "JournalReponse",
-    "description": "Une entrée de journal, telle qu'exposée par `GET /api/journal`\n(L5-T9) — mêmes attributs qu'`ingest.journal.JournalLue`. `avant`/\n`apres` sont exposés tels quels (JSON brut : `dict[str, Any] | None`,\ndécision du contrôleur) — aucune interprétation métier ici, la mise en\nforme lisible revient au front (`Journal.tsx`), même principe que\n`detail` sur `AnomalieReponse`."
+    "description": "Une entrée de journal, telle qu'exposée par `GET /api/journal`\n(L5-T9) — mêmes attributs qu'`ingest.journal.JournalLue`. `avant`/\n`apres` sont exposés tels quels (JSON brut : `dict[str, Any] | None`,\ndécision du contrôleur) — aucune interprétation métier ici, la mise en\nforme lisible revient au front (`Journal.tsx`), même principe que\n`detail` sur `AnomalieReponse`.\n\n`noms` (Task 12, spec §4.1) : identifiant (texte) -> nom, pour toute\nvaleur d'`avant`/`apres` que le serveur a su résoudre (compte, chantier,\nfournisseur — voir `ingest.journal.JournalLue`) ; jamais l'UUID brut\ncôté client, ni un calcul côté front, qui n'a pas accès aux\nréférentiels."
    },
    "LigneBilanBlReponse": {
     "properties": {

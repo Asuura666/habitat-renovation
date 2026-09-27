@@ -39,6 +39,56 @@ def test_lib_journal_connait_chantier_modifie() -> None:
     assert 'chantier_modifie: "Chantier modifié"' in journal_lib
 
 
+def test_lib_journal_toutes_les_actions_litterales_ont_un_libelle() -> None:
+    """Chaque action journalisée par un littéral (`Journal(action="...")`,
+    `app/modules/ingest/*.py` et `app/core/auth.py`) doit avoir une entrée
+    dans `LIBELLES_ACTION` (`lib/journal.ts`) -- sinon `libelleAction`
+    affiche le code brut à l'écran. Régression de Task 12 (controller
+    ruling 2) : l'avenant du 27/09/2026 (rattachement automatique du
+    chantier, `rattachement_chantier.py`/`fusion_chantier.py`) avait
+    ajouté quatre actions (`chantier_cree_auto`, `alias_rattache_auto`,
+    `chantier_choisi`, `chantier_fusionne`) jamais recensées ici.
+
+    Deux actions sont choisies dynamiquement plutôt qu'écrites en littéral
+    (`anomalies.py::_ACTION_JOURNAL_PAR_STATUT`,
+    `depot_telegram.py::_ACTIONS_JOURNAL`) : la regex ci-dessous ne les voit
+    pas, leurs valeurs possibles sont donc vérifiées séparément."""
+    app_ingest = Path(__file__).parents[1] / "app" / "modules" / "ingest"
+    fichiers = [
+        *sorted(app_ingest.glob("*.py")),
+        Path(__file__).parents[1] / "app" / "core" / "auth.py",
+    ]
+    journal_lib = (WEB / "lib" / "journal.ts").read_text(encoding="utf-8")
+
+    actions: set[str] = set()
+    for fichier in fichiers:
+        if "test" in fichier.name:
+            continue
+        texte = fichier.read_text(encoding="utf-8")
+        actions.update(re.findall(r'action="(\w+)"', texte))
+
+    assert actions, "aucune action littérale trouvée : regex à revoir"
+    manquantes = sorted(
+        action for action in actions if f'{action}: "' not in journal_lib
+    )
+    assert not manquantes, (
+        f"action(s) sans libellé dans LIBELLES_CLE_DETAIL : {manquantes} — "
+        "`libelleAction` afficherait le code brut"
+    )
+
+    # Actions choisies dynamiquement (non littérales, invisibles à la regex
+    # ci-dessus) : couvertes séparément, mêmes valeurs que
+    # `anomalies.py::_ACTION_JOURNAL_PAR_STATUT` et
+    # `depot_telegram.py::_ACTIONS_JOURNAL`.
+    for action_dynamique in (
+        "anomalie_traitee",
+        "anomalie_ignoree",
+        "quantites_verifiees",
+        "ecart_constate",
+    ):
+        assert f'{action_dynamique}: "' in journal_lib
+
+
 def test_ecran_journal_a_la_charte() -> None:
     page = (WEB / "pages" / "Journal.tsx").read_text(encoding="utf-8")
 
@@ -186,6 +236,21 @@ def test_ecran_journal_avant_apres_sans_calcul() -> None:
     assert "lignesAvantApres" in lib
 
 
+def test_journal_transmet_noms_resolus_par_le_serveur() -> None:
+    """Task 12 (spec §4.1) : `entree.noms` (résolution serveur des
+    identifiants d'`avant`/`apres`, `ingest/journal.py`) est transmis par
+    l'écran à `lignesAvantApres`, qui l'utilise pour afficher un nom plutôt
+    que l'UUID brut -- jamais recalculé côté front, qui n'a pas les
+    référentiels."""
+    page = (WEB / "pages" / "Journal.tsx").read_text(encoding="utf-8")
+    lib = (WEB / "lib" / "journal.ts").read_text(encoding="utf-8")
+
+    assert page.count("noms={entree.noms}") == 2
+    assert "lignesAvantApres(avant, apres, noms)" in page
+    assert "noms[brute]" in lib
+    assert "(inconnu)" in lib
+
+
 def _cles_table_ts(source: str, nom_table: str) -> set[str]:
     """Clés (non citées) d'une table `const NOM: Record<string, string> =
     {...}` de `lib/journal.ts` — même mécanique que `libelleCleDetail` côté
@@ -268,6 +333,15 @@ def test_lib_journal_toutes_les_cles_de_detail_ont_un_libelle() -> None:
         "total_tva",
         "total_ttc",
         "lignes",
+        # Avenant du 27/09/2026 (rattachement automatique du chantier,
+        # `rattachement_chantier.py`/`fusion_chantier.py`) : six clés
+        # manquantes de ce recensement (Task 12, controller ruling 2).
+        "score_chantier",
+        "source",
+        "cible_id",
+        "cible_nom",
+        "nb_documents",
+        "a_completer",
     }
 
     manquantes = []

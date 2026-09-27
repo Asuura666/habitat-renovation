@@ -386,6 +386,42 @@ async def test_get_journal_forme_json(
     assert corps["horodatage"] is not None
 
 
+async def test_get_journal_forme_json_expose_noms(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Task 12 (spec §4.1) : `noms` résout côté serveur les identifiants
+    portés par `avant`/`apres` (ici `confirme_par`) — le front n'affiche
+    plus jamais l'UUID brut."""
+    admin = await _creer_utilisateur(
+        db_session,
+        email="admin.journal10@example.invalid",
+        role="admin",
+        nom="Alice Admin",
+    )
+    await _creer_entree(
+        db_session,
+        utilisateur_id=admin.id,
+        action="quantites_verifiees",
+        cible_table="document",
+        avant={"statut": "a_verifier", "confirme_le": None, "confirme_par": None},
+        apres={
+            "statut": "recu",
+            "confirme_le": "2026-08-01T12:00:00+00:00",
+            "confirme_par": str(admin.id),
+        },
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(app_test, "/api/journal", cookie=cookie)
+
+    assert reponse.status_code == 200
+    corps = reponse.json()[0]
+    assert corps["noms"][str(admin.id)] == "Alice Admin"
+
+
 async def test_get_journal_entree_automatique_auteur_absent_dans_la_reponse(
     db_session: AsyncSession,
     sessions_test: async_sessionmaker[AsyncSession],

@@ -1779,6 +1779,12 @@ export interface components {
          *     décision du contrôleur) — aucune interprétation métier ici, la mise en
          *     forme lisible revient au front (`Journal.tsx`), même principe que
          *     `detail` sur `AnomalieReponse`.
+         *
+         *     `noms` (Task 12, spec §4.1) : identifiant (texte) -> nom, pour toute
+         *     valeur d'`avant`/`apres` que le serveur a su résoudre (compte, chantier,
+         *     fournisseur — voir `ingest.journal.JournalLue`) ; jamais l'UUID brut
+         *     côté client, ni un calcul côté front, qui n'a pas accès aux
+         *     référentiels.
          */
         JournalReponse: {
             /**
@@ -1809,6 +1815,10 @@ export interface components {
              * Format: date-time
              */
             horodatage: string;
+            /** Noms */
+            noms: {
+                [key: string]: string;
+            };
         };
         /**
          * LigneBilanBlReponse
