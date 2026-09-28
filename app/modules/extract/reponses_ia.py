@@ -215,6 +215,14 @@ _NOMBRE_RE = re.compile(
 )
 
 
+def _normaliser_nombre(brut: str) -> Decimal:
+    """Normalise une correspondance de `_NOMBRE_RE` (signe éventuel,
+    séparateurs de milliers, virgule ou point décimal) en `Decimal`."""
+    sans_signe = brut.lstrip(_SIGNES)
+    sans_espaces = re.sub(f"[{_SEPARATEURS_MILLIERS}]", "", sans_signe)
+    return Decimal(sans_espaces.replace(",", "."))
+
+
 def nombres_du_texte(texte: str) -> frozenset[Decimal]:
     """Tous les nombres écrits dans `texte`, normalisés en `Decimal`
     (brief T2) : virgule ou point pour la partie décimale, espaces
@@ -223,13 +231,19 @@ def nombres_du_texte(texte: str) -> frozenset[Decimal]:
     hachent égal : aucune normalisation des zéros non significatifs n'est
     nécessaire. Une date `2026-09-01` produit trois nombres distincts
     (`-` n'est pas un séparateur de milliers reconnu), donc une date
-    recopiée `01/09/2026` dans une explication est acceptée telle quelle."""
-    nombres: set[Decimal] = set()
-    for correspondance in _NOMBRE_RE.finditer(texte):
-        brut = correspondance.group().lstrip(_SIGNES)
-        sans_espaces = re.sub(f"[{_SEPARATEURS_MILLIERS}]", "", brut)
-        nombres.add(Decimal(sans_espaces.replace(",", ".")))
-    return frozenset(nombres)
+    recopiée `01/09/2026` dans une explication est acceptée telle quelle.
+
+    Attention (fix round 1, revue T2) : cette lecture fusionne deux nombres
+    réellement distincts séparés par un simple espace quand le second fait
+    exactement 3 chiffres (« 5 300 bons » -> `{5300}`, pas `{5, 300}`), au
+    même titre qu'un vrai « 5 300 » milliers. `lire_explication` compense
+    ce cas via `_nombre_valide_dans_detail` (lecture fusionnée OU chaque
+    partie individuellement) ; cette fonction reste telle que spécifiée
+    (signature et comportement publics, testés en propre)."""
+    return frozenset(
+        _normaliser_nombre(correspondance.group())
+        for correspondance in _NOMBRE_RE.finditer(texte)
+    )
 
 
 def _nombres_de_valeur(valeur: Any) -> frozenset[Decimal]:
@@ -250,11 +264,30 @@ def _nombres_de_valeur(valeur: Any) -> frozenset[Decimal]:
     return nombres_du_texte(str(valeur))
 
 
+def _nombre_valide_dans_detail(brut: str, nombres_detail: frozenset[Decimal]) -> bool:
+    """Un nombre écrit dans l'explication (correspondance brute de
+    `_NOMBRE_RE`) est accepté si sa lecture fusionnée normale figure dans
+    le détail, OU si chacune de ses parties séparées par un espace de
+    milliers y figure individuellement (fix round 1, revue T2) : corrige
+    le cas où deux valeurs réellement distinctes se retrouvent accolées
+    par hasard dans le texte (« 5 300 bons » = « 5 » puis « 300 », pas
+    nécessairement 5300) sans jamais relâcher la garde pour un nombre
+    absent des deux lectures -- un nombre sans espace qui échoue au test
+    fusionné n'a pas de seconde lecture possible et reste refusé."""
+    if _normaliser_nombre(brut) in nombres_detail:
+        return True
+    parties = re.split(f"[{_SEPARATEURS_MILLIERS}]", brut)
+    return len(parties) > 1 and all(
+        _normaliser_nombre(partie) in nombres_detail for partie in parties
+    )
+
+
 def lire_explication(structure: Any, detail: Mapping[str, Any]) -> str:
     """Lit et garde une réponse `SCHEMA_EXPLICATION`. Garde des chiffres
     (brief T2, aucune exception) : chaque nombre écrit dans l'explication
-    doit être égal à un nombre déjà présent dans `detail` -- l'IA commente
-    un montant existant, elle n'en invente ni n'en recalcule aucun."""
+    doit être égal à un nombre déjà présent dans `detail` (ou s'y retrouver
+    partie par partie, cf. `_nombre_valide_dans_detail`) -- l'IA commente un
+    montant existant, elle n'en invente ni n'en recalcule aucun."""
     if not isinstance(structure, dict):
         raise ReponseIAInvalide("réponse de l'IA invalide")
 
@@ -268,8 +301,10 @@ def lire_explication(structure: Any, detail: Mapping[str, Any]) -> str:
     if len(explication) > _EXPLICATION_MAX:
         raise ReponseIAInvalide("explication trop longue")
 
-    if not nombres_du_texte(explication) <= _nombres_de_valeur(detail):
-        raise ReponseIAInvalide("chiffre absent des données")
+    nombres_detail = _nombres_de_valeur(detail)
+    for correspondance in _NOMBRE_RE.finditer(explication):
+        if not _nombre_valide_dans_detail(correspondance.group(), nombres_detail):
+            raise ReponseIAInvalide("chiffre absent des données")
 
     return explication
 
@@ -348,6 +383,17 @@ def _est_nombre(valeur: Any) -> bool:
     return isinstance(valeur, (int, float)) and not isinstance(valeur, bool)
 
 
+def _est_prix_valide(valeur: Any) -> bool:
+    """`_est_nombre` et strictement positif. Isolé dans une fonction dont
+    le paramètre est un `Any` simple (fix round 1, revue T2) : `dict.get`
+    sans valeur par défaut type son retour `Any | None`, et mypy refuse
+    alors `valeur > 0` (opérande `None` de l'union) même si `valeur` est en
+    réalité toujours un nombre à ce stade -- un paramètre `Any` nommé,
+    plutôt qu'un `and prix_brut is not None` redondant avec `_est_nombre`
+    dans l'appelant, tranche le problème sans changer le comportement."""
+    return _est_nombre(valeur) and valeur > 0
+
+
 def _non_verifiable(structure: dict[Any, Any], raison: str) -> PrixInternetLu:
     """Résultat `non_verifiable` : `produit_trouve`/`source_url` gardés
     quand présents (utiles à l'humain même sans prix fiable), `prix` et le
@@ -400,20 +446,44 @@ def _motif_entier(entier: str) -> str:
     return premier + "".join(f"{optionnel}{chiffre}" for chiffre in reste)
 
 
+# Garde 4, bornes du nombre recherché (fix round 1, revue T2) :
+# - avant : ni collé à un chiffre ou une lettre (`[^\W_]` = alphanumérique
+#   unicode, donc « AB12,34 » ne valide pas 12,34), ni précédé d'un
+#   « chiffre + séparateur de milliers » qui le rattacherait en réalité à
+#   un nombre plus grand (`1 212,34` ne doit valider que 1212,34, jamais
+#   212,34 -- la garde ci-dessous inspecte les 2 caractères qui précèdent).
+_PAS_PRECEDE_DUN_CHIFFRE_OU_DUNE_LETTRE = r"(?<![^\W_])"
+_PAS_PRECEDE_DUN_MILLIER = rf"(?<!\d[{_SEPARATEURS_PRIX}])"
+_AVANT_PRIX = _PAS_PRECEDE_DUN_CHIFFRE_OU_DUNE_LETTRE + _PAS_PRECEDE_DUN_MILLIER
+# - après : ni chiffre ni lettre (`12,34eme` ne valide pas 12,34 ; un « € »
+#   ou une fin de texte/phrase après un espace restent acceptés puisque
+#   l'espace lui-même n'est ni l'un ni l'autre -- `12,34 €TTC` est donc
+#   accepté, la garde ne regarde que le caractère immédiatement collé).
+_APRES_PRIX = r"(?!\d)(?![^\W\d_])"
+
+
 def _prix_dans_texte(prix: Decimal, texte: str) -> bool:
     """Garde 4 : le prix (arrondi à 2 décimales pour la recherche, comme
     un prix imprimé) doit apparaître dans `texte`, jamais collé à d'autres
-    chiffres (`(?<!\\d)`/`(?!\\d)` : `112,34` ne valide pas `12,34`). Un
-    prix entier est aussi cherché sous la forme « nombre suivi de €/EUR »
-    en plus de son écriture à deux décimales (`45,00`/`45.00`, déjà
-    couverte par le premier motif)."""
+    chiffres ni à des lettres (`_AVANT_PRIX`/`_APRES_PRIX`) : ni
+    `112,34` pour 12,34, ni `AB12,34`, ni `12,34eme`, ni `1 212,34` pour
+    212,34 (seul 1212,34 y est valide). Un prix entier est aussi cherché
+    sous la forme « nombre suivi de €/EUR » en plus de son écriture à deux
+    décimales (`45,00`/`45.00`, déjà couverte par le premier motif) : le
+    « € » est accepté collé ou après un simple espace, « EUR » doit être un
+    mot entier (`EUR\\b`) pour ne pas matcher un mot qui commence pareil
+    (« 45 Euromaster »)."""
     prix_2dec = prix.quantize(Decimal("0.01"))
     entier_str, decimales_str = f"{prix_2dec:.2f}".split(".")
     motif_entier = _motif_entier(entier_str)
 
-    motifs = [rf"(?<!\d){motif_entier}[.,]{decimales_str}(?!\d)"]
+    motifs = [rf"{_AVANT_PRIX}{motif_entier}[.,]{decimales_str}{_APRES_PRIX}"]
     if decimales_str == "00":
-        motifs.append(rf"(?<!\d){motif_entier}[{_SEPARATEURS_PRIX}]?(?:€|EUR)")
+        separateur_devise = f"[{_SEPARATEURS_MILLIERS}]?"
+        motifs.append(rf"{_AVANT_PRIX}{motif_entier}{separateur_devise}€")
+        motifs.append(
+            rf"{_AVANT_PRIX}{motif_entier}{separateur_devise}EUR\b{_APRES_PRIX}"
+        )
 
     return any(re.search(motif, texte, re.IGNORECASE) for motif in motifs)
 
@@ -430,7 +500,10 @@ def lire_prix_internet(structure: Any, pages: Sequence[PageLue]) -> PrixInternet
 
     statut_brut = structure.get("statut")
 
-    # Garde 1.
+    # Garde 1. `raison` est coupée brutalement à `_RAISON_MAX` caractères
+    # (jamais `_tronquer` : pas de règle « … sans couper un mot » pour ce
+    # champ, le brief ne la décrit que pour `resume`/le texte d'une action
+    # de la synthèse).
     if statut_brut == "prix_non_verifiable":
         raison_brute = _texte_ou_none(structure.get("raison"))
         raison = (
@@ -449,9 +522,7 @@ def lire_prix_internet(structure: Any, pages: Sequence[PageLue]) -> PrixInternet
     confiance = structure.get("confiance")
 
     reponse_complete = (
-        _est_nombre(prix_brut)
-        and prix_brut is not None
-        and prix_brut > 0
+        _est_prix_valide(prix_brut)
         and isinstance(devise_brute, str)
         and devise_brute.strip().upper() == "EUR"
         and source_url is not None

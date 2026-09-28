@@ -263,6 +263,32 @@ def test_lire_explication_chiffre_invente_refuse() -> None:
         lire_explication(structure, detail)
 
 
+def test_lire_explication_nombre_espace_groupe_accepte_par_parties() -> None:
+    """Fix round 1, revue T2 : `nombres_du_texte("5 300")` fusionne en
+    `{5300}` (spécifié, testé à part), mais « 5 » et « 300 » sont ici deux
+    valeurs réellement distinctes du détail -- acceptée via la lecture
+    partie par partie."""
+    detail = {"nb_alertes": 5, "nb_bons": 300}
+    structure = {"explication": "5 300 bons contrôlés ce mois-ci."}
+
+    assert lire_explication(structure, detail) == "5 300 bons contrôlés ce mois-ci."
+
+
+def test_lire_explication_nombre_espace_groupe_accepte_par_valeur_fusionnee() -> None:
+    detail = {"total": 5300}
+    structure = {"explication": "5 300 bons contrôlés ce mois-ci."}
+
+    assert lire_explication(structure, detail) == "5 300 bons contrôlés ce mois-ci."
+
+
+def test_lire_explication_nombre_espace_groupe_refuse_si_partie_absente() -> None:
+    detail = {"nb_alertes": 5}
+    structure = {"explication": "5 300 bons contrôlés ce mois-ci."}
+
+    with pytest.raises(ReponseIAInvalide, match="chiffre absent des données"):
+        lire_explication(structure, detail)
+
+
 def test_lire_explication_date_recopiee_acceptee() -> None:
     detail = {"date": "2026-09-01"}
     structure = {"explication": "Constaté le 01/09/2026 sur le bon."}
@@ -536,6 +562,144 @@ def test_lire_prix_internet_garde4_prix_colle_a_dautres_chiffres_refuse() -> Non
 
     assert resultat.statut == "non_verifiable"
     assert resultat.raison == "prix absent de la page"
+
+
+def test_lire_prix_internet_garde4_nombre_colle_a_un_mot_refuse() -> None:
+    """Fix round 1, revue T2 : `(?:€|EUR)` sans borne de mot faisait
+    matcher « Eur » au début de « Euromaster » (`re.IGNORECASE`)."""
+    structure = _structure_trouve(prix=45, source_url="https://fournisseur.test/ciment")
+    pages = [
+        PageLue(
+            outil="webfetch",
+            adresse="https://fournisseur.test/ciment",
+            texte="Voir aussi le pneu modele 45 Euromaster en promotion",
+        )
+    ]
+
+    resultat = lire_prix_internet(structure, pages=pages)
+
+    assert resultat.statut == "non_verifiable"
+    assert resultat.raison == "prix absent de la page"
+
+
+def test_lire_prix_internet_garde4_nombre_suivi_dune_lettre_refuse() -> None:
+    """Fix round 1, revue T2 : seul `(?!\\d)` après le nombre laissait
+    passer un suffixe alphabétique collé (« 12,34eme »)."""
+    structure = _structure_trouve(
+        prix=12.34, source_url="https://fournisseur.test/ciment"
+    )
+    pages = [
+        PageLue(
+            outil="webfetch",
+            adresse="https://fournisseur.test/ciment",
+            texte="Reference produit 12,34eme lot",
+        )
+    ]
+
+    resultat = lire_prix_internet(structure, pages=pages)
+
+    assert resultat.statut == "non_verifiable"
+    assert resultat.raison == "prix absent de la page"
+
+
+def test_lire_prix_internet_garde4_nombre_precede_dune_lettre_refuse() -> None:
+    """Fix round 1, revue T2 : seul `(?<!\\d)` avant le nombre laissait
+    passer un préfixe alphabétique collé (« AB12,34 »)."""
+    structure = _structure_trouve(
+        prix=12.34, source_url="https://fournisseur.test/ciment"
+    )
+    pages = [
+        PageLue(
+            outil="webfetch",
+            adresse="https://fournisseur.test/ciment",
+            texte="Ref AB12,34 en stock",
+        )
+    ]
+
+    resultat = lire_prix_internet(structure, pages=pages)
+
+    assert resultat.statut == "non_verifiable"
+    assert resultat.raison == "prix absent de la page"
+
+
+def test_lire_prix_internet_garde4_milliers_ne_valide_pas_la_sous_partie() -> None:
+    """Fix round 1, revue T2 : `1 212,34 €` ne doit pas valider un prix de
+    212,34 -- seul le nombre complet 1212,34 y figure réellement."""
+    structure = _structure_trouve(
+        prix=212.34, source_url="https://fournisseur.test/ciment"
+    )
+    pages = [
+        PageLue(
+            outil="webfetch",
+            adresse="https://fournisseur.test/ciment",
+            texte="Prix catalogue : 1 212,34 €",
+        )
+    ]
+
+    resultat = lire_prix_internet(structure, pages=pages)
+
+    assert resultat.statut == "non_verifiable"
+    assert resultat.raison == "prix absent de la page"
+
+
+def test_lire_prix_internet_garde4_milliers_valide_le_nombre_complet() -> None:
+    structure = _structure_trouve(
+        prix=1212.34, source_url="https://fournisseur.test/ciment"
+    )
+    pages_espace = [
+        PageLue(
+            outil="webfetch",
+            adresse="https://fournisseur.test/ciment",
+            texte="Prix catalogue : 1 212,34 €",
+        )
+    ]
+    pages_point = [
+        PageLue(
+            outil="webfetch",
+            adresse="https://fournisseur.test/ciment",
+            texte="Prix catalogue : 1.212,34 €",
+        )
+    ]
+
+    assert lire_prix_internet(structure, pages=pages_espace).statut == "trouve"
+    assert lire_prix_internet(structure, pages=pages_point).statut == "trouve"
+
+
+@pytest.mark.parametrize(
+    "texte", ["45 EUR", "45€", "45 €"], ids=["mot-eur", "colle", "espace"]
+)
+def test_lire_prix_internet_garde4_prix_entier_formes_devise_acceptees(
+    texte: str,
+) -> None:
+    structure = _structure_trouve(prix=45, source_url="https://fournisseur.test/ciment")
+    pages = [
+        PageLue(
+            outil="webfetch", adresse="https://fournisseur.test/ciment", texte=texte
+        )
+    ]
+
+    assert lire_prix_internet(structure, pages=pages).statut == "trouve"
+
+
+def test_lire_prix_internet_garde4_texte_apres_espace_nempeche_pas_la_validation() -> (
+    None
+):
+    """Choix documenté (fix round 1, revue T2) : la garde ne vérifie que le
+    caractère immédiatement collé au nombre. Un espace suffit à le
+    démarquer, même si un mot suit ensuite (« €TTC ») -- seul un caractère
+    directement collé (chiffre ou lettre) invalide le nombre."""
+    structure = _structure_trouve(
+        prix=12.34, source_url="https://fournisseur.test/ciment"
+    )
+    pages = [
+        PageLue(
+            outil="webfetch",
+            adresse="https://fournisseur.test/ciment",
+            texte="Prix : 12,34 €TTC",
+        )
+    ]
+
+    assert lire_prix_internet(structure, pages=pages).statut == "trouve"
 
 
 def test_lire_prix_internet_garde4_prix_entier_avec_symbole_euro() -> None:
