@@ -22,6 +22,7 @@ from app.modules.api import (
     journal,
     moi,
     parametres,
+    prix,
     referentiels,
     tableau_de_bord,
 )
@@ -39,5 +40,6 @@ router.include_router(parametres.router)
 router.include_router(tableau_de_bord.router)
 router.include_router(commentaires.router)
 router.include_router(grilles.router)
+router.include_router(prix.router)
 
 __all__ = ["router"]

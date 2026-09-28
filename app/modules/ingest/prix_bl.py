@@ -22,11 +22,36 @@ mécanisme que `ingest.rapprochement.rapprocher_facture`).
   archivés (optionnellement restreints à un fournisseur et/ou datés à
   partir d'une date), chacun dans sa propre transaction -- réutilisée par
   `apres_changement_grille` (import/saisie d'un prix, spec §6.4) et par la
-  commande CLI `controler-prix` (spec §6.2). Le recontrôle « bons portant
-  une alerte de prix ouverte sur le même produit » (validation d'un prix,
-  spec §6.4) n'est pas encore câblé ici : il appartient à la page Prix
-  (tâche P8, pas encore construite) -- `ingest.grilles.apres_changement_
-  grille` ignore pour l'instant son paramètre `cle_produit_modifiee`.
+  commande CLI `controler-prix` (spec §6.2).
+
+Tâche P8 (page « Prix à vérifier », spec §8) -- ajoutée à ce module plutôt
+qu'à `ingest.grilles` : le recontrôle « bons portant une alerte de prix
+ouverte sur le même produit » après une validation (spec §6.4) n'a pas
+besoin de reparcourir la base par `cle_produit` -- `valider_prix` connaît
+déjà, par construction (`anomalie_ids` couvre tout le groupe, tel que rendu
+par `lister_alertes_prix`), l'ensemble exact des documents à recontrôler ;
+`ingest.grilles.apres_changement_grille` garde donc son paramètre
+`cle_produit_modifiee` non câblé (import/saisie seuls l'appellent, jamais
+avec ce paramètre).
+- `lister_alertes_prix` (spec §8.1) : alertes ouvertes R19-R25 non
+  masquées, regroupées par produit (clé de grille retrouvée si une règle de
+  correspondance grille l'a posée, sinon clé calculée sur la ligne du bon,
+  spec §4.1) -- une ligne d'un bon peut porter plusieurs alertes (ex.
+  R19+R20), un même produit peut porter plusieurs bons. Triée par gravité,
+  puis écart décroissant, puis date du bon décroissante.
+- `valider_prix`/`contester_prix`/`ignorer_prix` (spec §8.2) : vérifient
+  d'abord que `anomalie_ids` désigne des alertes toutes ouvertes, toutes de
+  prix (R19-R25) et toutes du même groupe produit (`AlertesInvalides`, 409,
+  sinon -- rien n'est modifié). `valider_prix` ajoute une ligne `grille_prix`
+  (`source="validation"`), ferme les alertes du groupe au même prix que la
+  ligne validée, puis recontrôle les bons du groupe (spec §6.4). Chaque
+  alerte fermée écrit aussi l'entrée `anomalie_traitee`/`anomalie_ignoree`
+  habituelle (même journal que `ingest.anomalies.traiter_anomalie`), en plus
+  de l'entrée `prix_valide`/`prix_conteste`/`prix_ignore` propre à l'action.
+- `recontroler_depuis_page` : bouton « Recontrôler les bons » (spec §8.2) --
+  même règle de date par défaut que la commande CLI `controler-prix`
+  (1ᵉʳ jour du mois précédent, dupliquée ici -- `ingest` ne peut pas
+  importer `app.cli`).
 
 Masquage (spec §6.5) : ce module ne masque rien lui-même -- il lit les
 réglages `prix_…` (interrupteur général et les sept alertes) pour décider
@@ -43,37 +68,63 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time
-from decimal import Decimal
+from datetime import UTC, date, datetime, time, timedelta
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.fuseau import FUSEAU_PARIS
-from app.modules.ingest.anomalies import synchroniser_anomalies
-from app.modules.ingest.commun import CLE_ALERTE_PAR_REGLE, CLE_PRIX_CONTROLE_BL_ACTIF
+from app.modules.ingest.anomalies import (
+    COMMENTAIRE_LONGUEUR_MAX,
+    COMMENTAIRE_LONGUEUR_MIN,
+    synchroniser_anomalies,
+)
+from app.modules.ingest.commun import (
+    CLE_ALERTE_PAR_REGLE,
+    CLE_PRIX_CONTROLE_BL_ACTIF,
+    regles_masquees,
+)
 from app.modules.ingest.commun import logger as _logger
 from app.modules.ingest.grilles import PrixVigueur, prix_en_vigueur
-from app.modules.ingest.models import Anomalie, Article, Document, Ligne
+from app.modules.ingest.models import (
+    Anomalie,
+    Article,
+    Document,
+    Fournisseur,
+    GrillePrix,
+    Journal,
+    Ligne,
+)
 from app.modules.ingest.parametres import DEFINITIONS_PAR_CLE
 from app.modules.ingest.referentiels import lire_parametre_decimal
 from app.modules.normalize.prix import (
     ProduitGrille,
+    cle_produit,
     normaliser_reference,
     ressemblance_produit,
     trouver_produit,
     unites_comparables,
 )
 from app.modules.normalize.prix import prix_net as _prix_net_grille
+from app.modules.normalize.unites import normaliser_unite
 from app.modules.rules.engine import REGLES_PRIX_BL, evaluer_prix_bl
 from app.modules.rules.modeles import LignePrixBl, ParametresPrixBl, ReferencePrix
 
 __all__ = [
+    "AlerteProduit",
+    "AlertesInvalides",
     "ResultatRecontrolePrix",
+    "ValidationPrixEffectuee",
+    "contester_prix",
     "controler_prix_bl",
     "controler_prix_bl_sans_echec",
+    "ignorer_prix",
+    "lister_alertes_prix",
     "recontroler_bons",
+    "recontroler_depuis_page",
+    "valider_prix",
 ]
 
 # Types de document soumis au contrôle des prix (bons d'enlèvement Point.P
@@ -592,3 +643,756 @@ async def recontroler_bons(
     return ResultatRecontrolePrix(
         nb_bons=len(ids), nb_echecs=nb_echecs, nb_alertes_ouvertes=total_ouvertes
     )
+
+
+# --------------------------------------------------------------------------
+# Page « Prix à vérifier » (spec §8, tâche P8).
+# --------------------------------------------------------------------------
+
+# Tiret cadratin -- même convention que `rules.rules._prix_bl.TIRET` pour une
+# valeur de `detail` absente ; dupliqué ici (module pur non importable en
+# pratique commode depuis `ingest`, même principe que `_prix_net_facture`
+# ci-dessus qui duplique déjà l'idiome plutôt que d'importer un module privé
+# de `rules.rules`).
+_TIRET = "—"
+
+# Règles qui posent une correspondance de grille (spec §5.2) : seules
+# celles-là peuvent porter `designation_grille` dans leur `detail`, socle du
+# regroupement par produit (spec §8.1, §4.1).
+_REGLES_GRILLE: frozenset[str] = frozenset({"R19", "R21", "R23", "R25"})
+
+# Règles qui portent un écart chiffré (`ecart_pct`) dans leur `detail` --
+# R22 (absent de la grille), R23 (reconnu par le nom) et R24/R25 n'en
+# portent pas (spec §5.2).
+_REGLES_ECART: frozenset[str] = frozenset({"R19", "R20", "R21"})
+
+_GRAVITE_RANG: dict[str, int] = {"haute": 0, "moyenne": 1, "basse": 2}
+
+
+def _premier_jour_mois_precedent(aujourdhui: date) -> date:
+    """Dupliqué depuis `app.cli._premier_jour_mois_precedent` (`ingest` ne
+    peut pas importer `app.cli`, sens interdit de dépendance) : borne par
+    défaut du recontrôle « Recontrôler les bons » (spec §6.2), identique à
+    celle de la commande CLI `controler-prix`."""
+    if aujourdhui.month == 1:
+        return date(aujourdhui.year - 1, 12, 1)
+    return date(aujourdhui.year, aujourdhui.month - 1, 1)
+
+
+def _formater_montant(montant: Decimal) -> str:
+    """Dupliqué depuis `ingest.export._formater_montant` (deux décimales,
+    virgule française, arrondi comptable `ROUND_HALF_UP`) : matière du
+    commentaire automatique de `valider_prix` (spec §8.2, « Prix validé :
+    12,34 € (grille mise à jour) »)."""
+    arrondi = montant.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return f"{arrondi:.2f}".replace(".", ",")
+
+
+def _decimal_ou_aucun(brut: Any) -> Decimal | None:
+    """Une valeur de `detail` (toujours une chaîne, moteur de règles pur) en
+    `Decimal`, ou `None` si absente/illisible (même prudence que
+    `ingest.tableau_de_bord._montant_en_jeu` : le tiret cadratin `TIRET` des
+    valeurs manquantes n'est jamais converti)."""
+    if brut is None:
+        return None
+    try:
+        return Decimal(str(brut))
+    except InvalidOperation:
+        return None
+
+
+def _entier_ou_aucun(brut: Any) -> int | None:
+    valeur = _decimal_ou_aucun(brut)
+    return int(valeur) if valeur is not None else None
+
+
+def _date_ou_aucune(brut: Any) -> date | None:
+    if not isinstance(brut, str):
+        return None
+    try:
+        return date.fromisoformat(brut)
+    except ValueError:
+        return None
+
+
+def _texte_ou_aucun(brut: Any) -> str | None:
+    if brut is None or brut == _TIRET:
+        return None
+    return str(brut)
+
+
+@dataclass(frozen=True)
+class _LigneAlerte:
+    """Une ligne de bon portant au moins une alerte de prix ouverte, avec
+    toutes ses anomalies (potentiellement plusieurs règles sur la même
+    ligne, ex. R19+R20) -- aide interne à `lister_alertes_prix` et à la
+    vérification du groupe des actions (`_charger_groupe`)."""
+
+    ligne: Ligne
+    document: Document
+    fournisseur_nom: str
+    anomalies: tuple[Anomalie, ...]
+
+
+def _cle_groupe(ligne_alerte: _LigneAlerte) -> str:
+    """Clé de regroupement d'une ligne en alerte par produit (spec §8.1) :
+    celle du produit de grille retrouvé, si une des anomalies de cette
+    ligne porte `designation_grille` (règles de grille, spec §5.2) --
+    combinée à `code` seulement quand la correspondance a été faite par
+    référence (seul cas où `code` coïncide avec la référence du produit de
+    grille, spec §4.3) ; sinon la clé calculée sur la ligne du bon elle-même
+    (spec §4.1, même calcul qu'`ingest.grilles` pour une ligne de grille).
+
+    R25 seule (sans R19/R21/R23) ne porte pas `designation_grille` -- mais
+    elle n'est possible que lorsque le produit a été retrouvé par référence
+    (R23 se déclenche sans condition de seuil dès qu'un produit est retrouvé
+    par le nom, spec §5.2) : le repli sur la ligne du bon calcule alors la
+    même clé `ref:...` que le produit de grille, sans perte."""
+    for anomalie in ligne_alerte.anomalies:
+        if anomalie.regle in _REGLES_GRILLE:
+            designation_grille = anomalie.detail.get("designation_grille")
+            if designation_grille:
+                methode = anomalie.detail.get("methode")
+                code = anomalie.detail.get("code")
+                reference = code if methode == "reference" and code != _TIRET else None
+                return cle_produit(reference, str(designation_grille))
+    ligne = ligne_alerte.ligne
+    return cle_produit(ligne.code_brut, ligne.article_brut)
+
+
+def _fournisseur_id_document(document: Document) -> uuid.UUID:
+    """`Document.fournisseur_id` est `UUID | None` en base, mais toute ligne
+    lue par `lister_alertes_prix`/`_charger_groupe` vient d'une jointure
+    (interne, ou déjà vérifiée par `controler_prix_bl` qui n'écrit jamais
+    d'anomalie de prix sur un document sans fournisseur) : ce repli (jamais
+    atteint en pratique) évite un `assert` défensif (interdit, CLAUDE.md/
+    `ruff` S101) sur une colonne que le type ORM garde optionnelle -- même
+    principe que `_pu_ht` ci-dessus."""
+    return (
+        document.fournisseur_id
+        if document.fournisseur_id is not None
+        else uuid.UUID(int=0)
+    )
+
+
+@dataclass(frozen=True)
+class AlerteProduit:
+    """Une rangée de la page « Prix à vérifier » (spec §8.1) -- un produit,
+    regroupant toutes les alertes ouvertes de tous ses bons. Les champs
+    « grille »/« dernier prix » viennent du bon le plus récent du groupe
+    (`date_bon`, puis `Document.created_at`) ; `nb_bons`/
+    `nb_prix_differents` comptent sur l'ensemble du groupe."""
+
+    fournisseur_id: uuid.UUID
+    fournisseur: str
+    produit: str
+    code: str | None
+    prix_bon: Decimal
+    unite_bon: str | None
+    date_bon: date
+    nb_bons: int
+    nb_prix_differents: int
+    prix_grille: Decimal | None
+    unite_grille: str | None
+    date_grille: date | None
+    grille_posterieure_au_bon: bool
+    dernier_prix: Decimal | None
+    unite_dernier_prix: str | None
+    date_dernier_prix: date | None
+    numero_facture: str | None
+    ecart_pct: Decimal | None
+    methode: str | None
+    ressemblance: int | None
+    regles: tuple[str, ...]
+    anomalie_ids: tuple[uuid.UUID, ...]
+    document_id: uuid.UUID
+    ligne_id: uuid.UUID
+    numero_interne: int | None
+
+
+def _date_bon_ligne(ligne_alerte: _LigneAlerte) -> date:
+    document = ligne_alerte.document
+    if document.date_doc is not None:
+        return document.date_doc
+    return document.created_at.astimezone(FUSEAU_PARIS).date()
+
+
+def _cle_tri_recent(ligne_alerte: _LigneAlerte) -> tuple[date, datetime]:
+    return (_date_bon_ligne(ligne_alerte), ligne_alerte.document.created_at)
+
+
+def _trouver_anomalie(
+    items_du_plus_recent: Sequence[_LigneAlerte], regles: frozenset[str]
+) -> Anomalie | None:
+    """La première anomalie de l'une de `regles`, en parcourant les lignes
+    du groupe du plus récent bon au plus ancien (spec §8.1 : les champs
+    affichés viennent du bon le plus récent, à défaut de celui qui en porte
+    encore la trace)."""
+    for item in items_du_plus_recent:
+        for anomalie in item.anomalies:
+            if anomalie.regle in regles:
+                return anomalie
+    return None
+
+
+def _plus_grand_ecart(anomalies: Sequence[Anomalie]) -> Decimal | None:
+    """Le plus grand des écarts (en valeur absolue, signe conservé) parmi
+    les anomalies de `_REGLES_ECART` -- spec §8.1 : « le plus grand des deux
+    écarts calculés, avec sa flèche »."""
+    valeurs = [
+        valeur
+        for anomalie in anomalies
+        if anomalie.regle in _REGLES_ECART
+        for valeur in (_decimal_ou_aucun(anomalie.detail.get("ecart_pct")),)
+        if valeur is not None
+    ]
+    if not valeurs:
+        return None
+    return max(valeurs, key=abs)
+
+
+def _gravite_rang(items: Sequence[_LigneAlerte]) -> int:
+    return min(
+        _GRAVITE_RANG.get(anomalie.gravite, 3)
+        for item in items
+        for anomalie in item.anomalies
+    )
+
+
+def _alerte_produit(items: Sequence[_LigneAlerte]) -> AlerteProduit:
+    items_tries = sorted(items, key=_cle_tri_recent, reverse=True)
+    plus_recent = items_tries[0]
+
+    toutes_anomalies = tuple(a for item in items for a in item.anomalies)
+    regles = tuple(sorted({a.regle for a in toutes_anomalies}))
+    anomalie_ids = tuple(a.id for a in toutes_anomalies)
+
+    document_ids = {item.document.id for item in items}
+    prix_distincts = {
+        item.ligne.pu_ht for item in items if item.ligne.pu_ht is not None
+    }
+
+    grille_anomalie = _trouver_anomalie(items_tries, _REGLES_GRILLE)
+    dernier_prix_anomalie = _trouver_anomalie(items_tries, frozenset({"R20"}))
+
+    prix_grille = unite_grille = date_grille = None
+    methode = ressemblance = None
+    grille_posterieure_au_bon = False
+    if grille_anomalie is not None:
+        detail = grille_anomalie.detail
+        prix_grille = _decimal_ou_aucun(detail.get("prix_grille"))
+        unite_grille = _texte_ou_aucun(detail.get("unite_grille"))
+        date_grille = _date_ou_aucune(detail.get("date_grille"))
+        methode = detail.get("methode")
+        ressemblance = _entier_ou_aucun(detail.get("ressemblance"))
+        grille_posterieure_au_bon = detail.get("grille_posterieure_au_bon") == "oui"
+
+    dernier_prix = unite_dernier_prix = date_dernier_prix = numero_facture = None
+    if dernier_prix_anomalie is not None:
+        detail = dernier_prix_anomalie.detail
+        dernier_prix = _decimal_ou_aucun(detail.get("dernier_prix"))
+        unite_dernier_prix = _texte_ou_aucun(detail.get("unite_dernier_prix"))
+        date_dernier_prix = _date_ou_aucune(detail.get("date_dernier_prix"))
+        numero_facture = _texte_ou_aucun(detail.get("numero_facture"))
+        if methode is None:
+            methode = detail.get("methode")
+        if ressemblance is None:
+            ressemblance = _entier_ou_aucun(detail.get("ressemblance"))
+
+    return AlerteProduit(
+        fournisseur_id=_fournisseur_id_document(plus_recent.document),
+        fournisseur=plus_recent.fournisseur_nom,
+        produit=plus_recent.ligne.article_brut or "",
+        code=plus_recent.ligne.code_brut,
+        prix_bon=_pu_ht(plus_recent.ligne),
+        unite_bon=plus_recent.ligne.unite_brut,
+        date_bon=_date_bon_ligne(plus_recent),
+        nb_bons=len(document_ids),
+        nb_prix_differents=len(prix_distincts),
+        prix_grille=prix_grille,
+        unite_grille=unite_grille,
+        date_grille=date_grille,
+        grille_posterieure_au_bon=grille_posterieure_au_bon,
+        dernier_prix=dernier_prix,
+        unite_dernier_prix=unite_dernier_prix,
+        date_dernier_prix=date_dernier_prix,
+        numero_facture=numero_facture,
+        ecart_pct=_plus_grand_ecart(plus_recent.anomalies),
+        methode=methode,
+        ressemblance=ressemblance,
+        regles=regles,
+        anomalie_ids=anomalie_ids,
+        document_id=plus_recent.document.id,
+        ligne_id=plus_recent.ligne.id,
+        numero_interne=plus_recent.document.numero_interne,
+    )
+
+
+def _cle_tri_produit(items: Sequence[_LigneAlerte], produit: AlerteProduit) -> Any:
+    """Tri de la page Prix (spec §8.1) : gravité haute d'abord, puis écart
+    décroissant (en valeur absolue -- une alerte sans écart chiffré, ex.
+    R22/R23/R24/R25 seules, est classée après celles qui en ont un), puis
+    date du bon décroissante."""
+    ecart_abs = abs(produit.ecart_pct) if produit.ecart_pct is not None else Decimal(-1)
+    return (_gravite_rang(items), -ecart_abs, -produit.date_bon.toordinal())
+
+
+async def lister_alertes_prix(
+    session: AsyncSession,
+    *,
+    periode: str = "tout",
+    fournisseur_id: uuid.UUID | None = None,
+) -> tuple[AlerteProduit, ...]:
+    """Alertes de prix ouvertes et non masquées (spec §8.1), regroupées par
+    produit (`_cle_groupe`). `periode="jour"` : anomalies créées aujourd'hui
+    (heure de Paris) seulement -- `"tout"` (défaut) ne filtre pas."""
+    exclues = await regles_masquees(session)
+    conditions: list[Any] = [
+        Anomalie.regle.in_(tuple(REGLES_PRIX_BL)),
+        Anomalie.statut == "ouverte",
+    ]
+    if exclues:
+        conditions.append(Anomalie.regle.not_in(tuple(exclues)))
+    if periode == "jour":
+        aujourdhui = datetime.now(FUSEAU_PARIS).date()
+        conditions.append(Anomalie.created_at >= _debut_journee_paris(aujourdhui))
+        conditions.append(
+            Anomalie.created_at < _debut_journee_paris(aujourdhui + timedelta(days=1))
+        )
+    if fournisseur_id is not None:
+        conditions.append(Document.fournisseur_id == fournisseur_id)
+
+    resultat = await session.execute(
+        select(Anomalie, Ligne, Document, Fournisseur.nom)
+        .join(Ligne, Ligne.id == Anomalie.ligne_id)
+        .join(Document, Document.id == Anomalie.document_id)
+        .join(Fournisseur, Fournisseur.id == Document.fournisseur_id)
+        .where(*conditions)
+    )
+
+    par_ligne_anomalies: dict[uuid.UUID, list[Anomalie]] = {}
+    par_ligne_contexte: dict[uuid.UUID, tuple[Ligne, Document, str]] = {}
+    for anomalie, ligne, document, fournisseur_nom in resultat.all():
+        par_ligne_anomalies.setdefault(ligne.id, []).append(anomalie)
+        par_ligne_contexte.setdefault(ligne.id, (ligne, document, fournisseur_nom))
+
+    groupes: dict[tuple[uuid.UUID, str], list[_LigneAlerte]] = {}
+    for ligne_id, anomalies in par_ligne_anomalies.items():
+        ligne, document, fournisseur_nom = par_ligne_contexte[ligne_id]
+        ligne_alerte = _LigneAlerte(
+            ligne=ligne,
+            document=document,
+            fournisseur_nom=fournisseur_nom,
+            anomalies=tuple(anomalies),
+        )
+        cle = (_fournisseur_id_document(document), _cle_groupe(ligne_alerte))
+        groupes.setdefault(cle, []).append(ligne_alerte)
+
+    resultats = [(items, _alerte_produit(items)) for items in groupes.values()]
+    resultats.sort(key=lambda paire: _cle_tri_produit(paire[0], paire[1]))
+    return tuple(produit for _, produit in resultats)
+
+
+# --------------------------------------------------------------------------
+# Actions de la page Prix (spec §8.2).
+# --------------------------------------------------------------------------
+
+
+class AlertesInvalides(Exception):
+    """`anomalie_ids` ne désigne pas des alertes toutes ouvertes, toutes de
+    prix (R19-R25) et toutes du même groupe produit (spec §8.2 : 409, rien
+    n'est modifié)."""
+
+
+async def _charger_groupe(
+    session: AsyncSession, anomalie_ids: Sequence[uuid.UUID]
+) -> tuple[list[Anomalie], uuid.UUID]:
+    """Charge les anomalies de `anomalie_ids` et vérifie qu'elles forment un
+    groupe valide pour une action de la page Prix (spec §8.2) : non vide,
+    toutes existantes, toutes `ouverte`, toutes de prix (R19-R25), toutes du
+    même fournisseur et du même produit (`_cle_groupe`, agrégée par ligne du
+    bon -- une ligne peut porter plusieurs des `anomalie_ids`, ex. R19+R20,
+    et doit alors être regroupée une seule fois). `AlertesInvalides` sinon,
+    avant toute modification. Renvoie les anomalies (peu importe l'ordre) et
+    le `fournisseur_id` du groupe."""
+    if not anomalie_ids:
+        raise AlertesInvalides("aucune alerte sélectionnée")
+    ids_uniques = tuple(dict.fromkeys(anomalie_ids))
+
+    resultat = await session.execute(
+        select(Anomalie, Ligne, Document)
+        .join(Ligne, Ligne.id == Anomalie.ligne_id)
+        .join(Document, Document.id == Anomalie.document_id)
+        .where(Anomalie.id.in_(ids_uniques))
+    )
+    lignes = resultat.all()
+    trouve_par_id = {
+        anomalie.id: (anomalie, ligne, document) for anomalie, ligne, document in lignes
+    }
+    if len(trouve_par_id) != len(ids_uniques):
+        raise AlertesInvalides("alerte introuvable")
+
+    elements = [trouve_par_id[i] for i in ids_uniques]
+    for anomalie, _ligne, _document in elements:
+        if anomalie.statut != "ouverte" or anomalie.regle not in REGLES_PRIX_BL:
+            raise AlertesInvalides(
+                "alerte déjà réglée, ou hors du contrôle des prix des bons"
+            )
+
+    par_ligne_anomalies: dict[uuid.UUID, list[Anomalie]] = {}
+    par_ligne_contexte: dict[uuid.UUID, tuple[Ligne, Document]] = {}
+    for anomalie, ligne, document in elements:
+        par_ligne_anomalies.setdefault(ligne.id, []).append(anomalie)
+        par_ligne_contexte.setdefault(ligne.id, (ligne, document))
+
+    cle_reference: tuple[uuid.UUID | None, str] | None = None
+    for ligne_id, anomalies_ligne in par_ligne_anomalies.items():
+        ligne, document = par_ligne_contexte[ligne_id]
+        ligne_alerte = _LigneAlerte(
+            ligne=ligne,
+            document=document,
+            fournisseur_nom="",
+            anomalies=tuple(anomalies_ligne),
+        )
+        cle = (document.fournisseur_id, _cle_groupe(ligne_alerte))
+        if cle_reference is None:
+            cle_reference = cle
+        elif cle != cle_reference:
+            raise AlertesInvalides(
+                "les alertes ne portent pas toutes sur le même produit"
+            )
+
+    fournisseur_id = cle_reference[0] if cle_reference is not None else None
+    if fournisseur_id is None:
+        # Toujours faux en pratique (un bon contrôlé a nécessairement un
+        # fournisseur, `controler_prix_bl` l'exige) -- défensif, jamais un
+        # `assert` dans du code de production (S101).
+        raise AlertesInvalides("fournisseur introuvable pour ce groupe")
+
+    return [anomalie for anomalie, _ligne, _document in elements], fournisseur_id
+
+
+def _avant_anomalie(anomalie: Anomalie) -> dict[str, str | None]:
+    return {"statut": anomalie.statut, "commentaire": anomalie.commentaire}
+
+
+def _fermer_anomalie(
+    anomalie: Anomalie, *, statut: str, commentaire: str, auteur_id: uuid.UUID
+) -> None:
+    anomalie.statut = statut
+    anomalie.commentaire = commentaire
+    anomalie.traitee_par = auteur_id
+    anomalie.traitee_le = datetime.now(UTC)
+
+
+_ACTION_JOURNAL_PAR_STATUT: dict[str, str] = {
+    "traitee": "anomalie_traitee",
+    "ignoree": "anomalie_ignoree",
+}
+
+
+@dataclass(frozen=True)
+class ValidationPrixEffectuee:
+    """Résultat de `valider_prix` (spec §8.2)."""
+
+    prix_net: Decimal
+    date_effet: date
+    nb_alertes_reglees: int
+
+
+async def valider_prix(
+    session: AsyncSession,
+    *,
+    anomalie_ids: Sequence[uuid.UUID],
+    ligne_id: uuid.UUID,
+    auteur_id: uuid.UUID,
+) -> ValidationPrixEffectuee:
+    """« Valider ce prix » (spec §8.2) : nouvelle ligne `grille_prix`
+    (`source="validation"`) au prix (sans remise) et à l'unité de la ligne
+    `ligne_id` (le bon le plus récent du groupe), date d'effet = date de ce
+    bon ; référence/désignation/marque/famille reprennent le produit de
+    grille retrouvé pour cette ligne s'il existe, sinon le code et la
+    désignation du bon (spec §4.3, même correspondance que
+    `controler_prix_bl`). Les alertes du groupe dont le prix du bon (brut,
+    sans remise) est égal à ce prix sont réglées (`traitee`, commentaire
+    automatique) ; les autres restent ouvertes, à recontrôler.
+
+    Lève `AlertesInvalides` (voir `_charger_groupe`) ou si `ligne_id` n'est
+    pas l'une des lignes des alertes fournies. Commite, puis recontrôle
+    (spec §6.4) chaque bon dont une alerte du groupe a été chargée -- une
+    ligne dont le prix diffère peut sortir ou rester en alerte selon la
+    nouvelle grille, réévaluée à ce moment-là."""
+    anomalies, fournisseur_id = await _charger_groupe(session, anomalie_ids)
+
+    lignes_du_groupe = {a.ligne_id for a in anomalies}
+    if ligne_id not in lignes_du_groupe:
+        raise AlertesInvalides(
+            "la ligne indiquée ne correspond à aucune des alertes fournies"
+        )
+
+    ligne = await session.get(Ligne, ligne_id)
+    if ligne is None or ligne.pu_ht is None or ligne.pu_ht <= 0:
+        raise AlertesInvalides("cette ligne n'a plus de prix à valider")
+    document = await session.get(Document, ligne.document_id)
+    if document is None:
+        raise AlertesInvalides("bon introuvable")
+
+    date_bon = (
+        document.date_doc
+        if document.date_doc is not None
+        else document.created_at.astimezone(FUSEAU_PARIS).date()
+    )
+
+    reglages = await _lire_reglages(session)
+    vigueur = await prix_en_vigueur(session, fournisseur_id, date_bon)
+    produits = tuple(
+        ProduitGrille(
+            cle=produit.cle_produit,
+            reference=produit.reference,
+            designation=produit.designation,
+            unite=produit.unite,
+            prix_net=produit.prix_net,
+            date_effet=produit.date_effet,
+        )
+        for produit in vigueur.values()
+    )
+    correspondance = trouver_produit(
+        ligne.code_brut, ligne.article_brut, produits, reglages.seuil_ressemblance
+    )
+    produit_vigueur = (
+        vigueur.get(correspondance.produit.cle)
+        if correspondance is not None and correspondance.produit is not None
+        else None
+    )
+
+    if produit_vigueur is not None:
+        reference = produit_vigueur.reference
+        designation = produit_vigueur.designation
+        marque = produit_vigueur.marque
+        famille = produit_vigueur.famille
+        cle = produit_vigueur.cle_produit
+        ancien_prix_net: Decimal | None = produit_vigueur.prix_net
+    else:
+        reference = ligne.code_brut
+        designation = ligne.article_brut or ""
+        marque = None
+        famille = None
+        cle = cle_produit(ligne.code_brut, ligne.article_brut)
+        ancien_prix_net = None
+
+    unite_normalisee = normaliser_unite(ligne.unite_brut)
+    unite_code = unite_normalisee.code if unite_normalisee is not None else None
+    net = _prix_net_grille(ligne.pu_ht, None)
+
+    nouvelle_ligne = GrillePrix(
+        fournisseur_id=fournisseur_id,
+        cle_produit=cle,
+        reference=reference,
+        designation=designation,
+        unite_brut=ligne.unite_brut,
+        unite=unite_code,
+        prix_ht=ligne.pu_ht,
+        remise_pct=None,
+        prix_net=net,
+        marque=marque,
+        famille=famille,
+        date_effet=date_bon,
+        source="validation",
+        document_id=document.id,
+        ligne_libelle=ligne.article_brut,
+        auteur_id=auteur_id,
+    )
+    session.add(nouvelle_ligne)
+    await session.flush()
+
+    documents_a_recontroler = {
+        a.document_id for a in anomalies if a.document_id is not None
+    }
+    nb_reglees = 0
+    for anomalie in anomalies:
+        ligne_anomalie = await session.get(Ligne, anomalie.ligne_id)
+        prix_ligne_anomalie = (
+            ligne_anomalie.pu_ht if ligne_anomalie is not None else None
+        )
+        if prix_ligne_anomalie is None or prix_ligne_anomalie != ligne.pu_ht:
+            continue
+        avant = _avant_anomalie(anomalie)
+        commentaire = f"Prix validé : {_formater_montant(net)} € (grille mise à jour)"
+        _fermer_anomalie(
+            anomalie, statut="traitee", commentaire=commentaire, auteur_id=auteur_id
+        )
+        session.add(
+            Journal(
+                utilisateur_id=auteur_id,
+                action="anomalie_traitee",
+                cible_table="anomalie",
+                cible_id=str(anomalie.id),
+                avant=avant,
+                apres={"statut": "traitee", "commentaire": commentaire},
+            )
+        )
+        nb_reglees += 1
+
+    session.add(
+        Journal(
+            utilisateur_id=auteur_id,
+            action="prix_valide",
+            cible_table="grille_prix",
+            cible_id=str(nouvelle_ligne.id),
+            avant={
+                "produit": designation,
+                "prix_grille": str(ancien_prix_net)
+                if ancien_prix_net is not None
+                else None,
+            },
+            apres={
+                "produit": designation,
+                "prix_grille": str(net),
+                "date_effet": date_bon.isoformat(),
+                "nb_alertes_reglees": nb_reglees,
+            },
+        )
+    )
+    await session.commit()
+
+    for document_id in documents_a_recontroler:
+        await controler_prix_bl_sans_echec(session, document_id)
+
+    return ValidationPrixEffectuee(
+        prix_net=net, date_effet=date_bon, nb_alertes_reglees=nb_reglees
+    )
+
+
+def _valider_commentaire(commentaire: str) -> str:
+    commentaire_normalise = commentaire.strip()
+    if not (
+        COMMENTAIRE_LONGUEUR_MIN
+        <= len(commentaire_normalise)
+        <= COMMENTAIRE_LONGUEUR_MAX
+    ):
+        raise ValueError("commentaire obligatoire (1 à 500 caractères)")
+    return commentaire_normalise
+
+
+async def _fermer_groupe(
+    session: AsyncSession,
+    *,
+    anomalie_ids: Sequence[uuid.UUID],
+    statut: str,
+    commentaire: str,
+    action_journal: str,
+    auteur_id: uuid.UUID,
+) -> int:
+    """Commun à `contester_prix`/`ignorer_prix` : ferme toutes les alertes
+    d'un groupe valide (`_charger_groupe`) au même statut et au même
+    commentaire, écrit l'entrée `anomalie_traitee`/`anomalie_ignoree`
+    habituelle pour chacune, puis une entrée `action_journal` unique pour
+    l'action elle-même (spec §8.2 : « l'entrée habituelle ... est aussi
+    écrite »). La grille n'est jamais modifiée ici (à la différence de
+    `valider_prix`)."""
+    anomalies, _fournisseur_id = await _charger_groupe(session, anomalie_ids)
+
+    for anomalie in anomalies:
+        avant = _avant_anomalie(anomalie)
+        _fermer_anomalie(
+            anomalie, statut=statut, commentaire=commentaire, auteur_id=auteur_id
+        )
+        session.add(
+            Journal(
+                utilisateur_id=auteur_id,
+                action=_ACTION_JOURNAL_PAR_STATUT[statut],
+                cible_table="anomalie",
+                cible_id=str(anomalie.id),
+                avant=avant,
+                apres={"statut": statut, "commentaire": commentaire},
+            )
+        )
+
+    session.add(
+        Journal(
+            utilisateur_id=auteur_id,
+            action=action_journal,
+            cible_table="anomalie",
+            cible_id=str(anomalies[0].id),
+            avant=None,
+            apres={"commentaire": commentaire, "nb_alertes": len(anomalies)},
+        )
+    )
+    await session.commit()
+    return len(anomalies)
+
+
+async def contester_prix(
+    session: AsyncSession,
+    *,
+    anomalie_ids: Sequence[uuid.UUID],
+    commentaire: str,
+    auteur_id: uuid.UUID,
+) -> int:
+    """« Contester » (spec §8.2) : commentaire obligatoire, toutes les
+    alertes du groupe réglées (`traitee`), grille inchangée. Renvoie le
+    nombre d'alertes fermées. Lève `ValueError` (commentaire invalide, 422
+    côté routeur) ou `AlertesInvalides` (409)."""
+    commentaire_normalise = _valider_commentaire(commentaire)
+    return await _fermer_groupe(
+        session,
+        anomalie_ids=anomalie_ids,
+        statut="traitee",
+        commentaire=f"Contesté : {commentaire_normalise}",
+        action_journal="prix_conteste",
+        auteur_id=auteur_id,
+    )
+
+
+_COMMENTAIRE_IGNORE_DEFAUT = "Ignoré depuis la page Prix"
+
+
+async def ignorer_prix(
+    session: AsyncSession,
+    *,
+    anomalie_ids: Sequence[uuid.UUID],
+    commentaire: str | None,
+    auteur_id: uuid.UUID,
+) -> int:
+    """« Ignorer » (spec §8.2) : commentaire facultatif (défaut « Ignoré
+    depuis la page Prix »), toutes les alertes du groupe réglées
+    (`ignoree`), grille inchangée. Renvoie le nombre d'alertes fermées.
+    Lève `ValueError` (commentaire trop long, 422) ou `AlertesInvalides`
+    (409)."""
+    commentaire_normalise = (commentaire or "").strip() or _COMMENTAIRE_IGNORE_DEFAUT
+    if len(commentaire_normalise) > COMMENTAIRE_LONGUEUR_MAX:
+        raise ValueError("commentaire trop long (500 caractères au plus)")
+    return await _fermer_groupe(
+        session,
+        anomalie_ids=anomalie_ids,
+        statut="ignoree",
+        commentaire=commentaire_normalise,
+        action_journal="prix_ignore",
+        auteur_id=auteur_id,
+    )
+
+
+async def recontroler_depuis_page(
+    session: AsyncSession, *, auteur_id: uuid.UUID | None
+) -> ResultatRecontrolePrix:
+    """Bouton « Recontrôler les bons » (spec §8.2, §6.2) : recontrôle tous
+    les bons non archivés datés depuis le 1ᵉʳ jour du mois précédent (même
+    borne par défaut que la commande CLI `controler-prix`), journalise
+    `prix_recontrole` (nombre de bons, d'alertes ouvertes)."""
+    borne = _premier_jour_mois_precedent(datetime.now(FUSEAU_PARIS).date())
+    resultat = await recontroler_bons(session, depuis=borne)
+    session.add(
+        Journal(
+            utilisateur_id=auteur_id,
+            action="prix_recontrole",
+            cible_table=None,
+            cible_id=None,
+            avant=None,
+            apres={
+                "nb_bons": resultat.nb_bons,
+                "nb_alertes_ouvertes": resultat.nb_alertes_ouvertes,
+            },
+        )
+    )
+    await session.commit()
+    return resultat

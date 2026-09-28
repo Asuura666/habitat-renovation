@@ -1034,3 +1034,96 @@ class ImportEffectueReponse(BaseModel):
     nb_modifies: int
     nb_inchanges: int
     nb_erreurs: int
+
+
+# --------------------------------------------------------------------------
+# Page « Prix à vérifier » (phase 3, tâche P8) : schémas construits à partir
+# des dataclasses d'`ingest.prix_bl` (`AlerteProduit`, `ValidationPrixEffectuee`,
+# `ResultatRecontrolePrix`).
+# --------------------------------------------------------------------------
+
+
+class AlerteProduitReponse(BaseModel):
+    """Une rangée de `GET /api/prix/alertes` -- mêmes attributs
+    qu'`ingest.prix_bl.AlerteProduit`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    fournisseur_id: uuid.UUID
+    fournisseur: str
+    produit: str
+    code: str | None
+    prix_bon: Decimal
+    unite_bon: str | None
+    date_bon: date
+    nb_bons: int
+    nb_prix_differents: int
+    prix_grille: Decimal | None
+    unite_grille: str | None
+    date_grille: date | None
+    grille_posterieure_au_bon: bool
+    dernier_prix: Decimal | None
+    unite_dernier_prix: str | None
+    date_dernier_prix: date | None
+    numero_facture: str | None
+    ecart_pct: Decimal | None
+    methode: str | None
+    ressemblance: int | None
+    regles: list[str]
+    anomalie_ids: list[uuid.UUID]
+    document_id: uuid.UUID
+    ligne_id: uuid.UUID
+    numero_interne: int | None
+
+
+class ValiderPrixRequete(BaseModel):
+    """Corps de `POST /api/prix/valider` (spec §8.2)."""
+
+    anomalie_ids: list[uuid.UUID] = Field(min_length=1)
+    ligne_id: uuid.UUID
+
+
+class ContesterPrixRequete(BaseModel):
+    """Corps de `POST /api/prix/contester` (spec §8.2) : commentaire
+    obligatoire (validé de nouveau par `ingest.prix_bl.contester_prix`, même
+    principe que `TraitementAnomalieRequete`)."""
+
+    anomalie_ids: list[uuid.UUID] = Field(min_length=1)
+    commentaire: str = Field(min_length=1, max_length=500)
+
+
+class IgnorerPrixRequete(BaseModel):
+    """Corps de `POST /api/prix/ignorer` (spec §8.2) : commentaire
+    facultatif."""
+
+    anomalie_ids: list[uuid.UUID] = Field(min_length=1)
+    commentaire: str | None = Field(default=None, max_length=500)
+
+
+class ValidationPrixReponse(BaseModel):
+    """`POST /api/prix/valider` -- mêmes attributs
+    qu'`ingest.prix_bl.ValidationPrixEffectuee`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    prix_net: Decimal
+    date_effet: date
+    nb_alertes_reglees: int
+
+
+class FermetureAlertesReponse(BaseModel):
+    """`POST /api/prix/contester` et `/ignorer` -- nombre d'alertes
+    fermées."""
+
+    nb_alertes_reglees: int
+
+
+class RecontrolePrixReponse(BaseModel):
+    """`POST /api/prix/recontrole` -- mêmes attributs
+    qu'`ingest.prix_bl.ResultatRecontrolePrix`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    nb_bons: int
+    nb_echecs: int
+    nb_alertes_ouvertes: int
