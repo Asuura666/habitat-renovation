@@ -15,6 +15,8 @@ from __future__ import annotations
 import io
 import itertools
 import uuid
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -424,6 +426,76 @@ async def test_import_apercu_fichier_invalide_renvoie_422(
     )
 
     assert reponse.status_code == 422
+
+
+async def test_import_apercu_200_avec_ligne_modifiee(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Constat de la relecture finale : les tests API de l'aperçu ne
+    couvraient que les erreurs (413, 422), jamais une réponse 200 avec du
+    contenu -- une inversion ancien/nouveau prix ou unité, côté sérialisation
+    (`ApercuImportReponse`) comme côté calcul, passerait inaperçue."""
+    await _creer_utilisateur(
+        db_session, email="admin.apercu200@example.invalid", role="admin"
+    )
+    fournisseur = await _creer_fournisseur(db_session)
+    db_session.add(
+        GrillePrix(
+            fournisseur_id=fournisseur.id,
+            cle_produit="nom:produit existant",
+            reference=None,
+            designation="Produit existant",
+            unite_brut=None,
+            unite="kg",
+            prix_ht=Decimal("10"),
+            prix_net=Decimal("10.0000"),
+            date_effet=date(2020, 1, 1),
+            source="saisie",
+        )
+    )
+    await db_session.commit()
+
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.apercu200@example.invalid")
+
+    classeur = openpyxl.Workbook()
+    feuille = classeur.active
+    assert feuille is not None
+    feuille.title = "Grille"
+    feuille.append(
+        ("Référence", "Désignation", "Unité", "Prix unitaire HT (€)", "Remise %")
+    )
+    feuille.append((None, "Produit existant", "l", 12.0, None))
+    tampon = io.BytesIO()
+    classeur.save(tampon)
+
+    reponse = await _requete(
+        app_test,
+        "POST",
+        f"/api/grilles/fournisseurs/{fournisseur.id}/import/apercu",
+        cookie=cookie,
+        files={
+            "fichier": (
+                "grille.xlsx",
+                tampon.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+        data={"date_effet": "2026-01-01"},
+    )
+
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert corps["nb_modifies"] == 1
+    assert corps["nb_nouveaux"] == 0
+    modifie = corps["modifies"][0]
+    assert modifie["designation"] == "Produit existant"
+    assert modifie["nouveau_prix_net"] == "12.0000"
+    assert modifie["ancien_prix_net"] == "10.0000"
+    assert modifie["nouvelle_unite"] == "l"
+    assert modifie["ancienne_unite"] == "kg"
 
 
 async def test_import_succes_201(

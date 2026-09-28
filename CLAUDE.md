@@ -148,6 +148,12 @@ Points à retenir :
   tests accélérée. Reporté et contexte : `docs/dette.md` (« Optimisations du
   25/09/2026 »). Le serveur actuel est un serveur perso/de dev provisoire ;
   la cible est un serveur dédié au client (seul Ilane y aura un compte).
+- **Phase 3 (session B) : commentaires sur les lignes de bons et lot Prix
+  (grilles, contrôle au bon R19-R25, page Prix) sur
+  `feature/phase-3-prix`** ; contrôle éteint par défaut (réglage
+  `prix_controle_bl_actif`) ; migrations `0012`-`0013` ; détail
+  `docs/superpowers/specs/2026-09-27-prix-design.md` et `docs/dette.md`
+  (28/09/2026).
 
 ## Méthode
 

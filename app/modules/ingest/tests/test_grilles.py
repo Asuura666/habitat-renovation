@@ -538,12 +538,13 @@ async def test_apercu_import_sans_ecriture(db_session: AsyncSession) -> None:
         cle_produit="nom:produit existant",
         designation="Produit existant",
         prix_ht="10.00",
+        unite="kg",
         date_effet=date(2020, 1, 1),
     )
     contenu = _classeur_grille(
         [
             ("REF-1", "Produit nouveau", "sac", 5.5, None),
-            (None, "Produit existant", None, 12.0, None),
+            (None, "Produit existant", "l", 12.0, None),
         ]
     )
 
@@ -559,6 +560,21 @@ async def test_apercu_import_sans_ecriture(db_session: AsyncSession) -> None:
     # Toujours une seule ligne (celle créée par le test) : aucune écriture.
     lignes = (await db_session.execute(select(GrillePrix))).scalars().all()
     assert len(lignes) == 1
+
+    # Constat de la relecture finale : le contenu de l'aperçu (ancien/nouveau
+    # prix, ancienne/nouvelle unité), pas seulement les compteurs, n'était
+    # vérifié par aucun test -- une inversion prix/unité passerait inaperçue.
+    assert apercu.nouveaux[0].reference == "REF-1"
+    assert apercu.nouveaux[0].nouveau_prix_net == Decimal("5.5000")
+    assert apercu.nouveaux[0].ancien_prix_net is None
+    assert apercu.nouveaux[0].nouvelle_unite == "sac"
+    assert apercu.nouveaux[0].ancienne_unite is None
+
+    assert apercu.modifies[0].designation == "Produit existant"
+    assert apercu.modifies[0].nouveau_prix_net == Decimal("12.0000")
+    assert apercu.modifies[0].ancien_prix_net == Decimal("10.0000")
+    assert apercu.modifies[0].nouvelle_unite == "l"
+    assert apercu.modifies[0].ancienne_unite == "kg"
 
 
 async def test_apercu_import_produit_absent_du_fichier(

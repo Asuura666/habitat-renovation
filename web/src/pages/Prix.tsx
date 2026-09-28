@@ -83,7 +83,7 @@ function texteRessemblance(produit: AlerteProduit): string | null {
   if (produit.methode === "reference") {
     return "Par référence";
   }
-  return produit.ressemblance !== null ? `${produit.ressemblance} %` : null;
+  return produit.ressemblance !== null ? `ressemblance : ${produit.ressemblance} %` : null;
 }
 
 /** Écart avec sa flèche (spec §8.1) : la flèche porte déjà le sens, la
@@ -491,12 +491,12 @@ export function Prix(): ReactElement {
                   <caption className="sr-only">Produits en alerte de prix</caption>
                   <thead className="bg-fond text-left text-xs font-medium uppercase tracking-wide text-encre-2">
                     <tr>
-                      <th scope="col" className="px-5 py-3">Produit</th>
+                      <th scope="col" className="w-full px-5 py-3">Produit</th>
                       <th scope="col" className="px-5 py-3">Prix du bon</th>
                       <th scope="col" className="px-5 py-3">Grille</th>
                       <th scope="col" className="px-5 py-3">Dernier prix facturé</th>
                       <th scope="col" className="px-5 py-3">Écart</th>
-                      <th scope="col" className="w-full px-5 py-3">Alertes</th>
+                      <th scope="col" className="px-5 py-3">Alertes</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-bordure bg-surface">

@@ -505,6 +505,75 @@ async def test_valider_prix_409_si_produits_differents(
         )
 
 
+async def test_valider_prix_recontrole_aussi_les_bons_hors_anomalie_ids(
+    db_session: AsyncSession,
+) -> None:
+    """Un produit a deux bons en alerte au même prix (18,00 €), l'un créé
+    aujourd'hui, l'autre « hier » (simulant le filtre « Aujourd'hui » de la
+    page Prix, spec §8.1) : `lister_alertes_prix(periode="jour")` ne
+    regroupe alors que le bon récent, et seul son id figure dans
+    `anomalie_ids` -- comme le ferait le front filtré. `valider_prix` doit
+    tout de même recontrôler le bon ancien (même produit, même fournisseur)
+    et régler son alerte devenue obsolète, pas seulement celui explicitement
+    transmis."""
+    await _activer_controle(db_session)
+    utilisateur = await _creer_utilisateur(db_session)
+    fournisseur = await _creer_fournisseur(db_session)
+    await _creer_prix_grille(db_session, fournisseur=fournisseur, prix_ht="10.00")
+
+    # Même date de bon pour les deux (le prix en vigueur, daté, doit être
+    # identique pour les deux au moment du recontrôle) -- seule la date de
+    # *création de l'anomalie* les distingue, pour le filtre « Aujourd'hui ».
+    date_bons = date(2026, 6, 10)
+    bon_ancien = await _creer_bl(
+        db_session, fournisseur=fournisseur, date_doc=date_bons
+    )
+    await _creer_ligne(db_session, document=bon_ancien, pu_ht=Decimal("18.00"))
+    bon_recent = await _creer_bl(
+        db_session, fournisseur=fournisseur, date_doc=date_bons
+    )
+    ligne_recente = await _creer_ligne(
+        db_session, document=bon_recent, pu_ht=Decimal("18.00")
+    )
+
+    for bon in (bon_ancien, bon_recent):
+        await _controler(db_session, bon.id)
+
+    # L'anomalie du bon ancien est repoussée « hier » (seule sa date de
+    # création change, pas la date du bon) : le filtre « Aujourd'hui » de la
+    # page Prix ne la retient plus.
+    resultat = await db_session.execute(
+        select(Anomalie).where(Anomalie.document_id == bon_ancien.id)
+    )
+    for anomalie in resultat.scalars().all():
+        anomalie.created_at = datetime(2020, 1, 1, tzinfo=FUSEAU_PARIS)
+    await db_session.commit()
+
+    produits_jour = await lister_alertes_prix(db_session, periode="jour")
+    assert len(produits_jour) == 1
+    produit = produits_jour[0]
+    assert produit.document_id == bon_recent.id
+    # Seul l'id du bon récent est envoyé, comme le ferait le front filtré.
+    assert set(produit.anomalie_ids) == {
+        a.id for a in await _anomalies_ouvertes_du_bon(db_session, bon_recent.id)
+    }
+
+    resultat_validation = await valider_prix(
+        db_session,
+        anomalie_ids=list(produit.anomalie_ids),
+        ligne_id=ligne_recente.id,
+        auteur_id=utilisateur.id,
+    )
+    # `nb_alertes_reglees` ne compte que les alertes du groupe transmis
+    # (le bon récent) ; l'alerte du bon ancien, hors `anomalie_ids`, est
+    # réglée séparément par le recontrôle déclenché en fin de validation
+    # (spec §6.4) -- c'est ce recontrôle élargi que ce test vérifie.
+    assert resultat_validation.nb_alertes_reglees == 1
+
+    assert await _anomalies_ouvertes_du_bon(db_session, bon_recent.id) == []
+    assert await _anomalies_ouvertes_du_bon(db_session, bon_ancien.id) == []
+
+
 # --------------------------------------------------------------------------
 # contester_prix / ignorer_prix (spec §8.2).
 # --------------------------------------------------------------------------

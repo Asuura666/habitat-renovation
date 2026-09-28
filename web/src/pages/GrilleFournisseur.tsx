@@ -616,7 +616,7 @@ export function GrilleFournisseur(): ReactElement {
             ? `${grille.data.nb_produits} ${accorder(grille.data.nb_produits, "produit", "produits")} · ${
                 grille.data.dernier_import_le
                   ? `dernier import le ${formaterDate(grille.data.dernier_import_le)}`
-                  : "dernier import jamais"
+                  : "aucun import pour l'instant"
               }`
             : undefined
         }

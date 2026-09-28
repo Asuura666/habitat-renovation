@@ -52,11 +52,9 @@ dans `tests/test_regle_anomalie_couverture.py` (hors de `app/modules/`,
 seul endroit autorisé à importer `api` et `rules` ensemble).
 
 R19 à R25 (phase 3, prix des bons, spec `docs/superpowers/specs/2026-09-27-
-prix-design.md` §5.2) rejoignent la liste bien qu'`evaluer_prix_bl` ne soit
-pas encore appelée par `ingest` (câblage prévu à une tâche ultérieure) --
-même principe que R18 (avenant du 27/09/2026) : `RegleAnomalie` accepte
-déjà ces valeurs de filtre (200 + liste vide tant qu'aucune anomalie de
-prix n'est persistée), pour ne pas retarder ce verrou au câblage.
+prix-design.md` §5.2) rejoignent la liste : `ingest.prix_bl` appelle bien
+`evaluer_prix_bl` (câblage fait tâche P7) et persiste des anomalies R19-R25
+en base, comme les autres règles de cette énumération.
 """
 
 from __future__ import annotations

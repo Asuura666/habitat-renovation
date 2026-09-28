@@ -79,16 +79,25 @@ function LigneInterrupteur({ parametre }: { parametre: Parametre }): ReactElemen
             {messageErreur(modification.error)}
           </p>
         )}
-        <span className="text-sm text-encre-2">{valeur === "1" ? "Oui" : "Non"}</span>
-        <input
-          id={`parametre-${parametre.cle}`}
-          type="checkbox"
-          role="switch"
-          checked={valeur === "1"}
-          disabled={modification.isPending}
-          onChange={basculer}
-          className="h-6 w-11 shrink-0 cursor-pointer rounded-full border border-bordure bg-fond outline-none accent-accent focus-visible:ring-2 focus-visible:ring-accent"
-        />
+        {/* Zone cliquable de 44 px minimum (comme les autres contrôles de
+            l'app) : le switch lui-même reste petit visuellement, mais
+            l'étiquette « Oui/Non » et lui sont englobés dans un même
+            `<label>` de hauteur suffisante. */}
+        <label
+          htmlFor={`parametre-${parametre.cle}`}
+          className="flex min-h-[44px] cursor-pointer items-center gap-3"
+        >
+          <span className="text-sm text-encre-2">{valeur === "1" ? "Oui" : "Non"}</span>
+          <input
+            id={`parametre-${parametre.cle}`}
+            type="checkbox"
+            role="switch"
+            checked={valeur === "1"}
+            disabled={modification.isPending}
+            onChange={basculer}
+            className="h-6 w-11 shrink-0 cursor-pointer rounded-full border border-bordure bg-fond outline-none accent-accent focus-visible:ring-2 focus-visible:ring-accent"
+          />
+        </label>
       </div>
     </div>
   );

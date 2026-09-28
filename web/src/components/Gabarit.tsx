@@ -80,7 +80,7 @@ interface EntreeNav {
   Icone: IconeNav;
 }
 
-/** Cinq entrées de la navigation admin (spec §3) : « Vue d'ensemble » = `/`,
+/** Six entrées de la navigation admin (spec §3) : « Vue d'ensemble » = `/`,
  * « À régler » (remplace « À traiter »/« Anomalies »), « Chantiers »
  * (remplace « Bilan »), « Fournisseurs », « Documents » (remplace
  * « Factures »/« BL déposés »). Pastille du nombre de problèmes à régler
@@ -197,7 +197,7 @@ const GRAND_ECRAN = "(min-width: 1024px)";
  * Gabarit de l'application (Task 4, socle de la refonte du front) : barre
  * latérale fixe (≥ `md`, 232 px, charte « Registre » — maquettes
  * `Main`/`ARegler.dc.html`) ou en-tête compact + barre de navigation basse
- * (< `md`, cinq icônes), contenu de la route active (`<Outlet />`).
+ * (< `md`, six icônes), contenu de la route active (`<Outlet />`).
  * N'est monté qu'à l'intérieur de `RouteProtegee`, donc `["moi"]` est déjà
  * en cache (même clé de requête) : pas d'appel réseau supplémentaire tant
  * que les données ne sont pas jugées périmées. */
@@ -375,7 +375,7 @@ export function Gabarit(): ReactElement {
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         {/* En-tête compact — téléphone (< md). Deuxième rangée avec
             Réglages/Journal (fix round 1, finding 3) : la barre de
-            navigation basse ne montre que les cinq entrées principales,
+            navigation basse ne montre que les six entrées principales,
             ces deux écrans doivent rester atteignables au téléphone sans
             passer par l'ordinateur — vrais liens toujours visibles,
             jamais un menu qui se déplie (plus simple, pas de gestion de
@@ -414,7 +414,7 @@ export function Gabarit(): ReactElement {
         </main>
       </div>
 
-      {/* Barre de navigation basse — téléphone (< md), cinq icônes + libellé */}
+      {/* Barre de navigation basse — téléphone (< md), six icônes + libellé */}
       {moi && (
         <nav
           aria-label="Navigation principale"

@@ -26,13 +26,19 @@ mécanisme que `ingest.rapprochement.rapprocher_facture`).
 
 Tâche P8 (page « Prix à vérifier », spec §8) -- ajoutée à ce module plutôt
 qu'à `ingest.grilles` : le recontrôle « bons portant une alerte de prix
-ouverte sur le même produit » après une validation (spec §6.4) n'a pas
-besoin de reparcourir la base par `cle_produit` -- `valider_prix` connaît
-déjà, par construction (`anomalie_ids` couvre tout le groupe, tel que rendu
-par `lister_alertes_prix`), l'ensemble exact des documents à recontrôler ;
-`ingest.grilles.apres_changement_grille` garde donc son paramètre
+ouverte sur le même produit » après une validation (spec §6.4) ne peut PAS
+se limiter aux `anomalie_ids` transmis par le client -- le filtre de
+période de la page Prix (`periode="jour"`, spec §8.1) peut restreindre le
+groupe qu'elle affiche à une partie seulement des alertes ouvertes de ce
+produit (un bon d'hier sur le même produit n'apparaît pas sous « Aujourd'hui »).
+`valider_prix` reparcourt donc la base par `cle_produit`
+(`_documents_prix_ouverts_meme_produit`, même requête que
+`lister_alertes_prix` sans le filtre de période) pour recontrôler tous les
+bons ouverts du produit, en plus de ceux des `anomalie_ids` reçus.
+`ingest.grilles.apres_changement_grille` garde son paramètre
 `cle_produit_modifiee` non câblé (import/saisie seuls l'appellent, jamais
-avec ce paramètre).
+avec ce paramètre) : lui n'a pas ce problème, il recontrôle déjà tous les
+bons du fournisseur depuis `date_effet`.
 - `lister_alertes_prix` (spec §8.1) : alertes ouvertes R19-R25 non
   masquées, regroupées par produit (clé de grille retrouvée si une règle de
   correspondance grille l'a posée, sinon clé calculée sur la ligne du bon,
@@ -330,12 +336,11 @@ class _CandidatFacture:
     unite_fact: str | None
 
 
-async def _candidats_facture(
+async def _candidats_facture_bruts(
     session: AsyncSession, fournisseur_id: uuid.UUID, jusqu_a: date
 ) -> tuple[_CandidatFacture, ...]:
-    """Lignes `article` à `pu_ht > 0` des factures du fournisseur datées au
-    plus tard le `jusqu_a` (date du bon, spec §6.3) -- une seule requête par
-    bon, réutilisée pour toutes ses lignes."""
+    """Requête effective de `_candidats_facture` : lignes `article` à
+    `pu_ht > 0` des factures du fournisseur datées au plus tard `jusqu_a`."""
     resultat = await session.execute(
         select(Ligne, Document.numero, Document.date_doc, Article.unite_fact)
         .join(Document, Document.id == Ligne.document_id)
@@ -359,6 +364,29 @@ async def _candidats_facture(
         )
         for ligne, numero, date_doc, unite_fact in resultat.all()
     )
+
+
+async def _candidats_facture(
+    session: AsyncSession,
+    fournisseur_id: uuid.UUID,
+    jusqu_a: date,
+    *,
+    precalcules: Mapping[uuid.UUID, tuple[_CandidatFacture, ...]] | None = None,
+) -> tuple[_CandidatFacture, ...]:
+    """Lignes `article` à `pu_ht > 0` des factures du fournisseur datées au
+    plus tard le `jusqu_a` (date du bon, spec §6.3).
+
+    Sans `precalcules` : une requête par appel (cas normal, un seul bon --
+    `controler_prix_bl` isolé). Avec `precalcules` (`recontroler_bons`, qui
+    recontrôle potentiellement des centaines de bons d'un même fournisseur
+    habituel) : filtre en mémoire l'ensemble déjà rapatrié une seule fois
+    pour ce fournisseur (borné à la date la plus tardive utile du lot),
+    plutôt que de requêter et retraiter les mêmes lignes de facture pour
+    chaque bon (N+1)."""
+    if precalcules is not None:
+        candidats = precalcules.get(fournisseur_id, ())
+        return tuple(c for c in candidats if c.date_doc <= jusqu_a)
+    return await _candidats_facture_bruts(session, fournisseur_id, jusqu_a)
 
 
 def _prix_net_facture(pu_ht: Decimal, remise_pct: Decimal | None) -> Decimal:
@@ -461,11 +489,21 @@ async def _compter_alertes_ouvertes(
     ).scalar_one()
 
 
-async def controler_prix_bl(session: AsyncSession, document_id: uuid.UUID) -> int:
+async def controler_prix_bl(
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    *,
+    candidats_facture_precalcules: Mapping[uuid.UUID, tuple[_CandidatFacture, ...]]
+    | None = None,
+) -> int:
     """Contrôle les prix d'un bon face à la grille de son fournisseur et à
     la dernière facture retrouvée (spec §6.1) : renvoie le nombre d'alertes
     de prix ouvertes du bon après contrôle. Ne commite jamais (l'appelant
     tient la transaction, comme `rapprocher_facture`).
+
+    `candidats_facture_precalcules` (usage interne, `recontroler_bons`) :
+    voir `_candidats_facture`, évite de requêter les mêmes lignes de
+    facture pour chaque bon d'un recontrôle massif du même fournisseur.
 
     Si `prix_controle_bl_actif` vaut 0, ou si le document n'est pas un bon
     (BL/enlèvement) non archivé avec un fournisseur résolu : ne fait rien
@@ -516,7 +554,10 @@ async def controler_prix_bl(session: AsyncSession, document_id: uuid.UUID) -> in
     article_ids = {ligne.article_id for ligne in lignes if ligne.article_id is not None}
     articles = await _charger_articles(session, article_ids)
     candidats_facture = await _candidats_facture(
-        session, document.fournisseur_id, date_bon
+        session,
+        document.fournisseur_id,
+        date_bon,
+        precalcules=candidats_facture_precalcules,
     )
 
     lignes_prix_bl: list[LignePrixBl] = []
@@ -563,16 +604,25 @@ async def controler_prix_bl(session: AsyncSession, document_id: uuid.UUID) -> in
 
 
 async def controler_prix_bl_sans_echec(
-    session: AsyncSession, document_id: uuid.UUID
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    *,
+    candidats_facture_precalcules: Mapping[uuid.UUID, tuple[_CandidatFacture, ...]]
+    | None = None,
 ) -> int | None:
     """Encapsule `controler_prix_bl` pour un déclenchement automatique
     (extraction, correction, changement de grille -- spec §6.2) : commite sa
     propre transaction et ne fait **jamais** échouer l'action appelante --
     toute exception est journalisée (`_journaliser_echec`) puis avalée,
     `None` en retour (même idiome que `ingest.rapprochement
-    .rapprocher_facture_sans_echec`)."""
+    .rapprocher_facture_sans_echec`). `candidats_facture_precalcules` : voir
+    `controler_prix_bl` (usage interne, `recontroler_bons`)."""
     try:
-        nb_ouvertes = await controler_prix_bl(session, document_id)
+        nb_ouvertes = await controler_prix_bl(
+            session,
+            document_id,
+            candidats_facture_precalcules=candidats_facture_precalcules,
+        )
         await session.commit()
         return nb_ouvertes
     except Exception as exc:
@@ -628,13 +678,45 @@ async def recontroler_bons(
             )
         )
 
-    resultat_ids = await session.execute(select(Document.id).where(*conditions))
-    ids = resultat_ids.scalars().all()
+    resultat_documents = await session.execute(
+        select(
+            Document.id, Document.fournisseur_id, Document.date_doc, Document.created_at
+        ).where(*conditions)
+    )
+    documents = resultat_documents.all()
+    ids = tuple(d.id for d in documents)
+
+    # Une seule requête de lignes de facture par fournisseur du lot (au lieu
+    # d'une par bon, spec §6.4 -- un recontrôle massif porte souvent sur des
+    # centaines de bons d'un même fournisseur habituel) : bornée à la date
+    # la plus tardive utile de ce fournisseur dans le lot, puis filtrée en
+    # mémoire par bon dans `_candidats_facture` (voir sa docstring).
+    dates_par_fournisseur: dict[uuid.UUID, date] = {}
+    for doc in documents:
+        if doc.fournisseur_id is None:
+            continue
+        date_bon = (
+            doc.date_doc
+            if doc.date_doc is not None
+            else doc.created_at.astimezone(FUSEAU_PARIS).date()
+        )
+        actuelle = dates_par_fournisseur.get(doc.fournisseur_id)
+        if actuelle is None or date_bon > actuelle:
+            dates_par_fournisseur[doc.fournisseur_id] = date_bon
+
+    candidats_facture_par_fournisseur = {
+        fid: await _candidats_facture_bruts(session, fid, date_max)
+        for fid, date_max in dates_par_fournisseur.items()
+    }
 
     nb_echecs = 0
     total_ouvertes = 0
     for document_id in ids:
-        resultat = await controler_prix_bl_sans_echec(session, document_id)
+        resultat = await controler_prix_bl_sans_echec(
+            session,
+            document_id,
+            candidats_facture_precalcules=candidats_facture_par_fournisseur,
+        )
         if resultat is None:
             nb_echecs += 1
         else:
@@ -1006,15 +1088,19 @@ class AlertesInvalides(Exception):
 
 async def _charger_groupe(
     session: AsyncSession, anomalie_ids: Sequence[uuid.UUID]
-) -> tuple[list[Anomalie], uuid.UUID]:
+) -> tuple[list[Anomalie], uuid.UUID, str]:
     """Charge les anomalies de `anomalie_ids` et vérifie qu'elles forment un
     groupe valide pour une action de la page Prix (spec §8.2) : non vide,
     toutes existantes, toutes `ouverte`, toutes de prix (R19-R25), toutes du
     même fournisseur et du même produit (`_cle_groupe`, agrégée par ligne du
     bon -- une ligne peut porter plusieurs des `anomalie_ids`, ex. R19+R20,
     et doit alors être regroupée une seule fois). `AlertesInvalides` sinon,
-    avant toute modification. Renvoie les anomalies (peu importe l'ordre) et
-    le `fournisseur_id` du groupe."""
+    avant toute modification. Renvoie les anomalies (peu importe l'ordre),
+    le `fournisseur_id` du groupe et sa clé produit (`_cle_groupe`) -- cette
+    dernière sert à `valider_prix` pour retrouver, au-delà des seules
+    `anomalie_ids` transmises (qui peuvent être restreintes par le filtre de
+    période de la page Prix, spec §8.1), tous les bons ouverts du même
+    produit à recontrôler (spec §6.4)."""
     if not anomalie_ids:
         raise AlertesInvalides("aucune alerte sélectionnée")
     ids_uniques = tuple(dict.fromkeys(anomalie_ids))
@@ -1062,14 +1148,66 @@ async def _charger_groupe(
                 "les alertes ne portent pas toutes sur le même produit"
             )
 
-    fournisseur_id = cle_reference[0] if cle_reference is not None else None
+    if cle_reference is None:
+        # Toujours faux en pratique (`elements` est non vide, la boucle
+        # ci-dessus l'aura donc posé au moins une fois) -- défensif, jamais
+        # un `assert` dans du code de production (S101).
+        raise AlertesInvalides("fournisseur introuvable pour ce groupe")
+    fournisseur_id = cle_reference[0]
     if fournisseur_id is None:
         # Toujours faux en pratique (un bon contrôlé a nécessairement un
-        # fournisseur, `controler_prix_bl` l'exige) -- défensif, jamais un
-        # `assert` dans du code de production (S101).
+        # fournisseur, `controler_prix_bl` l'exige) -- même prudence
+        # défensive que ci-dessus.
         raise AlertesInvalides("fournisseur introuvable pour ce groupe")
 
-    return [anomalie for anomalie, _ligne, _document in elements], fournisseur_id
+    return (
+        [anomalie for anomalie, _ligne, _document in elements],
+        fournisseur_id,
+        cle_reference[1],
+    )
+
+
+async def _documents_prix_ouverts_meme_produit(
+    session: AsyncSession, *, fournisseur_id: uuid.UUID, cle_produit: str
+) -> set[uuid.UUID]:
+    """Tous les bons non archivés de `fournisseur_id` portant au moins une
+    alerte de prix ouverte sur le produit `cle_produit` (spec §6.4 : « les
+    bons portant une alerte de prix ouverte sur le même produit »),
+    indépendamment du filtre de période de la page Prix -- au contraire des
+    `anomalie_ids` transmis par le client à `valider_prix`, qui peuvent ne
+    couvrir qu'une partie de ces bons (page filtrée sur « Aujourd'hui » par
+    exemple, spec §8.1). Même requête de base que `lister_alertes_prix`,
+    sans le filtre de période, restreinte au fournisseur et regroupée par
+    produit comme `_charger_groupe`."""
+    resultat = await session.execute(
+        select(Anomalie, Ligne, Document)
+        .join(Ligne, Ligne.id == Anomalie.ligne_id)
+        .join(Document, Document.id == Anomalie.document_id)
+        .where(
+            Anomalie.regle.in_(tuple(REGLES_PRIX_BL)),
+            Anomalie.statut == "ouverte",
+            Document.fournisseur_id == fournisseur_id,
+            Document.statut != "archive",
+        )
+    )
+    par_ligne_anomalies: dict[uuid.UUID, list[Anomalie]] = {}
+    par_ligne_contexte: dict[uuid.UUID, tuple[Ligne, Document]] = {}
+    for anomalie, ligne, document in resultat.all():
+        par_ligne_anomalies.setdefault(ligne.id, []).append(anomalie)
+        par_ligne_contexte.setdefault(ligne.id, (ligne, document))
+
+    documents: set[uuid.UUID] = set()
+    for ligne_id, anomalies_ligne in par_ligne_anomalies.items():
+        ligne, document = par_ligne_contexte[ligne_id]
+        ligne_alerte = _LigneAlerte(
+            ligne=ligne,
+            document=document,
+            fournisseur_nom="",
+            anomalies=tuple(anomalies_ligne),
+        )
+        if _cle_groupe(ligne_alerte) == cle_produit:
+            documents.add(document.id)
+    return documents
 
 
 def _avant_anomalie(anomalie: Anomalie) -> dict[str, str | None]:
@@ -1119,10 +1257,15 @@ async def valider_prix(
 
     Lève `AlertesInvalides` (voir `_charger_groupe`) ou si `ligne_id` n'est
     pas l'une des lignes des alertes fournies. Commite, puis recontrôle
-    (spec §6.4) chaque bon dont une alerte du groupe a été chargée -- une
-    ligne dont le prix diffère peut sortir ou rester en alerte selon la
-    nouvelle grille, réévaluée à ce moment-là."""
-    anomalies, fournisseur_id = await _charger_groupe(session, anomalie_ids)
+    (spec §6.4) tous les bons non archivés portant une alerte de prix
+    ouverte sur ce même produit -- pas seulement ceux des `anomalie_ids`
+    reçus, qui peuvent être restreints par le filtre de période de la page
+    Prix (`_documents_prix_ouverts_meme_produit`) -- une ligne dont le prix
+    diffère peut sortir ou rester en alerte selon la nouvelle grille,
+    réévaluée à ce moment-là."""
+    anomalies, fournisseur_id, cle_produit_groupe = await _charger_groupe(
+        session, anomalie_ids
+    )
 
     lignes_du_groupe = {a.ligne_id for a in anomalies}
     if ligne_id not in lignes_du_groupe:
@@ -1208,6 +1351,9 @@ async def valider_prix(
     documents_a_recontroler = {
         a.document_id for a in anomalies if a.document_id is not None
     }
+    documents_a_recontroler |= await _documents_prix_ouverts_meme_produit(
+        session, fournisseur_id=fournisseur_id, cle_produit=cle_produit_groupe
+    )
     nb_reglees = 0
     for anomalie in anomalies:
         ligne_anomalie = await session.get(Ligne, anomalie.ligne_id)
@@ -1290,7 +1436,9 @@ async def _fermer_groupe(
     l'action elle-même (spec §8.2 : « l'entrée habituelle ... est aussi
     écrite »). La grille n'est jamais modifiée ici (à la différence de
     `valider_prix`)."""
-    anomalies, _fournisseur_id = await _charger_groupe(session, anomalie_ids)
+    anomalies, _fournisseur_id, _cle_produit_groupe = await _charger_groupe(
+        session, anomalie_ids
+    )
 
     for anomalie in anomalies:
         avant = _avant_anomalie(anomalie)

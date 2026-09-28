@@ -65,13 +65,13 @@ const TITRES_REGLE: Record<string, string> = {
   // produites par le serveur (`evaluer_prix_bl` n'est pas encore câblée),
   // ajoutées ici en même temps que les règles pour ne pas retarder ce
   // fichier à leur câblage (même principe que R18, avenant du 27/09/2026).
-  R19: "Prix plus cher que la grille",
-  R20: "Prix plus cher que la dernière fois",
-  R21: "Prix moins cher que la grille",
+  R19: "Plus cher que la grille",
+  R20: "Plus cher que la dernière fois",
+  R21: "Moins cher que la grille",
   R22: "Produit absent de la grille",
   R23: "Produit reconnu seulement par son nom",
   R24: "Unités différentes",
-  R25: "Grille de prix ancienne",
+  R25: "Grille ancienne",
 };
 
 /** Titre affiché pour un problème (« règle » en interne) — jamais le code
@@ -321,8 +321,7 @@ export function phraseProbleme(anomalie: Anomalie): string {
       );
     case "R22":
       return (
-        `${produitAvecCode(detail)} : produit absent de la grille, ` +
-        `${montantOuTiret(detail, "prix_bon")} sur le bon. ` +
+        `${produitAvecCode(detail)} : absent de la grille, ${montantOuTiret(detail, "prix_bon")} sur le bon. ` +
         `Produits proches : ${texteOuTiret(detail, "candidats")}.`
       );
     case "R23":
@@ -333,14 +332,18 @@ export function phraseProbleme(anomalie: Anomalie): string {
     case "R24": {
       const uniteGrille = texteOuTiret(detail, "unite_grille");
       const uniteDernierPrix = texteOuTiret(detail, "unite_dernier_prix");
-      const reference =
-        uniteGrille !== TIRET
-          ? `la grille, unité ${uniteGrille}`
-          : `la dernière facture, unité ${uniteDernierPrix}`;
+      const references: string[] = [];
+      if (uniteGrille !== TIRET) {
+        references.push(`la grille (« ${uniteGrille} »)`);
+      }
+      if (uniteDernierPrix !== TIRET) {
+        references.push(`la dernière facture (« ${uniteDernierPrix} »)`);
+      }
+      const reference = references.length > 0 ? references.join(" et de ") : "la référence (« — »)";
       const uniteBon = texteOuTiret(detail, "unite_bon");
       return (
-        `${produitAvecCode(detail)} : unité du bon, ${uniteBon}, différente de celle de ` +
-        `${reference}, comparaison impossible.`
+        `${produitAvecCode(detail)} : unité du bon « ${uniteBon} », différente de celle de ` +
+        `${reference} — comparaison impossible.`
       );
     }
     case "R25":

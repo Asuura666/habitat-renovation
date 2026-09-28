@@ -42,8 +42,11 @@ from decimal import Decimal, InvalidOperation
 import openpyxl
 from openpyxl.utils.exceptions import InvalidFileException
 
-# Nombre de lignes utiles (toutes feuilles confondues) au-delà duquel le
-# fichier est refusé (spec §7.1).
+# Nombre de lignes explorées (toutes feuilles confondues, y compris les
+# lignes vides) au-delà duquel le fichier est refusé (spec §7.1). Les lignes
+# vides comptent aussi dans cette borne : sinon un fichier truqué peut
+# empiler des millions de lignes Excel sans aucune cellule (très
+# compressible) sans jamais la déclencher.
 LIGNES_MAX = 20_000
 
 # Nombre de lignes explorées, en tête de chaque feuille, à la recherche
@@ -328,6 +331,18 @@ def _lire_feuille(
     # compteur (`enumerate`) s'en écarterait (spec §7.1, « numéros de ligne
     # Excel exacts »).
     for ligne_cellules in feuille.iter_rows():  # type: ignore[attr-defined]
+        # Borne sur le nombre de lignes *explorées*, avant tout traitement de
+        # contenu : une ligne entièrement dépourvue de cellule (`EmptyCell`
+        # partout, ou aucune cellule du tout -- un fichier XLSX truqué peut
+        # contenir des millions de balises `<row>` vides, très compressibles)
+        # doit compter dans la borne au même titre qu'une ligne utile, sinon
+        # elle ne la déclenche jamais et le fichier boucle indéfiniment.
+        total_utiles += 1
+        if total_utiles > LIGNES_MAX:
+            raise FichierGrilleInvalide(
+                f"le fichier dépasse {LIGNES_MAX} lignes utiles"
+            )
+
         # Une cellule sans aucune valeur ni style (`EmptyCell`, comblant les
         # colonnes creuses en tête de ligne) ne porte pas `.row` : on prend
         # le numéro sur la première cellule qui en porte un ; une ligne
@@ -352,12 +367,6 @@ def _lire_feuille(
 
         if _ligne_vide(valeurs):
             continue
-
-        total_utiles += 1
-        if total_utiles > LIGNES_MAX:
-            raise FichierGrilleInvalide(
-                f"le fichier dépasse {LIGNES_MAX} lignes utiles"
-            )
 
         famille_par_defaut = nom_feuille if colonnes.famille is None else ""
         _traiter_ligne(

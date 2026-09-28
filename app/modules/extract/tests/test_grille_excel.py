@@ -395,3 +395,25 @@ def test_plus_de_20000_lignes_est_refuse() -> None:
 
     with pytest.raises(FichierGrilleInvalide, match=str(LIGNES_MAX)):
         lire_grille_excel(contenu)
+
+
+def test_lignes_vides_sans_aucune_cellule_sont_bornees() -> None:
+    """Un fichier truqué : une seule cellule tout en bas de la feuille force
+    Excel/openpyxl à considérer toutes les lignes intermédiaires comme
+    existantes, mais elles ne portent aucune cellule réelle (`EmptyCell`,
+    sans attribut `.row`) -- le chemin qui contournait `LIGNES_MAX` avant
+    correction. Le fichier lui-même reste minuscule (quelques Ko)."""
+    classeur = openpyxl.Workbook()
+    feuille = classeur.active
+    assert feuille is not None
+    feuille.title = "Grille"
+    for colonne, valeur in zip("ABCDE", _ENTETE_MODELE, strict=True):
+        feuille[f"{colonne}1"] = valeur
+    # Une seule cellule très loin dans la feuille : aucune des lignes
+    # intermédiaires n'est jamais écrite.
+    feuille[f"A{LIGNES_MAX + 100}"] = "REFX"
+    tampon = io.BytesIO()
+    classeur.save(tampon)
+
+    with pytest.raises(FichierGrilleInvalide, match=str(LIGNES_MAX)):
+        lire_grille_excel(tampon.getvalue())

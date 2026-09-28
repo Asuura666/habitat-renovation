@@ -43,7 +43,7 @@ from app.modules.ingest.anomalies import (
     lister_anomalies,
     traiter_anomalie,
 )
-from app.modules.ingest.commun import regles_masquees
+from app.modules.ingest.commun import CLE_ALERTE_PAR_REGLE, regles_masquees
 from app.modules.ingest.corrections import LigneSaisie, corriger_lignes
 from app.modules.ingest.extraction_bl import enregistrer_extraction_bl
 from app.modules.ingest.grilles import SaisiePrix, enregistrer_prix, importer_grille
@@ -58,7 +58,12 @@ from app.modules.ingest.models import (
     Utilisateur,
 )
 from app.modules.ingest.parametres import modifier_parametre
-from app.modules.ingest.prix_bl import controler_prix_bl, controler_prix_bl_sans_echec
+from app.modules.ingest.prix_bl import (
+    controler_prix_bl,
+    controler_prix_bl_sans_echec,
+    lister_alertes_prix,
+    recontroler_bons,
+)
 from app.modules.normalize.prix import cle_produit, prix_net
 from app.modules.rules.engine import REGLES_PRIX_BL
 
@@ -453,6 +458,68 @@ async def test_r20_utilise_le_prix_net_facture_apres_remise(
     assert "R20" in regles
     r20 = next(a for a in anomalies if a.regle == "R20")
     assert r20.detail["dernier_prix"] == "90.0000"
+
+
+async def test_recontroler_bons_ne_fait_pas_fuiter_facture_future_vers_bon_ancien(
+    db_session: AsyncSession,
+) -> None:
+    """`recontroler_bons` (spec §6.4) précalcule les lignes de facture d'un
+    fournisseur une seule fois, bornées à la date la plus tardive utile du
+    lot (constat de performance, fix), puis les filtre en mémoire par bon
+    dans `_candidats_facture` -- ce test vérifie que ce filtrage reste
+    strictement daté : un bon ancien ne doit jamais voir une facture postée
+    après sa propre date (spec §6.3, « factures ... datées au plus tard le
+    jour du bon »), même quand cette facture fait partie du lot précalculé
+    pour un bon plus récent du même fournisseur."""
+    fournisseur = await _creer_fournisseur(db_session)
+    await _activer_controle(db_session)
+
+    bon_ancien = await _creer_bl(
+        db_session, fournisseur=fournisseur, date_doc=date(2026, 1, 1)
+    )
+    await _creer_ligne(db_session, document=bon_ancien, pu_ht=Decimal("20.00"))
+
+    bon_recent = await _creer_bl(
+        db_session, fournisseur=fournisseur, date_doc=date(2026, 6, 1)
+    )
+    await _creer_ligne(db_session, document=bon_recent, pu_ht=Decimal("20.00"))
+
+    # Facture postée entre les deux bons : visible du bon récent, pas de
+    # l'ancien.
+    facture = Document(
+        type="facture",
+        source="upload",
+        statut="recu",
+        fichier_path=f"facture-invente-{uuid.uuid4()}.pdf",
+        numero="F-ENTRE-DEUX",
+        fournisseur_id=fournisseur.id,
+        date_doc=date(2026, 3, 1),
+    )
+    db_session.add(facture)
+    await db_session.commit()
+    await db_session.refresh(facture)
+    ligne_facture = Ligne(
+        document_id=facture.id,
+        type_ligne="article",
+        code_brut="REF1",
+        article_brut="Produit inventé",
+        pu_ht=Decimal("10.00"),
+        ordre=0,
+    )
+    db_session.add(ligne_facture)
+    await db_session.commit()
+
+    resultat = await recontroler_bons(db_session, fournisseur_id=fournisseur.id)
+    assert resultat.nb_echecs == 0
+    assert resultat.nb_bons == 2
+
+    anomalies_ancien = await _anomalies_du_document(db_session, bon_ancien.id)
+    anomalies_recent = await _anomalies_du_document(db_session, bon_recent.id)
+    # Aucune facture antérieure au bon ancien : pas de R20 pour lui.
+    assert "R20" not in {a.regle for a in anomalies_ancien}
+    # La facture du 1er mars s'applique bien au bon récent (1er juin).
+    r20_recent = next(a for a in anomalies_recent if a.regle == "R20")
+    assert r20_recent.detail["numero_facture"] == "F-ENTRE-DEUX"
 
 
 async def test_r21_moins_cher_que_la_grille(db_session: AsyncSession) -> None:
@@ -969,6 +1036,131 @@ async def test_lister_anomalies_masque_prix_selon_linterrupteur(
     await modifier_parametre(db_session, "prix_controle_bl_actif", "0", auteur_id=None)
     visibles = await lister_anomalies(db_session, statut="ouverte", regle="R19")
     assert visibles == []
+
+
+async def _creer_scenario_regle(
+    db_session: AsyncSession, regle: str
+) -> tuple[Document, Fournisseur]:
+    """Rejoue, pour `regle` (R19-R25), la construction déjà vérifiée par
+    `test_r19_plus_cher_que_la_grille` .. `test_r25_grille_ancienne` (une
+    seule alerte, celle attendue) -- réutilisée par
+    `test_masquage_par_regle_ne_touche_que_cette_regle` pour couvrir en
+    base, pour chaque règle, le masquage fin par réglage propre
+    (`CLE_ALERTE_PAR_REGLE`), pas seulement l'interrupteur général."""
+    fournisseur = await _creer_fournisseur(db_session)
+    if regle == "R19":
+        await _creer_prix_grille(db_session, fournisseur=fournisseur, prix_ht="10.00")
+        document = await _creer_bl(db_session, fournisseur=fournisseur)
+        await _creer_ligne(db_session, document=document, pu_ht=Decimal("20.00"))
+    elif regle == "R20":
+        facture = Document(
+            type="facture",
+            source="upload",
+            statut="recu",
+            fichier_path=f"facture-invente-{uuid.uuid4()}.pdf",
+            numero="F-MASQUAGE",
+            fournisseur_id=fournisseur.id,
+            date_doc=date(2026, 5, 1),
+        )
+        db_session.add(facture)
+        await db_session.commit()
+        await db_session.refresh(facture)
+        db_session.add(
+            Ligne(
+                document_id=facture.id,
+                type_ligne="article",
+                code_brut="REF1",
+                article_brut="Produit inventé",
+                pu_ht=Decimal("10.00"),
+                ordre=0,
+            )
+        )
+        await db_session.commit()
+        document = await _creer_bl(db_session, fournisseur=fournisseur)
+        await _creer_ligne(db_session, document=document, pu_ht=Decimal("20.00"))
+    elif regle == "R21":
+        await _creer_prix_grille(db_session, fournisseur=fournisseur, prix_ht="10.00")
+        document = await _creer_bl(db_session, fournisseur=fournisseur)
+        await _creer_ligne(db_session, document=document, pu_ht=Decimal("5.00"))
+    elif regle == "R22":
+        document = await _creer_bl(db_session, fournisseur=fournisseur)
+        await _creer_ligne(db_session, document=document, pu_ht=Decimal("20.00"))
+    elif regle == "R23":
+        await _creer_prix_grille(
+            db_session,
+            fournisseur=fournisseur,
+            reference="REFX",
+            designation="Produit Exemple Alpha",
+            prix_ht="20.00",
+        )
+        document = await _creer_bl(db_session, fournisseur=fournisseur)
+        await _creer_ligne(
+            db_session,
+            document=document,
+            code_brut=None,
+            article_brut="Produit Exemple Alpha",
+            pu_ht=Decimal("20.00"),
+        )
+    elif regle == "R24":
+        await _creer_prix_grille(
+            db_session, fournisseur=fournisseur, prix_ht="10.00", unite="kg"
+        )
+        document = await _creer_bl(db_session, fournisseur=fournisseur)
+        await _creer_ligne(
+            db_session, document=document, unite_brut="m", pu_ht=Decimal("20.00")
+        )
+    else:
+        assert regle == "R25"
+        await _creer_prix_grille(
+            db_session,
+            fournisseur=fournisseur,
+            prix_ht="20.00",
+            date_effet=date(2000, 1, 1),
+        )
+        document = await _creer_bl(db_session, fournisseur=fournisseur)
+        await _creer_ligne(db_session, document=document, pu_ht=Decimal("20.00"))
+
+    await controler_prix_bl(db_session, document.id)
+    await db_session.commit()
+    return document, fournisseur
+
+
+@pytest.mark.parametrize("regle", sorted(CLE_ALERTE_PAR_REGLE))
+async def test_masquage_par_regle_ne_touche_que_cette_regle(
+    db_session: AsyncSession, regle: str
+) -> None:
+    """Pour chacune des règles R19-R25 (spec §6.4/§8.1) : éteindre son seul
+    réglage (`prix_alerte_rXX`) retire son alerte de `lister_anomalies` et
+    de `lister_alertes_prix` (page Prix), sans toucher à l'alerte R19 d'un
+    autre produit/fournisseur -- confirme et complète le point de la revue
+    finale (seule l'interrupteur général `prix_controle_bl_actif` était
+    couvert de bout en bout)."""
+    await _activer_controle(db_session)
+    await _creer_scenario_regle(db_session, regle)
+
+    # Témoin d'une autre règle (R19, sauf si c'est justement celle testée --
+    # alors R21), sur un produit et un fournisseur distincts : doit rester
+    # visible après le masquage de `regle`.
+    temoin = "R19" if regle != "R19" else "R21"
+    await _creer_scenario_regle(db_session, temoin)
+
+    assert len(await lister_anomalies(db_session, statut="ouverte", regle=regle)) == 1
+    assert len(await lister_anomalies(db_session, statut="ouverte", regle=temoin)) == 1
+    produits_avant = await lister_alertes_prix(db_session)
+    regles_avant = {r for produit in produits_avant for r in produit.regles}
+    assert regle in regles_avant
+    assert temoin in regles_avant
+
+    await modifier_parametre(
+        db_session, CLE_ALERTE_PAR_REGLE[regle], "0", auteur_id=None
+    )
+
+    assert await lister_anomalies(db_session, statut="ouverte", regle=regle) == []
+    assert len(await lister_anomalies(db_session, statut="ouverte", regle=temoin)) == 1
+    produits_apres = await lister_alertes_prix(db_session)
+    regles_apres = {r for produit in produits_apres for r in produit.regles}
+    assert regle not in regles_apres
+    assert temoin in regles_apres
 
 
 async def test_traiter_anomalie_masquee_est_introuvable(

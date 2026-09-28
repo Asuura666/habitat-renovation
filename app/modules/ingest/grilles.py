@@ -220,7 +220,18 @@ async def prix_en_vigueur(
     importée après la date considérée), la première ligne postérieure
     (plus petite `date_effet`, à égalité la plus ancienne en `created_at`)
     -- `posterieure=True`. Une ligne choisie `retire` exclut le produit du
-    résultat, dans les deux cas."""
+    résultat, dans les deux cas.
+
+    `grille_prix` est un historique *append-only* qui ne fait que grandir
+    (migration 0013 : rien n'y est jamais modifié ni supprimé) -- un
+    fournisseur avec plusieurs années d'imports cumule vite des milliers de
+    lignes par produit. Rapatrier tout l'historique du fournisseur pour n'en
+    retenir qu'une ligne par produit dégraderait le temps de réponse avec
+    l'historique cumulé, pas avec le nombre de produits actifs : les deux
+    candidats par produit (la meilleure ligne `<= a_la_date`, la meilleure
+    ligne `> a_la_date`) sont donc sélectionnés côté SQL (`DISTINCT ON`,
+    propre à PostgreSQL -- seul le moteur imposé par `CLAUDE.md`), au lieu
+    d'être regroupés en Python après avoir chargé l'historique complet."""
     conditions = [GrillePrix.fournisseur_id == fournisseur_id]
     if cles is not None:
         cles_tuple = tuple(cles)
@@ -228,36 +239,37 @@ async def prix_en_vigueur(
             return {}
         conditions.append(GrillePrix.cle_produit.in_(cles_tuple))
 
-    resultat = await session.execute(
+    resultat_avant = await session.execute(
         select(GrillePrix)
-        .where(*conditions)
+        .where(*conditions, GrillePrix.date_effet <= a_la_date)
         .order_by(
             GrillePrix.cle_produit.asc(),
             GrillePrix.date_effet.desc(),
             GrillePrix.created_at.desc(),
         )
+        .distinct(GrillePrix.cle_produit)
     )
-    lignes = resultat.scalars().all()
+    candidats: dict[str, tuple[GrillePrix, bool]] = {
+        ligne.cle_produit: (ligne, False) for ligne in resultat_avant.scalars().all()
+    }
 
-    par_produit: dict[str, list[GrillePrix]] = {}
-    for ligne in lignes:
-        par_produit.setdefault(ligne.cle_produit, []).append(ligne)
+    resultat_apres = await session.execute(
+        select(GrillePrix)
+        .where(*conditions, GrillePrix.date_effet > a_la_date)
+        .order_by(
+            GrillePrix.cle_produit.asc(),
+            GrillePrix.date_effet.asc(),
+            GrillePrix.created_at.asc(),
+        )
+        .distinct(GrillePrix.cle_produit)
+    )
+    for ligne in resultat_apres.scalars().all():
+        # Seulement les produits sans aucune ligne `<= a_la_date` (spec
+        # §3.2) : la requête précédente les a déjà tous résolus.
+        candidats.setdefault(ligne.cle_produit, (ligne, True))
 
     resultats: dict[str, PrixVigueur] = {}
-    for cle, groupe in par_produit.items():
-        avant = [g for g in groupe if g.date_effet <= a_la_date]
-        if avant:
-            # `groupe` est déjà trié (date_effet desc, created_at desc) :
-            # le premier de `avant` est la ligne en vigueur (spec §3.2).
-            choisie = avant[0]
-            posterieure = False
-        else:
-            apres = [g for g in groupe if g.date_effet > a_la_date]
-            if not apres:
-                continue
-            choisie = min(apres, key=lambda g: (g.date_effet, g.created_at))
-            posterieure = True
-
+    for cle, (choisie, posterieure) in candidats.items():
         if choisie.retire:
             continue
 

@@ -1195,3 +1195,78 @@ CommentairesLignes.tsx`). Limites connues, prévues dès la conception
   qu'un document en a. Hors périmètre de la demande client (§8 de la
   spec, « possible plus tard si utile ») ; ajouterait une colonne calculée
   (comptage par document) au routeur de la liste si demandé.
+
+## Phase 3 — prix (session B, 28/09/2026)
+
+Lot Prix de la phase 3 (`docs/roadmap-octobre-2026.md` §6.2, §10) : grilles
+fournisseur, contrôle des prix au bon (règles pures R19 à R25), page
+« Prix à vérifier » (migration `0013`,
+`docs/superpowers/specs/2026-09-27-prix-design.md`). Points hors
+périmètre de la spec (§13) et laissés ouverts par la relecture de fin de
+phase :
+
+- **Contrôle des prix à la facture, prix trouvé sur internet, commentaire
+  de l'IA sur l'écart** : renvoyés à la phase 4 par la spec (§13),
+  remplaceraient à terme R07-R09 (déjà désactivées).
+- **Suivi des réclamations fournisseur** après l'action « Contester » sur
+  une alerte de prix : pas de statut ni d'historique au-delà du journal.
+- **Prix des bons précédents comme « dernier prix payé »** (§6.3 de la
+  spec) : seule la dernière facture sert de référence pour R20, pas le
+  dernier bon.
+- **Lecture de la remise imprimée sur un bon** : non gérée, le contrôle
+  compare le prix unitaire brut.
+- **R20 inopérante chez Point.P** : elle compare au dernier prix facturé,
+  or le parseur de facture Point.P n'est toujours pas construit (blocage
+  connu depuis le lot 3, aucun document disponible) ; tant qu'il n'existe
+  pas, R20 ne se déclenche jamais pour ce fournisseur, même si son prix a
+  augmenté.
+- **Import d'une grille mise en page librement** (blocs de prix côte à
+  côte sur une même feuille) non géré : il faut le modèle de colonnes
+  attendu par `extract/grille_excel.py`.
+- **Cascade des alertes réglées sur une ligne supprimée** (§3.3 de la
+  spec) : la migration `0013` passe `anomalie.ligne_id` en
+  `ON DELETE CASCADE` pour ne plus bloquer la suppression d'une ligne
+  portant une alerte. Mais `corriger_lignes` supprime une ligne retirée
+  par `session.delete(ligne)` sans appeler `synchroniser_anomalies` ni
+  rien journaliser pour les anomalies qui pointaient dessus : la cascade
+  les supprime silencieusement en base, y compris une anomalie déjà
+  traitée ou ignorée (avec son commentaire de résolution et son auteur),
+  sans aucune entrée « anomalie levée » au journal — contrairement à
+  toute autre voie de suppression du code (`synchroniser_anomalies`, et
+  le correctif équivalent déjà fait sur l'archivage d'un document,
+  justement pour ce genre de perte silencieuse). Déjà noté au §3.3 de la
+  spec comme limite connue ; à corriger si un usage réel montre que des
+  alertes réglées disparaissent ainsi sans trace.
+- **Déclencheurs de `grille_prix` désactivés dans les fixtures de test**
+  (`conftest.py` de `app/core`, `app/modules/api`, `app/modules/ingest`,
+  `app/modules/jobs` et `tests/`) : la table refuse tout `TRUNCATE`
+  (historique inaltérable, déclencheur `grille_prix_sans_truncate`), donc
+  la remise à zéro de la base de test désactive ces déclencheurs le temps
+  du `TRUNCATE` puis les réactive. Sans base réelle exercée sur plusieurs
+  mois, ce comportement n'a été vérifié qu'en test.
+- **Tâche planifiée quotidienne jugée inutile** par la spec (§13) : le
+  contrôle tourne à chaque dépôt et la page lit l'état courant. Aucun
+  rattrapage périodique n'existe pour autant si le contrôle échoue
+  silencieusement sur un dépôt (même angle mort que `controles-differes`
+  et `ranger-photos`, phase 2).
+- **Écran « Prix à vérifier »** : la colonne « Écart » ne distingue pas à
+  l'affichage un pourcentage d'écart de prix d'un pourcentage de
+  ressemblance de nom (R23 seule active) ; l'absence de code fournisseur
+  sur une ligne en alerte s'affiche par un tiret nu, sans le mot
+  « Sans référence » utilisé ailleurs dans l'application ; la colonne
+  « Produit » du tableau n'a pas de largeur minimale garantie face à la
+  colonne « Alertes », ce qui peut forcer les désignations longues sur
+  plusieurs lignes.
+- **Barre de navigation basse (téléphone)** : le passage à six entrées
+  avec l'ajout de « Prix » resserre l'espace disponible par item ; les
+  libellés ne sont pas protégés par une largeur minimale, un libellé long
+  pourrait déborder à l'écran le plus étroit visé.
+- **Libellé de R24** : la phrase affichée à l'écran enchaîne ses
+  informations par des virgules sans les relier par un verbe, ce qui la
+  rend un peu plus dense à lire que les autres règles de prix (R19-R23,
+  R25).
+- **Interrupteur général `prix_controle_bl_actif` éteint par défaut** :
+  aucune alerte de prix n'est créée tant qu'il n'est pas activé (décision
+  de déploiement, §14 de la spec) ; l'ordre conseillé au déploiement est
+  d'importer les grilles, de vérifier la page Grille fournisseur, puis
+  d'allumer le contrôle et de relancer un recontrôle des bons existants.
