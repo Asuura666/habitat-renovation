@@ -51,16 +51,27 @@ export function AvisIA({ anomalieId }: { anomalieId: string }): ReactElement | n
 }
 
 /** Nom de domaine d'une adresse (« exemple.invalid », jamais l'adresse
- * complète -- brief T7 : « pour rester court »), `www.` retiré. `null` si
- * l'adresse n'est pas analysable (défensif : `source_url` vient de l'IA,
- * jamais garanti valide côté front même si le serveur ne garde que des
- * adresses `https://` déjà vérifiées, `extract/reponses_ia.py`). */
+ * complète -- brief T7 : « pour rester court »), `www.` retiré -- `null` si
+ * l'adresse ne doit **pas** devenir un lien cliquable : non analysable,
+ * protocole autre que `https:` (fix round 1, revue T7 : une adresse
+ * `javascript:`/`data:` ne fait pas lever `new URL`, elle rend juste un
+ * `hostname` vide -- rendre le lien tout de même l'aurait rendu cliquable),
+ * ou hôte vide. `source_url` vient d'une réponse de l'IA : ce composant se
+ * défend lui-même, jamais uniquement sur la garde déjà faite côté serveur
+ * (`extract/reponses_ia.py`, qui ne garde que des adresses `https://`
+ * vérifiées pour le statut `trouve` -- une défense en profondeur, pas une
+ * confiance aveugle en amont). */
 function domaine(url: string): string | null {
+  let analysee: URL;
   try {
-    return new URL(url).hostname.replace(/^www\./, "");
+    analysee = new URL(url);
   } catch {
     return null;
   }
+  if (analysee.protocol !== "https:" || analysee.hostname === "") {
+    return null;
+  }
+  return analysee.hostname.replace(/^www\./, "");
 }
 
 /** Unité et conditionnement en un seul groupe entre parenthèses (brief T7 :

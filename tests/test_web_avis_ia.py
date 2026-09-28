@@ -49,6 +49,32 @@ def _textes_affiches(source: str) -> str:
     return " ".join(textes)
 
 
+def _sans_commentaires(source: str) -> str:
+    """Retire les commentaires JSDoc/bloc (`/** ... */`) et de ligne
+    (`// ...`) avant toute extraction de gabarit -- ce fichier commente
+    abondamment avec des mots entre `backticks` (`` `confiance` ``,
+    `` `ia_prix.py` ``, « blocage », etc.) qui ne sont jamais affichés à
+    l'écran ; les confondre avec un gabarit réellement rendu ferait échouer
+    la détection de jargon sur du texte qui n'existe que dans le code
+    source. Sûr sur ce fichier : aucun `//` n'y apparaît en dehors d'un
+    commentaire (vérifié à la main, fix round 1)."""
+    sans_blocs = re.sub(r"/\*.*?\*/", " ", source, flags=re.S)
+    return re.sub(r"//[^\n]*", " ", sans_blocs)
+
+
+def _gabarits_statiques(source: str) -> str:
+    """Parties statiques des gabarits (template literals) de ce composant,
+    hors commentaires -- fix round 1 (revue T7) : les phrases dynamiques
+    (« Prix trouvé sur internet : ... », « Prix introuvable sur internet :
+    ... ») sont construites par interpolation (`` `texte ${expr} texte` ``)
+    et sont donc bel et bien affichées à l'écran, alors que
+    `_textes_affiches` (texte JSX statique entre balises) ne les voit
+    jamais -- sans cette extraction, un mot interdit glissé dans l'une de
+    ces phrases serait passé inaperçu."""
+    gabarits = re.findall(r"`([^`]*)`", _sans_commentaires(source), re.S)
+    return " ".join(re.sub(r"\$\{[^}]*\}", " ", gabarit) for gabarit in gabarits)
+
+
 def test_api_ia_avis_contrat() -> None:
     api = _lire("api", "ia.ts")
 
@@ -152,13 +178,43 @@ def test_avis_ia_lien_source_securise_et_domaine_seul() -> None:
     assert 'rel="noopener noreferrer"' in bloc_lien
 
     assert "function domaine" in composant
-    assert "new URL(url).hostname" in composant
+    assert "new URL(url)" in composant
     # Le texte affiché du lien montre le domaine calculé, jamais
     # `prixInternet.source_url` recopié tel quel comme texte -- seul `href`
     # (l'attribut, jamais lu par un utilisateur) porte l'adresse complète.
     assert "Voir la source (${sourceDomaine})" in composant
     texte_lien = composant.split("Voir la source", 1)[1].split("</a>", 1)[0]
     assert "source_url" not in texte_lien
+
+
+def test_avis_ia_lien_source_https_seulement() -> None:
+    """Fix round 1 (revue T7) : `new URL("javascript:...")` ou `new
+    URL("data:...")` ne lève pas -- elles donnent seulement un `hostname`
+    vide -- donc `domaine()` doit refuser un protocole autre que `https:`,
+    pas seulement une adresse qui lève une exception. Le lien ne doit se
+    rendre que sous cette même garde (`sourceDomaine !== null`), jamais un
+    second calcul du domaine ailleurs qui contournerait cette défense."""
+    composant = _lire("components", "AvisIA.tsx")
+
+    fonction_domaine = composant.split("function domaine", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert 'analysee.protocol !== "https:"' in fonction_domaine
+    assert 'analysee.hostname === ""' in fonction_domaine
+    assert "return null;" in fonction_domaine
+
+    # Un seul point de calcul du domaine, appelé une seule fois.
+    assert composant.count("function domaine(") == 1
+    assert composant.count("domaine(prixInternet.source_url)") == 1
+
+    # `href` n'est rendu que dans le bloc gardé par `sourceDomaine !==
+    # null` -- qui dépend entièrement de `domaine()` ci-dessus.
+    garde_lien = "sourceDomaine !== null && prixInternet.source_url !== null && ("
+    assert garde_lien in composant
+    bloc_lien = composant.split(garde_lien, 1)[1].split(")}", 1)[0]
+    assert "href={prixInternet.source_url}" in bloc_lien
+    # Aucun autre `href` dans le composant en dehors de ce bloc gardé.
+    assert composant.count("href={") == 1
 
 
 def test_avis_ia_ne_montre_jamais_la_confiance() -> None:
@@ -172,8 +228,16 @@ def test_avis_ia_ne_montre_jamais_la_confiance() -> None:
 
 
 def test_avis_ia_aucun_jargon_visible() -> None:
+    """Fix round 1 (revue T7) : scanne aussi les gabarits (`` `...` ``) des
+    deux phrases dynamiques du prix internet, jamais visibles pour
+    `_textes_affiches` seul (texte JSX statique entre balises) alors
+    qu'elles s'affichent bel et bien à l'écran."""
     composant = _lire("components", "AvisIA.tsx")
-    texte = _textes_affiches(composant).lower()
+    texte = f"{_textes_affiches(composant)} {_gabarits_statiques(composant)}".lower()
     for mot in MOTS_INTERDITS:
         assert mot not in texte, f"mot interdit « {mot} » visible sur AvisIA.tsx"
     assert "l'ia" in texte or "'ia" in texte
+    # Les deux phrases dynamiques sont bien couvertes par cette extraction
+    # (sinon ce test ne prouverait rien de plus qu'avant round 1).
+    assert "prix trouvé sur internet" in texte
+    assert "prix introuvable sur internet" in texte
