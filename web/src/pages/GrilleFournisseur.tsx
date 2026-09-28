@@ -16,7 +16,7 @@ import {
 } from "../api/grilles";
 import { ErreurApi } from "../api/client";
 import { CLE_FOURNISSEURS, listerFournisseurs } from "../api/referentiels";
-import { formaterDate, formaterMontant, formaterDateHeure, TIRET } from "../lib/formats";
+import { estMontantNul, formaterDate, formaterMontant, TIRET } from "../lib/formats";
 import { Bouton, Carte, EnTetePage, EtatVide, FilAriane } from "../ui";
 
 const CLASSES_CHAMP =
@@ -50,6 +50,23 @@ function messageErreur(erreur: unknown, repli: string): string {
     return erreur.detail;
   }
   return repli;
+}
+
+/** Choisit la forme au singulier ou au pluriel selon `nombre` (accord
+ * français, constat de relecture visuelle de la tâche P5 : « 1 nouveaux »,
+ * « 1 ligne en erreur seront ignorée »…). */
+function accorder(nombre: number, singulier: string, pluriel: string): string {
+  return nombre > 1 ? pluriel : singulier;
+}
+
+/** « 1 ligne en erreur sera ignorée » / « 3 lignes en erreur seront
+ * ignorées » -- utilisé par l'aperçu et le bouton de confirmation de
+ * l'import. */
+function mentionLignesEnErreur(nbErreurs: number): string {
+  return (
+    `${nbErreurs} ${accorder(nbErreurs, "ligne", "lignes")} en erreur ` +
+    `${accorder(nbErreurs, "sera ignorée", "seront ignorées")}`
+  );
 }
 
 /** Formulaire de saisie d'un produit (spec §9 : « Modifier » sur une
@@ -261,7 +278,7 @@ function CarteProduit({
           <dt className="text-xs text-encre-2">Prix net</dt>
           <dd className="font-mono font-medium text-encre">
             {formaterMontant(produit.prix_net)}
-            {produit.remise_pct !== null && (
+            {produit.remise_pct !== null && !estMontantNul(produit.remise_pct) && (
               <span className="ml-1 text-xs text-encre-2">
                 ({formaterMontant(produit.prix_ht)} − {produit.remise_pct} %)
               </span>
@@ -314,22 +331,22 @@ function SectionApercu({
 }): ReactElement {
   const [absentsOuverts, setAbsentsOuverts] = useState(false);
   const nbAImporter = apercu.nb_nouveaux + apercu.nb_modifies;
-  const mentionErreurs =
-    apercu.nb_erreurs > 0
-      ? ` — ${apercu.nb_erreurs} ligne${apercu.nb_erreurs > 1 ? "s" : ""} en erreur seront ignorée${apercu.nb_erreurs > 1 ? "s" : ""}`
-      : "";
+  const mentionErreurs = apercu.nb_erreurs > 0 ? ` — ${mentionLignesEnErreur(apercu.nb_erreurs)}` : "";
 
   return (
     <div className="mt-4 space-y-4 rounded-carte border border-bordure bg-fond p-4">
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
         <span>
-          <strong className="text-encre">{apercu.nb_nouveaux}</strong> nouveaux
+          <strong className="text-encre">{apercu.nb_nouveaux}</strong>{" "}
+          {accorder(apercu.nb_nouveaux, "nouveau", "nouveaux")}
         </span>
         <span>
-          <strong className="text-encre">{apercu.nb_modifies}</strong> modifiés
+          <strong className="text-encre">{apercu.nb_modifies}</strong>{" "}
+          {accorder(apercu.nb_modifies, "modifié", "modifiés")}
         </span>
         <span>
-          <strong className="text-encre">{apercu.nb_inchanges}</strong> inchangés
+          <strong className="text-encre">{apercu.nb_inchanges}</strong>{" "}
+          {accorder(apercu.nb_inchanges, "inchangé", "inchangés")}
         </span>
         <span className={apercu.nb_erreurs > 0 ? "text-alerte" : undefined}>
           <strong>{apercu.nb_erreurs}</strong> en erreur
@@ -387,8 +404,9 @@ function SectionApercu({
             onClick={() => setAbsentsOuverts((v) => !v)}
             className="min-h-[44px] text-sm font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
           >
-            {absentsOuverts ? "Masquer" : "Voir"} les {apercu.absents_du_fichier.length} produits absents
-            de ce fichier
+            {absentsOuverts ? "Masquer" : "Voir"} les {apercu.absents_du_fichier.length}{" "}
+            {accorder(apercu.absents_du_fichier.length, "produit absent", "produits absents")} de ce
+            fichier
           </button>
           {absentsOuverts && (
             <ul className="mt-2 space-y-1 text-sm text-encre-2">
@@ -437,7 +455,9 @@ function SectionImport({ onImporte }: { onImporte: (resume: string) => void }): 
         entreeFichier.current.value = "";
       }
       onImporte(
-        `Import terminé : ${resultat.nb_nouveaux} nouveaux, ${resultat.nb_modifies} modifiés, ${resultat.nb_erreurs} en erreur.`,
+        `Import terminé : ${resultat.nb_nouveaux} ${accorder(resultat.nb_nouveaux, "nouveau", "nouveaux")}, ` +
+          `${resultat.nb_modifies} ${accorder(resultat.nb_modifies, "modifié", "modifiés")}, ` +
+          `${resultat.nb_erreurs} en erreur.`,
       );
     },
   });
@@ -454,17 +474,24 @@ function SectionImport({ onImporte }: { onImporte: (resume: string) => void }): 
           Télécharger le modèle
         </a>
         <div>
-          <label className={CLASSES_ETIQUETTE} htmlFor="import-fichier">
-            Fichier
-          </label>
-          <input
-            id="import-fichier"
-            ref={entreeFichier}
-            type="file"
-            accept=".xlsx"
-            onChange={choisirFichier}
-            className="text-sm text-encre"
-          />
+          <span className={CLASSES_ETIQUETTE}>Fichier</span>
+          <div className="flex flex-wrap items-center gap-3">
+            <label
+              htmlFor="import-fichier"
+              className="inline-flex min-h-[44px] cursor-pointer items-center justify-center gap-2 rounded-lg border border-bordure bg-surface px-4 py-2 text-sm font-medium text-encre outline-none transition-colors hover:bg-fond focus-within:ring-2 focus-within:ring-accent"
+            >
+              Choisir un fichier
+              <input
+                id="import-fichier"
+                ref={entreeFichier}
+                type="file"
+                accept=".xlsx"
+                onChange={choisirFichier}
+                className="sr-only"
+              />
+            </label>
+            <span className="text-sm text-encre-2">{fichier ? fichier.name : "Aucun fichier choisi"}</span>
+          </div>
         </div>
         <div>
           <label className={CLASSES_ETIQUETTE} htmlFor="import-date-effet">
@@ -586,8 +613,10 @@ export function GrilleFournisseur(): ReactElement {
       <EnTetePage
         surtitre={
           grille.data
-            ? `${grille.data.nb_produits} produit${grille.data.nb_produits > 1 ? "s" : ""} · dernier import ${
-                grille.data.dernier_import_le ? formaterDateHeure(grille.data.dernier_import_le) : "jamais"
+            ? `${grille.data.nb_produits} ${accorder(grille.data.nb_produits, "produit", "produits")} · ${
+                grille.data.dernier_import_le
+                  ? `dernier import le ${formaterDate(grille.data.dernier_import_le)}`
+                  : "dernier import jamais"
               }`
             : undefined
         }
@@ -688,8 +717,7 @@ export function GrilleFournisseur(): ReactElement {
                 <caption className="sr-only">Prix en vigueur de la grille</caption>
                 <thead className="bg-fond text-left text-xs font-medium uppercase tracking-wide text-encre-2">
                   <tr>
-                    <th scope="col" className="px-5 py-3">Désignation</th>
-                    <th scope="col" className="px-5 py-3">Référence</th>
+                    <th scope="col" className="w-full px-5 py-3">Désignation</th>
                     <th scope="col" className="px-5 py-3">Unité</th>
                     <th scope="col" className="px-5 py-3 text-right">Prix net</th>
                     <th scope="col" className="px-5 py-3">Date d'effet</th>
@@ -700,22 +728,24 @@ export function GrilleFournisseur(): ReactElement {
                 <tbody className="divide-y divide-bordure bg-surface">
                   {grille.data.produits.map((produit) => (
                     <tr key={produit.cle_produit}>
-                      <th scope="row" className="px-5 py-3 text-left font-medium text-encre">
-                        {produit.designation}
+                      <th scope="row" className="px-5 py-3 text-left align-top font-medium text-encre">
+                        <p className="whitespace-normal break-words">{produit.designation}</p>
+                        {produit.reference !== null && (
+                          <p className="mt-0.5 text-xs font-normal text-encre-2">{produit.reference}</p>
+                        )}
                       </th>
-                      <td className="px-5 py-3 text-encre">{produit.reference ?? TIRET}</td>
-                      <td className="px-5 py-3 text-encre">{produit.unite_brut ?? TIRET}</td>
-                      <td className="px-5 py-3 text-right font-mono text-encre">
+                      <td className="px-5 py-3 align-top text-encre">{produit.unite_brut ?? TIRET}</td>
+                      <td className="px-5 py-3 text-right font-mono text-encre align-top">
                         {formaterMontant(produit.prix_net)}
-                        {produit.remise_pct !== null && (
+                        {produit.remise_pct !== null && !estMontantNul(produit.remise_pct) && (
                           <span className="ml-1 text-xs text-encre-2">
                             ({formaterMontant(produit.prix_ht)} − {produit.remise_pct} %)
                           </span>
                         )}
                       </td>
-                      <td className="px-5 py-3 text-encre">{formaterDate(produit.date_effet)}</td>
-                      <td className="px-5 py-3 text-encre">{produit.famille ?? TIRET}</td>
-                      <td className="px-5 py-3 text-right">
+                      <td className="px-5 py-3 align-top text-encre">{formaterDate(produit.date_effet)}</td>
+                      <td className="px-5 py-3 align-top text-encre">{produit.famille ?? TIRET}</td>
+                      <td className="px-5 py-3 align-top text-right">
                         <div className="flex justify-end gap-2">
                           <Bouton
                             variante="secondaire"
