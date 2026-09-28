@@ -25,6 +25,10 @@ justification chiffrée. Un seul client, une seule instance, un VPS OVH.
   `/openapi.json`. Build copié dans l'image API, servi en StaticFiles. Même
   origine, pas de CORS, pas de JWT.
 - Docker + Compose, Traefik, restic. ruff, mypy strict, pytest.
+- IA (phase 4, décision d'Ilane du 27/09/2026, avenant §15 à confirmer) :
+  OpenCode (`opencode serve`, conteneur interne) et l'abonnement ChatGPT
+  d'Ilane ; un seul point d'appel, `ingest/opencode.py` ; l'IA ne décide
+  jamais.
 
 Interdit : n8n, Redis, Celery/RQ, MinIO/S3, Neo4j, Keycloak, LangChain, tout
 ORM autre que SQLAlchemy, tout state manager front autre que TanStack Query,
@@ -36,17 +40,21 @@ localStorage pour l'auth.
 app/
   core/        config (fail-fast : variable manquante = refus de démarrer), db, auth, middleware
   modules/
-    ingest/    router, orchestration (commun, depot_telegram, factures, lecture), mistral, models, tests
-    extract/   facture.py, ocr.py, unikalo.py (un parseur par fournisseur), tests   ← PUR
+    ingest/    router, orchestration (commun, depot_telegram, factures, lecture), mistral,
+               opencode.py, ia_synthese.py, ia_prix.py (phase 4, IA), models, tests
+    extract/   facture.py, ocr.py, unikalo.py (un parseur par fournisseur),
+               reponses_ia.py (schémas IA, phase 4), tests   ← PUR
     normalize/ fournisseur, chantier, article, unites, tests   ← PUR
     rules/     engine.py, rules/R01.py … R17.py, tests           ← PUR
     api/       routers JSON consommés par le front
     messaging/ base.py (interface), telegram.py, tests
-    jobs/      drive_sync, bilan, rappels
+    jobs/      drive.py, drive_sync.py (bilan à la demande dans ingest ;
+               rappels R14-R16 via ingest/suivi.py, controles-differes)
   main.py
 web/           front React (lot 2)
 migrations/    alembic
-deploy/        docker-compose.yml, traefik, backup.sh, restore.sh, deploy.sh
+deploy/        docker-compose.yml, traefik, backup.sh, restore.sh, deploy.sh,
+               opencode/ (conteneur IA, phase 4)
 docs/
 infra/         README.md : documentation technique d'ensemble (demande client, architecture, infra et ses choix)
 ```
@@ -69,6 +77,15 @@ infra/         README.md : documentation technique d'ensemble (demande client, a
   des imports via `ast`).
 
 ## Où en est le projet
+
+**Depuis le 27/09/2026 : lire d'abord `docs/roadmap-octobre-2026.md`.**
+Demandes d'octobre du client (phases 1 à 4), organisation git (plus aucun
+commit direct sur `main` : branches `feature/…` → PR vers `dev` ; `dev` →
+`main` seulement avec l'accord d'Ilane), deux sessions Claude Code en
+parallèle (worktrees, base de test par session, verrou commun sur les tests),
+numéros réservés (migrations, règles, réglages) et zones de conflit.
+
+**Phase 1 (mise en production du 1er octobre)** faite sur `feature/mise-en-prod-1-octobre` le 27/09/2026 (rattachement automatique des chantiers, R18, fusion, reprise, photos rangées, comptes, journal, livraisons conformes) : recette et procédure de déploiement dans `docs/mise-en-production-1er-octobre-recette.md` (ordre : migration 0011, `rattacher-chantiers`, puis `ranger-photos`).
 
 Lots 1 (Socle), 2 (Collecte), 3 (Extraction), 4 (Rapprochement) et 5
 (Restitution) faits et **fusionnés dans `main`** (lot 4 le 18/09/2026, lot 5
@@ -129,6 +146,35 @@ Points à retenir :
   désactivés côté serveur depuis le 24/09/2026** (décisions d'Ilane, même
   jour) — `CONTROLE_PRIX_ACTIF` et `CONTROLE_LIVRE_NON_FACTURE_ACTIF`,
   détail `docs/dette.md` et `docs/refonte-front-recette.md`.
+- **Optimisations rapidité et sécurité du 25/09/2026 fusionnées dans `main`
+  et déployées le jour même** (nginx, démo puis production, dumps
+  `avant-optimisations-*` dans `~/sauvegardes-habitat/`) : documents en
+  0640/0750, signature et taille des fichiers Telegram vérifiées, en-têtes
+  nginx complétés et zone `login`, conteneurs durcis, cache immutable des
+  `/assets`, `staleTime` de 30 s côté front, N+1 des alias corrigé, suite de
+  tests accélérée. Reporté et contexte : `docs/dette.md` (« Optimisations du
+  25/09/2026 »). Le serveur actuel est un serveur perso/de dev provisoire ;
+  la cible est un serveur dédié au client (seul Ilane y aura un compte).
+- **Phase 4 IA construite sur `feature/phase-4-ia`, IA éteinte** (T1 à T9,
+  27-28/09/2026) : synthèse hebdomadaire des commentaires, explication des
+  alertes prix et prix trouvé sur internet, conteneur OpenCode (client
+  `ingest/opencode.py`) connecté à l'abonnement ChatGPT personnel d'Ilane —
+  tout est construit et testé sans lui, `IA_ACTIVE=false` par défaut. Le lot
+  Prix est fusionné dans `dev` (PR #5) et R22 (« Produit absent de la
+  grille ») porte désormais `dernier_prix` : explication et prix internet
+  traitent maintenant de vraies anomalies. **T10a fait**, sur la branche
+  `feature/phase-4-t10` : service groupé
+  `ingest.ia_prix.prix_internet_des_anomalies`, route `GET
+  /api/ia/prix-internet`, essai de bout en bout sur une vraie anomalie R22.
+  Reste T10b (3ᵉ colonne « Internet » de l'écran `/prix`). Avenant CDC §15 à
+  confirmer par Ilane. Guide d'exploitation, connexion de l'abonnement,
+  essai avant de se fier au prix internet : `docs/phase-4-ia.md`.
+- **Phase 3 (session B) : commentaires sur les lignes de bons et lot Prix
+  (grilles, contrôle au bon R19-R25, page Prix), fusionné dans `dev`
+  (PR #5)** ; contrôle éteint par défaut (réglage `prix_controle_bl_actif`) ;
+  migrations `0012`-`0013` ; détail
+  `docs/superpowers/specs/2026-09-27-prix-design.md` et `docs/dette.md`
+  (28/09/2026).
 
 ## Méthode
 

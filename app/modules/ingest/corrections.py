@@ -44,6 +44,10 @@ orchestration.md`) :
   `rollback()` interne à `rapprocher_facture_sans_echec` expire tous les
   objets de la session, dont `document`, et un accès synchrone à l'un de
   ses attributs sans ce rafraîchissement lève `MissingGreenlet`.
+- Contrôle des prix du bon (phase 3, tâche P7, spec `docs/superpowers/specs/
+  2026-09-27-prix-design.md` §6.2) : `corriger_lignes` appelle
+  `controler_prix_bl_sans_echec` après le commit de la correction -- ne fait
+  jamais échouer la correction elle-même.
 - Ruling R25 (constat 3, Important) : `archiver_document` accepte aussi une
   facture (`_document_pour_archivage`, élargie à ce seul type en plus de
   `bl`/`enlevement` — l'archivage ne lit ni n'écrit aucun champ propre au
@@ -54,6 +58,15 @@ orchestration.md`) :
   quoi elles restaient `ouverte` pour toujours (`rapprocher_facture` sur un
   document non `recu` ne les recalcule jamais). Un BL/enlèvement archivé
   n'a pas ce traitement (hors périmètre de ce constat).
+
+Task 9 (avenant du 27/09/2026, spec §5) : `relancer_extraction` appelle
+`ingest.rangement.ranger_document` juste après son propre commit (le
+chantier a pu être re-résolu par la nouvelle extraction) — `docs_dir`
+qu'elle reçoit déjà en paramètre, aucun appel à `get_settings()` ici.
+`corriger_entete`, elle, ne le fait pas : c'est son appelant
+(`api.documents.corriger_entete_endpoint`) qui lit `get_settings().docs_dir`
+et range le document après coup (une route peut importer `app.core`, pas ce
+module).
 """
 
 from __future__ import annotations
@@ -103,11 +116,13 @@ from app.modules.ingest.models import (
     Ligne,
     Utilisateur,
 )
+from app.modules.ingest.prix_bl import controler_prix_bl_sans_echec
+from app.modules.ingest.rangement import ranger_document
 from app.modules.ingest.rapprochement import rapprocher_factures_du_bl
+from app.modules.ingest.rattachement_chantier import rattacher_chantier_document
 from app.modules.ingest.referentiels import (
     lire_parametre_decimal,
     rattacher_article,
-    resoudre_chantier,
 )
 from app.modules.normalize.article import proposer_article_bl
 from app.modules.rules.engine import REGLES_FACTURE
@@ -205,6 +220,11 @@ class DocumentDetail:
     agence_fournisseur: str | None
     chantier_id: uuid.UUID | None
     chantier: str | None
+    # Légende Telegram (`message.caption`, avenant du 27/09/2026) : nom de
+    # chantier tapé par l'employé au moment d'envoyer la photo, affichée à
+    # côté du chantier rattaché -- `None` si la photo n'avait pas de
+    # légende ou si le document ne vient pas de Telegram.
+    legende: str | None
     champs: dict[str, ChampLu]
     lignes: list[LigneLue]
     motifs: list[MotifLu]
@@ -544,6 +564,7 @@ async def _charger_detail(
         agence_fournisseur=nom_agence,
         chantier_id=document.chantier_id,
         chantier=nom_chantier,
+        legende=document.legende,
         champs=_construire_champs(document, nom_fournisseur, corrections),
         lignes=[_ligne_lue(ligne) for ligne in lignes_db],
         motifs=motifs_lus(document.motifs),
@@ -668,6 +689,28 @@ def _motifs_vers_motiflu(motifs: Sequence[Motif]) -> list[MotifLu]:
 # --------------------------------------------------------------------------
 
 
+async def document_visible(
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    *,
+    utilisateur_id: uuid.UUID,
+    role: str,
+) -> Document:
+    """Un BL/enlèvement visible par l'appelant : un admin voit tous les
+    documents, un agent seulement ceux qu'il a déposés (sinon
+    `DocumentIntrouvable`, jamais un 403 — même principe que
+    `ingest.lecture.fichier_document`).
+
+    Extrait de `detail_document` (règle de visibilité, L3-D19) pour être
+    réutilisé tel quel par `ingest.commentaires` (décision d'Ilane du
+    27/09/2026, §6.3-8 : « tout compte connecté qui voit la page du bon peut
+    commenter » — même règle, jamais recopiée)."""
+    document = await _document_pour_lecture(session, document_id)
+    if role != "admin" and document.deposant_id != utilisateur_id:
+        raise DocumentIntrouvable(str(document_id))
+    return document
+
+
 async def detail_document(
     session: AsyncSession,
     document_id: uuid.UUID,
@@ -675,13 +718,10 @@ async def detail_document(
     utilisateur_id: uuid.UUID,
     role: str,
 ) -> DocumentDetail:
-    """Détail d'un BL/enlèvement (L3-D19) : un admin voit tous les
-    documents, un agent seulement ceux qu'il a déposés (sinon
-    `DocumentIntrouvable`, jamais un 403 — même principe que
-    `ingest.lecture.fichier_document`)."""
-    document = await _document_pour_lecture(session, document_id)
-    if role != "admin" and document.deposant_id != utilisateur_id:
-        raise DocumentIntrouvable(str(document_id))
+    """Détail d'un BL/enlèvement (L3-D19), voir `document_visible`."""
+    document = await document_visible(
+        session, document_id, utilisateur_id=utilisateur_id, role=role
+    )
     return await _charger_detail(session, document, role=role)
 
 
@@ -713,16 +753,13 @@ async def _document_en_double(
 async def _resoudre_chantier_document(
     session: AsyncSession, document: Document
 ) -> None:
-    """Renseigne `document.chantier_id` à partir de `document.chantier_brut`
-    et `document.fournisseur_id` courants (nouvelle résolution après une
-    correction qui touche l'un des deux, L3-D13)."""
-    if document.fournisseur_id is None:
-        document.chantier_id = None
-        return
-    resolution = await resoudre_chantier(
-        session, document.fournisseur_id, document.chantier_brut
-    )
-    document.chantier_id = resolution.chantier_id
+    """Relance le rattachement automatique du chantier (`ingest
+    .rattachement_chantier.rattacher_chantier_document`, avenant du
+    27/09/2026) à partir de `document.chantier_brut`/`fournisseur_id`
+    courants, après une correction qui touche l'un des deux (L3-D13) — la
+    logique gère déjà un fournisseur absent (plus de retour anticipé à
+    `None` ici)."""
+    await rattacher_chantier_document(session, document)
 
 
 async def _rattacher_articles_du_document(
@@ -966,6 +1003,20 @@ async def corriger_lignes(
     )
     await session.commit()
     await session.refresh(document)
+
+    # Contrôle des prix du bon (phase 3, tâche P7, spec §6.2) : une
+    # correction de lignes peut changer le prix, l'unité ou le produit
+    # concerné -- recontrôlée après le commit de la correction, dans la
+    # même enveloppe (ne fait jamais échouer la correction elle-même,
+    # déjà commitée à ce stade). Même piège et même correctif que
+    # `valider_document`/`relancer_extraction` (Ruling R23, revue finale du
+    # lot 4) : un `rollback()` interne à `controler_prix_bl_sans_echec`
+    # (contrôle en échec) expire `document`, déjà rafraîchi juste au-dessus
+    # -- sans ce second `session.refresh`, l'accès synchrone suivant à un
+    # attribut de `document` dans `_charger_detail` lève `MissingGreenlet`.
+    await controler_prix_bl_sans_echec(session, document_id)
+    await session.refresh(document)
+
     return await _charger_detail(session, document, role="admin")
 
 
@@ -1157,6 +1208,13 @@ async def relancer_extraction(
         )
     )
     await session.commit()
+
+    # Task 9 (spec §5) : le chantier a pu être re-résolu par la nouvelle
+    # extraction (`enregistrer_extraction_bl` -> `rattacher_chantier
+    # _document`, déjà commité ci-dessus) -- lien physique renommé après le
+    # commit de cette fonction, `docs_dir` déjà reçu en paramètre (aucun
+    # appel à `get_settings()` ici, contrairement aux routeurs).
+    await ranger_document(session, docs_dir, document_id)
 
     await session.refresh(document)
     return await _charger_detail(session, document, role="admin")

@@ -694,6 +694,56 @@
     }
    }
   },
+  "/api/documents/{document_id}/chantier": {
+   "put": {
+    "summary": "Choisir Chantier Document Endpoint",
+    "operationId": "choisir_chantier_document_endpoint_api_documents__document_id__chantier_put",
+    "parameters": [
+     {
+      "name": "document_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Document Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ChoixChantierDocumentRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ChoixChantierDocumentReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/a-traiter": {
    "get": {
     "summary": "Obtenir A Traiter",
@@ -821,6 +871,94 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/ChantierReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "get": {
+    "summary": "Obtenir Chantier Endpoint",
+    "operationId": "obtenir_chantier_endpoint_api_chantiers__chantier_id__get",
+    "parameters": [
+     {
+      "name": "chantier_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Chantier Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ChantierReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/chantiers/{chantier_id}/fusionner": {
+   "post": {
+    "summary": "Fusionner Chantiers Endpoint",
+    "operationId": "fusionner_chantiers_endpoint_api_chantiers__chantier_id__fusionner_post",
+    "parameters": [
+     {
+      "name": "chantier_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Chantier Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FusionChantierRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ResultatFusionReponse"
         }
        }
       }
@@ -1072,7 +1210,15 @@
           "R14",
           "R15",
           "R16",
-          "R17"
+          "R17",
+          "R18",
+          "R19",
+          "R20",
+          "R21",
+          "R22",
+          "R23",
+          "R24",
+          "R25"
          ],
          "type": "string"
         },
@@ -1656,6 +1802,108 @@
           "$ref": "#/components/schemas/LigneBilanChantierReponse"
          },
          "title": "Response Bilan Chantiers Du Fournisseur Endpoint Api Bilan Fournisseurs  Fournisseur Id  Chantiers Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/bilan/livraisons": {
+   "get": {
+    "summary": "Bilan Livraisons Endpoint",
+    "description": "Liste des livraisons (Task 13, mise en production du 1er octobre,\nspec §4.3) : bons conformes cliquables (accueil, fiche chantier, fiche\nfournisseur) et écran `/livraisons`. `chantier`/`fournisseur` absents ->\naucun filtre sur ce côté (voir `ingest.bilan.lister_livraisons`, dont le\ndocstring explique pourquoi `None` n'y sélectionne pas le côté non\nrésolu comme les autres routes de ce module).",
+    "operationId": "bilan_livraisons_endpoint_api_bilan_livraisons_get",
+    "parameters": [
+     {
+      "name": "mois",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Mois"
+      }
+     },
+     {
+      "name": "agence",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Agence"
+      }
+     },
+     {
+      "name": "chantier",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uuid"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Chantier"
+      }
+     },
+     {
+      "name": "fournisseur",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uuid"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Fournisseur"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/LigneLivraisonReponse"
+         },
+         "title": "Response Bilan Livraisons Endpoint Api Bilan Livraisons Get"
         }
        }
       }
@@ -2277,6 +2525,237 @@
     }
    }
   },
+  "/api/comptes": {
+   "get": {
+    "summary": "Lister Comptes Endpoint",
+    "operationId": "lister_comptes_endpoint_api_comptes_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/CompteReponse"
+         },
+         "type": "array",
+         "title": "Response Lister Comptes Endpoint Api Comptes Get"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "summary": "Creer Compte Endpoint",
+    "operationId": "creer_compte_endpoint_api_comptes_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CompteCreationRequete"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CompteReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/comptes/{compte_id}": {
+   "put": {
+    "summary": "Modifier Compte Endpoint",
+    "operationId": "modifier_compte_endpoint_api_comptes__compte_id__put",
+    "parameters": [
+     {
+      "name": "compte_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Compte Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CompteModificationRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CompteReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/comptes/{compte_id}/mot-de-passe": {
+   "put": {
+    "summary": "Changer Mot De Passe Endpoint",
+    "operationId": "changer_mot_de_passe_endpoint_api_comptes__compte_id__mot_de_passe_put",
+    "parameters": [
+     {
+      "name": "compte_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Compte Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ChangementMotDePasseRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/comptes/{compte_id}/retirer-acces": {
+   "post": {
+    "summary": "Retirer Acces Endpoint",
+    "operationId": "retirer_acces_endpoint_api_comptes__compte_id__retirer_acces_post",
+    "parameters": [
+     {
+      "name": "compte_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Compte Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CompteReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/comptes/{compte_id}/retablir-acces": {
+   "post": {
+    "summary": "Retablir Acces Endpoint",
+    "operationId": "retablir_acces_endpoint_api_comptes__compte_id__retablir_acces_post",
+    "parameters": [
+     {
+      "name": "compte_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Compte Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CompteReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/tableau-de-bord": {
    "get": {
     "summary": "Tableau De Bord Endpoint",
@@ -2300,6 +2779,821 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/TableauDeBordReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/commentaires/documents/{document_id}": {
+   "get": {
+    "summary": "Commentaires Du Bon Endpoint",
+    "operationId": "commentaires_du_bon_endpoint_api_commentaires_documents__document_id__get",
+    "parameters": [
+     {
+      "name": "document_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Document Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CommentairesBonReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/commentaires/lignes/{ligne_id}": {
+   "post": {
+    "summary": "Ajouter Commentaire Endpoint",
+    "operationId": "ajouter_commentaire_endpoint_api_commentaires_lignes__ligne_id__post",
+    "parameters": [
+     {
+      "name": "ligne_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Ligne Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CommentaireRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CommentaireReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/grilles/modele": {
+   "get": {
+    "summary": "Modele Grille Endpoint",
+    "operationId": "modele_grille_endpoint_api_grilles_modele_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/grilles/fournisseurs/{fournisseur_id}": {
+   "get": {
+    "summary": "Grille Fournisseur Endpoint",
+    "operationId": "grille_fournisseur_endpoint_api_grilles_fournisseurs__fournisseur_id__get",
+    "parameters": [
+     {
+      "name": "fournisseur_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Fournisseur Id"
+      }
+     },
+     {
+      "name": "recherche",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Recherche"
+      }
+     },
+     {
+      "name": "page",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "default": 1,
+       "title": "Page"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/GrilleFournisseurReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/grilles/fournisseurs/{fournisseur_id}/produits/{cle_produit}/historique": {
+   "get": {
+    "summary": "Historique Produit Endpoint",
+    "operationId": "historique_produit_endpoint_api_grilles_fournisseurs__fournisseur_id__produits__cle_produit__historique_get",
+    "parameters": [
+     {
+      "name": "fournisseur_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Fournisseur Id"
+      }
+     },
+     {
+      "name": "cle_produit",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Cle Produit"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/LigneHistoriqueReponse"
+         },
+         "title": "Response Historique Produit Endpoint Api Grilles Fournisseurs  Fournisseur Id  Produits  Cle Produit  Historique Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/grilles/fournisseurs/{fournisseur_id}/prix": {
+   "post": {
+    "summary": "Enregistrer Prix Endpoint",
+    "operationId": "enregistrer_prix_endpoint_api_grilles_fournisseurs__fournisseur_id__prix_post",
+    "parameters": [
+     {
+      "name": "fournisseur_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Fournisseur Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SaisiePrixRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ProduitGrilleReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/grilles/fournisseurs/{fournisseur_id}/retrait": {
+   "post": {
+    "summary": "Retirer Produit Endpoint",
+    "operationId": "retirer_produit_endpoint_api_grilles_fournisseurs__fournisseur_id__retrait_post",
+    "parameters": [
+     {
+      "name": "fournisseur_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Fournisseur Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RetraitProduitRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "type": "string"
+         },
+         "title": "Response Retirer Produit Endpoint Api Grilles Fournisseurs  Fournisseur Id  Retrait Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/grilles/fournisseurs/{fournisseur_id}/import/apercu": {
+   "post": {
+    "summary": "Apercu Import Endpoint",
+    "operationId": "apercu_import_endpoint_api_grilles_fournisseurs__fournisseur_id__import_apercu_post",
+    "parameters": [
+     {
+      "name": "fournisseur_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Fournisseur Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "multipart/form-data": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_apercu_import_endpoint_api_grilles_fournisseurs__fournisseur_id__import_apercu_post"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ApercuImportReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/grilles/fournisseurs/{fournisseur_id}/import": {
+   "post": {
+    "summary": "Importer Grille Endpoint",
+    "operationId": "importer_grille_endpoint_api_grilles_fournisseurs__fournisseur_id__import_post",
+    "parameters": [
+     {
+      "name": "fournisseur_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Fournisseur Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "multipart/form-data": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_importer_grille_endpoint_api_grilles_fournisseurs__fournisseur_id__import_post"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ImportEffectueReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/prix/alertes": {
+   "get": {
+    "summary": "Lister Alertes Prix Endpoint",
+    "operationId": "lister_alertes_prix_endpoint_api_prix_alertes_get",
+    "parameters": [
+     {
+      "name": "periode",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "jour",
+        "tout"
+       ],
+       "type": "string",
+       "default": "tout",
+       "title": "Periode"
+      }
+     },
+     {
+      "name": "fournisseur_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uuid"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Fournisseur Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/AlerteProduitReponse"
+         },
+         "title": "Response Lister Alertes Prix Endpoint Api Prix Alertes Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/prix/valider": {
+   "post": {
+    "summary": "Valider Prix Endpoint",
+    "operationId": "valider_prix_endpoint_api_prix_valider_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ValiderPrixRequete"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ValidationPrixReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/prix/contester": {
+   "post": {
+    "summary": "Contester Prix Endpoint",
+    "operationId": "contester_prix_endpoint_api_prix_contester_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ContesterPrixRequete"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FermetureAlertesReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/prix/ignorer": {
+   "post": {
+    "summary": "Ignorer Prix Endpoint",
+    "operationId": "ignorer_prix_endpoint_api_prix_ignorer_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/IgnorerPrixRequete"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FermetureAlertesReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/prix/recontrole": {
+   "post": {
+    "summary": "Recontroler Prix Endpoint",
+    "operationId": "recontroler_prix_endpoint_api_prix_recontrole_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RecontrolePrixReponse"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/synthese": {
+   "get": {
+    "summary": "Synthese Accueil Endpoint",
+    "operationId": "synthese_accueil_endpoint_api_ia_synthese_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SyntheseAccueilReponse"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/synthese/actions/{action_id}/faite": {
+   "post": {
+    "summary": "Marquer Action Faite Endpoint",
+    "operationId": "marquer_action_faite_endpoint_api_ia_synthese_actions__action_id__faite_post",
+    "parameters": [
+     {
+      "name": "action_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Action Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ActionSyntheseReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/synthese/actions/{action_id}/a-faire": {
+   "post": {
+    "summary": "Marquer Action A Faire Endpoint",
+    "operationId": "marquer_action_a_faire_endpoint_api_ia_synthese_actions__action_id__a_faire_post",
+    "parameters": [
+     {
+      "name": "action_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Action Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ActionSyntheseReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/anomalies/{anomalie_id}": {
+   "get": {
+    "summary": "Avis Ia Anomalie Endpoint",
+    "operationId": "avis_ia_anomalie_endpoint_api_ia_anomalies__anomalie_id__get",
+    "parameters": [
+     {
+      "name": "anomalie_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Anomalie Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AvisIAReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/prix-internet": {
+   "get": {
+    "summary": "Prix Internet Lot Endpoint",
+    "operationId": "prix_internet_lot_endpoint_api_ia_prix_internet_get",
+    "parameters": [
+     {
+      "name": "anomalie_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "array",
+         "items": {
+          "type": "string",
+          "format": "uuid"
+         }
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Anomalie Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PrixInternetLotReponse"
         }
        }
       }
@@ -2366,6 +3660,13 @@
       },
       "type": "array",
       "title": "Anomalies Hautes"
+     },
+     "chantiers_a_completer": {
+      "items": {
+       "$ref": "#/components/schemas/ChantierACompleterReponse"
+      },
+      "type": "array",
+      "title": "Chantiers A Completer"
      }
     },
     "type": "object",
@@ -2373,10 +3674,70 @@
      "documents",
      "alias",
      "articles",
-     "anomalies_hautes"
+     "anomalies_hautes",
+     "chantiers_a_completer"
     ],
     "title": "ATraiterReponse",
-    "description": "`GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18),\ncomplété par `anomalies_hautes` (anomalies ouvertes de gravité haute,\nL4-D18)."
+    "description": "`GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18),\ncomplété par `anomalies_hautes` (anomalies ouvertes de gravité haute,\nL4-D18) et `chantiers_a_completer` (Task 6, avenant du 27/09/2026)."
+   },
+   "ActionSyntheseReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "texte": {
+      "type": "string",
+      "title": "Texte"
+     },
+     "semaine_debut": {
+      "type": "string",
+      "format": "date",
+      "title": "Semaine Debut"
+     },
+     "faite_le": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Faite Le"
+     },
+     "faite_par": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Faite Par"
+     },
+     "bons": {
+      "items": {
+       "$ref": "#/components/schemas/BonLieReponse"
+      },
+      "type": "array",
+      "title": "Bons"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "texte",
+     "semaine_debut",
+     "faite_le",
+     "faite_par",
+     "bons"
+    ],
+    "title": "ActionSyntheseReponse",
+    "description": "Une action de synthèse, dans `SyntheseReponse.actions` ou\n`SyntheseAccueilReponse.encore_a_faire` — mêmes attributs\nqu'`ingest.ia_synthese.ActionVue` ; réponse aussi de `POST /api/ia\n/synthese/actions/{id}/faite` et `.../a-faire`."
    },
    "AgenceFournisseurReponse": {
     "properties": {
@@ -2409,6 +3770,260 @@
     ],
     "title": "AgenceFournisseurReponse",
     "description": "Une agence (point de vente) d'un fournisseur, dans `GET /api\n/fournisseurs` (Ruling L5-R9, tour de correction 1 de L5-T8) — mêmes\nattributs qu'`ingest.referentiels.AgenceResume`."
+   },
+   "AlerteProduitReponse": {
+    "properties": {
+     "fournisseur_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Fournisseur Id"
+     },
+     "fournisseur": {
+      "type": "string",
+      "title": "Fournisseur"
+     },
+     "produit": {
+      "type": "string",
+      "title": "Produit"
+     },
+     "code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Code"
+     },
+     "prix_bon": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Prix Bon"
+     },
+     "unite_bon": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Bon"
+     },
+     "date_bon": {
+      "type": "string",
+      "format": "date",
+      "title": "Date Bon"
+     },
+     "nb_bons": {
+      "type": "integer",
+      "title": "Nb Bons"
+     },
+     "nb_prix_differents": {
+      "type": "integer",
+      "title": "Nb Prix Differents"
+     },
+     "prix_grille": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Prix Grille"
+     },
+     "unite_grille": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Grille"
+     },
+     "date_grille": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date Grille"
+     },
+     "grille_posterieure_au_bon": {
+      "type": "boolean",
+      "title": "Grille Posterieure Au Bon"
+     },
+     "dernier_prix": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Dernier Prix"
+     },
+     "unite_dernier_prix": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Dernier Prix"
+     },
+     "date_dernier_prix": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date Dernier Prix"
+     },
+     "numero_facture": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero Facture"
+     },
+     "ecart_pct": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ecart Pct"
+     },
+     "methode": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Methode"
+     },
+     "ressemblance": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ressemblance"
+     },
+     "unite_grille_non_comparable": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Grille Non Comparable"
+     },
+     "regles": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Regles"
+     },
+     "anomalie_ids": {
+      "items": {
+       "type": "string",
+       "format": "uuid"
+      },
+      "type": "array",
+      "title": "Anomalie Ids"
+     },
+     "document_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Document Id"
+     },
+     "ligne_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Ligne Id"
+     },
+     "numero_interne": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero Interne"
+     }
+    },
+    "type": "object",
+    "required": [
+     "fournisseur_id",
+     "fournisseur",
+     "produit",
+     "code",
+     "prix_bon",
+     "unite_bon",
+     "date_bon",
+     "nb_bons",
+     "nb_prix_differents",
+     "prix_grille",
+     "unite_grille",
+     "date_grille",
+     "grille_posterieure_au_bon",
+     "dernier_prix",
+     "unite_dernier_prix",
+     "date_dernier_prix",
+     "numero_facture",
+     "ecart_pct",
+     "methode",
+     "ressemblance",
+     "unite_grille_non_comparable",
+     "regles",
+     "anomalie_ids",
+     "document_id",
+     "ligne_id",
+     "numero_interne"
+    ],
+    "title": "AlerteProduitReponse",
+    "description": "Une rangée de `GET /api/prix/alertes` -- mêmes attributs\nqu'`ingest.prix_bl.AlerteProduit`."
    },
    "AliasEnAttenteReponse": {
     "properties": {
@@ -2688,6 +4303,75 @@
     "title": "AnomalieReponse",
     "description": "Une anomalie, telle qu'exposée par `GET /api/anomalies` et par\n`POST /api/anomalies/{id}/traitement` — mêmes attributs qu'`ingest\n.anomalies.AnomalieLue`. `detail` est exposé tel quel (`dict[str,\nstr]`, décision du contrôleur) : la phrase de justification est\nconstruite côté front à partir de ce champ (L4-D17), jamais ici."
    },
+   "ApercuImportReponse": {
+    "properties": {
+     "nb_nouveaux": {
+      "type": "integer",
+      "title": "Nb Nouveaux"
+     },
+     "nb_modifies": {
+      "type": "integer",
+      "title": "Nb Modifies"
+     },
+     "nb_inchanges": {
+      "type": "integer",
+      "title": "Nb Inchanges"
+     },
+     "nb_erreurs": {
+      "type": "integer",
+      "title": "Nb Erreurs"
+     },
+     "nouveaux": {
+      "items": {
+       "$ref": "#/components/schemas/LigneCompareeGrilleReponse"
+      },
+      "type": "array",
+      "title": "Nouveaux"
+     },
+     "modifies": {
+      "items": {
+       "$ref": "#/components/schemas/LigneCompareeGrilleReponse"
+      },
+      "type": "array",
+      "title": "Modifies"
+     },
+     "absents_du_fichier": {
+      "items": {
+       "$ref": "#/components/schemas/ProduitAbsentReponse"
+      },
+      "type": "array",
+      "title": "Absents Du Fichier"
+     },
+     "erreurs": {
+      "items": {
+       "$ref": "#/components/schemas/ErreurImportReponse"
+      },
+      "type": "array",
+      "title": "Erreurs"
+     },
+     "feuilles_ignorees": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Feuilles Ignorees"
+     }
+    },
+    "type": "object",
+    "required": [
+     "nb_nouveaux",
+     "nb_modifies",
+     "nb_inchanges",
+     "nb_erreurs",
+     "nouveaux",
+     "modifies",
+     "absents_du_fichier",
+     "erreurs",
+     "feuilles_ignorees"
+    ],
+    "title": "ApercuImportReponse",
+    "description": "`POST /api/grilles/fournisseurs/{id}/import/apercu` -- mêmes\nattributs qu'`ingest.grilles.ApercuImport`."
+   },
    "ArchivageRequete": {
     "properties": {
      "commentaire": {
@@ -2783,6 +4467,42 @@
     ],
     "title": "ArticleAValiderReponse",
     "description": "Un article à valider, dans `GET /api/a-traiter` — mêmes attributs\nqu'`ingest.a_traiter.ArticleAValider`."
+   },
+   "AvisIAReponse": {
+    "properties": {
+     "ia_active": {
+      "type": "boolean",
+      "title": "Ia Active"
+     },
+     "explication": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ExplicationAlerteReponse"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "prix_internet": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PrixInternetReponse"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "type": "object",
+    "required": [
+     "ia_active",
+     "explication",
+     "prix_internet"
+    ],
+    "title": "AvisIAReponse",
+    "description": "Réponse de `GET /api/ia/anomalies/{id}` — mêmes attributs\nqu'`ingest.ia_prix.AvisIA`."
    },
    "BlocFactureReponse": {
     "properties": {
@@ -2917,6 +4637,26 @@
     "title": "BlocFactureReponse",
     "description": "Un bloc « Concerne le B.L. », dans `GET /api/factures/{id}`\n(`chantier_id`, L3-T7)."
    },
+   "Body_apercu_import_endpoint_api_grilles_fournisseurs__fournisseur_id__import_apercu_post": {
+    "properties": {
+     "fichier": {
+      "type": "string",
+      "contentMediaType": "application/octet-stream",
+      "title": "Fichier"
+     },
+     "date_effet": {
+      "type": "string",
+      "format": "date",
+      "title": "Date Effet"
+     }
+    },
+    "type": "object",
+    "required": [
+     "fichier",
+     "date_effet"
+    ],
+    "title": "Body_apercu_import_endpoint_api_grilles_fournisseurs__fournisseur_id__import_apercu_post"
+   },
    "Body_deposer_facture_pdf_api_factures_post": {
     "properties": {
      "fichier": {
@@ -2930,6 +4670,26 @@
      "fichier"
     ],
     "title": "Body_deposer_facture_pdf_api_factures_post"
+   },
+   "Body_importer_grille_endpoint_api_grilles_fournisseurs__fournisseur_id__import_post": {
+    "properties": {
+     "fichier": {
+      "type": "string",
+      "contentMediaType": "application/octet-stream",
+      "title": "Fichier"
+     },
+     "date_effet": {
+      "type": "string",
+      "format": "date",
+      "title": "Date Effet"
+     }
+    },
+    "type": "object",
+    "required": [
+     "fichier",
+     "date_effet"
+    ],
+    "title": "Body_importer_grille_endpoint_api_grilles_fournisseurs__fournisseur_id__import_post"
    },
    "Body_se_connecter_api_auth_login_post": {
     "properties": {
@@ -2989,6 +4749,33 @@
      "password"
     ],
     "title": "Body_se_connecter_api_auth_login_post"
+   },
+   "BonLieReponse": {
+    "properties": {
+     "document_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Document Id"
+     },
+     "numero": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero"
+     }
+    },
+    "type": "object",
+    "required": [
+     "document_id",
+     "numero"
+    ],
+    "title": "BonLieReponse",
+    "description": "Un bon cité par une action de synthèse — mêmes attributs\nqu'`ingest.ia_synthese.BonLie`."
    },
    "ChampReponse": {
     "properties": {
@@ -3111,6 +4898,52 @@
     "title": "ChampsDocumentReponse",
     "description": "`DocumentDetail.champs` (`dict[str, ChampLu]`), à attributs nommés\n(une clé par champ correctible de l'en-tête, hors `type`/`fournisseur_id`\n— décision du contrôleur)."
    },
+   "ChangementMotDePasseRequete": {
+    "properties": {
+     "mot_de_passe": {
+      "type": "string",
+      "minLength": 1,
+      "title": "Mot De Passe"
+     }
+    },
+    "type": "object",
+    "required": [
+     "mot_de_passe"
+    ],
+    "title": "ChangementMotDePasseRequete",
+    "description": "Corps de `PUT /api/comptes/{id}/mot-de-passe` (spec §3 : « Changer le\nmot de passe ») : l'admin saisit lui-même le nouveau mot de passe, jamais\nd'envoi d'e-mail -- longueur revérifiée par `app.core.auth\n._mot_de_passe_valide`, jamais ici (même raison que `mot_de_passe`\nci-dessus)."
+   },
+   "ChantierACompleterReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "nom": {
+      "type": "string",
+      "title": "Nom"
+     },
+     "nb_bons": {
+      "type": "integer",
+      "title": "Nb Bons"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "nom",
+     "nb_bons",
+     "cree_le"
+    ],
+    "title": "ChantierACompleterReponse",
+    "description": "Un chantier créé automatiquement encore à compléter, dans `GET /api\n/a-traiter` — mêmes attributs qu'`ingest.a_traiter.ChantierACompleter`\n(Task 6, avenant du 27/09/2026, spec §2.6)."
+   },
    "ChantierCreationRequete": {
     "properties": {
      "nom_canonique": {
@@ -3231,6 +5064,33 @@
      "actif": {
       "type": "boolean",
       "title": "Actif"
+     },
+     "a_completer": {
+      "type": "boolean",
+      "title": "A Completer"
+     },
+     "fusionne_dans_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fusionne Dans Id"
+     },
+     "fusionne_dans_nom": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fusionne Dans Nom"
      }
     },
     "type": "object",
@@ -3239,10 +5099,13 @@
      "nom_canonique",
      "agence",
      "client",
-     "actif"
+     "actif",
+     "a_completer",
+     "fusionne_dans_id",
+     "fusionne_dans_nom"
     ],
     "title": "ChantierReponse",
-    "description": "Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest\n.referentiels.ChantierResume`. `client` : ajout hors CDC demandé le\n23/09/2026 (`docs/dette.md`)."
+    "description": "Une ligne de `GET /api/chantiers`, et la fiche `GET /api\n/chantiers/{id}` (Task 7) — mêmes attributs qu'`ingest.referentiels\n.ChantierResume`. `client` : ajout hors CDC demandé le 23/09/2026\n(`docs/dette.md`). `a_completer` (Task 6, avenant du 27/09/2026) :\nchantier créé automatiquement, pas encore complété.\n\n`fusionne_dans_id`/`fusionne_dans_nom` (Task 7, avenant du 27/09/2026,\nspec §2.7) : chantier absorbé par un autre (« Fusionner avec… ») --\ntoujours `None` sur `GET /api/chantiers` (qui exclut déjà les chantiers\nfusionnés, Task 6) ; non `None` seulement quand `GET /api/chantiers\n/{id}` renvoie un chantier fusionné, pour son bandeau « Ce chantier a\nété fusionné dans <cible> »."
    },
    "ChantierSilencieuxReponse": {
     "properties": {
@@ -3370,6 +5233,125 @@
     "title": "ChantierTableauReponse",
     "description": "Une ligne de `chantiers` dans `GET /api/tableau-de-bord` — mêmes\nattributs qu'`ingest.tableau_de_bord.ChantierTableau`. `chantier_id`\n(et `nom_canonique`/`client`/`agence`) valent `None` pour les blocs\ndont le chantier n'a pas pu être résolu (`etat=\"a_rattacher\"` dans ce\ncas), même principe que `LigneBilanChantierReponse.chantier_id`."
    },
+   "ChoixChantierDocumentReponse": {
+    "properties": {
+     "chantier_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Chantier Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "chantier_id"
+    ],
+    "title": "ChoixChantierDocumentReponse",
+    "description": "Réponse de `PUT /api/documents/{id}/chantier` : le chantier\nréellement retenu (`ingest.rattachement_chantier.chantier_effectif` du\nchantier choisi, Task 7)."
+   },
+   "ChoixChantierDocumentRequete": {
+    "properties": {
+     "chantier_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Chantier Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "chantier_id"
+    ],
+    "title": "ChoixChantierDocumentRequete",
+    "description": "Corps de `PUT /api/documents/{id}/chantier` (Task 6, avenant du\n27/09/2026, spec §2.4/§2.6) : le chantier choisi par un humain, pour\nrégler une alerte « Chantier à confirmer » (R18) ou corriger le\nchantier d'un bon depuis sa fiche."
+   },
+   "CommentaireReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "ligne_libelle": {
+      "type": "string",
+      "title": "Ligne Libelle"
+     },
+     "auteur": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Auteur"
+     },
+     "texte": {
+      "type": "string",
+      "title": "Texte"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "ligne_libelle",
+     "auteur",
+     "texte",
+     "cree_le"
+    ],
+    "title": "CommentaireReponse",
+    "description": "Un commentaire, sous sa ligne, dans `sans_ligne`, ou seul (retour de\n`POST /api/commentaires/lignes/{id}`) — mêmes attributs\nqu'`ingest.commentaires.CommentaireLu`."
+   },
+   "CommentaireRequete": {
+    "properties": {
+     "texte": {
+      "type": "string",
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Texte"
+     }
+    },
+    "type": "object",
+    "required": [
+     "texte"
+    ],
+    "title": "CommentaireRequete",
+    "description": "Corps de `POST /api/commentaires/lignes/{id}` : borne de taille dès\nla validation Pydantic (comme `ArchivageRequete`), pour rejeter un corps\ntrop volumineux avant même de le charger entièrement en mémoire. Un\ntexte blanc une fois nettoyé (espaces seuls) passe encore cette borne\n(`min_length` compte les espaces) : il reste refusé par le service\n(`ingest.commentaires.ajouter_commentaire`, `str.strip()`,\n`CommentaireInvalide`, 422)."
+   },
+   "CommentairesBonReponse": {
+    "properties": {
+     "nb_commentaires": {
+      "type": "integer",
+      "title": "Nb Commentaires"
+     },
+     "lignes": {
+      "items": {
+       "$ref": "#/components/schemas/LigneCommenteeReponse"
+      },
+      "type": "array",
+      "title": "Lignes"
+     },
+     "sans_ligne": {
+      "items": {
+       "$ref": "#/components/schemas/CommentaireReponse"
+      },
+      "type": "array",
+      "title": "Sans Ligne"
+     }
+    },
+    "type": "object",
+    "required": [
+     "nb_commentaires",
+     "lignes",
+     "sans_ligne"
+    ],
+    "title": "CommentairesBonReponse",
+    "description": "Réponse de `GET /api/commentaires/documents/{id}` — mêmes attributs\nqu'`ingest.commentaires.CommentairesBon`."
+   },
    "ComparaisonBlReponse": {
     "properties": {
      "document_id": {
@@ -3449,6 +5431,122 @@
     "title": "ComparaisonBlReponse",
     "description": "`GET /api/documents/{id}/comparaison` (Task 3, refonte front) —\nmêmes attributs qu'`ingest.comparaison_bl.ComparaisonBl`.\n`facture_id`/`numero_facture`/`montant_facture_ht` valent `None` quand\naucun bloc de facture ne cite ce BL (`bloc_facture.bl_document_id`,\nmême principe que `LigneBilanBlReponse.bl_document_id`).\n\n`nb_problemes` (tour de correction 1, Task 8) : nombre d'anomalies\nouvertes concernant ce BL, au sens large — pas seulement la somme des\n`regles_ouvertes` des `lignes` (voir le docstring de\n`ingest.comparaison_bl.ComparaisonBl`). C'est ce champ, jamais un calcul\nfront, qui doit fonder le nombre de problèmes affiché et déterminer si\nle BL peut être présenté comme « Conforme »."
    },
+   "CompteCreationRequete": {
+    "properties": {
+     "email": {
+      "type": "string",
+      "maxLength": 320,
+      "minLength": 1,
+      "title": "Email"
+     },
+     "nom": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Nom"
+     },
+     "role": {
+      "type": "string",
+      "enum": [
+       "admin",
+       "agent"
+      ],
+      "title": "Role"
+     },
+     "agence": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Agence"
+     },
+     "telegram_user_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Telegram User Id"
+     },
+     "mot_de_passe": {
+      "type": "string",
+      "minLength": 1,
+      "title": "Mot De Passe"
+     }
+    },
+    "type": "object",
+    "required": [
+     "email",
+     "nom",
+     "role",
+     "mot_de_passe"
+    ],
+    "title": "CompteCreationRequete",
+    "description": "Corps de `POST /api/comptes` (spec §3 : « Créer ») : e-mail et nom\nobligatoires (blanc refusé, même convention que `ChantierCreationRequete`\nci-dessus), rôle restreint aux deux valeurs valides (`Literal`, un rôle\nhors de cet ensemble est un 422 avant même d'atteindre le service),\nagence et identifiant Telegram facultatifs, mot de passe provisoire\n(longueur revérifiée par `app.core.auth._mot_de_passe_valide`, jamais\nici : une seule source de vérité pour ce seuil)."
+   },
+   "CompteModificationRequete": {
+    "properties": {
+     "email": {
+      "type": "string",
+      "maxLength": 320,
+      "minLength": 1,
+      "title": "Email"
+     },
+     "nom": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Nom"
+     },
+     "role": {
+      "type": "string",
+      "enum": [
+       "admin",
+       "agent"
+      ],
+      "title": "Role"
+     },
+     "agence": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Agence"
+     },
+     "telegram_user_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Telegram User Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "email",
+     "nom",
+     "role"
+    ],
+    "title": "CompteModificationRequete",
+    "description": "Corps de `PUT /api/comptes/{id}` (spec §3 : « Modifier ») -- jamais le\nmot de passe (`ChangementMotDePasseRequete` ci-dessous), mêmes règles que\n`CompteCreationRequete`."
+   },
    "CompteProblemesReponse": {
     "properties": {
      "nb_problemes": {
@@ -3472,6 +5570,104 @@
     ],
     "title": "CompteProblemesReponse",
     "description": "`GET /api/a-regler/compte` : nombre de problèmes « à régler », tous\nmois confondus -- mêmes attributs qu'`ingest.a_traiter.CompteProblemes`\n(revue finale de la refonte du front : un seul compte pour la pastille\nde navigation, la vue d'ensemble et l'écran « À régler »).\n\n`controle_prix_actif` (décision d'Ilane du 24/09/2026, `docs/dette.md`) :\nle front adapte ses libellés (« Écart prix ou quantité » -> « Écart de\nquantité ») et masque le filtre « Prix » de l'écran « À régler » quand\nce drapeau est faux -- voir `ingest.a_traiter.CompteProblemes`.\n\n`controle_livre_non_facture_actif` n'est plus un attribut de cette\nréponse : depuis que `ingest.parametres._cle_masquee` masque\n`delai_ligne_bl_non_facturee_j` côté serveur, plus aucun écran ne lit\nce second drapeau -- voir `ingest.a_traiter.CompteProblemes`."
+   },
+   "CompteReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "nom": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Nom"
+     },
+     "email": {
+      "type": "string",
+      "title": "Email"
+     },
+     "role": {
+      "type": "string",
+      "title": "Role"
+     },
+     "agence": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Agence"
+     },
+     "telegram_user_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Telegram User Id"
+     },
+     "actif": {
+      "type": "boolean",
+      "title": "Actif"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "nom",
+     "email",
+     "role",
+     "agence",
+     "telegram_user_id",
+     "actif",
+     "cree_le"
+    ],
+    "title": "CompteReponse",
+    "description": "Une ligne de `GET /api/comptes`, et la réponse de chaque route\nd'écriture de l'écran « Comptes » -- mêmes attributs qu'`app.core.auth\n.CompteLu`."
+   },
+   "ContesterPrixRequete": {
+    "properties": {
+     "anomalie_ids": {
+      "items": {
+       "type": "string",
+       "format": "uuid"
+      },
+      "type": "array",
+      "minItems": 1,
+      "title": "Anomalie Ids"
+     },
+     "commentaire": {
+      "type": "string",
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Commentaire"
+     }
+    },
+    "type": "object",
+    "required": [
+     "anomalie_ids",
+     "commentaire"
+    ],
+    "title": "ContesterPrixRequete",
+    "description": "Corps de `POST /api/prix/contester` (spec §8.2) : commentaire\nobligatoire (validé de nouveau par `ingest.prix_bl.contester_prix`, même\nprincipe que `TraitementAnomalieRequete`)."
    },
    "CorrectionEnteteRequete": {
     "properties": {
@@ -3883,6 +6079,17 @@
       ],
       "title": "Chantier"
      },
+     "legende": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Legende"
+     },
      "champs": {
       "$ref": "#/components/schemas/ChampsDocumentReponse"
      },
@@ -3926,6 +6133,7 @@
      "agence_fournisseur",
      "chantier_id",
      "chantier",
+     "legende",
      "champs",
      "lignes",
      "motifs",
@@ -4097,6 +6305,50 @@
     ],
     "title": "DocumentReponse",
     "description": "Une ligne de `GET /api/documents` (`confirmation` ajouté au Ruling\nL2-R8, correction de revue L2-T7 : le front ne doit plus dériver\nvérifié/écart à partir de `statut`, qui suit une tout autre logique —\nvoir `ingest/service.py::lister_documents` ; `fournisseur`/\n`chantier_brut` ajoutés en L3-T8a pour un aperçu utile dans la liste ;\n`chantier_id` ajouté au tour de correction 1 de Task 8 — le filtre\n`?chantier=` de la liste « Documents » ne peut comparer un identifiant\nde chantier connu (`?chantier=<id>`, résolu par `GET /api/chantiers`)\nqu'à un identifiant, jamais à un préfixe de texte brut non normalisé\n(`chantier_brut`) ; `date_doc` ajouté au tour de correction 2 — pour un\nBL/enlèvement, la date du bon telle qu'imprimée (sa date de livraison),\npas sa date de dépôt (`cree_le`) : le filtre `?mois=` de la liste\n« Documents » comparait tout document sur `cree_le`, ce qui excluait un\nBL de son mois de livraison réel quand il est déposé un autre mois."
+   },
+   "ErreurImportReponse": {
+    "properties": {
+     "feuille": {
+      "type": "string",
+      "title": "Feuille"
+     },
+     "numero_ligne": {
+      "type": "integer",
+      "title": "Numero Ligne"
+     },
+     "message": {
+      "type": "string",
+      "title": "Message"
+     }
+    },
+    "type": "object",
+    "required": [
+     "feuille",
+     "numero_ligne",
+     "message"
+    ],
+    "title": "ErreurImportReponse",
+    "description": "Une ligne du fichier non retenue -- mêmes attributs\nqu'`ingest.grilles.ErreurImport`."
+   },
+   "ExplicationAlerteReponse": {
+    "properties": {
+     "texte": {
+      "type": "string",
+      "title": "Texte"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "texte",
+     "cree_le"
+    ],
+    "title": "ExplicationAlerteReponse",
+    "description": "Explication d'une alerte prix — mêmes attributs\nqu'`ingest.ia_prix.ExplicationVue`."
    },
    "FactureDeposeeReponse": {
     "properties": {
@@ -4328,6 +6580,20 @@
     "title": "FactureResumeReponse",
     "description": "Une ligne de `GET /api/factures` (statut/confiance/motifs, L3-T7)."
    },
+   "FermetureAlertesReponse": {
+    "properties": {
+     "nb_alertes_reglees": {
+      "type": "integer",
+      "title": "Nb Alertes Reglees"
+     }
+    },
+    "type": "object",
+    "required": [
+     "nb_alertes_reglees"
+    ],
+    "title": "FermetureAlertesReponse",
+    "description": "`POST /api/prix/contester` et `/ignorer` -- nombre d'alertes\nfermées."
+   },
    "FournisseurReponse": {
     "properties": {
      "id": {
@@ -4356,6 +6622,77 @@
     "title": "FournisseurReponse",
     "description": "Une ligne de `GET /api/fournisseurs` — mêmes attributs qu'`ingest\n.referentiels.FournisseurResume`. `agences` : liste vide si le\nfournisseur n'en a aucune, jamais `null` (Ruling L5-R9)."
    },
+   "FusionChantierRequete": {
+    "properties": {
+     "cible_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Cible Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "cible_id"
+    ],
+    "title": "FusionChantierRequete",
+    "description": "Corps de `POST /api/chantiers/{id}/fusionner` (Task 7, avenant du\n27/09/2026, spec §2.7) : `{id}` (source) est fusionné dans `cible_id`."
+   },
+   "GrilleFournisseurReponse": {
+    "properties": {
+     "fournisseur_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Fournisseur Id"
+     },
+     "nom_fournisseur": {
+      "type": "string",
+      "title": "Nom Fournisseur"
+     },
+     "nb_produits": {
+      "type": "integer",
+      "title": "Nb Produits"
+     },
+     "dernier_import_le": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Dernier Import Le"
+     },
+     "page": {
+      "type": "integer",
+      "title": "Page"
+     },
+     "pages": {
+      "type": "integer",
+      "title": "Pages"
+     },
+     "produits": {
+      "items": {
+       "$ref": "#/components/schemas/ProduitGrilleReponse"
+      },
+      "type": "array",
+      "title": "Produits"
+     }
+    },
+    "type": "object",
+    "required": [
+     "fournisseur_id",
+     "nom_fournisseur",
+     "nb_produits",
+     "dernier_import_le",
+     "page",
+     "pages",
+     "produits"
+    ],
+    "title": "GrilleFournisseurReponse",
+    "description": "`GET /api/grilles/fournisseurs/{id}` -- mêmes attributs\nqu'`ingest.grilles.GrilleFournisseur`."
+   },
    "HTTPValidationError": {
     "properties": {
      "detail": {
@@ -4368,6 +6705,72 @@
     },
     "type": "object",
     "title": "HTTPValidationError"
+   },
+   "IgnorerPrixRequete": {
+    "properties": {
+     "anomalie_ids": {
+      "items": {
+       "type": "string",
+       "format": "uuid"
+      },
+      "type": "array",
+      "minItems": 1,
+      "title": "Anomalie Ids"
+     },
+     "commentaire": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 500
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Commentaire"
+     }
+    },
+    "type": "object",
+    "required": [
+     "anomalie_ids"
+    ],
+    "title": "IgnorerPrixRequete",
+    "description": "Corps de `POST /api/prix/ignorer` (spec §8.2) : commentaire\nfacultatif."
+   },
+   "ImportEffectueReponse": {
+    "properties": {
+     "import_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Import Id"
+     },
+     "nb_nouveaux": {
+      "type": "integer",
+      "title": "Nb Nouveaux"
+     },
+     "nb_modifies": {
+      "type": "integer",
+      "title": "Nb Modifies"
+     },
+     "nb_inchanges": {
+      "type": "integer",
+      "title": "Nb Inchanges"
+     },
+     "nb_erreurs": {
+      "type": "integer",
+      "title": "Nb Erreurs"
+     }
+    },
+    "type": "object",
+    "required": [
+     "import_id",
+     "nb_nouveaux",
+     "nb_modifies",
+     "nb_inchanges",
+     "nb_erreurs"
+    ],
+    "title": "ImportEffectueReponse",
+    "description": "`POST /api/grilles/fournisseurs/{id}/import` -- mêmes attributs\nqu'`ingest.grilles.ImportEffectue`."
    },
    "JournalReponse": {
     "properties": {
@@ -4453,6 +6856,13 @@
       "type": "string",
       "format": "date-time",
       "title": "Horodatage"
+     },
+     "noms": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Noms"
      }
     },
     "type": "object",
@@ -4465,10 +6875,11 @@
      "cible_id",
      "avant",
      "apres",
-     "horodatage"
+     "horodatage",
+     "noms"
     ],
     "title": "JournalReponse",
-    "description": "Une entrée de journal, telle qu'exposée par `GET /api/journal`\n(L5-T9) — mêmes attributs qu'`ingest.journal.JournalLue`. `avant`/\n`apres` sont exposés tels quels (JSON brut : `dict[str, Any] | None`,\ndécision du contrôleur) — aucune interprétation métier ici, la mise en\nforme lisible revient au front (`Journal.tsx`), même principe que\n`detail` sur `AnomalieReponse`."
+    "description": "Une entrée de journal, telle qu'exposée par `GET /api/journal`\n(L5-T9) — mêmes attributs qu'`ingest.journal.JournalLue`. `avant`/\n`apres` sont exposés tels quels (JSON brut : `dict[str, Any] | None`,\ndécision du contrôleur) — aucune interprétation métier ici, la mise en\nforme lisible revient au front (`Journal.tsx`), même principe que\n`detail` sur `AnomalieReponse`.\n\n`noms` (Task 12, spec §4.1) : identifiant (texte) -> nom, pour toute\nvaleur d'`avant`/`apres` que le serveur a su résoudre (compte, chantier,\nfournisseur — voir `ingest.journal.JournalLue`) ; jamais l'UUID brut\ncôté client, ni un calcul côté front, qui n'a pas accès aux\nréférentiels."
    },
    "LigneBilanBlReponse": {
     "properties": {
@@ -4644,6 +7055,147 @@
     ],
     "title": "LigneBilanFournisseurReponse",
     "description": "Une ligne de `GET /api/bilan/chantiers/{id}/fournisseurs` et de sa\nvue inverse `GET /api/bilan/fournisseurs` — mêmes attributs\nqu'`ingest.bilan.LigneBilanFournisseur`. `fournisseur_id`/`nom` valent\n`None` pour les blocs dont le fournisseur n'a pas pu être résolu, même\nprincipe que `LigneBilanChantierReponse.chantier_id`."
+   },
+   "LigneCommenteeReponse": {
+    "properties": {
+     "ligne_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Ligne Id"
+     },
+     "code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Code"
+     },
+     "article": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Article"
+     },
+     "quantite": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Quantite"
+     },
+     "unite": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite"
+     },
+     "commentaires": {
+      "items": {
+       "$ref": "#/components/schemas/CommentaireReponse"
+      },
+      "type": "array",
+      "title": "Commentaires"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ligne_id",
+     "code",
+     "article",
+     "quantite",
+     "unite",
+     "commentaires"
+    ],
+    "title": "LigneCommenteeReponse",
+    "description": "Une ligne du bon avec ses commentaires, dans `GET\n/api/commentaires/documents/{id}` — mêmes attributs\nqu'`ingest.commentaires.LigneCommentee`."
+   },
+   "LigneCompareeGrilleReponse": {
+    "properties": {
+     "reference": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reference"
+     },
+     "designation": {
+      "type": "string",
+      "title": "Designation"
+     },
+     "nouveau_prix_net": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Nouveau Prix Net"
+     },
+     "ancien_prix_net": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ancien Prix Net"
+     },
+     "nouvelle_unite": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Nouvelle Unite"
+     },
+     "ancienne_unite": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ancienne Unite"
+     }
+    },
+    "type": "object",
+    "required": [
+     "reference",
+     "designation",
+     "nouveau_prix_net",
+     "ancien_prix_net",
+     "nouvelle_unite",
+     "ancienne_unite"
+    ],
+    "title": "LigneCompareeGrilleReponse",
+    "description": "Une ligne « nouveau » ou « modifié » d'un aperçu d'import de grille --\nmêmes attributs qu'`ingest.grilles.LigneComparee`. Nommée distinctement\nde `LigneCompareeReponse` (comparaison BL/facture, ci-dessus) : même\nmot, deux objets métier sans rapport."
    },
    "LigneCompareeReponse": {
     "properties": {
@@ -5028,6 +7580,295 @@
     "title": "LigneFactureReponse",
     "description": "Une ligne d'un bloc, dans `GET /api/factures/{id}`."
    },
+   "LigneHistoriqueReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "reference": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reference"
+     },
+     "designation": {
+      "type": "string",
+      "title": "Designation"
+     },
+     "unite_brut": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Brut"
+     },
+     "unite": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite"
+     },
+     "prix_ht": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Prix Ht"
+     },
+     "remise_pct": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Remise Pct"
+     },
+     "prix_net": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Prix Net"
+     },
+     "marque": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Marque"
+     },
+     "famille": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Famille"
+     },
+     "date_effet": {
+      "type": "string",
+      "format": "date",
+      "title": "Date Effet"
+     },
+     "retire": {
+      "type": "boolean",
+      "title": "Retire"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source"
+     },
+     "document_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Id"
+     },
+     "ligne_libelle": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ligne Libelle"
+     },
+     "auteur": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Auteur"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Created At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "reference",
+     "designation",
+     "unite_brut",
+     "unite",
+     "prix_ht",
+     "remise_pct",
+     "prix_net",
+     "marque",
+     "famille",
+     "date_effet",
+     "retire",
+     "source",
+     "document_id",
+     "ligne_libelle",
+     "auteur",
+     "created_at"
+    ],
+    "title": "LigneHistoriqueReponse",
+    "description": "`GET /api/grilles/fournisseurs/{id}/produits/{cle}/historique` --\nmêmes attributs qu'`ingest.grilles.LigneHistorique`."
+   },
+   "LigneLivraisonReponse": {
+    "properties": {
+     "bloc_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Bloc Id"
+     },
+     "numero_bl": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero Bl"
+     },
+     "date_bl": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date Bl"
+     },
+     "statut_rapprochement": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Statut Rapprochement"
+     },
+     "bl_document_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Bl Document Id"
+     },
+     "facture_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Facture Id"
+     },
+     "chantier_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chantier Id"
+     },
+     "chantier": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chantier"
+     },
+     "fournisseur_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fournisseur Id"
+     },
+     "fournisseur": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fournisseur"
+     },
+     "montants": {
+      "$ref": "#/components/schemas/MontantsBilanReponse"
+     }
+    },
+    "type": "object",
+    "required": [
+     "bloc_id",
+     "numero_bl",
+     "date_bl",
+     "statut_rapprochement",
+     "bl_document_id",
+     "facture_id",
+     "chantier_id",
+     "chantier",
+     "fournisseur_id",
+     "fournisseur",
+     "montants"
+    ],
+    "title": "LigneLivraisonReponse",
+    "description": "Une ligne de `GET /api/bilan/livraisons` (Task 13, mise en production\ndu 1er octobre) -- mêmes attributs qu'`ingest.bilan.LigneLivraison` :\nceux de `LigneBilanBlReponse`, plus le chantier et le fournisseur de\nchaque ligne (cette liste n'est jamais imbriquée sous un chantier et un\nfournisseur déjà fixés par l'URL, contrairement à `LigneBilanBlReponse`)."
+   },
    "LigneSaisieRequete": {
     "properties": {
      "id": {
@@ -5334,6 +8175,16 @@
      "entier": {
       "type": "boolean",
       "title": "Entier"
+     },
+     "interrupteur": {
+      "type": "boolean",
+      "title": "Interrupteur",
+      "default": false
+     },
+     "groupe": {
+      "type": "string",
+      "title": "Groupe",
+      "default": ""
      }
     },
     "type": "object",
@@ -5347,7 +8198,165 @@
      "entier"
     ],
     "title": "ParametreReponse",
-    "description": "Un seuil administrable avec ses métadonnées de présentation."
+    "description": "Un seuil administrable avec ses métadonnées de présentation.\n\n`interrupteur` et `groupe` (phase 3, §3.4 de la conception des prix) :\najoutés à la fin, présents pour tous les réglages (défauts `False`/``\"\"``\npour ceux d'avant cette phase)."
+   },
+   "PrixInternetLotReponse": {
+    "properties": {
+     "ia_active": {
+      "type": "boolean",
+      "title": "Ia Active"
+     },
+     "prix": {
+      "additionalProperties": {
+       "anyOf": [
+        {
+         "$ref": "#/components/schemas/PrixInternetReponse"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "type": "object",
+      "title": "Prix"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ia_active",
+     "prix"
+    ],
+    "title": "PrixInternetLotReponse",
+    "description": "Réponse de `GET /api/ia/prix-internet` (T10a) — mêmes attributs\nqu'`ingest.ia_prix.PrixInternetLot`, à ceci près que les identifiants\nd'anomalie sont des clés texte (JSON n'admet pas l'UUID comme clé\nd'objet) : réutilise `PrixInternetReponse`, déjà exposé par `GET\n/api/ia/anomalies/{id}`. Construite à la main par le routeur (jamais\n`model_validate` : la conversion UUID -> texte des clés n'est pas un\nchangement de forme que `from_attributes` sait faire)."
+   },
+   "PrixInternetReponse": {
+    "properties": {
+     "statut": {
+      "type": "string",
+      "title": "Statut"
+     },
+     "prix": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Prix"
+     },
+     "devise": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Devise"
+     },
+     "taxes": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Taxes"
+     },
+     "unite": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite"
+     },
+     "conditionnement": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Conditionnement"
+     },
+     "produit_trouve": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Produit Trouve"
+     },
+     "source_url": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Url"
+     },
+     "confiance": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confiance"
+     },
+     "raison": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Raison"
+     },
+     "consulte_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Consulte Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "statut",
+     "prix",
+     "devise",
+     "taxes",
+     "unite",
+     "conditionnement",
+     "produit_trouve",
+     "source_url",
+     "confiance",
+     "raison",
+     "consulte_le"
+    ],
+    "title": "PrixInternetReponse",
+    "description": "Dernier prix trouvé sur internet pour le produit d'une anomalie —\nmêmes attributs qu'`ingest.ia_prix.PrixInternetVue`."
    },
    "ProblemePrioritaireReponse": {
     "properties": {
@@ -5374,6 +8383,404 @@
     ],
     "title": "ProblemePrioritaireReponse",
     "description": "Une ligne de `priorites` dans `GET /api/tableau-de-bord` — mêmes\nattributs qu'`ingest.tableau_de_bord.ProblemePrioritaire`.\n`montant_en_jeu` vaut `None` quand la règle de l'anomalie n'en porte\npas ou que la valeur lue sur `detail` n'est pas convertible."
+   },
+   "ProduitAbsentReponse": {
+    "properties": {
+     "reference": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reference"
+     },
+     "designation": {
+      "type": "string",
+      "title": "Designation"
+     },
+     "prix_net": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Prix Net"
+     }
+    },
+    "type": "object",
+    "required": [
+     "reference",
+     "designation",
+     "prix_net"
+    ],
+    "title": "ProduitAbsentReponse",
+    "description": "Un produit en vigueur absent du fichier importé -- mêmes attributs\nqu'`ingest.grilles.ProduitAbsent`."
+   },
+   "ProduitGrilleReponse": {
+    "properties": {
+     "cle_produit": {
+      "type": "string",
+      "title": "Cle Produit"
+     },
+     "reference": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reference"
+     },
+     "designation": {
+      "type": "string",
+      "title": "Designation"
+     },
+     "unite_brut": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Brut"
+     },
+     "prix_ht": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Prix Ht"
+     },
+     "remise_pct": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Remise Pct"
+     },
+     "prix_net": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Prix Net"
+     },
+     "marque": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Marque"
+     },
+     "famille": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Famille"
+     },
+     "date_effet": {
+      "type": "string",
+      "format": "date",
+      "title": "Date Effet"
+     }
+    },
+    "type": "object",
+    "required": [
+     "cle_produit",
+     "reference",
+     "designation",
+     "unite_brut",
+     "prix_ht",
+     "remise_pct",
+     "prix_net",
+     "marque",
+     "famille",
+     "date_effet"
+    ],
+    "title": "ProduitGrilleReponse",
+    "description": "Un produit de la grille -- mêmes attributs qu'`ingest.grilles\n.ProduitGrilleAffiche`. Réponse de `GET /api/grilles/fournisseurs/{id}`\n(dans `GrilleFournisseurReponse.produits`) et de `POST /api/grilles\n/fournisseurs/{id}/prix` (la ligne enregistrée)."
+   },
+   "RecontrolePrixReponse": {
+    "properties": {
+     "nb_bons": {
+      "type": "integer",
+      "title": "Nb Bons"
+     },
+     "nb_echecs": {
+      "type": "integer",
+      "title": "Nb Echecs"
+     },
+     "nb_alertes_ouvertes": {
+      "type": "integer",
+      "title": "Nb Alertes Ouvertes"
+     }
+    },
+    "type": "object",
+    "required": [
+     "nb_bons",
+     "nb_echecs",
+     "nb_alertes_ouvertes"
+    ],
+    "title": "RecontrolePrixReponse",
+    "description": "`POST /api/prix/recontrole` -- mêmes attributs\nqu'`ingest.prix_bl.ResultatRecontrolePrix`."
+   },
+   "ResultatFusionReponse": {
+    "properties": {
+     "cible_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Cible Id"
+     },
+     "nb_documents": {
+      "type": "integer",
+      "title": "Nb Documents"
+     },
+     "nb_blocs": {
+      "type": "integer",
+      "title": "Nb Blocs"
+     },
+     "nb_alias": {
+      "type": "integer",
+      "title": "Nb Alias"
+     },
+     "nb_anomalies": {
+      "type": "integer",
+      "title": "Nb Anomalies"
+     }
+    },
+    "type": "object",
+    "required": [
+     "cible_id",
+     "nb_documents",
+     "nb_blocs",
+     "nb_alias",
+     "nb_anomalies"
+    ],
+    "title": "ResultatFusionReponse",
+    "description": "Réponse de `POST /api/chantiers/{id}/fusionner` — mêmes attributs\nqu'`ingest.fusion_chantier.ResultatFusion`."
+   },
+   "RetraitProduitRequete": {
+    "properties": {
+     "cle_produit": {
+      "type": "string",
+      "maxLength": 504,
+      "minLength": 1,
+      "title": "Cle Produit"
+     },
+     "date_effet": {
+      "type": "string",
+      "format": "date",
+      "title": "Date Effet"
+     }
+    },
+    "type": "object",
+    "required": [
+     "cle_produit",
+     "date_effet"
+    ],
+    "title": "RetraitProduitRequete",
+    "description": "Corps de `POST /api/grilles/fournisseurs/{id}/retrait`."
+   },
+   "SaisiePrixRequete": {
+    "properties": {
+     "reference": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reference"
+     },
+     "designation": {
+      "type": "string",
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Designation"
+     },
+     "unite": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 50
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite"
+     },
+     "prix_ht": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       }
+      ],
+      "title": "Prix Ht"
+     },
+     "remise_pct": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Remise Pct"
+     },
+     "date_effet": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date Effet"
+     },
+     "marque": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Marque"
+     },
+     "famille": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Famille"
+     }
+    },
+    "type": "object",
+    "required": [
+     "designation",
+     "prix_ht"
+    ],
+    "title": "SaisiePrixRequete",
+    "description": "Corps de `POST /api/grilles/fournisseurs/{id}/prix` (spec §7.4) :\n`date_effet` absente -> aujourd'hui, résolu par le routeur (le service\nne connaît que des dates déjà choisies, comme `ingest.grilles.SaisiePrix`\nl'exige)."
+   },
+   "SyntheseAccueilReponse": {
+    "properties": {
+     "ia_active": {
+      "type": "boolean",
+      "title": "Ia Active"
+     },
+     "derniere": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/SyntheseReponse"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "encore_a_faire": {
+      "items": {
+       "$ref": "#/components/schemas/ActionSyntheseReponse"
+      },
+      "type": "array",
+      "title": "Encore A Faire"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ia_active",
+     "derniere",
+     "encore_a_faire"
+    ],
+    "title": "SyntheseAccueilReponse",
+    "description": "Réponse de `GET /api/ia/synthese` — mêmes attributs\nqu'`ingest.ia_synthese.SyntheseAccueil`."
+   },
+   "SyntheseReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "semaine_debut": {
+      "type": "string",
+      "format": "date",
+      "title": "Semaine Debut"
+     },
+     "semaine_fin": {
+      "type": "string",
+      "format": "date",
+      "title": "Semaine Fin"
+     },
+     "statut": {
+      "type": "string",
+      "title": "Statut"
+     },
+     "resume": {
+      "type": "string",
+      "title": "Resume"
+     },
+     "nb_commentaires": {
+      "type": "integer",
+      "title": "Nb Commentaires"
+     },
+     "actions": {
+      "items": {
+       "$ref": "#/components/schemas/ActionSyntheseReponse"
+      },
+      "type": "array",
+      "title": "Actions"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "semaine_debut",
+     "semaine_fin",
+     "statut",
+     "resume",
+     "nb_commentaires",
+     "actions"
+    ],
+    "title": "SyntheseReponse",
+    "description": "La dernière synthèse (`SyntheseAccueilReponse.derniere`) — mêmes\nattributs qu'`ingest.ia_synthese.SyntheseVue`."
    },
    "TableauDeBordReponse": {
     "properties": {
@@ -5430,6 +8837,19 @@
        }
       ],
       "title": "Dernier Mois Facture"
+     },
+     "nb_bons_recus": {
+      "type": "integer",
+      "title": "Nb Bons Recus"
+     },
+     "montant_bons_recus": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Montant Bons Recus"
+     },
+     "nb_bons_sans_montant": {
+      "type": "integer",
+      "title": "Nb Bons Sans Montant"
      }
     },
     "type": "object",
@@ -5443,7 +8863,10 @@
      "nb_bl_manquants",
      "chantiers",
      "priorites",
-     "dernier_mois_facture"
+     "dernier_mois_facture",
+     "nb_bons_recus",
+     "montant_bons_recus",
+     "nb_bons_sans_montant"
     ],
     "title": "TableauDeBordReponse",
     "description": "`GET /api/tableau-de-bord` — mêmes attributs\nqu'`ingest.tableau_de_bord.TableauDeBord`."
@@ -5625,6 +9048,57 @@
      "type"
     ],
     "title": "ValidationError"
+   },
+   "ValidationPrixReponse": {
+    "properties": {
+     "prix_net": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Prix Net"
+     },
+     "date_effet": {
+      "type": "string",
+      "format": "date",
+      "title": "Date Effet"
+     },
+     "nb_alertes_reglees": {
+      "type": "integer",
+      "title": "Nb Alertes Reglees"
+     }
+    },
+    "type": "object",
+    "required": [
+     "prix_net",
+     "date_effet",
+     "nb_alertes_reglees"
+    ],
+    "title": "ValidationPrixReponse",
+    "description": "`POST /api/prix/valider` -- mêmes attributs\nqu'`ingest.prix_bl.ValidationPrixEffectuee`."
+   },
+   "ValiderPrixRequete": {
+    "properties": {
+     "anomalie_ids": {
+      "items": {
+       "type": "string",
+       "format": "uuid"
+      },
+      "type": "array",
+      "minItems": 1,
+      "title": "Anomalie Ids"
+     },
+     "ligne_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Ligne Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "anomalie_ids",
+     "ligne_id"
+    ],
+    "title": "ValiderPrixRequete",
+    "description": "Corps de `POST /api/prix/valider` (spec §8.2)."
    }
   }
  }

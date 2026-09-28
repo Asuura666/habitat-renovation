@@ -15,11 +15,16 @@ from app.modules.api import (
     a_traiter,
     anomalies,
     bilan,
+    commentaires,
+    comptes,
     documents,
     factures,
+    grilles,
+    ia,
     journal,
     moi,
     parametres,
+    prix,
     referentiels,
     tableau_de_bord,
 )
@@ -34,6 +39,11 @@ router.include_router(anomalies.router)
 router.include_router(bilan.router)
 router.include_router(journal.router)
 router.include_router(parametres.router)
+router.include_router(comptes.router)
 router.include_router(tableau_de_bord.router)
+router.include_router(commentaires.router)
+router.include_router(grilles.router)
+router.include_router(prix.router)
+router.include_router(ia.router)
 
 __all__ = ["router"]

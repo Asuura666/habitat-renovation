@@ -6,6 +6,7 @@ import { ErreurApi } from "../api/client";
 import { invaliderApresChangementAnomalies } from "../api/invalidations";
 import {
   type Chantier,
+  CLE_AGENCES,
   CLE_CHANTIERS,
   CLE_CHANTIERS_SILENCIEUX,
   ChantierEnDoubleErreur,
@@ -108,9 +109,12 @@ export function AliasCarte({
     },
     // Que la validation réussisse ou échoue après une création de chantier,
     // le référentiel a pu changer (chantier créé) : jamais servir une liste
-    // de chantiers périmée depuis le cache (fix round 1).
+    // de chantiers périmée depuis le cache (fix round 1). L'agence saisie au
+    // même formulaire suit la même règle (tâche T7, audit rapidité — même
+    // raison que `ChantiersListe.tsx`/`FicheChantier.tsx`).
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS });
+      void queryClient.invalidateQueries({ queryKey: CLE_AGENCES });
     },
     onSuccess: async () => {
       await Promise.all([

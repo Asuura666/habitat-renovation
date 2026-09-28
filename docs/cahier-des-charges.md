@@ -250,6 +250,8 @@ deploy/          docker-compose.yml, traefik, backup.sh, deploy.sh
 
 **Explicitement absent :** n8n, Redis, file de messages, worker séparé, S3/MinIO, Neo4j, Keycloak, CI, environnement de staging, RAG. Chacun peut être ajouté sur devis si un besoin réel apparaît.
 
+Avenant du 27/09/2026 (§15, à confirmer) : un conteneur OpenCode (IA) rejoint cette architecture sur un réseau Docker interne dédié, jamais exposé, sans rien changer à cette liste.
+
 ## 8. Sécurité et RGPD
 
 Habitat & Rénovation est responsable de traitement ; le prestataire est sous-traitant au sens de l'article 28 du RGPD et signe un accord de sous-traitance. Aucune conformité n'est affirmée tant que le registre ci-dessous n'est pas validé par le client.
@@ -281,6 +283,8 @@ Habitat & Rénovation est responsable de traitement ; le prestataire est sous-tr
 - Aucune donnée du client n'est utilisée hors de sa mission ; les jeux de test sont effacés des environnements du prestataire à la livraison.
 
 **À produire par le client avant la mise en production :** information des salariés (mention dans le règlement intérieur ou note interne) et inscription du traitement à son registre.
+
+Avenant du 27/09/2026 (§15, à confirmer) : deux nouveaux sous-traitants pour l'intelligence artificielle (OpenAI, Exa), tous deux hors UE ; l'IA reste éteinte par défaut.
 
 ## 9. Exploitation
 
@@ -404,3 +408,105 @@ Listée pour ne pas être découverte plus tard. Aucune n'est traitée en phase 
 - Pas d'extraction des mentions manuscrites.
 - Interface en français uniquement.
 - Un seul client par instance ; pas de multi-tenant.
+
+## 14. Avenant du 27 septembre 2026 — mise en production du 1er octobre
+
+Demandes de la réunion client rapportées par Ilane le 27/09/2026, validées
+par lui (conception détaillée :
+`docs/superpowers/specs/2026-09-27-mise-en-production-1er-octobre-design.md`).
+Elles remplacent les passages du CDC qu'elles contredisent.
+
+- **§4.1 — légende de la photo** : le bot lit la légende d'une photo ou
+  d'un fichier déposé ; l'employé y indique le chantier, ce qui sert de
+  confirmation. Il ignore toujours les messages texte seuls et n'y répond
+  jamais.
+- **§4.4 — chantier inconnu** : un nom de chantier lu (sur un BL ou une
+  facture) ou tapé en légende est comparé aux chantiers existants ; une
+  ressemblance d'au moins 90 % (seuil réglable) le rattache, sinon un
+  chantier est **créé automatiquement**, marqué « à compléter » et signalé
+  sur le site. Le nom lu est retenu comme autre nom du chantier. Si le nom
+  lu et la légende désignent deux chantiers différents, une alerte
+  « Chantier à confirmer » (règle R18, gravité moyenne) est levée et un
+  humain choisit. Un admin peut fusionner deux chantiers. La validation
+  manuelle des alias ne subsiste que pour un nom de facture ambigu.
+- **§5 — nouvelle règle R18** « Chantier à confirmer » : le nom lu et la
+  légende d'un BL désignent des chantiers différents, ou un nom ressemble
+  autant à plusieurs chantiers ; justification : nom lu, légende,
+  chantiers candidats.
+- **§3 / §4.6 — gestion des comptes à l'écran** : un admin crée, modifie,
+  change le mot de passe, retire ou rétablit l'accès d'un compte, avec
+  garde-fous (pas soi-même, jamais le dernier admin) ; tout est journalisé.
+- **§4.6 — corrections** : filtre par mois sur la fiche fournisseur ;
+  montants « Conforme » cliquables vers la liste des bons conformes ; noms
+  au lieu des identifiants dans le journal.
+- **§4.7 — photos rangées sur le serveur** : en attendant le Drive, chaque
+  photo de BL est aussi rangée (lien physique, sans copie) dans
+  `bl/<année>/<mois>/<jour>_<déposant>_<chantier>_n<numéro>.<ext>`. Ce
+  rangement n'est pas une sauvegarde.
+
+Suite annoncée pour octobre 2026 (specs séparées) : grilles de prix par
+fournisseur avec historique complet en base, contrôle des prix au BL
+(historique des factures et grille, seuil en % réglable, l'humain valide),
+page de suivi des alertes prix, commentaires sur les lignes de BL. Plus
+tard : prix trouvé sur internet par une IA (à titre indicatif) et synthèse
+hebdomadaire des commentaires sur la page d'accueil (l'IA commente, ne
+décide ni ne modifie rien).
+
+## 15. Avenant du 27 septembre 2026 — intelligence artificielle (phase 4)
+
+**À confirmer par Ilane.**
+
+Demande de la réunion client rapportée par Ilane le 27/09/2026 (points 4 et
+6 de la liste de réunion, `docs/roadmap-octobre-2026.md` §1.1) et ses
+décisions du même jour, conception détaillée dans
+`docs/superpowers/specs/2026-09-27-phase-4-ia-design.md` ; guide
+d'exploitation : `docs/phase-4-ia.md`. Construit sur la branche
+`feature/phase-4-ia` ; IA éteinte par défaut (`IA_ACTIVE=false`) tant
+qu'Ilane n'a pas branché son abonnement.
+
+- **§1, §5 — principe inchangé.** Python décide seul qu'une anomalie
+  existe ; l'IA explique, recherche et synthétise, elle ne décide jamais.
+  Aucune sortie de l'IA ne crée, ne ferme ni ne modifie une anomalie, un
+  prix de grille ou un document.
+- **Trois usages.** Synthèse hebdomadaire des commentaires de chantier
+  (résumé et actions à cocher, affichés sur la page d'accueil) ; explication
+  en une à trois phrases d'une alerte de prix déjà calculée par les règles,
+  sans jamais inventer un chiffre absent des données ; recherche, à titre
+  indicatif, du prix d'un produit absent de la grille et des factures sur
+  internet, avec sa source et sa date, jamais comparé automatiquement à un
+  prix interne ni utilisé par une règle.
+- **Moteur.** OpenCode (`opencode serve`, conteneur interne, jamais exposé)
+  connecté à l'abonnement ChatGPT Plus/Pro personnel d'Ilane (OAuth) —
+  décision d'Ilane, contre la recommandation initiale (API Mistral en
+  direct, déjà dans la stack, hébergée en UE ; Mistral reste le moteur OCR
+  des BL et factures, inchangé). Recherche web par le service public
+  gratuit d'Exa, sans clé : Firecrawl, demandé par Ilane, n'est pas pris en
+  charge par la version stable d'OpenCode utilisée (1.18.32, figée
+  volontairement).
+- **§8 — deux nouveaux sous-traitants** (détail : spec §9) :
+
+  | Sous-traitant | Usage | Localisation | Données |
+  | --- | --- | --- | --- |
+  | OpenAI (via l'abonnement ChatGPT d'Ilane) | synthèse, explication, recherche de prix | États-Unis | texte des commentaires sans nom d'auteur ni chantier ; fournisseur, désignations, codes et unités des produits ; chiffres des alertes prix |
+  | Exa (service public de recherche d'OpenCode) | recherche web | États-Unis | requêtes de recherche (désignations de produits) |
+
+- **Risques** (spec §9, consignés aussi dans `docs/dette.md`) :
+  1. Conditions d'utilisation de l'abonnement personnel : OpenAI n'a pas dit
+     clairement qu'un serveur pouvait s'en servir pour l'application d'un
+     client ; un compte suspendu rend l'IA indisponible sans casser le reste
+     de l'application (`IA_ACTIVE=false` coupe tout) ; remplacer le moteur
+     = réécrire `ingest/opencode.py`.
+  2. L'usage du client consomme le quota personnel d'Ilane ; sur le futur
+     serveur dédié au client, prévoir un abonnement ou une clé au nom du
+     client.
+  3. Transfert hors UE (OpenAI, Exa : États-Unis) : à inscrire au registre
+     du client.
+  4. Mémoire du VPS : un conteneur de plus (plafonné à 512 Mo).
+  5. Le prix trouvé sur internet est un prix public, pas le prix négocié
+     d'Habitat : toujours affiché comme indicatif, jamais utilisé par une
+     règle.
+
+Conception complète (schémas envoyés et reçus par l'IA, tests, tables) :
+`docs/superpowers/specs/2026-09-27-phase-4-ia-design.md`. Installation,
+connexion de l'abonnement, essai avant de se fier au prix internet,
+surveillance et arrêt d'urgence : `docs/phase-4-ia.md`.

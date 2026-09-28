@@ -29,3 +29,6 @@ web/dist/
 
 # Outillage local Claude Code (arbres de travail des sous-agents)
 .claude/
+
+# Mémoire de travail locale (récapitulatif des sessions), jamais commitée
+/memory.md

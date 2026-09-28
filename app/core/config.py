@@ -11,7 +11,7 @@ from __future__ import annotations
 from functools import cache
 from pathlib import Path
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -64,6 +64,25 @@ class Settings(BaseSettings):
     `docs_url`/`redoc_url`/`openapi_url` à `None` dans ce cas). Ne change
     rien à `web/package.json` (`api:schema`), qui appelle `app.openapi()`
     directement en Python plutôt que de lire l'URL HTTP.
+
+    `ia_active`, `opencode_url`, `opencode_mot_de_passe`, `ia_appels_max_jour`
+    (phase 4, D2/D6 de `docs/superpowers/specs/2026-09-27-phase-4-ia-design
+    .md`, brief T3) : interrupteur et réglages du client OpenCode
+    (`app.modules.ingest.opencode`, seul module qui les lit — `ia_active()`
+    y est la seule lecture de `ia_active`). **`ia_active` optionnelle,
+    défaut `False`** (« Go, implémente déjà tout, je rajouterai l'abonnement
+    après », D6) : tant qu'elle n'est pas explicitement mise à `true`,
+    `opencode_url`/`opencode_mot_de_passe` restent optionnelles et
+    l'application démarre sans elles. Dès que `ia_active` est vraie, ces
+    deux variables deviennent obligatoires (fail-fast, comme les variables
+    ci-dessus) : le validateur croisé ci-dessous refuse alors le démarrage
+    en nommant celle qui manque (`OPENCODE_URL`/`OPENCODE_MOT_DE_PASSE`),
+    jamais sa valeur. `opencode_mot_de_passe` en `SecretStr` (authentification
+    HTTP Basic, utilisateur `opencode`) : même garde d'affichage que les
+    secrets ci-dessus. `ia_appels_max_jour` (`Field(ge=1)`, défaut `40`) :
+    plafond quotidien de requêtes à l'IA, toutes tâches confondues, vérifié
+    quel que soit `ia_active` (une valeur absurde reste refusée même IA
+    éteinte).
     """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -81,6 +100,33 @@ class Settings(BaseSettings):
     controle_prix_actif: bool = False
     controle_livre_non_facture_actif: bool = False
     api_docs_actives: bool = False
+    ia_active: bool = False
+    opencode_url: str | None = None
+    opencode_mot_de_passe: SecretStr | None = None
+    ia_appels_max_jour: int = Field(default=40, ge=1)
+
+    @model_validator(mode="after")
+    def _ia_active_exige_opencode(self) -> Settings:
+        """Fail-fast (D6) : `ia_active` vraie sans `opencode_url`/
+        `opencode_mot_de_passe` (absent ou vide) refuse le démarrage, en
+        nommant la variable manquante, jamais sa valeur -- même principe
+        que les variables obligatoires ci-dessus, mais conditionné à
+        `ia_active` plutôt que toujours requis."""
+        if not self.ia_active:
+            return self
+        if not self.opencode_url:
+            raise ValueError(
+                "OPENCODE_URL manquant : obligatoire quand IA_ACTIVE est activé"
+            )
+        if (
+            self.opencode_mot_de_passe is None
+            or not self.opencode_mot_de_passe.get_secret_value()
+        ):
+            raise ValueError(
+                "OPENCODE_MOT_DE_PASSE manquant : obligatoire quand IA_ACTIVE "
+                "est activé"
+            )
+        return self
 
 
 @cache

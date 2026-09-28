@@ -12,9 +12,16 @@ prestataire du client) et à Ilane, le développeur.
   production, vérifier que la branche construite contient les deux
   (`git merge-base --is-ancestor 04f1077 <branche>` et `git merge-base
   --is-ancestor f431b27 <branche>`) plutôt que de supposer qu'une branche
-  particulière les a. Les deux instances en service ont été déployées le
-  23/09/2026, avant ces commits : elles évaluent encore R06 à R09 et
-  servent encore `/openapi.json` publiquement.
+  particulière les a. Les deux instances en service, déployées une
+  première fois le 23/09/2026, ont été redéployées depuis une branche
+  contenant ces deux commits le 24/09/2026 à 19 h 39 UTC : elles
+  n'évaluent plus R06 à R09 et ne servent plus `/openapi.json` (constaté
+  le 25/09/2026, voir §9 pour le détail).
+- **Optimisations du 25/09/2026** : audit rapidité/sécurité mené sur la
+  branche `optimisations` (T1-T13), pas encore fusionné ni déployé au
+  moment de la rédaction. Détail commit par commit, et ce qui reste
+  volontairement reporté (avec la raison) : `docs/dette.md` §
+  « Optimisations du 25/09/2026 (rapidité et sécurité) ».
 - **Ce qui fait foi** : le cahier des charges, `docs/cahier-des-charges.md`
   (CDC). Ce document le résume, puis décrit ce qui a été construit, comment
   c'est hébergé et pourquoi.
@@ -705,6 +712,8 @@ restauration (§5.7).
 | `deploy/docker-compose.yml` | Stack de base prévue par le CDC : `traefik` (v3.6, Let's Encrypt, seul à publier 80 et 443), `api` (image construite depuis le dépôt, `restart: unless-stopped`, healthcheck sur `/health`), `postgres` (image `postgres:18`, healthcheck `pg_isready`, aucun port publié). Toute variable obligatoire manquante arrête la commande (`${VAR:?…}`). |
 | `deploy/docker-compose.vps.yml` | Surcouche du VPS partagé : met `traefik` dans un profil jamais activé et publie l'API sur `127.0.0.1:${API_HOST_PORT}` seulement. |
 | `deploy/docker-compose.dev.yml` | Surcouche de développement : PostgreSQL sur `127.0.0.1:5450` et API sur `127.0.0.1:8450`. Conflit sur ce VPS : 8450 est pris par la production, l'API de développement ne peut pas démarrer tant qu'elle tourne. Avec cette surcouche, ne démarrer que `postgres`, ou changer le port de l'API de développement (8460 par exemple). |
+| `deploy/opencode/docker-compose.yml` | Projet Compose séparé (`habitat_ia`, phase 4 IA) : conteneur OpenCode, réseau Docker interne dédié (`habitat_ia`), aucun port publié. Un seul conteneur sert la production et la démonstration (§6.4). |
+| `deploy/docker-compose.ia.yml` | Surcouche facultative qui rattache `api` au réseau `habitat_ia` et lui passe les variables de l'IA (§5.6) ; ajoutée seulement aux commandes de l'instance où l'IA est installée, sans effet sur les autres. |
 
 Dans le conteneur, Compose reconstruit `DATABASE_URL` vers l'hôte `postgres`
 du réseau Compose. `DOMAIN` et `ACME_EMAIL` restent exigés par l'interpolation
@@ -724,12 +733,20 @@ installée dans `/etc/nginx/sites-available/habitat` lui est identique.
   renouvellement) ; le hook `renewal-hooks/deploy/reload-nginx.sh` du VPS
   vise un autre certificat et ne fait rien pour celui-ci. À valider une fois
   avec `certbot renew --cert-name habitat.ellumena.fr --dry-run`.
-- En-têtes repris des labels Traefik : CSP, `nosniff`, `X-Frame-Options DENY`,
-  `Referrer-Policy same-origin`, HSTS d'un an (§7).
+- En-têtes repris des labels Traefik : CSP, `Permissions-Policy`,
+  `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `nosniff`,
+  `X-Frame-Options DENY`, `Referrer-Policy same-origin`, HSTS d'un an (§7).
 - `client_max_body_size 25m` (l'application limite un document à 20 Mio),
-  `limit_req zone=general burst=40 nodelay` (zone `general` partagée du VPS :
-  10 requêtes/s par adresse IP cliente, rafale de 40 sans délai),
-  `proxy_read_timeout 120s`.
+  `limit_req zone=general burst=40 nodelay` sur `location /` (zone `general`
+  partagée du VPS : 10 requêtes/s par adresse IP cliente, rafale de 40 sans
+  délai), `proxy_read_timeout 120s`.
+- `location = /api/auth/login`, placé avant `location /`, applique en plus
+  `limit_req zone=login burst=5 nodelay` (zone `login` partagée du VPS : 5
+  requêtes/minute par adresse IP cliente) avant de proxyer vers le même
+  amont ; aucun `add_header` dans ce bloc, pour hériter ceux du `server`
+  (sinon ils ne s'appliqueraient plus à cette location).
+- Les deux zones (`general` et `login`) sont définies dans le `nginx.conf`
+  du serveur, hors dépôt (§4) ; à reproduire sur le futur serveur dédié.
 - nginx transmet `Host`, `X-Forwarded-Proto` et `X-Forwarded-For` fixé à
   `$remote_addr`. Uvicorn tourne avec `--proxy-headers
   --forwarded-allow-ips=*`, ce qui donne à slowapi l'adresse réelle du client.
@@ -780,6 +797,9 @@ commit, un journal ou un ticket.
 | `CONTROLE_PRIX_ACTIF` | Optionnelle (défaut `false`) | Application (`Settings`), transmise par Compose (`${CONTROLE_PRIX_ACTIF:-false}`) | Réactive R07, R08 et R09 (§2.5) |
 | `CONTROLE_LIVRE_NON_FACTURE_ACTIF` | Optionnelle (défaut `false`) | Application (`Settings`), transmise par Compose (`${CONTROLE_LIVRE_NON_FACTURE_ACTIF:-false}`) | Réactive R06 (§2.5) |
 | `API_DOCS_ACTIVES` | Optionnelle (défaut `false`) | Application (`Settings`), transmise par Compose (`${API_DOCS_ACTIVES:-false}`) | Sert `/docs`, `/redoc` et `/openapi.json` (§7.6) |
+| `IA_ACTIVE` | Optionnelle (défaut `false`) | Application (`Settings`), transmise par la surcouche `deploy/docker-compose.ia.yml` | Interrupteur général de l'IA (phase 4, §6.4) ; éteinte par défaut |
+| `OPENCODE_URL`, `OPENCODE_MOT_DE_PASSE` | Obligatoires si `IA_ACTIVE` | Application, même surcouche | Adresse et mot de passe HTTP Basic du conteneur OpenCode (§6.4) ; l'application refuse de démarrer si l'une manque alors que l'IA est allumée |
+| `IA_APPELS_MAX_JOUR` | Optionnelle (défaut `40`) | Application, même surcouche | Plafond quotidien de requêtes à l'IA, toutes tâches confondues (heure de Paris) |
 
 Les paramètres des scripts de `deploy/` se passent à l'appel, pas dans le
 fichier : `HABITAT_RENO_ENV_FILE` (fichier d'environnement, `.env` par défaut),
@@ -871,6 +891,8 @@ pourrait rien envoyer, par une alerte `logger` raccordée à la supervision.
 | Sauvegarde | `0 3 * * *` | `deploy/backup.sh` | **Non posée** (restic non configuré) |
 | Contrôles différés | `15 6 * * *` | `controles-differes` : R14, R15, R16, et R06 si `CONTROLE_LIVRE_NON_FACTURE_ACTIF` | **Non posée** : ces règles ne tournent pas automatiquement |
 | Synchronisation Drive | `10 * * * *` | `drive-sync --limite 100`, sous `flock -n`, alerte syslog en cas d'échec | **Non posée**, et à ne pas poser avant d'avoir débloqué Drive |
+| Synthèse IA | chaque jour à 07:00 (prod) / 07:20 (démo) | `synthese-commentaires` (phase 4 IA, §6.4) | Installée séparément, seulement si l'IA est allumée (`deploy/installer-taches.sh <instance> --taches synthese,ia-prix`) ; se termine aussitôt (« IA éteinte ») tant que `IA_ACTIVE` est faux |
+| Prix IA | chaque heure de 07:10 à 20:10 (prod) / 07:40 à 20:40 (démo) | `ia-prix` : explications et prix internet (§6.4) | Idem |
 
 Les lignes cron de `docs/deploiement-et-tests.md` §9 visent l'environnement
 `habitat_reno` / `.env` : il faut les adapter à chaque instance (options du
@@ -984,6 +1006,17 @@ n'a jamais tourné en réel et son cron ne doit pas être posé. Lors de la
 recette réelle, vérifier aussi la recherche dans un Drive partagé (le paramètre
 `corpora=drive` n'est pas utilisé).
 
+### 6.4 OpenCode (IA, phase 4)
+
+| | |
+| --- | --- |
+| Appel | `POST http://opencode:4096/session` puis `/session/{id}/message`, authentification HTTP Basic (utilisateur `opencode`). Un seul point d'appel dans le dépôt : `app/modules/ingest/opencode.py`. Jamais exposé hors du réseau Docker interne `habitat_ia` (aucun port publié). |
+| Conteneur | Projet Compose séparé (`deploy/opencode/docker-compose.yml`), image `node:22-slim` + `opencode-ai@1.18.32` (version figée), utilisateur non root, `no-new-privileges`, `cap_drop: ALL`, `pids_limit: 200`, `mem_limit: 512m`. Un seul conteneur sert la production et la démonstration. `read_only` non activé, par choix délibéré (OpenCode écrit un `.gitignore` dans sa configuration à chaque session, confirmé en direct : `docs/dette.md`, `docs/phase-4-ia.md` §9). |
+| Moteur | Abonnement ChatGPT Plus/Pro personnel d'Ilane (OAuth), pas d'API payante à l'usage (décision d'Ilane du 27/09/2026, avenant CDC §15 à confirmer). Recherche web par le service public gratuit d'Exa (`OPENCODE_ENABLE_EXA=1`, sans clé). |
+| Trois usages | Synthèse hebdomadaire des commentaires, explication d'une alerte de prix, recherche d'un prix sur internet — l'IA ne décide jamais (§2.1). |
+| Rattachement | Surcouche facultative `deploy/docker-compose.ia.yml` (§5.3) ; éteinte par défaut (`IA_ACTIVE=false`, §5.6). |
+| Limites connues | Aucun essai de bout en bout possible avant la connexion de l'abonnement (les modèles gratuits d'OpenCode refusent le mode serveur) ; pas de route qui expose le journal technique `appel_ia` ; explication et prix internet sans objet tant que le lot Prix (R07-R09 masquées, R22 inexistante) n'est pas fusionné. Détail complet : `docs/phase-4-ia.md`, `docs/dette.md` (« Phase 4 — IA »). |
+
 ---
 
 ## 7. Sécurité et données
@@ -1017,14 +1050,26 @@ immédiate et aucun second serveur ; ajouter plus tard un TOTP pour les admins.
   `cross-site`. Une requête sans ces deux en-têtes (curl, tests) passe.
   `/tg/webhook` n'est pas concerné. Avec `SameSite=Lax`, cela remplace un
   jeton CSRF.
-- **En-têtes** (servis par nginx) :
+- **En-têtes** (servis par nginx, repris dans les labels Traefik de
+  `deploy/docker-compose.yml`) :
   `Content-Security-Policy: default-src 'self'; img-src 'self' data:;
-  style-src 'self' 'unsafe-inline'; frame-ancestors 'none'`, `nosniff`,
+  style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self';
+  object-src 'none'; frame-ancestors 'none'`, `Permissions-Policy:
+  camera=(), microphone=(), geolocation=(), payment=()`,
+  `Cross-Origin-Opener-Policy: same-origin`,
+  `Cross-Origin-Resource-Policy: same-origin`, `nosniff`,
   `X-Frame-Options DENY`, `Referrer-Policy same-origin`,
   `Strict-Transport-Security max-age=31536000; includeSubDomains`.
   `'unsafe-inline'` sur les styles est gardé par prudence ; aucun style inline
-  n'était utilisé lors de la vérification.
+  n'était utilisé lors de la vérification. `Cross-Origin-Resource-Policy:
+  same-origin` est sans risque de casse : les photos de BL et PDF de
+  factures ne sont affichés que depuis `web/src`, en même origine (`<img>`,
+  lien de téléchargement), jamais consommés depuis un autre site.
 - **Polices** auto-hébergées : la CSP interdit Google Fonts.
+- **Limitation dédiée à la connexion** : `location = /api/auth/login`
+  applique en plus la zone `login` (5 requêtes/minute par IP, cf. §5.4),
+  au-delà de la limitation applicative slowapi (§7.1) et de la zone
+  `general` (10 requêtes/s, §5.4) qui couvre le reste de l'API.
 
 ### 7.3 Secrets
 
@@ -1056,7 +1101,7 @@ interne des tâches ne sera donc pas dans le dépôt remis.
 | Point | Contenu |
 | --- | --- |
 | Rôles | Le client est responsable de traitement ; le prestataire est sous-traitant (article 28). Aucune conformité n'est affirmée avant validation du registre. |
-| Sous-traitants ultérieurs | OVH (France), Mistral (UE ; non-conservation des données à vérifier contractuellement), Telegram (hors UE : point de vigilance), Google |
+| Sous-traitants ultérieurs | OVH (France), Mistral (UE ; non-conservation des données à vérifier contractuellement), Telegram (hors UE : point de vigilance), Google, OpenAI et Exa (États-Unis, phase 4 IA, avenant CDC §15 à confirmer — §6.4) |
 | Conservation | Durées prévues par le CDC §8 : documents 10 ans ; journal 3 ans ; comptes pendant leur durée plus 1 an. **Non appliquées** : aucune purge automatique n'existe, ni commande ni tâche. |
 | Droits des personnes | Le CDC §8 prévoit que l'admin puisse exporter ou anonymiser les données rattachées à un utilisateur. **Non implémenté** : aucune commande d'export ni d'anonymisation par personne. |
 | Minimisation | Le bot n'exploite que les images. Nuance : étant administrateur du groupe, il reçoit aussi le texte, qu'il ignore sans rien écrire. |
@@ -1287,10 +1332,10 @@ Autres procédures, à ne pas recopier ici (mêmes options à remplacer) :
 - `DATABASE_URL` hors `SecretStr` ; tests des modules copiés dans l'image ;
   hook `interdit-env` limité à `.env` (§4.9, §5.5, §5.6). `/openapi.json`
   public sur la production : corrigé dans le code, désactivé par défaut
-  (`API_DOCS_ACTIVES`, §7.6), mais pas déployé — les deux instances, créées
-  le 23/09/2026, servent toujours `/openapi.json` en 200 (vérifié par curl
-  le 24/09/2026) et évaluent toujours R06 à R09 (§2.5), jusqu'à leur
-  prochain déploiement depuis une branche qui contient ces correctifs (§9).
+  (`API_DOCS_ACTIVES`, §7.6) — **déployé** depuis le redéploiement du
+  24/09/2026 à 19 h 39 UTC : les deux instances renvoient 404 sur `/docs`
+  et `/openapi.json`, et n'évaluent plus R06 à R09 (drapeaux absents des
+  `.env.*`, donc `false` par défaut), constaté par `curl` le 25/09/2026.
 
 **Hébergement**
 

@@ -8,6 +8,11 @@ services:
   postgres:
     ports:
       - "127.0.0.1:5450:5432"
+    # Base de dev/test jetable (migrée puis vidée par les tests) : la
+    # durabilité en cas de panne n'a aucune valeur ici, alors que chaque
+    # commit synchrone ralentit la suite de tests. Jamais sur habitat_prod
+    # ni habitat_demo (surcouche docker-compose.vps.yml, pas celle-ci).
+    command: ["postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"]
 
   api:
     ports:

@@ -133,6 +133,7 @@ from app.modules.ingest.anomalies import (
     condition_regles_actives,
     regles_de_categorie,
 )
+from app.modules.ingest.commun import regles_masquees
 from app.modules.ingest.models import (
     Anomalie,
     BlocFacture,
@@ -394,7 +395,7 @@ def _sous_requete_blocs(conditions: list[Any]) -> Any:
     )
 
 
-def _sous_requete_anomalies(mois: date | None) -> Any:
+def _sous_requete_anomalies(mois: date | None, exclues: frozenset[str]) -> Any:
     """Une ligne par anomalie ouverte avec ses origines attribuables.
 
     Le chantier réutilise strictement `CHANTIER_ID_RESOLU`, comme l'écran
@@ -413,12 +414,15 @@ def _sous_requete_anomalies(mois: date | None) -> Any:
     conditions: list[Any] = [
         Anomalie.statut == "ouverte",
         # Décision d'Ilane du 24/09/2026 (`docs/dette.md`) : masque les
-        # anomalies des règles désactivées (R07/R08/R09) -- point unique
-        # d'`ingest.anomalies`, voir son docstring. Toutes les vues qui
-        # réutilisent cette sous-requête (bilan par chantier/fournisseur/BL,
-        # tableau de bord, export CSV) en héritent, jamais un filtre
-        # dupliqué par écran.
-        condition_regles_actives(),
+        # anomalies des règles désactivées (R07/R08/R09), étendu par la
+        # spec §6.5 aux alertes de prix des bons (R19-R25) -- point unique
+        # d'`ingest.anomalies`/`ingest.commun.regles_masquees`, voir leurs
+        # docstrings. Toutes les vues qui réutilisent cette sous-requête
+        # (bilan par chantier/fournisseur/BL, tableau de bord, export CSV)
+        # en héritent, jamais un filtre dupliqué par écran. `exclues` est
+        # calculé une fois par l'appelant (`await regles_masquees(session)`)
+        # et passé ici, cette fonction n'a pas de session.
+        condition_regles_actives(exclues),
         or_(
             and_(
                 Anomalie.bloc_id.is_not(None),
@@ -667,7 +671,8 @@ async def _bilan_par_chantier_interne(
     d'un appel à l'autre) -- la ligne `chantier_id=None` (blocs sans
     chantier résolu) se départage en dernier à montant égal."""
     blocs = _sous_requete_blocs(_conditions_base(mois))
-    anomalies = _sous_requete_anomalies(mois)
+    exclues = await regles_masquees(session)
+    anomalies = _sous_requete_anomalies(mois, exclues)
     anomalies_qte_prix = _anomalies_qte_prix_par_bloc(anomalies)
     comptes_anomalies = _comptes_anomalies(
         anomalies,
@@ -792,7 +797,8 @@ async def _bilan_par_fournisseur_interne(
     `_bilan_par_chantier_interne`, groupé par fournisseur plutôt que par
     chantier."""
     blocs = _sous_requete_blocs(_conditions_base(mois))
-    anomalies = _sous_requete_anomalies(mois)
+    exclues = await regles_masquees(session)
+    anomalies = _sous_requete_anomalies(mois, exclues)
     anomalies_qte_prix = _anomalies_qte_prix_par_bloc(anomalies)
     comptes_anomalies = _comptes_anomalies(
         anomalies,
@@ -923,7 +929,8 @@ async def bilan_par_bl(
     ligne `blocs` et au plus une ligne `anomalies` -- l'agrégat `func.sum`
     d'un groupe à une seule ligne renvoie simplement cette ligne."""
     blocs = _sous_requete_blocs(_conditions_base(mois))
-    anomalies = _sous_requete_anomalies(mois)
+    exclues = await regles_masquees(session)
+    anomalies = _sous_requete_anomalies(mois, exclues)
     anomalies_qte_prix = _anomalies_qte_prix_par_bloc(anomalies)
     comptes_anomalies = _comptes_anomalies(anomalies, anomalies.c.bloc_id)
     montants = _expressions_montants(
@@ -978,6 +985,160 @@ async def bilan_par_bl(
             statut_rapprochement=ligne.statut_rapprochement,
             bl_document_id=ligne.bl_document_id,
             facture_id=ligne.facture_id,
+            montants=_montants_bilan(ligne),
+        )
+        for ligne in lignes
+    ]
+
+
+# --------------------------------------------------------------------------
+# Liste des livraisons (Task 13, mise en production du 1er octobre, spec
+# §4.3) : une ligne par bloc, comme `bilan_par_bl`, mais plus imbriquée sous
+# un chantier et un fournisseur déjà fixés par l'URL -- chaque ligne porte
+# donc son propre chantier et son propre fournisseur. Sert trois usages :
+# les bons conformes cliquables (accueil, fiche chantier, fiche fournisseur,
+# spec §4.3) et l'écran `/livraisons` qui les liste.
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class LigneLivraison:
+    """Une ligne de `GET /api/bilan/livraisons` (Task 13) : les mêmes champs
+    qu'une ligne du bilan BL (`LigneBilanBl`), plus le chantier et le
+    fournisseur -- ce niveau n'est plus imbriqué sous un chantier et un
+    fournisseur déjà fixés par l'appelant (comme `bilan_par_bl`), donc
+    chaque ligne doit porter les siens pour être affichée seule (accueil,
+    écran `/livraisons`). `chantier_id`/`chantier` valent `None` pour les
+    blocs dont le chantier n'a pas pu être résolu, jamais éliminés (même
+    principe que `LigneBilanChantier.chantier_id`) ; `fournisseur_id`/
+    `fournisseur` suivent la même règle pour le fournisseur."""
+
+    bloc_id: uuid.UUID
+    numero_bl: str | None
+    date_bl: date | None
+    statut_rapprochement: str | None
+    bl_document_id: uuid.UUID | None
+    facture_id: uuid.UUID
+    chantier_id: uuid.UUID | None
+    chantier: str | None
+    fournisseur_id: uuid.UUID | None
+    fournisseur: str | None
+    montants: MontantsBilan
+
+
+async def lister_livraisons(
+    session: AsyncSession,
+    *,
+    mois: date | None,
+    agence: str | None,
+    chantier_id: uuid.UUID | None,
+    fournisseur_id: uuid.UUID | None,
+) -> list[LigneLivraison]:
+    """Liste des livraisons (Task 13) : une ligne par bloc de facture du
+    périmètre, réutilisant strictement `_sous_requete_blocs`/
+    `_sous_requete_anomalies`/`_expressions_montants` (jamais une nouvelle
+    définition de « conforme » -- consigne de la fiche de tâche) -- même
+    construction que `bilan_par_bl`, groupée sur l'identité du bloc lui-même
+    (`_comptes_anomalies(anomalies, anomalies.c.bloc_id)`), avec en plus le
+    nom du chantier et du fournisseur de chaque ligne (`bilan_par_bl` n'en a
+    pas besoin, son chantier et son fournisseur sont déjà fixés par
+    l'appelant ; ici ils varient d'une ligne à l'autre).
+
+    Décision du contrôleur, point qui distingue cette fonction des niveaux
+    ci-dessus : `chantier_id`/`fournisseur_id=None` signifient ici « aucun
+    filtre » (tous les chantiers/fournisseurs, résolus ou non), pas « le
+    côté non résolu du périmètre » comme `bilan_par_bl`/`bilan_par_fournisseur`
+    -- cette fonction n'est jamais imbriquée sous un chantier ou un
+    fournisseur déjà choisi par l'URL (contrairement à `bilan_par_bl`), un
+    filtre absent n'a donc aucune raison de se restreindre au seul côté non
+    résolu. Un chantier ou un fournisseur précis se filtre par égalité
+    stricte sur la colonne résolue de `blocs` ; les blocs non résolus
+    restent dans la liste non filtrée, jamais éliminés silencieusement
+    (même principe que les autres niveaux du bilan).
+
+    Triée par date de BL décroissante (`nulls_last()` : PostgreSQL place les
+    `NULL` en tête d'un tri décroissant par défaut, ce qui inverserait le
+    repli voulu -- une livraison sans date lisible doit se retrouver en fin
+    de liste, comme `comparerDateDesc` côté front), puis numéro de BL, puis
+    identifiant du bloc (dernier départage absolu, même principe que les
+    niveaux ci-dessus)."""
+    blocs = _sous_requete_blocs(_conditions_base(mois))
+    exclues = await regles_masquees(session)
+    anomalies = _sous_requete_anomalies(mois, exclues)
+    anomalies_qte_prix = _anomalies_qte_prix_par_bloc(anomalies)
+    comptes_anomalies = _comptes_anomalies(anomalies, anomalies.c.bloc_id)
+    montants = _expressions_montants(
+        blocs, anomalies_qte_prix, comptes_anomalies.c.nb_total
+    )
+
+    requete = (
+        select(
+            blocs.c.bloc_id,
+            blocs.c.numero_bl,
+            blocs.c.date_bl,
+            blocs.c.statut_rapprochement,
+            blocs.c.bl_document_id,
+            blocs.c.facture_id,
+            blocs.c.chantier_id,
+            Chantier.nom_canonique.label("chantier"),
+            blocs.c.fournisseur_id,
+            Fournisseur.nom.label("fournisseur"),
+            montants.facture_ht.label("facture_ht"),
+            montants.rapproche.label("rapproche"),
+            montants.en_ecart.label("en_ecart"),
+            montants.non_justifie.label("non_justifie"),
+            montants.nb_anomalies_ouvertes.label("nb_anomalies_ouvertes"),
+            montants.conforme.label("conforme"),
+            montants.a_verifier.label("a_verifier"),
+        )
+        .select_from(blocs)
+        .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
+        .outerjoin(comptes_anomalies, comptes_anomalies.c.bloc_id == blocs.c.bloc_id)
+        .outerjoin(Chantier, Chantier.id == blocs.c.chantier_id)
+        .outerjoin(Fournisseur, Fournisseur.id == blocs.c.fournisseur_id)
+        .group_by(
+            blocs.c.bloc_id,
+            blocs.c.numero_bl,
+            blocs.c.date_bl,
+            blocs.c.statut_rapprochement,
+            blocs.c.bl_document_id,
+            blocs.c.facture_id,
+            blocs.c.chantier_id,
+            Chantier.nom_canonique,
+            blocs.c.fournisseur_id,
+            Fournisseur.nom,
+            comptes_anomalies.c.nb_total,
+        )
+    )
+    conditions: list[Any] = []
+    if chantier_id is not None:
+        conditions.append(blocs.c.chantier_id == chantier_id)
+    if fournisseur_id is not None:
+        conditions.append(blocs.c.fournisseur_id == fournisseur_id)
+    if agence is not None:
+        conditions.append(_condition_agence(blocs, agence))
+    if conditions:
+        requete = requete.where(*conditions)
+
+    requete = requete.order_by(
+        blocs.c.date_bl.desc().nulls_last(),
+        blocs.c.numero_bl.asc(),
+        blocs.c.bloc_id.asc(),
+    )
+
+    lignes = (await session.execute(requete)).all()
+    return [
+        LigneLivraison(
+            bloc_id=ligne.bloc_id,
+            numero_bl=ligne.numero_bl,
+            date_bl=ligne.date_bl,
+            statut_rapprochement=ligne.statut_rapprochement,
+            bl_document_id=ligne.bl_document_id,
+            facture_id=ligne.facture_id,
+            chantier_id=ligne.chantier_id,
+            chantier=ligne.chantier,
+            fournisseur_id=ligne.fournisseur_id,
+            fournisseur=ligne.fournisseur,
             montants=_montants_bilan(ligne),
         )
         for ligne in lignes
@@ -1081,8 +1242,9 @@ async def _anomalies_par_ligne_et_bloc(
     même si son `bloc_id` y est (limite documentée dans `docs/dette.md`)."""
     if not ids_lignes and not ids_blocs:
         return {}, {}
+    exclues = await regles_masquees(session)
     requete = select(Anomalie.ligne_id, Anomalie.bloc_id, Anomalie.regle).where(
-        condition_regles_actives(),
+        condition_regles_actives(exclues),
         Anomalie.statut == "ouverte",
         or_(
             Anomalie.ligne_id.in_(ids_lignes),

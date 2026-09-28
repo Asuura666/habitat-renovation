@@ -59,6 +59,7 @@ from typing import Any
 from app.modules.extract.bl import AnnotationIllisible, BLExtrait, LigneBL, analyser_bl
 from app.modules.extract.bl import normaliser_numero_bl as _normaliser_numero_bl
 from app.modules.extract.verification import CodeMotif, bl_a_verifier, verifier_bl
+from app.modules.ingest.commun import _ecrire_fichier_prive
 from app.modules.normalize.texte import normaliser_libelle
 
 # --------------------------------------------------------------------------
@@ -701,7 +702,33 @@ def _lire_json(chemin: Path) -> Any:
 
 
 def _ecrire_cache(chemin: Path, reponse: Mapping[str, Any]) -> None:
-    chemin.write_text(json.dumps(reponse, ensure_ascii=False), encoding="utf-8")
+    """Écrit la réponse OCR brute en cache (`<nom>.mistral-ocr.json`), un
+    document d'un client réel (`docs/protocole-mesure-ocr.md`) : mêmes
+    droits restreints que les documents déposés par l'application
+    (`ingest.commun._ecrire_fichier_prive`, tâche T3), jamais un
+    `write_text` qui passerait par l'umask et laisserait le fichier lisible
+    par tout autre compte Unix du VPS."""
+    _ecrire_fichier_prive(
+        chemin, json.dumps(reponse, ensure_ascii=False).encode("utf-8")
+    )
+
+
+def ecrire_rapport(chemin: Path, contenu: str) -> None:
+    """Écrit le rapport Markdown (`--sortie` de `rapport-ocr`, appelée par
+    `app/cli.py::_rapport_ocr`) avec les mêmes droits restreints que les
+    documents déposés par l'application (`ingest.commun._ecrire_fichier_
+    prive`, tâche T3) : le rapport peut contenir des valeurs attendues et
+    lues d'un document client réel (voir le docstring de module), jamais un
+    `write_text` qui passerait par l'umask et laisserait le fichier lisible
+    par tout autre compte Unix du VPS.
+
+    Correction (relecture de la tâche T3) : `app/cli.py::_rapport_ocr`
+    appelait directement `Path.write_text` -- seul site d'écriture d'un
+    document client oublié par le grep de la tâche T3 (celui-ci passait
+    `sortie.write_text` en référence de méthode à `asyncio.to_thread`,
+    jamais suivi d'une parenthèse adjacente à `write_text`, contrairement à
+    `_ecrire_cache` ci-dessus qui avait bien été corrigé)."""
+    _ecrire_fichier_prive(chemin, contenu.encode("utf-8"))
 
 
 async def _lire_attendu_isole(entree: _EntreeDossier) -> BLAttendu | None:

@@ -1,6 +1,6 @@
 """Lecture et modification des seuils métier administrables (L5-T10).
 
-Ce module est l'unique source des neuf clés, de leurs valeurs par défaut et de
+Ce module est l'unique source des clés, de leurs valeurs par défaut et de
 leurs bornes. Les couches API et web ne portent aucune validation métier.
 
 Masquage des réglages d'un contrôle désactivé (24/09/2026, en écho à la
@@ -11,9 +11,18 @@ plus du tout dans `lister_parametres`, et `modifier_parametre` les refuse
 comme une clé inconnue -- ce module est le **seul** endroit qui porte la
 correspondance réglage -> contrôle (`_cle_masquee`), jamais dupliquée côté
 API ni côté front. Rien n'est supprimé en base : `_assurer_parametres`
-continue d'amorcer les neuf lignes, et une valeur modifiée avant
+continue d'amorcer toutes les lignes, et une valeur modifiée avant
 désactivation reste lue telle quelle dès la réactivation du contrôle (voir
-les tests dédiés)."""
+les tests dédiés).
+
+Phase 3 (contrôle des prix des bons, §3.4 de
+`docs/superpowers/specs/2026-09-27-prix-design.md`) : douze clés `prix_…`
+ajoutées à la fin de `DEFINITIONS_PARAMETRES`, toujours visibles (aucun
+masquage -- il faut pouvoir tout préparer avant d'allumer l'interrupteur
+général `prix_controle_bl_actif`, lui-même toujours visible). `interrupteur`
+et `groupe`, ajoutés à `DefinitionParametre`/`ParametreAffiche`, ne
+changent aucune définition existante (défauts `False`/`""`, soit le
+comportement actuel : un nombre, section générale)."""
 
 from __future__ import annotations
 
@@ -42,6 +51,14 @@ class DefinitionParametre:
     minimum: Decimal
     maximum: Decimal
     entier: bool = False
+    # Champs du contrôle des prix des bons (phase 3, §3.4 de
+    # `docs/superpowers/specs/2026-09-27-prix-design.md`), ajoutés à la fin :
+    # aucune définition existante ne change. `interrupteur` affiche « Oui /
+    # Non » côté écran au lieu d'un nombre (bornes 0-1, entier) ; `groupe`
+    # ("" par défaut, soit la section générale actuelle) titre la section de
+    # l'écran Réglages qui régit ce paramètre.
+    interrupteur: bool = False
+    groupe: str = ""
 
 
 @dataclass(frozen=True)
@@ -53,6 +70,8 @@ class ParametreAffiche:
     minimum: str
     maximum: str
     entier: bool
+    interrupteur: bool = False
+    groupe: str = ""
 
 
 DEFINITIONS_PARAMETRES: tuple[DefinitionParametre, ...] = (
@@ -108,6 +127,15 @@ DEFINITIONS_PARAMETRES: tuple[DefinitionParametre, ...] = (
         True,
     ),
     DefinitionParametre(
+        "seuil_ressemblance_chantier_pct",
+        "Ressemblance minimale d'un nom de chantier",
+        "%",
+        Decimal("90"),
+        Decimal("50"),
+        Decimal("100"),
+        True,
+    ),
+    DefinitionParametre(
         "delai_confirmation_bl_h",
         "Délai de confirmation d'un BL",
         "heures",
@@ -134,7 +162,154 @@ DEFINITIONS_PARAMETRES: tuple[DefinitionParametre, ...] = (
         Decimal("3650"),
         True,
     ),
+    # Contrôle des prix des bons (phase 3, §3.4 de la conception) : douze
+    # réglages ajoutés à la fin, groupés à l'écran sous « Contrôle des prix
+    # des bons ». Interrupteur général éteint par défaut (`prix_controle
+    # _bl_actif`) : rien de ce contrôle ne s'affiche avant sa mise en
+    # service ; les sept alertes et les quatre seuils restent toujours
+    # visibles (spec §3.4) pour pouvoir tout préparer avant de l'allumer.
+    DefinitionParametre(
+        "prix_controle_bl_actif",
+        "Contrôler les prix des bons",
+        "",
+        Decimal("0"),
+        Decimal("0"),
+        Decimal("1"),
+        True,
+        True,
+        "Contrôle des prix des bons",
+    ),
+    DefinitionParametre(
+        "prix_alerte_plus_cher_grille",
+        "Alerter : plus cher que la grille",
+        "",
+        Decimal("1"),
+        Decimal("0"),
+        Decimal("1"),
+        True,
+        True,
+        "Contrôle des prix des bons",
+    ),
+    DefinitionParametre(
+        "prix_alerte_plus_cher_dernier_prix",
+        "Alerter : plus cher que la dernière fois",
+        "",
+        Decimal("1"),
+        Decimal("0"),
+        Decimal("1"),
+        True,
+        True,
+        "Contrôle des prix des bons",
+    ),
+    DefinitionParametre(
+        "prix_alerte_moins_cher_grille",
+        "Alerter : moins cher que la grille",
+        "",
+        Decimal("1"),
+        Decimal("0"),
+        Decimal("1"),
+        True,
+        True,
+        "Contrôle des prix des bons",
+    ),
+    DefinitionParametre(
+        "prix_alerte_absent_grille",
+        "Alerter : produit absent de la grille",
+        "",
+        Decimal("1"),
+        Decimal("0"),
+        Decimal("1"),
+        True,
+        True,
+        "Contrôle des prix des bons",
+    ),
+    DefinitionParametre(
+        "prix_alerte_reconnu_par_nom",
+        "Alerter : produit reconnu seulement par son nom",
+        "",
+        Decimal("1"),
+        Decimal("0"),
+        Decimal("1"),
+        True,
+        True,
+        "Contrôle des prix des bons",
+    ),
+    DefinitionParametre(
+        "prix_alerte_unites_differentes",
+        "Alerter : unités différentes",
+        "",
+        Decimal("1"),
+        Decimal("0"),
+        Decimal("1"),
+        True,
+        True,
+        "Contrôle des prix des bons",
+    ),
+    DefinitionParametre(
+        "prix_alerte_grille_ancienne",
+        "Alerter : grille ancienne",
+        "",
+        Decimal("1"),
+        Decimal("0"),
+        Decimal("1"),
+        True,
+        True,
+        "Contrôle des prix des bons",
+    ),
+    DefinitionParametre(
+        "prix_seuil_hausse_pct",
+        "Hausse tolérée avant alerte",
+        "%",
+        Decimal("0"),
+        Decimal("0"),
+        Decimal("100"),
+        False,
+        False,
+        "Contrôle des prix des bons",
+    ),
+    DefinitionParametre(
+        "prix_seuil_baisse_pct",
+        "Baisse tolérée avant alerte",
+        "%",
+        Decimal("5"),
+        Decimal("0"),
+        Decimal("100"),
+        False,
+        False,
+        "Contrôle des prix des bons",
+    ),
+    DefinitionParametre(
+        "prix_age_grille_mois",
+        "Âge à partir duquel une grille est ancienne",
+        "mois",
+        Decimal("12"),
+        Decimal("1"),
+        Decimal("60"),
+        True,
+        False,
+        "Contrôle des prix des bons",
+    ),
+    DefinitionParametre(
+        "prix_seuil_ressemblance_produit_pct",
+        "Ressemblance minimale pour reconnaître un produit par son nom",
+        "%",
+        Decimal("80"),
+        Decimal("50"),
+        Decimal("100"),
+        True,
+        False,
+        "Contrôle des prix des bons",
+    ),
 )
+
+# Clé du seuil de ressemblance minimale d'un nom de chantier (avenant du
+# 27/09/2026, rattachement automatique des chantiers) : nommée ici plutôt
+# que recopiée en texte libre par les modules qui la liront (`normalize
+# .chantier`, tâches suivantes du même plan), même idiome que les `CLE_*`
+# définis au plus près de leur usage ailleurs dans `ingest` (`anomalies.py`,
+# `extraction_bl.py`, `referentiels_vue.py`) -- placée ici, seul module qui
+# connaît les dix clés.
+CLE_SEUIL_RESSEMBLANCE_CHANTIER = "seuil_ressemblance_chantier_pct"
 
 DEFINITIONS_PAR_CLE = {
     definition.cle: definition for definition in DEFINITIONS_PARAMETRES
@@ -191,7 +366,7 @@ async def _assurer_parametres(session: AsyncSession) -> None:
 async def lister_parametres(session: AsyncSession) -> list[ParametreAffiche]:
     """Liste les seuils connus dans l'ordre de présentation, à l'exclusion
     de ceux dont le contrôle est désactivé côté serveur (`_cle_masquee`) --
-    neuf quand les deux contrôles sont actifs, moins sinon. Les lignes
+    dix quand les deux contrôles sont actifs, moins sinon. Les lignes
     masquées restent amorcées en base par `_assurer_parametres` : leur
     valeur est conservée et réapparaît dès la réactivation du contrôle."""
 
@@ -209,6 +384,8 @@ async def lister_parametres(session: AsyncSession) -> list[ParametreAffiche]:
             minimum=_texte_decimal(definition.minimum),
             maximum=_texte_decimal(definition.maximum),
             entier=definition.entier,
+            interrupteur=definition.interrupteur,
+            groupe=definition.groupe,
         )
         for definition in DEFINITIONS_PARAMETRES
         if not _cle_masquee(definition.cle)
@@ -308,4 +485,6 @@ async def modifier_parametre(
         minimum=_texte_decimal(definition.minimum),
         maximum=_texte_decimal(definition.maximum),
         entier=definition.entier,
+        interrupteur=definition.interrupteur,
+        groupe=definition.groupe,
     )

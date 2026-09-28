@@ -59,13 +59,44 @@ chantier (décision du contrôleur). Elle enchaîne R06, R14, R15, R16 dans
 l'ordre des champs de `ContexteSuivi`, déclenchée par la commande
 `controles-differes` (L4-T11), pas à chaque dépôt.
 
-`REGLES_FACTURE` et `REGLES_SUIVI` (adjonction du contrôleur, L4-T5) sont
-la source de vérité des codes de règle que produit chacun des deux points
-d'entrée : `ingest.anomalies.synchroniser_anomalies` les importe pour son
-paramètre obligatoire `portee_regles` plutôt que de retyper la liste des
-règles à chaque appel. `test_engine.py` vérifie qu'ils sont disjoints et
-que leur union couvre exactement R01 à R17 — une règle ajoutée plus tard
-sans mise à jour de l'un des deux ensembles fait donc échouer la suite.
+`evaluer_chantier` (avenant du 27/09/2026) est un troisième point d'entrée,
+séparé des deux précédents : R18 (chantier à confirmer) ne porte ni sur une
+facture en cours de contrôle, ni sur le temps écoulé, mais sur le résultat
+de la décision de chantier prise à l'extraction d'un BL/enlèvement. Elle
+n'enchaîne qu'une seule règle (R18) — pas de garde ni de filtrage par
+`regles_actives`, ce paramètre n'ayant de sens qu'une fois plusieurs règles
+désactivables dans ce scope. `evaluer_chantier` n'est pas encore appelée par
+`ingest` (câblage prévu à une tâche ultérieure) : elle est ajoutée ici avec
+son propre ensemble `REGLES_CHANTIER`, sur le modèle de `REGLES_FACTURE`/
+`REGLES_SUIVI`, pour que le catalogue complet des règles (R01 à R18) reste
+dérivable d'une seule source de vérité dès l'ajout de R18, plutôt que d'
+attendre son câblage.
+
+`evaluer_prix_bl` (phase 3, spec `docs/superpowers/specs/2026-09-27-prix-
+design.md` §5.3) est un quatrième point d'entrée, séparé des trois
+précédents : R19 à R25 (alertes de prix des bons) ne portent ni sur une
+facture, ni sur le temps écoulé, ni sur le chantier déduit à l'extraction,
+mais sur le contrôle des prix d'un bon face à la grille du fournisseur et à
+la dernière facture retrouvée (`ingest/prix_bl.py`, câblage prévu à une
+tâche ultérieure). Comme pour R07/R08/R09 (`_evaluer_prix`), chaque règle de
+`REGLES_PRIX_BL` observe individuellement `regles_actives` : retirer son
+code fait sauter son *appel*, pas seulement son filtrage en sortie (spec
+§5.3) -- nécessaire ici pour que l'interrupteur général et les sept
+interrupteurs par alerte (spec §3.4, §6.5) économisent le calcul d'une
+alerte désactivée plutôt que de simplement la masquer après coup.
+
+`REGLES_FACTURE`, `REGLES_SUIVI`, `REGLES_CHANTIER` et `REGLES_PRIX_BL`
+(adjonction du contrôleur, L4-T5, étendue par l'avenant du 27/09/2026 puis
+par la phase 3) sont la source de vérité des codes de règle que produit
+chacun des quatre points d'entrée :
+`ingest.anomalies.synchroniser_anomalies` importe `REGLES_FACTURE`/
+`REGLES_SUIVI` pour son paramètre obligatoire `portee_regles` plutôt que de
+retyper la liste des règles à chaque appel (ni R18 ni R19-R25 n'y sont
+encore ajoutées, `evaluer_chantier` et `evaluer_prix_bl` n'étant pas encore
+persistés). `test_engine.py` vérifie que les quatre ensembles sont
+disjoints deux à deux et que leur union couvre exactement R01 à R25 — une
+règle ajoutée plus tard sans mise à jour de l'un des quatre ensembles fait
+donc échouer la suite.
 
 `regles_actives` d'`evaluer_facture` et d'`evaluer_suivi` (décision d'Ilane
 du 24/09/2026, `docs/dette.md` : contrôles de prix désactivés tant que
@@ -100,19 +131,22 @@ revue des contrôles de prix) :
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from uuid import UUID
 
 from app.modules.rules.modeles import (
     Anomalie,
     ArticleControle,
     BlocControle,
+    ChantierIncertainControle,
     ContexteSuivi,
     FactureControlee,
     HistoriqueArticle,
     LigneControlee,
+    LignePrixBl,
     LigneRapprochee,
     Parametres,
+    ParametresPrixBl,
 )
 from app.modules.rules.rules.R01 import R01
 from app.modules.rules.rules.R02 import R02
@@ -131,11 +165,20 @@ from app.modules.rules.rules.R14 import R14
 from app.modules.rules.rules.R15 import R15
 from app.modules.rules.rules.R16 import R16
 from app.modules.rules.rules.R17 import R17
+from app.modules.rules.rules.R18 import R18
+from app.modules.rules.rules.R19 import R19
+from app.modules.rules.rules.R20 import R20
+from app.modules.rules.rules.R21 import R21
+from app.modules.rules.rules.R22 import R22
+from app.modules.rules.rules.R23 import R23
+from app.modules.rules.rules.R24 import R24
+from app.modules.rules.rules.R25 import R25
 
-# Adjonction du contrôleur (L4-T5) : scopes des deux points d'entrée du
-# moteur, source de vérité pour `ingest.anomalies.synchroniser_anomalies`
-# (paramètre obligatoire `portee_regles`) — voir le test de couverture dans
-# `test_engine.py`.
+# Adjonction du contrôleur (L4-T5), étendue par l'avenant du 27/09/2026 :
+# scopes des trois points d'entrée du moteur, source de vérité pour
+# `ingest.anomalies.synchroniser_anomalies` (paramètre obligatoire
+# `portee_regles`, REGLES_FACTURE/REGLES_SUIVI seulement pour l'instant) —
+# voir le test de couverture dans `test_engine.py`.
 REGLES_FACTURE: frozenset[str] = frozenset(
     {
         "R01",
@@ -154,6 +197,10 @@ REGLES_FACTURE: frozenset[str] = frozenset(
     }
 )
 REGLES_SUIVI: frozenset[str] = frozenset({"R06", "R14", "R15", "R16"})
+REGLES_CHANTIER: frozenset[str] = frozenset({"R18"})
+REGLES_PRIX_BL: frozenset[str] = frozenset(
+    {"R19", "R20", "R21", "R22", "R23", "R24", "R25"}
+)
 
 
 def _filtrees(
@@ -246,6 +293,68 @@ def evaluer_suivi(
             anomalies.append(anomalie_r16)
 
     return _filtrees(tuple(anomalies), regles_actives)
+
+
+def evaluer_chantier(controle: ChantierIncertainControle) -> tuple[Anomalie, ...]:
+    """Point d'entrée du moteur pour R18 (chantier à confirmer, avenant du
+    27/09/2026), distinct de `evaluer_facture` et `evaluer_suivi` (voir le
+    docstring de module). Pas de `regles_actives` : un seul point de garde
+    n'a pas d'utilité tant que R18 est la seule règle de ce scope."""
+    anomalie_r18 = R18(controle)
+    return (anomalie_r18,) if anomalie_r18 is not None else ()
+
+
+def evaluer_prix_bl(
+    lignes: Sequence[LignePrixBl],
+    parametres: ParametresPrixBl,
+    regles_actives: frozenset[str] | None = None,
+) -> tuple[Anomalie, ...]:
+    """Point d'entrée du moteur pour le contrôle des prix des bons (R19 à
+    R25, phase 3), distinct des trois précédents (voir le docstring de
+    module). Enchaîne, pour chaque ligne de `lignes` dans l'ordre, les sept
+    règles dans l'ordre du catalogue (spec §5.2) : R19, R20, R21, R22, R23,
+    R24, R25.
+
+    `regles_actives` (`None` par défaut = toutes les règles de
+    `REGLES_PRIX_BL`) : comme pour R07/R08/R09 (`_evaluer_prix`), chaque
+    règle n'est **appelée** que si son code y figure — l'interrupteur
+    général et les sept interrupteurs par alerte (spec §3.4, §6.5)
+    économisent ainsi le calcul d'une alerte désactivée, ils ne la
+    masquent pas seulement en sortie."""
+    actives = regles_actives if regles_actives is not None else REGLES_PRIX_BL
+
+    anomalies: list[Anomalie] = []
+    for ligne in lignes:
+        if "R19" in actives:
+            anomalie_r19 = R19(ligne, parametres)
+            if anomalie_r19 is not None:
+                anomalies.append(anomalie_r19)
+        if "R20" in actives:
+            anomalie_r20 = R20(ligne, parametres)
+            if anomalie_r20 is not None:
+                anomalies.append(anomalie_r20)
+        if "R21" in actives:
+            anomalie_r21 = R21(ligne, parametres)
+            if anomalie_r21 is not None:
+                anomalies.append(anomalie_r21)
+        if "R22" in actives:
+            anomalie_r22 = R22(ligne)
+            if anomalie_r22 is not None:
+                anomalies.append(anomalie_r22)
+        if "R23" in actives:
+            anomalie_r23 = R23(ligne)
+            if anomalie_r23 is not None:
+                anomalies.append(anomalie_r23)
+        if "R24" in actives:
+            anomalie_r24 = R24(ligne)
+            if anomalie_r24 is not None:
+                anomalies.append(anomalie_r24)
+        if "R25" in actives:
+            anomalie_r25 = R25(ligne, parametres)
+            if anomalie_r25 is not None:
+                anomalies.append(anomalie_r25)
+
+    return tuple(anomalies)
 
 
 def _evaluer_bloc(

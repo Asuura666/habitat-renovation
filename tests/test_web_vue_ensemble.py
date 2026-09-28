@@ -32,26 +32,29 @@ def test_vue_ensemble_contenu() -> None:
     for libelle in (
         "Facturé ce mois",
         "Conforme",
+        "Montant des bons reçus",
         "Sans bon de livraison",
         "Problèmes à régler",
         "Bons de livraison reçus",
     ):
         assert libelle in page, libelle
 
-    # « Écart prix ou quantité » (décision d'Ilane du 24/09/2026, `docs/
-    # dette.md`) : appelle désormais `libelleEcart(controlePrixActif)`
-    # (`ui/libelles.ts`, contrat couvert par `tests/test_web_socle.py::
-    # test_tuiles_ecart_utilisent_libelle_ecart_partage`) plutôt que le
-    # texte figé, devenu faux quand les contrôles de prix sont désactivés.
-    # `controlePrixActif` : repli `?? false` (constat mineur 2 de la revue
-    # des contrôles de prix), même valeur que le défaut serveur.
-    assert (
-        "const controlePrixActif = compteARegler.data?.controle_prix_actif ?? false;"
-        in page
-    )
-    assert "libelleEcart(controlePrixActif)" in page
-    assert "sousTexteEcart(controlePrixActif)" in page
-    assert '"Écart prix ou quantité"' not in page
+    # Décision d'Ilane du 25/09/2026 (`docs/refonte-front-recette.md` §3,
+    # troisième addendum) : la 3e tuile n'est plus « Écart de quantité »
+    # (`libelleEcart`/`sousTexteEcart`, `controlePrixActif`,
+    # `totaux.en_ecart`) mais « Montant des bons reçus », lue telle quelle
+    # sur les trois champs ajoutés à `GET /api/tableau-de-bord`. Ces trois
+    # identifiants restent employés par la fiche chantier et la fiche
+    # fournisseur (`tests/test_web_socle.py::
+    # test_tuiles_ecart_utilisent_libelle_ecart_partage`), plus jamais ici.
+    assert "montant_bons_recus" in page
+    assert "nb_bons_sans_montant" in page
+    # Forme appelée, pas la simple mention (le commentaire de décision
+    # ci-dessus les cite en toutes lettres, sans parenthèses, pour expliquer
+    # où elles vivent désormais).
+    assert "libelleEcart(" not in page
+    assert "sousTexteEcart(" not in page
+    assert "controlePrixActif" not in page
 
     assert "Chantier à rattacher" in page
     assert "Aucune facture ce mois-ci." in page
@@ -223,6 +226,74 @@ def test_mois_de_l_url_valide_partout() -> None:
         "FournisseursListe.tsx",
         "FicheFournisseur.tsx",
         "DocumentsListe.tsx",
+        "Livraisons.tsx",
     ):
         contenu = (SRC / "pages" / page).read_text()
         assert 'lireMois(parametres.get("mois"))' in contenu, page
+
+
+# ---------------------------------------------------------------------------
+# Task 13 (mise en production du 1er octobre, spec §4.3) : bons conformes
+# cliquables -- volet « tuile Conforme de l'accueil » et « écran
+# /livraisons ».
+# ---------------------------------------------------------------------------
+
+
+def test_chiffre_accepte_vers_et_devient_un_lien() -> None:
+    """`ui/Chiffre.tsx` accepte désormais une prop `vers` optionnelle
+    (Task 13) : quand elle est fournie, toute la tuile devient un vrai
+    `<Link>` (jamais un `onClick` sur un `<div>`) -- absente, la tuile reste
+    un simple conteneur, comme avant cette tâche."""
+    chiffre = (SRC / "ui" / "Chiffre.tsx").read_text()
+
+    assert "vers?: string" in chiffre
+    assert 'from "react-router"' in chiffre
+    assert "<Link to={vers}" in chiffre
+    # La couleur seule ne dit jamais qu'une tuile est cliquable
+    # (accessibilité, CLAUDE.md) : le contenu (libellé/montant) est
+    # identique, seul le conteneur change.
+    assert "hover:bg-fond" in chiffre
+    assert "focus-visible:ring-2 focus-visible:ring-accent" in chiffre
+
+
+def test_vue_ensemble_tuile_conforme_ouvre_livraisons() -> None:
+    """Spec §4.3, premier volet : le montant « Conforme » de l'accueil
+    devient cliquable et mène à la liste des bons conformes du même
+    périmètre (mois) -- `/livraisons?mois=…&etat=conforme`."""
+    page = (SRC / "pages" / "VueEnsemble.tsx").read_text()
+    assert "vers={`/livraisons?mois=${moisPourApi}&etat=conforme`}" in page
+
+
+def test_route_livraisons_gardee_par_garde_admin() -> None:
+    """Écran `/livraisons` (Task 13) : réservé à l'admin, même principe que
+    les autres écrans de bilan (`GardeAdmin` renvoie l'agent vers
+    `/documents`, jamais un accès direct au service)."""
+    app = (SRC / "App.tsx").read_text()
+
+    assert 'path="livraisons"' in app
+    declaration = app.split('path="livraisons"', 1)[1].split("path=", 1)[0]
+    assert "<Livraisons" in declaration
+    assert "GardeAdmin" in declaration
+    assert 'from "./pages/Livraisons"' in app
+
+
+def test_livraisons_couvre_le_contrat() -> None:
+    """`pages/Livraisons.tsx` : filtres lus dans l'URL (mois, agence,
+    chantier, fournisseur), tableau partagé avec la fiche chantier et la
+    fiche fournisseur (jamais une nouvelle définition de « conforme »),
+    sélecteur de mois (même schéma que les autres écrans)."""
+    page = (SRC / "pages" / "Livraisons.tsx").read_text()
+
+    assert 'from "../components/TableauLivraisons"' in page
+    assert "<TableauLivraisons" in page
+    assert "colonneChantier" in page
+    assert "listerLivraisons" in page
+    assert 'parametres.get("agence")' in page
+    assert 'parametres.get("chantier")' in page
+    assert 'parametres.get("fournisseur")' in page
+    assert 'type="month"' in page
+    assert "setParametres(suivants, { replace: true })" in page
+
+    # Aucun calcul métier : les montants viennent tels quels du serveur.
+    assert "parseFloat" not in page
+    assert "Number(" not in page

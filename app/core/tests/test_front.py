@@ -100,6 +100,51 @@ async def test_assets_sont_servis(app_front: FastAPI) -> None:
     assert reponse.headers.get("cache-control") != "no-cache"
 
 
+_CACHE_CONTROL_IMMUTABLE = "public, max-age=31536000, immutable"
+
+
+async def test_asset_200_recoit_le_cache_control_immutable(
+    app_front: FastAPI,
+) -> None:
+    """T6 : les fichiers hachés par Vite sous `/assets` sont cachables sans
+    limite (nom unique par contenu) — `Cache-Control` long sur la réponse
+    200, en plus de l'absence de `no-cache` déjà vérifiée ci-dessus."""
+    reponse = await _get(app_front, "/assets/x.js")
+
+    assert reponse.status_code == 200
+    assert reponse.headers["cache-control"] == _CACHE_CONTROL_IMMUTABLE
+
+
+async def test_asset_304_recoit_aussi_le_cache_control_immutable(
+    app_front: FastAPI,
+) -> None:
+    """Requête conditionnelle (`If-None-Match` reprenant l'ETag reçu) : la
+    réponse 304 de `StaticFiles` doit porter le même `Cache-Control`, sinon
+    un navigateur qui revalide perdrait la directive `immutable` à chaque
+    revalidation."""
+    premiere_reponse = await _get(app_front, "/assets/x.js")
+    etag = premiere_reponse.headers["etag"]
+
+    transport = ASGITransport(app=app_front)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        reponse = await client.get("/assets/x.js", headers={"if-none-match": etag})
+
+    assert reponse.status_code == 304
+    assert reponse.headers["cache-control"] == _CACHE_CONTROL_IMMUTABLE
+
+
+async def test_asset_inexistant_404_sans_cache_control_immutable(
+    app_front: FastAPI,
+) -> None:
+    """Un fichier absent de `/assets` ne doit jamais recevoir le
+    `Cache-Control` long : seuls les fichiers réellement servis (200/304)
+    le portent."""
+    reponse = await _get(app_front, "/assets/inexistant.js")
+
+    assert reponse.status_code == 404
+    assert reponse.headers.get("cache-control") != _CACHE_CONTROL_IMMUTABLE
+
+
 async def test_route_api_inexistante_renvoie_404_json_pas_index(
     app_front: FastAPI,
 ) -> None:

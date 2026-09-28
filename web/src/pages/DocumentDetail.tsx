@@ -16,6 +16,7 @@ import {
   type Motif,
   ValidationRefuseeErreur,
   archiverDocument,
+  choisirChantierDocument,
   cleDocument,
   corrigerEntete,
   corrigerLignes,
@@ -24,10 +25,12 @@ import {
   validerDocument,
 } from "../api/documents";
 import {
+  type Chantier,
   CLE_CHANTIERS,
   CLE_CHANTIERS_SILENCIEUX,
   CLE_FOURNISSEURS,
   type Fournisseur,
+  listerChantiers,
   listerFournisseurs,
 } from "../api/referentiels";
 import { formaterDate, formaterDateHeure, formaterMontant, formaterQuantite, TIRET } from "../lib/formats";
@@ -860,6 +863,78 @@ function TableauLignesEdition({
   );
 }
 
+/** « Chantier du bon » (Task 6, avenant du 27/09/2026, spec §2.4/§2.6) :
+ * sélecteur admin pour corriger le chantier d'un BL/enlèvement depuis sa
+ * fiche, même route que le règlement d'une alerte « Chantier à confirmer »
+ * (`choisirChantierDocument`, `PUT /api/documents/{id}/chantier`). Pas de
+ * création de chantier ici (contrairement à `AliasCarte`) : un simple
+ * `<select>` du référentiel déjà chargé, décision du contrôleur (brief Task
+ * 6 : « avec `<select>` des chantiers + « Enregistrer » », sans mention de
+ * création). Composant à part (comme `FormulaireEntete`) : son propre état
+ * local (`chantierChoisi`) est initialisé une fois depuis `chantierIdActuel`
+ * et n'a pas à composer avec les autres sections de la page. */
+function SelecteurChantierBon({
+  documentId,
+  chantierIdActuel,
+  chantiers,
+  onEnregistre,
+}: {
+  documentId: string;
+  chantierIdActuel: string | null;
+  chantiers: Chantier[];
+  onEnregistre: () => void;
+}): ReactElement {
+  const [chantierChoisi, setChantierChoisi] = useState(chantierIdActuel ?? "");
+
+  const enregistrement = useMutation({
+    mutationFn: () => choisirChantierDocument(documentId, chantierChoisi),
+    onSuccess: onEnregistre,
+  });
+
+  function soumettre(evenement: FormEvent<HTMLFormElement>): void {
+    evenement.preventDefault();
+    enregistrement.mutate();
+  }
+
+  return (
+    <form onSubmit={soumettre} className="mb-6 flex flex-wrap items-end gap-3">
+      <div>
+        <label htmlFor="chantier-du-bon" className="mb-1 block text-sm font-semibold text-encre">
+          Chantier du bon
+        </label>
+        <select
+          id="chantier-du-bon"
+          value={chantierChoisi}
+          onChange={(evenement) => setChantierChoisi(evenement.target.value)}
+          className="min-h-[44px] rounded-lg border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <option value="">— Choisir un chantier —</option>
+          {chantiers.map((chantier) => (
+            <option key={chantier.id} value={chantier.id}>
+              {chantier.nom_canonique}
+              {chantier.agence !== null ? ` (${chantier.agence})` : ""}
+            </option>
+          ))}
+        </select>
+      </div>
+      <button
+        type="submit"
+        disabled={chantierChoisi === "" || enregistrement.isPending}
+        className="inline-flex min-h-[44px] items-center rounded-md border border-bordure px-4 py-2 text-sm font-medium text-encre outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        Enregistrer
+      </button>
+      {enregistrement.isError && (
+        <p role="alert" className="w-full text-sm text-alerte">
+          {enregistrement.error instanceof ErreurApi
+            ? enregistrement.error.detail
+            : "Une erreur est survenue, réessayez."}
+        </p>
+      )}
+    </form>
+  );
+}
+
 // --------------------------------------------------------------------------
 // Section de correction
 // --------------------------------------------------------------------------
@@ -900,6 +975,14 @@ export function DocumentDetail(): ReactElement {
     queryKey: CLE_FOURNISSEURS,
     queryFn: listerFournisseurs,
     enabled: enEditionEntete,
+  });
+  // « Chantier du bon » (Task 6) : chargé seulement une fois le document
+  // modifiable connu (admin, bon non archivé) -- jamais pour un agent en
+  // lecture seule, qui ne voit jamais ce sélecteur.
+  const chantiersReferentiel = useQuery({
+    queryKey: CLE_CHANTIERS,
+    queryFn: listerChantiers,
+    enabled: document.data?.modifiable === true,
   });
 
   /** Écriture réussie, quelle que soit la mutation (correction d'en-tête,
@@ -1070,10 +1153,26 @@ export function DocumentDetail(): ReactElement {
       )}
 
       {!enEditionEntete && (
-        <p className="mb-6 text-xs text-encre-2">
+        <p className="mb-2 text-xs text-encre-2">
           {donnees.agence_fournisseur !== null && <>Agence : {donnees.agence_fournisseur} · </>}
-          Chantier rattaché : {donnees.chantier ?? "non rattaché"}
+          Chantier rattaché : {donnees.chantier ?? "non rattaché"} · Nom indiqué par l'employé :{" "}
+          {donnees.legende ?? "—"}
         </p>
+      )}
+
+      {donnees.modifiable && (
+        <SelecteurChantierBon
+          documentId={donnees.id}
+          chantierIdActuel={donnees.chantier_id}
+          chantiers={chantiersReferentiel.data ?? []}
+          onEnregistre={() => {
+            void queryClient.invalidateQueries({ queryKey: cleDocument(donnees.id) });
+            void queryClient.invalidateQueries({ queryKey: CLE_A_TRAITER });
+            void queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS });
+            void queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS_SILENCIEUX });
+            void invaliderApresChangementAnomalies(queryClient);
+          }}
+        />
       )}
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">

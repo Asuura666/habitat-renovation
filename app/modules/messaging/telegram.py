@@ -47,6 +47,28 @@ L2-T3 (boutons de confirmation, L2-D9/L2-D10) :
   `{"chat_id": ..., "message_id": ..., "text": ...}`, sans `reply_markup` —
   décision du contrôleur : l'omettre retire les boutons) pour
   `editer_message`.
+
+Audit rapidité et sécurité (T8) — taille d'un fichier Telegram plafonnée :
+- Telegram refuse déjà `getFile` au-delà de 20 Mo, et `telecharger` chargeait
+  jusque-là `reponse.content` en entier sans plafond applicatif, contrairement
+  au dépôt de facture (`app.modules.api.factures._TAILLE_MAX_OCTETS`, même
+  valeur, 20 Mio) — défense en profondeur, pas un scénario observé.
+- `_TAILLE_MAX_OCTETS` : (1) si `getFile` renvoie un `file_size` dépassant le
+  plafond, `ErreurTelegram` est levée avant toute requête de téléchargement ;
+  (2) `file_size` n'est pas garanti par l'API — le téléchargement se fait
+  donc en flux (`AsyncClient.stream`), `ErreurTelegram` levée dès que le
+  cumul des morceaux reçus dépasse le plafond, sans jamais accumuler plus
+  que nécessaire en mémoire.
+- Pas de constante partagée avec `api/factures.py` : `messaging` n'importe
+  aucun autre module de `app.modules` (garde de frontières,
+  `tests/test_frontieres.py`) et `app.core` ne porte aujourd'hui aucune
+  constante de ce genre — deux constantes de même valeur, à maintenir
+  alignées si l'une change.
+- `depot_telegram.traiter_fichier` (`ingest`) attrape déjà toute exception
+  de `messagerie.telecharger` (`except Exception`) : `ErreurTelegram` y
+  déclenche le même échec propre que les autres erreurs de téléchargement
+  (journalisation, message de supervision, réponse d'échec à l'agent, aucun
+  document inséré) — aucun changement nécessaire côté `ingest`.
 """
 
 from __future__ import annotations
@@ -77,6 +99,20 @@ _ACTIONS_VALIDES = frozenset({PREFIXE_QUANTITES_VERIFIEES, PREFIXE_ECART_CONSTAT
 # `bigint` Postgres, dont le maximum en compte 19) pour ne jamais transmettre
 # à la base un entier hors plage.
 _RE_NUMERO_INTERNE = re.compile(r"[0-9]{1,18}")
+
+# Plafond applicatif de taille d'un fichier Telegram téléchargé (T8, défense
+# en profondeur : Telegram refuse déjà `getFile` au-delà de 20 Mo). Même
+# valeur que `app.modules.api.factures._TAILLE_MAX_OCTETS` (décision du
+# contrôleur L2-D11) — non importée (`messaging` n'importe aucun autre
+# module de `app.modules`, garde de frontières,
+# `tests/test_frontieres.py`) : à maintenir alignée si l'une des deux
+# valeurs change.
+_TAILLE_MAX_OCTETS = 20 * 1024 * 1024
+
+# Longueur maximale de la légende Telegram conservée (`message.caption`,
+# avenant du 27/09/2026) : saisie libre de l'employé, tronquée pour ne
+# jamais dépasser une taille raisonnable en base ni à l'affichage.
+LONGUEUR_LEGENDE_MAX = 200
 
 # Mapping explicite type MIME -> extension de stockage (décision du
 # contrôleur : pas de `mimetypes`, qui dépend d'une base système variable
@@ -114,6 +150,7 @@ def _fichier_depuis_document(
     expediteur_id: int | None,
     expediteur_nom: str | None,
     document: dict[str, Any],
+    legende: str | None,
 ) -> FichierEntrant | None:
     mime_type = document.get("mime_type")
     if mime_type not in _EXTENSIONS_PAR_MIME:
@@ -131,6 +168,7 @@ def _fichier_depuis_document(
         nom_fichier=document.get("file_name"),
         compresse=False,
         expediteur_nom=expediteur_nom,
+        legende=legende,
     )
 
 
@@ -141,6 +179,7 @@ def _fichier_depuis_photo(
     expediteur_id: int | None,
     expediteur_nom: str | None,
     photos: list[Any],
+    legende: str | None,
 ) -> FichierEntrant | None:
     if not photos:
         return None
@@ -162,6 +201,7 @@ def _fichier_depuis_photo(
         nom_fichier=None,
         compresse=True,
         expediteur_nom=expediteur_nom,
+        legende=legende,
     )
 
 
@@ -179,6 +219,22 @@ def _expediteur_nom(expediteur: dict[str, Any]) -> str | None:
     if isinstance(first_name, str):
         return first_name
     return None
+
+
+def _legende(message: dict[str, Any]) -> str | None:
+    """Légende Telegram (`message.caption`, avenant du 27/09/2026) : nom de
+    chantier tapé par l'employé au moment d'envoyer la photo, saisie libre
+    donc nettoyée avant d'être conservée (`strip()`, vide -> `None`,
+    tronquée à `LONGUEUR_LEGENDE_MAX` caractères) -- jamais la seule source
+    du chantier (seconde source pour `normalize.chantier`, à côté du nom lu
+    sur le bon)."""
+    caption = message.get("caption")
+    if not isinstance(caption, str):
+        return None
+    nettoyee = caption.strip()
+    if not nettoyee:
+        return None
+    return nettoyee[:LONGUEUR_LEGENDE_MAX]
 
 
 def _numero_interne_valide(reste: str) -> int | None:
@@ -275,17 +331,30 @@ def lire_update(update: dict[str, Any]) -> FichierEntrant | ClicBouton | None:
     expediteur_nom = (
         _expediteur_nom(expediteur) if isinstance(expediteur, dict) else None
     )
+    legende = _legende(message)
 
     photos = message.get("photo")
     if isinstance(photos, list):
         return _fichier_depuis_photo(
-            update_id, chat_id, message_id, expediteur_id, expediteur_nom, photos
+            update_id,
+            chat_id,
+            message_id,
+            expediteur_id,
+            expediteur_nom,
+            photos,
+            legende,
         )
 
     document = message.get("document")
     if isinstance(document, dict):
         return _fichier_depuis_document(
-            update_id, chat_id, message_id, expediteur_id, expediteur_nom, document
+            update_id,
+            chat_id,
+            message_id,
+            expediteur_id,
+            expediteur_nom,
+            document,
+            legende,
         )
 
     return None
@@ -327,18 +396,37 @@ class TelegramClient:
             raise ErreurTelegram("Réponse Telegram getFile sans file_path exploitable")
         file_path: str = resultat["file_path"]
 
+        # T8 : `file_size` (octets, absent selon les versions de l'API) est
+        # vérifié avant toute requête de téléchargement — évite de tirer un
+        # fichier déjà connu comme trop volumineux.
+        file_size = resultat.get("file_size")
+        if isinstance(file_size, int) and file_size > _TAILLE_MAX_OCTETS:
+            raise ErreurTelegram("Fichier Telegram trop volumineux (20 Mio maximum)")
+
+        # T8 : téléchargement en flux, jamais `reponse.content` chargé d'un
+        # coup — `file_size` n'étant pas garanti, le plafond est aussi
+        # appliqué au cumul des morceaux reçus, arrêté dès le dépassement.
+        morceaux: list[bytes] = []
+        taille_cumulee = 0
         try:
-            reponse_fichier = await self._http.get(
-                f"{_BASE_URL}/file/bot{self._token}/{file_path}"
-            )
-            reponse_fichier.raise_for_status()
+            async with self._http.stream(
+                "GET", f"{_BASE_URL}/file/bot{self._token}/{file_path}"
+            ) as reponse_fichier:
+                reponse_fichier.raise_for_status()
+                async for morceau in reponse_fichier.aiter_bytes():
+                    taille_cumulee += len(morceau)
+                    if taille_cumulee > _TAILLE_MAX_OCTETS:
+                        raise ErreurTelegram(
+                            "Fichier Telegram trop volumineux (20 Mio maximum)"
+                        )
+                    morceaux.append(morceau)
         except httpx.HTTPError:
             raise ErreurTelegram(
                 "Échec du téléchargement du fichier Telegram"
             ) from None
 
         return FichierTelecharge(
-            contenu=reponse_fichier.content,
+            contenu=b"".join(morceaux),
             extension=_extension(fichier, file_path),
         )
 

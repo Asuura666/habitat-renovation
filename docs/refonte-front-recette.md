@@ -249,6 +249,27 @@ fichier d'environnement de l'instance (`.env.prod` / `.env.demo`) puis
 recréation du conteneur API (`up -d api`), voir
 `docs/evolutions-proposees.md` §c, sans interrupteur à l'écran.
 
+**Troisième addendum du 25/09/2026 — décision (déjà prise, pas à valider) :
+la tuile « Écart de quantité » de la Vue d'ensemble est remplacée par
+« Montant des bons reçus ».** L'accueil se construit à partir des
+factures : un bon validé mais pas encore retrouvé sur une facture n'y
+apparaissait nulle part, alors qu'Ilane veut voir tout de suite ce qui a
+été livré, facture ou non. La 3e tuile de `VueEnsemble.tsx`
+(`libelleEcart`/`sousTexteEcart`, `totaux.en_ecart`) devient « Montant des
+bons reçus », à partir de trois champs ajoutés à `GET /api/tableau-de-bord`
+(`ingest.tableau_de_bord._compter_bons_recus`) : `nb_bons_recus` (documents
+de type bon -- BL et enlèvement, `ingest.lecture.TYPES_BL` -- au statut
+`recu` du mois affiché, jamais `a_verifier` ni `archive`),
+`montant_bons_recus` (somme de leur `total_ht`, `0` si aucun) et
+`nb_bons_sans_montant` (parmi ces bons reçus, ceux dont `total_ht` est
+`NULL` -- comptés dans `nb_bons_recus` mais jamais dans le montant,
+beaucoup de bons n'ayant aucun prix imprimé). Un bon compte qu'il soit ou
+non déjà retrouvé sur une facture : notion différente de `nb_bl_recus`, qui
+compte des blocs de facture rapprochés, pas des bons. Limites : pas de
+filtre agence (le tableau de bord n'en a pas) ; `libelleEcart`/
+`sousTexteEcart` (second addendum ci-dessus) restent utilisés tels quels
+par la fiche chantier et la fiche fournisseur, seul l'accueil change.
+
 ## 4. Contrôles finaux (sur `f1404bc`)
 
 ```

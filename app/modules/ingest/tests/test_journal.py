@@ -16,7 +16,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ingest.journal import JournalLue, lister_journal
-from app.modules.ingest.models import Journal, Utilisateur
+from app.modules.ingest.models import Chantier, Fournisseur, Journal, Utilisateur
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
 
@@ -338,4 +338,222 @@ async def test_lister_journal_expose_apres_nul(
     resultat = await lister_journal(db_session, action="anomalie_levee")
 
     ok = len(resultat) == 1 and resultat[0].apres is None
+    assert ok
+
+
+# --------------------------------------------------------------------------
+# Task 12 (spec §4.1) : noms au lieu des identifiants
+# --------------------------------------------------------------------------
+
+
+async def test_journal_resout_confirme_par_en_nom(
+    db_session: AsyncSession,
+) -> None:
+    """`apres.confirme_par` (`depot_telegram.py::_enregistrer_confirmation`)
+    est un UUID brut d'utilisateur -- `noms` doit porter son nom résolu
+    (`coalesce(nom, email)`, même mécanique que `auteur`)."""
+    lea = await _creer_utilisateur(db_session, nom="Léa Test")
+    await _creer_entree(
+        db_session,
+        action="quantites_verifiees",
+        cible_table="document",
+        avant={"statut": "a_verifier", "confirme_le": None, "confirme_par": None},
+        apres={
+            "statut": "recu",
+            "confirme_le": "2026-08-01T12:00:00+00:00",
+            "confirme_par": str(lea.id),
+        },
+    )
+
+    resultat = await lister_journal(db_session, action="quantites_verifiees")
+
+    ok = len(resultat) == 1 and resultat[0].noms[str(lea.id)] == "Léa Test"
+    assert ok
+
+
+async def test_journal_resout_le_compte_cible_en_nom(
+    db_session: AsyncSession,
+) -> None:
+    """Recette du 28/09/2026 : les entrées de l'écran Comptes
+    (`compte_cree`, `mot_de_passe_change`, `acces_retire`…) ont
+    `cible_table="utilisateur"` et `cible_id` = l'identifiant du compte
+    visé ; la colonne « Cible » affichait cet identifiant brut. `noms` doit
+    porter le nom du compte (`coalesce(nom, email)`), et l'e-mail quand le
+    compte n'a pas de nom."""
+    compte = await _creer_utilisateur(db_session, nom="Paul Employé")
+    sans_nom = await _creer_utilisateur(db_session, nom=None)
+    await _creer_entree(
+        db_session,
+        action="mot_de_passe_change",
+        cible_table="utilisateur",
+        cible_id=str(compte.id),
+    )
+    await _creer_entree(
+        db_session,
+        action="acces_retire",
+        cible_table="utilisateur",
+        cible_id=str(sans_nom.id),
+        avant={"actif": True},
+        apres={"actif": False},
+    )
+
+    par_action = {e.action: e for e in await lister_journal(db_session)}
+
+    ok = (
+        par_action["mot_de_passe_change"].noms[str(compte.id)] == "Paul Employé"
+        and par_action["acces_retire"].noms[str(sans_nom.id)] == sans_nom.email
+    )
+    assert ok
+
+
+async def test_journal_resout_chantier_et_fournisseur(
+    db_session: AsyncSession,
+) -> None:
+    """`chantier_id`/`fournisseur_id` portés par `avant`/`apres`
+    (`extraction_bl.py`) résolus vers `nom_canonique`/`nom`."""
+    chantier = Chantier(nom_canonique="Villa Test", agence=None, client=None)
+    fournisseur = Fournisseur(nom="Unikalo Test")
+    db_session.add_all([chantier, fournisseur])
+    await db_session.commit()
+    await db_session.refresh(chantier)
+    await db_session.refresh(fournisseur)
+
+    await _creer_entree(
+        db_session,
+        action="extraction_bl",
+        cible_table="document",
+        avant=None,
+        apres={
+            "statut": "recu",
+            "fournisseur_id": str(fournisseur.id),
+            "chantier_id": str(chantier.id),
+        },
+    )
+
+    resultat = await lister_journal(db_session, action="extraction_bl")
+
+    ok = (
+        len(resultat) == 1
+        and resultat[0].noms[str(chantier.id)] == "Villa Test"
+        and resultat[0].noms[str(fournisseur.id)] == "Unikalo Test"
+    )
+    assert ok
+
+
+async def test_journal_resout_cible_id_chantier_seulement_si_cible_table_chantier(
+    db_session: AsyncSession,
+) -> None:
+    """`cible_id` d'`avant`/`apres` (distinct de `Journal.cible_id`) n'est
+    résolu comme chantier que si `cible_table == "chantier"`
+    (`fusion_chantier.py::fusionner_chantiers`) -- une autre table ne doit
+    jamais être interprétée comme un identifiant de chantier."""
+    cible = Chantier(nom_canonique="Résidence des Tilleuls", agence=None, client=None)
+    db_session.add(cible)
+    await db_session.commit()
+    await db_session.refresh(cible)
+
+    await _creer_entree(
+        db_session,
+        action="chantier_fusionne",
+        cible_table="chantier",
+        avant={"chantier_id": str(uuid.uuid4()), "nom": "Ancien nom"},
+        apres={"cible_id": str(cible.id), "cible_nom": cible.nom_canonique},
+    )
+    # Même clé `cible_id`, mais une autre table cible : ne doit jamais être
+    # confondue avec un identifiant de chantier.
+    await _creer_entree(
+        db_session,
+        action="parametre_modifie",
+        cible_table="parametre",
+        avant=None,
+        apres={"cible_id": str(cible.id)},
+    )
+
+    resultat_fusion = await lister_journal(db_session, action="chantier_fusionne")
+    resultat_parametre = await lister_journal(db_session, action="parametre_modifie")
+
+    ok = (
+        len(resultat_fusion) == 1
+        and resultat_fusion[0].noms[str(cible.id)] == "Résidence des Tilleuls"
+        and len(resultat_parametre) == 1
+        and resultat_parametre[0].noms == {}
+    )
+    assert ok
+
+
+async def test_journal_identifiant_non_uuid_ou_introuvable_absent_de_noms(
+    db_session: AsyncSession,
+) -> None:
+    """Une valeur non-UUID (`cible_id` d'un réglage) ou un identifiant
+    inconnu en base reste simplement absent de `noms` -- jamais une clé à
+    valeur `None`."""
+    fournisseur_disparu = str(uuid.uuid4())
+    await _creer_entree(
+        db_session,
+        action="extraction_bl",
+        cible_table="document",
+        avant=None,
+        apres={
+            "fournisseur_id": fournisseur_disparu,
+            "chantier_libelle": "pas un uuid",
+        },
+    )
+
+    resultat = await lister_journal(db_session, action="extraction_bl")
+
+    ok = len(resultat) == 1 and resultat[0].noms == {}
+    assert ok
+
+
+async def test_journal_noms_en_requetes_groupees(
+    db_session: AsyncSession,
+) -> None:
+    """Compter les requêtes n'est pas nécessaire (décision du contrôleur,
+    brief Task 12) : il suffit de vérifier que trois entrées distinctes,
+    référençant chacune un identifiant différent, sont toutes correctement
+    résolues par un seul appel à `lister_journal` (résolution groupée par
+    table, jamais une requête par entrée)."""
+    admin = await _creer_utilisateur(db_session, nom="Bob Admin")
+    chantier = Chantier(nom_canonique="Chantier Groupé", agence=None, client=None)
+    fournisseur = Fournisseur(nom="Fournisseur Groupé")
+    db_session.add_all([chantier, fournisseur])
+    await db_session.commit()
+    await db_session.refresh(chantier)
+    await db_session.refresh(fournisseur)
+
+    await _creer_entree(
+        db_session,
+        action="document_valide",
+        cible_table="document",
+        avant={"statut": "a_verifier", "confirme_le": None, "confirme_par": None},
+        apres={"statut": "recu", "confirme_le": "x", "confirme_par": str(admin.id)},
+        horodatage=_instant(0),
+    )
+    await _creer_entree(
+        db_session,
+        action="extraction_bl",
+        cible_table="document",
+        avant=None,
+        apres={"chantier_id": str(chantier.id)},
+        horodatage=_instant(1),
+    )
+    await _creer_entree(
+        db_session,
+        action="facture_deposee",
+        cible_table="document",
+        avant=None,
+        apres={"fournisseur_id": str(fournisseur.id)},
+        horodatage=_instant(2),
+    )
+
+    resultat = await lister_journal(db_session, cible_table="document", limite=10)
+
+    par_action = {entree.action: entree for entree in resultat}
+    ok = (
+        len(resultat) == 3
+        and par_action["document_valide"].noms[str(admin.id)] == "Bob Admin"
+        and par_action["extraction_bl"].noms[str(chantier.id)] == "Chantier Groupé"
+        and par_action["facture_deposee"].noms[str(fournisseur.id)]
+        == "Fournisseur Groupé"
+    )
     assert ok

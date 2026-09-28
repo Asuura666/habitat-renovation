@@ -6,6 +6,7 @@ import {
   type AliasEnAttente,
   type ArticleAValider,
   type ATraiter,
+  type ChantierACompleter,
   CLE_A_TRAITER,
   CLE_COMPTE_A_REGLER,
   type DocumentATraiter,
@@ -65,7 +66,8 @@ export type Probleme =
   | { kind: "anomalie"; id: string; anomalie: Anomalie }
   | { kind: "document"; id: string; document: DocumentATraiter }
   | { kind: "alias"; id: string; alias: AliasEnAttente }
-  | { kind: "article"; id: string; article: ArticleAValider };
+  | { kind: "article"; id: string; article: ArticleAValider }
+  | { kind: "chantier"; id: string; chantier: ChantierACompleter };
 
 export function urgenceProbleme(probleme: Probleme): Urgence {
   return probleme.kind === "anomalie" ? urgence(probleme.anomalie.gravite) : "À voir";
@@ -84,6 +86,8 @@ export function categorieFiltreProbleme(probleme: Probleme): CategorieFiltre {
       return "rattacher";
     case "article":
       return "autre";
+    case "chantier":
+      return "rattacher";
   }
 }
 
@@ -109,6 +113,8 @@ export function titreProbleme(probleme: Probleme): string {
       return "Chantier à rattacher";
     case "article":
       return "Article à valider";
+    case "chantier":
+      return probleme.chantier.nom;
   }
 }
 
@@ -174,6 +180,12 @@ export function phraseAffichee(probleme: Probleme): string {
       }.`;
     case "article":
       return probleme.article.libelle ?? "Unités et conditionnement à confirmer.";
+    case "chantier": {
+      const c = probleme.chantier;
+      return `Créé automatiquement le ${formaterDate(c.cree_le)} — ${c.nb_bons} bon${
+        c.nb_bons > 1 ? "s" : ""
+      }.`;
+    }
   }
 }
 
@@ -199,6 +211,8 @@ export function contexteProbleme(probleme: Probleme): string {
       return probleme.alias.fournisseur;
     case "article":
       return probleme.article.fournisseur;
+    case "chantier":
+      return "Nouveau chantier à compléter";
   }
 }
 
@@ -282,6 +296,7 @@ function aTraiterDuPerimetre(aTraiter: ATraiter | undefined, portee: Portee | un
       documents: aTraiter.documents.filter((document) => document.id === portee.id),
       alias: [],
       articles: [],
+      chantiers_a_completer: [],
     };
   }
   return undefined;
@@ -305,6 +320,9 @@ function construireProblemes(anomaliesOuvertes: Anomalie[], aTraiter: ATraiter |
     }
     for (const article of aTraiter.articles) {
       problemes.push({ kind: "article", id: `article:${article.id}`, article });
+    }
+    for (const chantier of aTraiter.chantiers_a_completer) {
+      problemes.push({ kind: "chantier", id: `chantier:${chantier.id}`, chantier });
     }
   }
   return problemes;

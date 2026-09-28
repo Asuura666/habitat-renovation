@@ -1225,6 +1225,29 @@ async def test_fichier_document_agent_son_propre_document_ok(
     assert fichier.chemin == chemin.resolve()
 
 
+async def test_fichier_document_facture_leve_document_introuvable_meme_pour_admin(
+    db_session: AsyncSession, tmp_path: Path
+) -> None:
+    """Défense en profondeur (constat SERVEUR-5, revue finale de la refonte
+    du front) : `fichier_document` ne sert que le fichier d'un BL/enlèvement
+    (`TYPES_BL`), jamais celui d'une facture -- même restriction que
+    `_document_pour_lecture` (`ingest.corrections`) et `comparer_bl`
+    (`ingest.comparaison_bl`), et même pour un admin (le contrôle de type
+    précède le contrôle de rôle)."""
+    chemin = tmp_path / "facture.pdf"
+    chemin.write_bytes(b"%PDF-1.4\ncontenu-invente")
+    admin = await _creer_utilisateur(db_session, role="admin")
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(
+        db_session, fournisseur=fournisseur, fichier_path=str(chemin)
+    )
+
+    with pytest.raises(DocumentIntrouvable):
+        await fichier_document(
+            db_session, facture.id, tmp_path, utilisateur_id=admin.id, role="admin"
+        )
+
+
 async def test_fichier_document_chemin_hors_docs_dir_leve_sans_journaliser_le_chemin(
     db_session: AsyncSession,
     tmp_path: Path,

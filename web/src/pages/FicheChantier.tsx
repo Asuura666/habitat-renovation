@@ -1,13 +1,12 @@
-import { type FormEvent, type MouseEvent, type ReactElement, useState } from "react";
+import { type FormEvent, type ReactElement, useEffect, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 
 import {
   cleBilanBl,
   cleBilanChantiers,
   cleBilanFournisseurs,
   type FiltresBilan,
-  type LigneBilanBl,
   type LigneBilanFournisseur,
   listerBilanBl,
   listerBilanChantiers,
@@ -18,17 +17,23 @@ import {
 import { cleAnomalies, type FiltresAnomalies, listerAnomalies } from "../api/anomalies";
 import { CLE_COMPTE_A_REGLER, obtenirCompteARegler } from "../api/aTraiter";
 import { ErreurApi } from "../api/client";
+import { invaliderApresChangementAnomalies } from "../api/invalidations";
 import {
+  CLE_AGENCES,
   CLE_CHANTIERS,
   CLE_CHANTIERS_SILENCIEUX,
   type Chantier,
   ChantierEnDoubleErreur,
+  cleChantier,
+  fusionnerChantiers,
   listerChantiers,
   type ModificationChantier,
   modifierChantier,
+  obtenirChantier,
 } from "../api/referentiels";
 import { cleTableauDeBord, obtenirTableauDeBord } from "../api/tableauDeBord";
-import { estMontantNul, formaterDate, formaterMontant, libelleMois, lireMois, moisApi, TIRET } from "../lib/formats";
+import { type LivraisonAffichee, TableauLivraisons } from "../components/TableauLivraisons";
+import { estMontantNul, formaterDate, formaterMontant, libelleMois, lireMois, moisApi } from "../lib/formats";
 import {
   Bouton,
   Carte,
@@ -36,6 +41,7 @@ import {
   EtatVide,
   FilAriane,
   libelleEcart,
+  PastilleACompleter,
   PastilleEtat,
   PastilleUrgence,
   phraseProbleme,
@@ -68,202 +74,22 @@ function libellePeriodeCourte(mois: string | undefined): string | null {
   return mois !== undefined ? libelleMois(mois) : null;
 }
 
-function libelleStatutBon(statut: string | null): string {
-  if (statut === "recu") return "Reçu";
-  if (statut === "non_recu") return "Jamais reçu";
-  if (statut === "pas_de_bon") return "Livré sans bon";
-  return "Statut inconnu";
-}
-
-const CLASSES_POINT_STATUT: Record<string, string> = {
-  conforme: "bg-conforme",
-  ecart: "bg-ecart",
-  alerte: "bg-alerte",
-  inconnu: "bg-encre-2",
-};
-
-/** Point de couleur + libellé (jamais la couleur seule, spec §2) résumant
- * l'état d'une ligne de livraison : reçu sans problème (vert), reçu avec un
- * problème ouvert (ambre, `nb_anomalies_ouvertes` déjà fourni par le
- * serveur — aucun calcul ici), jamais reçu/livré sans bon (rouge). */
-function EtatBon({ ligne }: { ligne: LigneBilanBl }): ReactElement {
-  let categorie: keyof typeof CLASSES_POINT_STATUT = "inconnu";
-  if (ligne.statut_rapprochement === "recu") {
-    categorie = ligne.montants.nb_anomalies_ouvertes > 0 ? "ecart" : "conforme";
-  } else if (ligne.statut_rapprochement === "non_recu" || ligne.statut_rapprochement === "pas_de_bon") {
-    categorie = "alerte";
-  }
-  return (
-    <span className="inline-flex items-center gap-2 whitespace-nowrap">
-      <span aria-hidden="true" className={`h-2.5 w-2.5 shrink-0 rounded-full ${CLASSES_POINT_STATUT[categorie]}`} />
-      {libelleStatutBon(ligne.statut_rapprochement)}
-    </span>
-  );
-}
-
-interface LivraisonAffichee {
-  blocId: string;
-  numeroBl: string | null;
-  dateBl: string | null;
-  fournisseur: string;
-  ligne: LigneBilanBl;
-}
+/** Extrait dans `components/TableauLivraisons.tsx` (Task 13, mise en
+ * production du 1er octobre, spec §4.3) : `EtatBon`, `lienLivraison`,
+ * `LigneLivraisonCarte`/`LigneLivraisonTableau`/`TableauLivraisons`
+ * (tableau ordinateur + cartes téléphone), plus le filtre d'état
+ * « Toutes/Conformes/À vérifier/Sans bon », désormais partagés avec la
+ * fiche fournisseur et l'écran `/livraisons` -- jamais deux définitions
+ * divergentes de « conforme » d'un écran à l'autre. Seuls `LivraisonAffichee`
+ * (le type des lignes que cette fiche construit) et `comparerDateDesc` (le
+ * tri, propre à la façon dont cette fiche combine plusieurs requêtes par
+ * fournisseur) restent ici. */
 
 function comparerDateDesc(a: LivraisonAffichee, b: LivraisonAffichee): number {
   if (a.dateBl === null && b.dateBl === null) return 0;
   if (a.dateBl === null) return 1;
   if (b.dateBl === null) return -1;
   return b.dateBl.localeCompare(a.dateBl);
-}
-
-function lienLivraison(ligne: LigneBilanBl): string {
-  return ligne.bl_document_id !== null ? `/bl/${ligne.bl_document_id}` : `/documents/${ligne.facture_id}`;
-}
-
-/** Problèmes d'une livraison précise (revue finale, constat COUVERTURE-1 :
- * l'ancien lien « Voir les anomalies » de chaque BL n'existait plus sur
- * aucun écran monté) : « À régler » filtré sur cette livraison
- * (`?blocId=`), exactement les problèmes comptés dans la colonne
- * « Problèmes » (anomalies ouvertes portées par la livraison). */
-function lienProblemesLivraison(livraison: LivraisonAffichee): string {
-  return `/a-regler?${new URLSearchParams({ blocId: livraison.blocId }).toString()}`;
-}
-
-function libelleProblemesLivraison(nombre: number): string {
-  return nombre > 1 ? `Voir les ${nombre} problèmes de cette livraison` : "Voir le problème de cette livraison";
-}
-
-function LigneLivraisonCarte({ livraison }: { livraison: LivraisonAffichee }): ReactElement {
-  const nbProblemes = livraison.ligne.montants.nb_anomalies_ouvertes;
-  return (
-    <li className="rounded-lg border border-bordure bg-surface">
-      <Link
-        to={lienLivraison(livraison.ligne)}
-        className="block rounded-lg p-4 outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
-      >
-        <div className="mb-2 flex items-start justify-between gap-3">
-          <div>
-            <p className="font-medium text-encre">BL {livraison.numeroBl ?? TIRET}</p>
-            <p className="text-xs text-encre-2">{formaterDate(livraison.dateBl)} · {livraison.fournisseur}</p>
-          </div>
-          <p className="font-mono text-sm tabular-nums text-encre">
-            {formaterMontant(livraison.ligne.montants.facture_ht)}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-          <EtatBon ligne={livraison.ligne} />
-          <span className="text-encre-2">
-            {livraison.ligne.montants.nb_anomalies_ouvertes} problème
-            {livraison.ligne.montants.nb_anomalies_ouvertes > 1 ? "s" : ""}
-          </span>
-        </div>
-      </Link>
-      {nbProblemes > 0 && (
-        <Link
-          to={lienProblemesLivraison(livraison)}
-          className="flex min-h-[44px] items-center border-t border-bordure px-4 text-sm font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          {libelleProblemesLivraison(nbProblemes)}
-        </Link>
-      )}
-    </li>
-  );
-}
-
-/** Toute la ligne mène vers la page BL (brief : « chaque ligne vers
- * /bl/:bl_document_id […] sinon vers /documents/:facture_id »), comme dans
- * la maquette `FicheChantier` : navigation au clic sur la `<tr>` pour la
- * cible tactile la plus large possible, **et** un vrai lien accessible (N°
- * BL) pour le clavier et les lecteurs d'écran — jamais la `<tr>` seule, qui
- * ne serait pas atteignable sans souris. */
-function LigneLivraisonTableau({ livraison, naviguer }: { livraison: LivraisonAffichee; naviguer: () => void }): ReactElement {
-  // Garde contre la double navigation (fix round 2, constat 2) : le n° BL
-  // porte un vrai <Link> (accessibilité clavier/lecteur d'écran) dont le
-  // gestionnaire de clic (react-router `useLinkClickHandler`) fait
-  // `preventDefault` puis navigue, mais ne fait jamais `stopPropagation` —
-  // le clic remonte ensuite jusqu'à cette <tr>, qui naviguait une seconde
-  // fois (deux entrées d'historique identiques, un premier « Retour » sans
-  // effet visible) et, pour un Ctrl/Cmd+clic ouvrant le lien dans un
-  // nouvel onglet, faisait quand même naviguer l'onglet courant. On
-  // ignore donc les clics déjà traités par un lien (`defaultPrevented`
-  // ou une cible à l'intérieur d'un `<a>`) et les clics avec modificateur
-  // ou bouton autre que le clic gauche.
-  function gererClicLigne(evenement: MouseEvent<HTMLTableRowElement>): void {
-    if (evenement.defaultPrevented) return;
-    if ((evenement.target as HTMLElement).closest("a") !== null) return;
-    if (evenement.button !== 0 || evenement.metaKey || evenement.ctrlKey || evenement.shiftKey || evenement.altKey) {
-      return;
-    }
-    naviguer();
-  }
-
-  return (
-    <tr
-      onClick={gererClicLigne}
-      className="cursor-pointer outline-none hover:bg-fond focus-within:bg-fond"
-    >
-      <td className="py-2.5 pl-2 text-encre">{formaterDate(livraison.dateBl)}</td>
-      <td className="py-2.5 font-mono text-encre">
-        <Link
-          to={lienLivraison(livraison.ligne)}
-          className="rounded font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          {livraison.numeroBl ?? TIRET}
-        </Link>
-      </td>
-      <td className="py-2.5 pr-2 text-encre">{livraison.fournisseur}</td>
-      <td className="py-2.5 pr-2">
-        <EtatBon ligne={livraison.ligne} />
-      </td>
-      <td className="py-2.5 pr-2 text-right font-mono tabular-nums text-encre">
-        {formaterMontant(livraison.ligne.montants.facture_ht)}
-      </td>
-      <td className="py-2.5 pr-2 text-right text-encre">
-        {livraison.ligne.montants.nb_anomalies_ouvertes > 0 ? (
-          <Link
-            to={lienProblemesLivraison(livraison)}
-            aria-label={libelleProblemesLivraison(livraison.ligne.montants.nb_anomalies_ouvertes)}
-            title={libelleProblemesLivraison(livraison.ligne.montants.nb_anomalies_ouvertes)}
-            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-end rounded font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            {livraison.ligne.montants.nb_anomalies_ouvertes}
-          </Link>
-        ) : (
-          livraison.ligne.montants.nb_anomalies_ouvertes
-        )}
-      </td>
-    </tr>
-  );
-}
-
-function TableauLivraisons({ livraisons }: { livraisons: LivraisonAffichee[] }): ReactElement {
-  const navigate = useNavigate();
-  return (
-    <div className="hidden overflow-x-auto md:block">
-      <table className="w-full text-sm">
-        <caption className="sr-only">Livraisons du chantier</caption>
-        <thead className="text-left text-xs font-medium uppercase tracking-wide text-encre-2">
-          <tr>
-            <th scope="col" className="py-2 pl-2">Date</th>
-            <th scope="col" className="py-2">N° BL</th>
-            <th scope="col" className="py-2 pr-2">Fournisseur</th>
-            <th scope="col" className="py-2 pr-2">Bon de livraison</th>
-            <th scope="col" className="py-2 pr-2 text-right">Montant</th>
-            <th scope="col" className="py-2 pr-2 text-right">Problèmes</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-bordure">
-          {livraisons.map((livraison) => (
-            <LigneLivraisonTableau
-              key={livraison.blocId}
-              livraison={livraison}
-              naviguer={() => navigate(lienLivraison(livraison.ligne))}
-            />
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
 }
 
 /** Formulaire d'édition (nom, client, agence, actif — `PUT /api/chantiers
@@ -288,6 +114,19 @@ function FormulaireEdition({
         queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS }),
         queryClient.invalidateQueries({ queryKey: cleBilanChantiers(FILTRES_TOUS_MOIS) }),
         queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS_SILENCIEUX }),
+        // tâche T7 (audit rapidité), même raison que la création de chantier
+        // (`ChantiersListe.tsx`) : l'agence de ce chantier a pu changer, le
+        // filtre « Agence » de l'écran « Chantiers » doit le refléter sans
+        // attendre un remontage.
+        queryClient.invalidateQueries({ queryKey: CLE_AGENCES }),
+        // C1 (revue finale du 27/09/2026) : enregistrer la fiche fait sortir
+        // le chantier de « à compléter » côté serveur (`a_completer` retombe
+        // à faux, `referentiels.modifier_chantier`), ce qui referme sa
+        // section « Nouveaux chantiers à compléter » dans « À régler » et
+        // change le compte de problèmes -- sans cette invalidation (même
+        // geste que `FormulaireFusion`/`SelecteurChantierBon`/`DetailR18`),
+        // le chantier restait listé dans « À régler » jusqu'à 30 s (staleTime).
+        invaliderApresChangementAnomalies(queryClient),
       ]);
       onFermer();
     },
@@ -382,10 +221,121 @@ function FormulaireEdition({
   );
 }
 
+/** « Fusionner avec… » (Task 7, avenant du 27/09/2026, spec §2.7) : tout ce
+ * que porte `chantier` (bons, factures, problèmes) passe sur le chantier
+ * choisi, qui absorbe le doublon -- résorbe les doublons produits par le
+ * rattachement automatique (« Ormeaux » / « Résidence les Ormeaux »).
+ * `autresChantiers` : référentiel complet déjà chargé par la fiche, sans
+ * `chantier` lui-même (un chantier ne peut pas se fusionner avec lui-même)
+ * ni aucun chantier déjà fusionné (`listerChantiers` les exclut déjà,
+ * Task 6). */
+function FormulaireFusion({
+  chantier,
+  autresChantiers,
+  onFermer,
+}: {
+  chantier: Chantier;
+  autresChantiers: Chantier[];
+  onFermer: () => void;
+}): ReactElement {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  // C2 (revue finale du 27/09/2026) : pas de cible présélectionnée -- une
+  // fusion est irréversible côté écran (spec §2.7, « jamais supprimé
+  // physiquement » ne protège pas d'un choix distrait) ; le bouton reste
+  // désactivé tant qu'un chantier n'a pas été choisi explicitement (voir
+  // `disabled={cibleId === "" || fusion.isPending}` plus bas).
+  const [cibleId, setCibleId] = useState("");
+  const cible = autresChantiers.find((c) => c.id === cibleId);
+
+  const fusion = useMutation({
+    mutationFn: () => fusionnerChantiers(chantier.id, cibleId),
+    onSuccess: async (resultat) => {
+      // Une fusion déplace des bons/factures/problèmes entiers : mêmes
+      // invalidations qu'un rattachement de chantier (bilan, tableau de
+      // bord, à régler), plus le référentiel chantier lui-même (le
+      // sélecteur ne doit plus proposer la source).
+      await Promise.all([
+        invaliderApresChangementAnomalies(queryClient),
+        queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS }),
+        queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS_SILENCIEUX }),
+      ]);
+      navigate(`/chantiers/${resultat.cible_id}`);
+    },
+  });
+
+  function messageErreur(erreur: unknown): string {
+    if (erreur instanceof ErreurApi) return erreur.detail;
+    return "Une erreur est survenue, réessayez.";
+  }
+
+  function soumettre(evenement: FormEvent<HTMLFormElement>): void {
+    evenement.preventDefault();
+    if (cibleId === "" || cible === undefined) return;
+    // C2 (revue finale du 27/09/2026) : fusion irréversible depuis l'écran
+    // (source désactivée, jamais supprimée, mais tout ce qu'elle porte
+    // change de chantier sans retour possible ici) -- confirmation
+    // obligatoire, même geste que « Retirer l'accès » (`Comptes.tsx`).
+    if (
+      window.confirm(
+        `Fusionner ${chantier.nom_canonique} dans ${cible.nom_canonique} ? Tous ses bons, factures et problèmes passeront sur ${cible.nom_canonique}. Cette action ne peut pas être annulée.`,
+      )
+    ) {
+      fusion.mutate();
+    }
+  }
+
+  return (
+    <Carte titre="Fusionner avec…">
+      <form onSubmit={soumettre} className="space-y-3">
+        <div>
+          <label htmlFor="fusion-cible" className={CLASSES_LABEL}>
+            Fusionner avec
+          </label>
+          <select
+            id="fusion-cible"
+            value={cibleId}
+            onChange={(evenement) => setCibleId(evenement.target.value)}
+            className={CLASSES_CHAMP}
+          >
+            <option value="">— Choisir un chantier —</option>
+            {autresChantiers.map((autre) => (
+              <option key={autre.id} value={autre.id}>
+                {autre.nom_canonique}
+              </option>
+            ))}
+          </select>
+        </div>
+        {cible !== undefined && (
+          <p className="text-sm text-encre">
+            Tous les bons, factures et problèmes de {chantier.nom_canonique} passeront
+            sur {cible.nom_canonique}. {chantier.nom_canonique} disparaîtra de la liste.
+          </p>
+        )}
+        <div className="flex gap-2">
+          <Bouton type="submit" disabled={cibleId === "" || fusion.isPending}>
+            Fusionner
+          </Bouton>
+          <Bouton type="button" variante="secondaire" onClick={onFermer}>
+            Annuler
+          </Bouton>
+        </div>
+        {fusion.isError && (
+          <p role="alert" className="text-sm text-alerte">
+            {messageErreur(fusion.error)}
+          </p>
+        )}
+      </form>
+    </Carte>
+  );
+}
+
 export function FicheChantier(): ReactElement {
   const { chantierId } = useParams();
   const [parametres] = useSearchParams();
+  const { hash } = useLocation();
   const [editionOuverte, setEditionOuverte] = useState(false);
+  const [fusionOuverte, setFusionOuverte] = useState(false);
   const id = chantierId ?? "";
 
   // Mois choisi (fix round 1, constat 3) : lu depuis `?mois=` — `AAAA-MM`
@@ -400,6 +350,14 @@ export function FicheChantier(): ReactElement {
   const moisPourApi = moisParam !== undefined ? moisApi(moisParam) : "";
   const filtresActifs: FiltresBilan = moisChoisi ? { mois: moisPourApi } : FILTRES_TOUS_MOIS;
 
+  // Tuile « Conforme » cliquable (Task 13, spec §4.3) : mène à la carte
+  // « Livraisons » ci-dessous (ancre `#livraisons`, posée par
+  // `TableauLivraisons`), filtrée sur les bons conformes (`?etat=conforme`)
+  // -- le mois affiché par la fiche est préservé, jamais perdu en route.
+  const parametresLivraisonsConformes = new URLSearchParams(parametres);
+  parametresLivraisonsConformes.set("etat", "conforme");
+  const lienLivraisonsConformes = `?${parametresLivraisonsConformes.toString()}#livraisons`;
+
   // Titre et état vide de la carte « Livraisons » (fix round 2, constat 1) :
   // précisent désormais la période affichée, comme les trois `Chiffre`.
   const periodeLivraisons = libellePeriodeCourte(moisParam);
@@ -412,7 +370,16 @@ export function FicheChantier(): ReactElement {
       ? `Aucune livraison en ${periodeLivraisons}.`
       : "Aucune livraison enregistrée pour ce chantier.";
 
-  const chantiers = useQuery({ queryKey: CLE_CHANTIERS, queryFn: listerChantiers });
+  // `GET /api/chantiers/{id}` (Task 7) et non plus `listerChantiers().find(…)` :
+  // seule cette route renvoie encore un chantier fusionné (`fusionne_dans_id`
+  // non `null`), pour son bandeau -- `listerChantiers` (encore utilisée
+  // ci-dessous, pour le sélecteur « Fusionner avec… ») les exclut (Task 6).
+  const chantierQuery = useQuery({
+    queryKey: cleChantier(id),
+    queryFn: () => obtenirChantier(id),
+    enabled: chantierId !== undefined,
+  });
+  const chantiersListe = useQuery({ queryKey: CLE_CHANTIERS, queryFn: listerChantiers });
   const bilanChantiers = useQuery({
     queryKey: cleBilanChantiers(filtresActifs),
     queryFn: () => listerBilanChantiers(filtresActifs),
@@ -481,7 +448,8 @@ export function FicheChantier(): ReactElement {
     })),
   });
 
-  const chantier = chantiers.data?.find((c) => c.id === id);
+  const chantier = chantierQuery.data;
+  const autresChantiers = chantiersListe.data?.filter((c) => c.id !== id) ?? [];
   const ligneBilan = bilanChantiers.data?.find((l) => l.chantier_id === id);
   // Pastille d'état (fix round 1, constat 3) : uniquement quand un mois est
   // choisi — avant, elle portait toujours sur le mois courant implicite,
@@ -561,17 +529,65 @@ export function FicheChantier(): ReactElement {
   // dans le second cas.
   const derniereLivraisonRecue = livraisonsRecues[0] ?? null;
 
-  if (chantiers.isPending) {
+  // Ancre `#livraisons` (Task 13, spec §4.3, tuile « Conforme » cliquable) :
+  // même mécanique que `#bloc-…` sur `FactureDetail.tsx`/`#corriger` sur
+  // `PageBl.tsx` -- `Gabarit.tsx` laisse volontairement la page où elle est
+  // quand une ancre est présente, c'est à l'écran cible d'y défiler une
+  // fois l'élément apparu (ici, une fois la carte « Livraisons » chargée).
+  useEffect(() => {
+    if (livraisonsChargees && hash === "#livraisons") {
+      window.document.getElementById("livraisons")?.scrollIntoView({ block: "start" });
+    }
+  }, [livraisonsChargees, hash]);
+
+  if (chantierQuery.isPending) {
     return <p role="status" className="text-sm text-encre-2">Chargement…</p>;
   }
-  if (chantiers.isError) {
-    return <p role="alert" className="text-sm text-alerte">Impossible de charger ce chantier.</p>;
+  if (chantierQuery.isError) {
+    // C4 (revue finale du 27/09/2026) : « Ce chantier est introuvable. »
+    // n'a de sens que pour un vrai 404 -- une panne réseau ou serveur
+    // passagère affichait jusqu'ici le même message, laissant croire à
+    // tort que le chantier avait disparu.
+    const message =
+      chantierQuery.error instanceof ErreurApi && chantierQuery.error.status === 404
+        ? "Ce chantier est introuvable."
+        : "Impossible de charger ce chantier. Réessayez dans un instant.";
+    return (
+      <div className="space-y-4">
+        <FilAriane elements={[{ libelle: "Chantiers", vers: "/chantiers" }, { libelle: "Chantier introuvable" }]} />
+        <EtatVide message={message} />
+      </div>
+    );
   }
   if (chantier === undefined) {
     return (
       <div className="space-y-4">
         <FilAriane elements={[{ libelle: "Chantiers", vers: "/chantiers" }, { libelle: "Chantier introuvable" }]} />
         <EtatVide message="Ce chantier est introuvable." />
+      </div>
+    );
+  }
+
+  // Chantier fusionné (Task 7, spec §2.7) : plus rien à afficher (tout a
+  // été déplacé vers la cible) ni à éditer -- seul un bandeau vers la
+  // cible, pas la Carte « Modifier le chantier » ni les livraisons/
+  // problèmes (qui n'existent plus que sur la cible).
+  if (chantier.fusionne_dans_id !== null) {
+    return (
+      <div className="space-y-4">
+        <FilAriane elements={[{ libelle: "Chantiers", vers: "/chantiers" }, { libelle: chantier.nom_canonique }]} />
+        <Carte titre={chantier.nom_canonique}>
+          <p className="text-sm text-encre">
+            Ce chantier a été fusionné dans{" "}
+            <Link
+              to={`/chantiers/${chantier.fusionne_dans_id}`}
+              className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {chantier.fusionne_dans_nom ?? "un autre chantier"}
+            </Link>
+            .
+          </p>
+        </Carte>
       </div>
     );
   }
@@ -599,6 +615,7 @@ export function FicheChantier(): ReactElement {
                     : formaterDate(derniereLivraisonRecue.dateBl)}
             </span>
             {!chantier.actif && <span className="font-medium text-alerte">Chantier inactif</span>}
+            {chantier.a_completer && <PastilleACompleter />}
             {moisChoisi && (
               // Lien isolé dans l'en-tête, sans autre repère de mise en page
               // pour agrandir sa zone cliquable (corrections de revue, tour
@@ -614,15 +631,31 @@ export function FicheChantier(): ReactElement {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        {/* `flex-wrap` (C3, revue finale du 27/09/2026) : pastille + deux
+            boutons débordaient à 375 px sans lui. */}
+        <div className="flex flex-wrap items-center gap-3">
           {etatChoisi !== undefined && <PastilleEtat etat={etatChoisi} />}
           <Bouton variante="secondaire" onClick={() => setEditionOuverte((ouvert) => !ouvert)}>
             Modifier
           </Bouton>
+          {/* « Fusionner avec… » n'a de sens que s'il existe un autre
+              chantier à choisir comme cible (spec §2.7). */}
+          {autresChantiers.length > 0 && (
+            <Bouton variante="secondaire" onClick={() => setFusionOuverte((ouvert) => !ouvert)}>
+              Fusionner avec…
+            </Bouton>
+          )}
         </div>
       </header>
 
       {editionOuverte && <FormulaireEdition chantier={chantier} onFermer={() => setEditionOuverte(false)} />}
+      {fusionOuverte && (
+        <FormulaireFusion
+          chantier={chantier}
+          autresChantiers={autresChantiers}
+          onFermer={() => setFusionOuverte(false)}
+        />
+      )}
 
       {/* Quatre chiffres (spec §4, maquette `FicheChantier`) : « Conforme »
           est désormais fourni par le serveur pour chaque chantier
@@ -638,6 +671,7 @@ export function FicheChantier(): ReactElement {
           libelle={libelleAvecPeriode("Conforme", moisParam)}
           valeur={formaterMontant(ligneBilan?.montants.conforme ?? null)}
           ton={estMontantNul(ligneBilan?.montants.conforme ?? null) ? "neutre" : "conforme"}
+          vers={lienLivraisonsConformes}
         />
         <Chiffre
           libelle={libelleAvecPeriode(libelleEcart(controlePrixActif), moisParam)}
@@ -659,16 +693,8 @@ export function FicheChantier(): ReactElement {
           {fournisseurs.isSuccess && !livraisonsChargees && (
             <p role="status" className="text-sm text-encre-2">Chargement…</p>
           )}
-          {livraisonsChargees && livraisons.length === 0 && <EtatVide message={messageAucuneLivraison} />}
-          {livraisonsChargees && livraisons.length > 0 && (
-            <>
-              <ul className="space-y-3 md:hidden">
-                {livraisons.map((livraison) => (
-                  <LigneLivraisonCarte key={livraison.blocId} livraison={livraison} />
-                ))}
-              </ul>
-              <TableauLivraisons livraisons={livraisons} />
-            </>
+          {livraisonsChargees && (
+            <TableauLivraisons livraisons={livraisons} messageVide={messageAucuneLivraison} />
           )}
 
           {/* Pied de carte (fix round 2, constat 3) : la maquette FicheChantier

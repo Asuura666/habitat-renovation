@@ -42,16 +42,21 @@ from app.modules.extract.verification import (
     motif_en_json,
     verifier_facture,
 )
-from app.modules.ingest.commun import Deposant, _ecrire_atomique, _supprimer_si_existe
+from app.modules.ingest.commun import (
+    Deposant,
+    _ecrire_atomique,
+    _supprimer_si_existe,
+    signature_conforme,
+)
 from app.modules.ingest.extraction_bl import CLE_TOLERANCE_TOTAL_HT
 from app.modules.ingest.lecture import _normaliser_numero, documents_bl_par_numeros
 from app.modules.ingest.mistral import ErreurOCR
 from app.modules.ingest.models import BlocFacture, Document, Fournisseur, Journal, Ligne
 from app.modules.ingest.rapprochement import rapprocher_facture_sans_echec
+from app.modules.ingest.rattachement_chantier import rattacher_chantier_bloc
 from app.modules.ingest.referentiels import (
     lire_parametre_decimal,
     rattacher_article,
-    resoudre_chantier,
 )
 from app.modules.normalize.article import proposer_article_facture
 
@@ -233,7 +238,6 @@ def formater_blocs(blocs: list[BlocReception]) -> str:
 # --------------------------------------------------------------------------
 
 
-_SIGNATURE_PDF = b"%PDF-"
 _NOM_FOURNISSEUR_UNIKALO = "Unikalo"
 
 
@@ -331,7 +335,11 @@ async def deposer_facture(
     code HTTP. Aucun fichier n'est stocké et rien n'est inséré en base tant
     que la facture n'est pas entièrement lue et validée.
     """
-    if contenu[: len(_SIGNATURE_PDF)] != _SIGNATURE_PDF:
+    # T9 (audit rapidité/sécurité du 25/09/2026) : signature vérifiée via
+    # `ingest.commun.signature_conforme`, seule source de vérité partagée
+    # avec `depot_telegram.traiter_fichier` -- même contrôle qu'avant
+    # (`%PDF-` en tête), plus jamais dupliqué en dur ici.
+    if not signature_conforme("pdf", contenu):
         raise FichierInvalide("Le fichier n'est pas un PDF.")
 
     try:
@@ -405,17 +413,20 @@ async def deposer_facture(
         articles_rattaches: set[uuid.UUID] = set()
 
         for position, bloc in enumerate(facture.blocs):
-            # L3-T7 (décision du contrôleur) : résolution seulement pour un
-            # bloc dont le chantier brut n'est pas vide (`resoudre_chantier`
-            # gère déjà un brut vide, mais l'appel est alors superflu et ne
-            # compterait jamais comme une demande d'alias).
+            # L3-T7, avenant du 27/09/2026 (décision d'Ilane, spec §2.4) :
+            # résolution seulement pour un bloc dont le chantier brut n'est
+            # pas vide (`rattacher_chantier_bloc` gère déjà un brut vide,
+            # mais l'appel est alors superflu). `nb_demandes_alias` compte
+            # désormais les blocs laissés sans chantier après l'appel (un nom
+            # ambigu retombe sur l'ancien flux, alias en attente, spec §2.4
+            # « Factures ») -- un nom lu inconnu ne compte plus, il crée
+            # maintenant directement un chantier « à compléter ».
             chantier_id: uuid.UUID | None = None
             if bloc.chantier_brut:
-                resolution_chantier = await resoudre_chantier(
+                chantier_id = await rattacher_chantier_bloc(
                     session, fournisseur_id, bloc.chantier_brut
                 )
-                chantier_id = resolution_chantier.chantier_id
-                if resolution_chantier.demande_creee:
+                if chantier_id is None:
                     nb_demandes_alias += 1
 
             bloc_facture = BlocFacture(

@@ -34,6 +34,33 @@
  * actuel. `formaterLignes` affiche maintenant le détail de chaque ligne
  * (mêmes libellés et formateurs que `pages/DocumentDetail.tsx`) à la suite
  * du résumé, jamais l'identifiant technique de la ligne.
+ *
+ * Tour 1 de la relecture qualité de la Task C3 (27/09/2026) : la nouvelle
+ * cible `commentaire` (`commentaire_ajoute`, `ingest/commentaires.py::
+ * ajouter_commentaire`) n'avait pas été ajoutée à `CIBLES_CONNUES` ni à
+ * `LIBELLES_CIBLE` -- chaque entrée « Commentaire ajouté » affichait le mot
+ * technique brut en minuscule (« commentaire ») sans lien vers le document
+ * commenté, alors que son `apres` porte justement `document_id`. Complété
+ * ci-dessous, même principe que `chantier_alias`.
+ *
+ * Tâche T4 (phase 4 IA, 27/09/2026) : `synthese_generee` (littéral,
+ * `ingest/ia_synthese.py`, une synthèse hebdomadaire des commentaires créée
+ * ou constatée vide) et `synthese_action_faite`/`synthese_action_a_faire`
+ * (choisies dynamiquement selon la case cochée ou décochée, même principe
+ * que `anomalie_traitee`/`anomalie_ignoree` -- invisibles à la regex du
+ * test de complétude, ajoutées ici par prudence). L'écran dédié (T5) reste
+ * à construire ; ces libellés ne servent ici qu'à l'écran Journal existant.
+ *
+ * Tâche T5 (phase 4 IA, 27/09/2026) : l'écran dédié est construit
+ * (`components/SyntheseCommentaires.tsx`, monté par la Vue d'ensemble) --
+ * les trois libellés d'action ci-dessus restent ceux posés par T4, non
+ * dupliqués ici. Complété : deux cibles (`synthese_commentaires`,
+ * `synthese_action`, `Journal(cible_table=...)` d'`ingest/ia_synthese.py`)
+ * dans `CIBLES_CONNUES`/`LIBELLES_CIBLE`/`lienCible` (aucune fiche dédiée à
+ * une synthèse ou une action de synthèse : le lien renvoie à l'accueil, où
+ * la carte les affiche) ; quatre clés de détail dans `LIBELLES_CLE_DETAIL`
+ * (`semaine_debut`, `semaine_fin`, `nb_commentaires`, `nb_actions` --
+ * `statut` et `texte` avaient déjà un libellé générique, inchangés).
  */
 
 import { formaterDate, formaterDateHeure, formaterMontant, formaterQuantite, TIRET } from "./formats";
@@ -65,9 +92,63 @@ const LIBELLES_ACTION: Record<string, string> = {
   chantier_modifie: "Chantier modifié",
   alias_valide: "Nom de chantier fournisseur reconnu",
   article_valide: "Article validé",
+  // Avenant du 27/09/2026 (rattachement automatique du chantier, spec
+  // §2.3/§2.4, `app/modules/ingest/rattachement_chantier.py`) : quatre
+  // actions manquantes de ce recensement (Task 12, controller ruling 2 —
+  // s'affichaient jusqu'ici sous leur code technique brut).
+  chantier_cree_auto: "Chantier créé automatiquement",
+  alias_rattache_auto: "Nom de chantier fournisseur relié automatiquement",
+  // Choix manuel du chantier d'un bon (`rattachement_chantier.py
+  // ::choisir_chantier_document`) : règle une alerte « chantiers à
+  // confirmer » ou corrige le chantier d'un bon depuis sa fiche.
+  chantier_choisi: "Chantier choisi",
+  // Fusion de deux chantiers en doublon (`app/modules/ingest
+  // /fusion_chantier.py`, avenant du 27/09/2026, spec §2.7).
+  chantier_fusionne: "Chantier fusionné",
   utilisateur_cree: "Compte utilisateur créé",
   utilisateur_desactive: "Compte utilisateur désactivé",
   parametre_modifie: "Réglage modifié",
+  // Écran « Comptes » (Task 10, spec §3, `app/core/auth.py`) : gestion des
+  // comptes par un admin, distincte des deux actions ci-dessus (`utilisateur_
+  // cree`/`utilisateur_desactive`, propres à la CLI d'exploitation -- voir le
+  // docstring de module d'`app/core/auth.py`).
+  compte_cree: "Compte créé",
+  compte_modifie: "Compte modifié",
+  mot_de_passe_change: "Mot de passe changé",
+  acces_retire: "Accès retiré",
+  acces_retabli: "Accès rétabli",
+  // Commentaire ajouté sur une ligne de BL/enlèvement (tâche C, phase 3,
+  // `ingest/commentaires.py::ajouter_commentaire`) — jamais sur une facture
+  // (spec §4 de `docs/superpowers/specs/2026-09-27-commentaires-lignes-
+  // design.md`).
+  commentaire_ajoute: "Commentaire ajouté",
+  // Synthèse hebdomadaire des commentaires (T4, phase 4 IA,
+  // `ingest/ia_synthese.py`) : une par semaine, créée par
+  // `generer_synthese` (`statut` dans `apres` distingue « ok » de « vide »).
+  synthese_generee: "Synthèse des commentaires générée",
+  // Cochage/décochage d'une action de synthèse (`marquer_action`) --
+  // choisies dynamiquement (comme `anomalie_traitee`/`anomalie_ignoree`),
+  // ajoutées ici par prudence bien que non recensées par la regex du test
+  // de complétude ci-dessus.
+  synthese_action_faite: "Action de synthèse cochée",
+  synthese_action_a_faire: "Action de synthèse remise à faire",
+  // Grilles de prix fournisseur (phase 3, tâche P5, `ingest/grilles.py`) :
+  // import d'un fichier Excel confirmé, saisie manuelle d'un prix (« Ajouter
+  // un produit »/« Modifier »), retrait d'un produit de la grille.
+  grille_importee: "Grille importée",
+  grille_prix_saisi: "Prix de grille saisi",
+  grille_prix_retire: "Produit retiré de la grille",
+  // Page « Prix à vérifier » (phase 3, tâche P9, `ingest/prix_bl.py`) : un
+  // prix validé ajoute une ligne de grille (cible `grille_prix`, même
+  // famille que les trois entrées ci-dessus) ; contester/ignorer ferment
+  // les alertes sans toucher la grille (cible `anomalie`, comme
+  // `anomalie_traitee`/`anomalie_ignoree`, déjà journalisées à côté) ; le
+  // recontrôle ne porte sur aucune cible précise (plusieurs bons à la
+  // fois, `cible_table=None`).
+  prix_valide: "Prix validé",
+  prix_conteste: "Prix contesté",
+  prix_ignore: "Alerte de prix ignorée",
+  prix_recontrole: "Prix des bons recontrôlés",
 };
 
 export function libelleAction(action: string): string {
@@ -93,6 +174,11 @@ export const CIBLES_CONNUES = [
   "article",
   "utilisateur",
   "parametre",
+  "commentaire",
+  "synthese_commentaires",
+  "synthese_action",
+  "grille_import",
+  "grille_prix",
 ] as const;
 
 const LIBELLES_CIBLE: Record<string, string> = {
@@ -104,6 +190,25 @@ const LIBELLES_CIBLE: Record<string, string> = {
   article: "Article",
   utilisateur: "Compte utilisateur",
   parametre: "Réglage",
+  // `commentaire_ajoute` (`ingest/commentaires.py::ajouter_commentaire`) —
+  // sans cette entrée, `libelleCible` retombait sur le mot technique brut
+  // en minuscule (« commentaire ») au lieu d'un libellé capitalisé comme
+  // les autres cibles (constat de relecture, tour 1 de la Task C3,
+  // 27/09/2026).
+  commentaire: "Commentaire",
+  // `synthese_generee` (`ingest/ia_synthese.py`, T4/T5, phase 4 IA) : la
+  // synthèse hebdomadaire des commentaires elle-même.
+  synthese_commentaires: "Synthèse des commentaires",
+  // `synthese_action_faite`/`synthese_action_a_faire` (même module) : une
+  // action à cocher de la synthèse.
+  synthese_action: "Action de la synthèse",
+  // Phase 3, tâche P5 : la clé technique brute (un UUID) ne dit rien au
+  // dirigeant -- même principe que les autres cibles ci-dessus, aucune
+  // fiche dédiée n'existe pour un import ou une ligne de grille (`lienCible`
+  // ne construit donc aucun lien pour ces deux cibles, repli défensif comme
+  // le reste de ce fichier).
+  grille_import: "Import de grille",
+  grille_prix: "Grille de prix",
 };
 
 /** Libellé français de l'élément concerné par une entrée (`cible_table`) —
@@ -137,18 +242,23 @@ const LIBELLES_PARAMETRE: Record<string, string> = {
 /** Libellé de la cible (`cible_id`) d'une entrée : pour un réglage
  * (`cible_table === "parametre"`), la clé technique brute n'a aucun sens
  * pour le dirigeant — remplacée par le nom du réglage. Pour un compte
- * utilisateur, l'identifiant reste affiché : c'est la seule façon, tant
- * qu'aucune liste des comptes n'existe, de le recopier dans le filtre
- * « Auteur » (limite inscrite dans `docs/dette.md`). Pour toute autre table,
- * `null` : l'identifiant brut (UUID) ne dit rien au dirigeant, le libellé
- * de la table suffit (revue finale de la refonte du front, constat
+ * utilisateur, le nom du compte résolu par le serveur (`noms`,
+ * `ingest/journal.py::_ids_references`), jamais son identifiant (recette
+ * du 28/09/2026 : l'identifiant s'affichait ; le filtre « Auteur » est
+ * désormais une liste des comptes, il n'y a plus rien à recopier) — `null`
+ * si le nom est inconnu. Pour toute autre table, `null` : le libellé de la
+ * table suffit (revue finale de la refonte du front, constat
  * COUVERTURE-10). */
-export function libelleCibleId(cibleTable: string | null, cibleId: string): string | null {
+export function libelleCibleId(
+  cibleTable: string | null,
+  cibleId: string,
+  noms: Record<string, string>,
+): string | null {
   if (cibleTable === "parametre") {
     return LIBELLES_PARAMETRE[cibleId] ?? cibleId;
   }
   if (cibleTable === "utilisateur") {
-    return cibleId;
+    return noms[cibleId] ?? null;
   }
   return null;
 }
@@ -198,7 +308,19 @@ export function libelleCibleId(cibleTable: string | null, cibleId: string): stri
  * avant ce constat. Aucun outil de test front dans la stack (L2-D17) :
  * cette fonction et son appel (`pages/Journal.tsx`) sont gardés par
  * `tests/test_web_socle.py::test_journal_lien_direct_vers_chaque_
- * element_consultable`, qui lit ce fichier comme du texte. */
+ * element_consultable`, qui lit ce fichier comme du texte.
+ *
+ * Cas `commentaire` (constat de relecture, tour 1 de la Task C3,
+ * 27/09/2026) : la seule entrée journalisée sur cette cible est
+ * `commentaire_ajoute` (`ingest/commentaires.py::ajouter_commentaire`), au
+ * moment même où le commentaire est ajouté -- son `apres` porte alors
+ * `document_id` (chaîne), jamais affiché tel quel (`CLES_JAMAIS_AFFICHEES`
+ * plus bas) mais déjà présent pour retrouver le bon commenté. Même principe
+ * que `chantier_alias` ci-dessus : le lien pointe vers ce document plutôt
+ * que vers une liste (aucune liste des commentaires n'existe) ;
+ * `document_id` absent ou non-chaîne (jamais le cas aujourd'hui, repli
+ * défensif, même principe que le reste de ce fichier) : aucun lien plutôt
+ * qu'un lien mort. */
 export function lienCible(
   cibleTable: string | null,
   cibleId: string | null,
@@ -231,6 +353,19 @@ export function lienCible(
     }
     case "article":
       return { href: "/a-regler", libelle: "Voir les articles à valider" };
+    case "commentaire": {
+      const documentId = apres?.document_id;
+      if (typeof documentId === "string") {
+        return { href: `/documents/${documentId}`, libelle: "Voir le document" };
+      }
+      return null;
+    }
+    // Aucune fiche dédiée à une synthèse ou à une action de synthèse (T5,
+    // phase 4 IA) : la carte « Commentaires de la semaine » qui les affiche
+    // vit sur l'accueil.
+    case "synthese_commentaires":
+    case "synthese_action":
+      return { href: "/", libelle: "Voir l'accueil" };
     default:
       return null;
   }
@@ -306,6 +441,12 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   // entrée, la clé brute (« nb_demandes_alias ») afficherait le mot
   // interdit « alias » (constat de la revue, fix round 1 de la Task 10).
   nb_demandes_alias: "Noms de chantier fournisseur à confirmer",
+  // `chantier_fusionne` (`ingest/fusion_chantier.py`, Task 7, avenant du
+  // 27/09/2026) : nombre d'« autres noms » (alias) appris pour le chantier
+  // source, déplacés vers la cible -- sans cette entrée, la clé brute
+  // (« nb_alias ») afficherait le mot interdit « alias », même raison que
+  // `nb_demandes_alias` ci-dessus.
+  nb_alias: "Autres noms déplacés",
   // Complété au tour 2 (constat de la revue) : mêmes entrées
   // `facture_deposee` (`factures.py::deposer_facture`) que ci-dessus,
   // trois clés qui s'affichaient brutes sur les 4 entrées « Facture
@@ -331,6 +472,11 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   methode_chantier: "Chantier retrouvé via",
   methode_fournisseur: "Fournisseur retrouvé via",
   methode: "Retrouvé via",
+  // `extraction_bl.py::_extraire_et_committer` (avenant du 27/09/2026) :
+  // pourcentage de ressemblance entre le nom lu (ou la légende) et le nom
+  // retenu, absent quand le chantier vient d'une correspondance exacte ou
+  // n'a pas pu être déterminé (Task 12, controller ruling 2).
+  score_chantier: "Ressemblance (%)",
   confirme_le: "Confirmé le",
   confirme_par: "Confirmé par",
   nom: "Nom",
@@ -339,6 +485,10 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   agences_ajoutees: "Agences ajoutées",
   client: "Client",
   actif: "Actif",
+  // `chantier.a_completer` (migration 0011, avenant du 27/09/2026) : un
+  // chantier créé automatiquement (nom lu inconnu) tant qu'un admin n'a pas
+  // enregistré sa fiche (`referentiels.py::modifier_chantier`).
+  a_completer: "Reste à compléter",
   siret: "Siret",
   tva: "TVA",
   aliases: "Autres noms connus",
@@ -355,6 +505,43 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   // que l'alias — s'affichait brut sur les 4 entrées « Nom de chantier
   // fournisseur reconnu » de la base de démo (constat de la revue, tour 2).
   nb_mis_a_jour: "Documents mis à jour",
+  // `chantier_cree_auto` (`rattachement_chantier.py`) : d'où vient le nom
+  // retenu pour la création automatique du chantier (« nom lu » ou
+  // « légende »).
+  source: "Trouvé grâce à",
+  // `chantier_fusionne` (`fusion_chantier.py::fusionner_chantiers`, Task 12,
+  // controller ruling 2) : `cible_id` désigne ici le chantier conservé
+  // (résolu en nom côté serveur, `ingest/journal.py`, comme `chantier_id`) ;
+  // `cible_nom` est déjà un nom lisible, jamais un identifiant.
+  cible_id: "Chantier conservé",
+  cible_nom: "Nom du chantier conservé",
+  // Nombre de bons/enlèvements déplacés du chantier fusionné vers le
+  // chantier conservé (`fusion_chantier.py`).
+  nb_documents: "Documents déplacés",
+  // `commentaire_ajoute` (`ingest/commentaires.py::ajouter_commentaire`,
+  // apres={document_id, numero, ligne, texte}) : `numero` est déjà listé
+  // ci-dessus, `document_id` n'a pas de libellé ici — jamais affiché (voir
+  // `CLES_JAMAIS_AFFICHEES` plus bas).
+  ligne: "Ligne",
+  texte: "Commentaire",
+  // `synthese_generee`/`synthese_action_faite`/`synthese_action_a_faire`
+  // (`ingest/ia_synthese.py`, T5, phase 4 IA) : `statut` (déjà listé
+  // ci-dessus) et `texte` (déjà listé ci-dessus, inchangé) sont partagés
+  // avec d'autres actions.
+  semaine_debut: "Semaine du",
+  semaine_fin: "Jusqu'au",
+  nb_commentaires: "Commentaires",
+  nb_actions: "Actions",
+  // Phase 3, tâche P9 (`ingest/prix_bl.py::valider_prix`/`contester_prix`/
+  // `ignorer_prix`/`recontroler_depuis_page`) : clés propres aux quatre
+  // actions de la page Prix, jamais recensées ci-dessus.
+  produit: "Produit",
+  prix_grille: "Prix de grille",
+  date_effet: "Date d'effet",
+  nb_alertes_reglees: "Alertes réglées",
+  nb_alertes: "Alertes",
+  nb_bons: "Bons contrôlés",
+  nb_alertes_ouvertes: "Alertes ouvertes",
 };
 
 /** Un identifiant (`chantier_id`, `fournisseur_id`…) désigne l'élément
@@ -397,16 +584,40 @@ const LIBELLES_VALEUR_PAR_CLE: Record<string, Record<string, string>> = {
     recu: "Reçu",
     archive: "Archivé",
   },
+  // Six méthodes possibles (`rattachement_chantier.py
+  // ::ResultatRattachement.methode`, avenant du 27/09/2026) : un nom déjà
+  // appris pour ce fournisseur, une ressemblance de nom sous le seuil
+  // réglable, le message joint à la photo par l'employé, la création d'un
+  // nouveau chantier, une alerte (nom lu et message en désaccord — même
+  // libellé que `titreRegle("R18")`, `ui/libelles.ts`), ou une décision
+  // humaine déjà prise conservée face à un nouveau désaccord (Ruling 15 de
+  // la revue finale du 27/09/2026, A1 : une R18 déjà `traitee`/`ignoree`
+  // n'est jamais rouverte). Task 12 (controller ruling 2) : cette table
+  // portait encore une clé « alias » jamais produite par le code depuis cet
+  // avenant, remplacée ici par les valeurs réellement écrites.
   methode_chantier: {
-    alias: "Nom déjà reconnu",
+    "nom connu": "Nom déjà reconnu",
+    ressemblance: "Nom proche d'un chantier connu",
+    légende: "Indiqué par l'employé",
+    création: "Nouveau chantier",
+    alerte: "À confirmer",
+    "décision humaine conservée": "Choix déjà fait, conservé",
   },
   methode_fournisseur: {
     siret: "Numéro Siret",
     tva: "Numéro de TVA",
     nom: "Nom",
   },
+  // Mêmes trois méthodes que `methode_chantier` ci-dessus (hors « alerte »,
+  // jamais transmise ici) pour `alias_rattache_auto`
+  // (`rattachement_chantier.py::_apprendre_alias`), plus `validation_humaine`
+  // pour `alias_valide` (`referentiels.py::valider_alias`).
   methode: {
     validation_humaine: "Validation manuelle",
+    "nom connu": "Nom déjà reconnu",
+    ressemblance: "Nom proche d'un chantier connu",
+    légende: "Indiqué par l'employé",
+    création: "Nouveau chantier",
   },
   actif: {
     true: "Oui",
@@ -425,6 +636,12 @@ const LIBELLES_VALEUR_PAR_CLE: Record<string, Record<string, string>> = {
     enlevement: "Enlèvement",
     facture: "Facture",
     avoir: "Avoir",
+  },
+  // `chantier_cree_auto` (`rattachement_chantier.py`) : quelle source a
+  // fourni le nom retenu pour la création automatique.
+  source: {
+    "nom lu": "Nom lu sur le bon",
+    légende: "Indiqué par l'employé",
   },
 };
 
@@ -569,18 +786,46 @@ function formaterDetailAnomalie(detail: Record<string, unknown>, contexte: Recor
   return phraseProbleme(anomalie);
 }
 
+/** Identifiant absent quand la clé en désigne un connu (Task 12, spec
+ * §4.1) : le client voyait auparavant l'UUID brut sous « Confirmé par » ou
+ * un fournisseur — le serveur résout maintenant ces identifiants
+ * (`ingest/journal.py::lister_journal`, `noms`), un identifiant introuvable
+ * (compte supprimé, par exemple) ou jamais résolu tombe sur ce libellé,
+ * jamais l'UUID. Mêmes clés que la résolution serveur : `confirme_par`,
+ * `utilisateur_id`, `deposant_id`, `traitee_par` (compte), `chantier_id`,
+ * `cible_id` (chantier conservé d'une fusion), `fournisseur_id`. */
+const AUCUN_NOM = "(inconnu)";
+
+const CLES_IDENTIFIANT_RESOLU = [
+  "confirme_par",
+  "utilisateur_id",
+  "deposant_id",
+  "traitee_par",
+  "chantier_id",
+  "cible_id",
+  "fournisseur_id",
+];
+
 /** Valeur affichée d'une clé de détail, pour un côté (`avant` ou `apres`)
- * donné — présentation uniquement, aucun calcul : un montant ou une date
- * passe par les mêmes formateurs que le reste du front (`lib/formats.ts`,
- * jamais affiché brut — constat de la revue, tour 2 : `total_ht : 456.30`,
- * `confirme_le` en ISO), une liste ou un objet connu a sa propre mise en
- * forme, la valeur brute reste le repli pour tout le reste (même principe
- * que `libelleCleDetail`). `contexte` est l'instantané complet de ce côté :
- * nécessaire pour `detail`, qui a besoin de la clé voisine `regle`. */
-function valeurDetail(cle: string, contexte: Record<string, unknown>): string {
+ * donné — présentation uniquement, aucun calcul : un identifiant connu de
+ * `noms` (Task 12) s'affiche en toutes lettres avant toute autre règle ; un
+ * montant ou une date passe par les mêmes formateurs que le reste du front
+ * (`lib/formats.ts`, jamais affiché brut — constat de la revue, tour 2 :
+ * `total_ht : 456.30`, `confirme_le` en ISO), une liste ou un objet connu a
+ * sa propre mise en forme, la valeur brute reste le repli pour tout le
+ * reste (même principe que `libelleCleDetail`). `contexte` est l'instantané
+ * complet de ce côté : nécessaire pour `detail`, qui a besoin de la clé
+ * voisine `regle`. */
+function valeurDetail(cle: string, contexte: Record<string, unknown>, noms: Record<string, string>): string {
   const brute = contexte[cle];
   if (brute === null) {
     return TIRET;
+  }
+  if (typeof brute === "string" && noms[brute] !== undefined) {
+    return noms[brute];
+  }
+  if (typeof brute === "string" && CLES_IDENTIFIANT_RESOLU.includes(cle)) {
+    return AUCUN_NOM;
   }
   if (cle === "detail" && estObjet(brute)) {
     return formaterDetailAnomalie(brute, contexte);
@@ -600,14 +845,25 @@ function valeurDetail(cle: string, contexte: Record<string, unknown>): string {
   if ((cle === "total_ht" || cle === "total_tva" || cle === "total_ttc") && typeof brute === "string") {
     return formaterMontant(brute);
   }
-  if (cle === "date_doc" && typeof brute === "string") {
+  if ((cle === "date_doc" || cle === "date_effet") && typeof brute === "string") {
     return formaterDate(brute);
+  }
+  if (cle === "prix_grille" && typeof brute === "string") {
+    return formaterMontant(brute);
   }
   if (cle === "confirme_le" && typeof brute === "string") {
     return formaterDateHeure(brute);
   }
   return libelleValeurDetail(cle, typeof brute === "string" ? brute : String(brute));
 }
+
+/** Clés jamais affichées, quelle que soit l'action : identifiant technique
+ * sans intérêt pour le lecteur, déjà porté ailleurs quand il en a un
+ * (`commentaire_ajoute` porte `cible_id` = l'identifiant du commentaire,
+ * jamais celui du document — spec §6 de
+ * `docs/superpowers/specs/2026-09-27-commentaires-lignes-design.md` :
+ * « ne jamais afficher document_id »). */
+const CLES_JAMAIS_AFFICHEES = new Set(["document_id"]);
 
 /** Reconstruit, clé par clé, la comparaison `avant`/`apres` d'une entrée de
  * journal — deux instantanés JSON indépendants (`ingest/journal.py`) :
@@ -617,19 +873,26 @@ function valeurDetail(cle: string, contexte: Record<string, unknown>): string {
  * explicitement »). Aucun calcul d'écart, clés triées pour un affichage
  * stable : `libelle`/`valeurDetail` habillent la clé et la valeur en
  * langage courant quand ce fichier les connaît, sans jamais changer la
- * valeur avant/après elle-même. */
+ * valeur avant/après elle-même. `noms` (Task 12, `entree.noms` de l'API) :
+ * résolution serveur des identifiants, propagée telle quelle à
+ * `valeurDetail` — jamais recalculée ici (le front n'a pas les
+ * référentiels). */
 export function lignesAvantApres(
   avant: Record<string, unknown> | null,
   apres: Record<string, unknown> | null,
+  noms: Record<string, string> = {},
 ): LigneAvantApres[] {
   const cles = new Set([
     ...(avant !== null ? Object.keys(avant) : []),
     ...(apres !== null ? Object.keys(apres) : []),
   ]);
-  return [...cles].sort().map((cle) => ({
-    cle,
-    libelle: libelleCleDetail(cle),
-    avant: avant !== null && cle in avant ? valeurDetail(cle, avant) : ABSENT,
-    apres: apres !== null && cle in apres ? valeurDetail(cle, apres) : ABSENT,
-  }));
+  return [...cles]
+    .filter((cle) => !CLES_JAMAIS_AFFICHEES.has(cle))
+    .sort()
+    .map((cle) => ({
+      cle,
+      libelle: libelleCleDetail(cle),
+      avant: avant !== null && cle in avant ? valeurDetail(cle, avant, noms) : ABSENT,
+      apres: apres !== null && cle in apres ? valeurDetail(cle, apres, noms) : ABSENT,
+    }));
 }

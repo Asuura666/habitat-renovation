@@ -187,6 +187,30 @@ async def _creer_ligne(
     return ligne
 
 
+async def _creer_bon(
+    db_session: AsyncSession,
+    *,
+    total_ht: Decimal | None = Decimal("100.00"),
+    date_doc: date | None = date(2026, 9, 15),
+) -> Document:
+    """Un BL reçu -- voir docstring d'`ingest.tableau_de_bord` (décision
+    d'Ilane du 25/09/2026, tuile « Montant des bons reçus »). Ce fichier ne
+    teste que la forme JSON, le détail des scénarios de calcul vit dans
+    `app/modules/ingest/tests/test_tableau_de_bord.py`."""
+    document = Document(
+        type="bl",
+        source="telegram",
+        statut="recu",
+        fichier_path=f"chemin-invente-{uuid.uuid4()}.jpg",
+        total_ht=total_ht,
+        date_doc=date_doc,
+    )
+    db_session.add(document)
+    await db_session.commit()
+    await db_session.refresh(document)
+    return document
+
+
 async def _scenario_simple(db_session: AsyncSession) -> None:
     """Un fournisseur, une facture de septembre avec un bloc reçu (100,00 €,
     sans chantier ni anomalie) -- le scénario minimal réutilisé par la
@@ -334,3 +358,34 @@ async def test_get_tableau_de_bord_mois_vide_200(
     assert reponse.status_code == 200
     corps = reponse.json()
     assert corps["chantiers"] == []
+
+
+async def test_get_tableau_de_bord_bons_recus_champs(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Décision d'Ilane du 25/09/2026 (tuile « Montant des bons reçus ») :
+    l'API renvoie les trois champs, `montant_bons_recus` en chaîne comme
+    les autres montants."""
+    await _creer_bon(db_session, total_ht=Decimal("150.00"))
+    await _creer_bon(db_session, total_ht=None)
+    await _creer_utilisateur(
+        db_session, email="admin.tdb5@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.tdb5@example.invalid")
+
+    reponse = await _requete(
+        app_test,
+        "/api/tableau-de-bord",
+        cookie=cookie,
+        params={"mois": "2026-09-01"},
+    )
+
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert corps["nb_bons_recus"] == 2
+    assert corps["montant_bons_recus"] == "150.00"
+    assert isinstance(corps["montant_bons_recus"], str)
+    assert corps["nb_bons_sans_montant"] == 1

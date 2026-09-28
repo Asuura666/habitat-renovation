@@ -24,7 +24,7 @@ repos:
 
       - id: pytest
         name: pytest
-        entry: uv run pytest
+        entry: flock /tmp/habitat_reno-tests.lock uv run pytest
         language: system
         pass_filenames: false
         always_run: true
@@ -53,7 +53,22 @@ repos:
 
       - id: front-build
         name: web build (vite build)
-        entry: npm --prefix web run build
+        entry: flock /tmp/habitat_reno-tests.lock npm --prefix web run build
         language: system
         files: '^web/'
+        pass_filenames: false
+
+      - id: pip-audit
+        name: pip-audit (dépendances Python)
+        entry: >-
+          sh -c 'uv export --frozen --no-dev --no-hashes | uvx pip-audit -r /dev/stdin'
+        language: system
+        files: '^(pyproject\.toml|uv\.lock)$'
+        pass_filenames: false
+
+      - id: npm-audit
+        name: npm audit (dépendances front)
+        entry: npm --prefix web audit --omit=dev --audit-level=high
+        language: system
+        files: '^web/package-lock\.json$'
         pass_filenames: false

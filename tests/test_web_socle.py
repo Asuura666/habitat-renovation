@@ -360,13 +360,17 @@ def test_libelle_ecart_bascule_sur_controle_prix_actif() -> None:
 
 
 def test_tuiles_ecart_utilisent_libelle_ecart_partage() -> None:
-    """Vue d'ensemble, fiche chantier et fiche fournisseur : les trois
-    tuiles « Écart … » appellent `libelleEcart` et `sousTexteEcart`, jamais
-    le texte figé « Écart prix ou quantité » recopié à la main (constat de
-    la tâche : un seul point de traduction, `ui/libelles.ts`) -- et jamais
-    non plus un sous-texte muet sur la nature de l'écart (constat « Tuile »
-    de la revue des contrôles de prix)."""
-    for chemin in ("VueEnsemble.tsx", "FicheChantier.tsx", "FicheFournisseur.tsx"):
+    """Fiche chantier et fiche fournisseur : les deux tuiles « Écart … »
+    restantes appellent `libelleEcart` et `sousTexteEcart`, jamais le texte
+    figé « Écart prix ou quantité » recopié à la main (constat de la tâche :
+    un seul point de traduction, `ui/libelles.ts`) -- et jamais non plus un
+    sous-texte muet sur la nature de l'écart (constat « Tuile » de la revue
+    des contrôles de prix). Vue d'ensemble n'a plus cette tuile depuis la
+    décision d'Ilane du 25/09/2026 (troisième addendum,
+    `docs/refonte-front-recette.md` §3) : sa 3e tuile est désormais
+    « Montant des bons reçus », voir `test_web_vue_ensemble.py::
+    test_vue_ensemble_contenu`."""
+    for chemin in ("FicheChantier.tsx", "FicheFournisseur.tsx"):
         page = (SRC / "pages" / chemin).read_text()
         assert "libelleEcart(controlePrixActif)" in page, chemin
         assert "sousTexteEcart(controlePrixActif)" in page, chemin
@@ -379,10 +383,12 @@ def test_controle_prix_actif_repli_est_toujours_faux() -> None:
     `false` -- même valeur que le défaut serveur (`CONTROLE_PRIX_ACTIF`
     absente -> désactivé), jamais `true`, qui ferait flasher le libellé
     « Écart prix ou quantité », la puce « Prix » ou le filtre « Prix » avant
-    la réponse de `GET /api/a-regler/compte`."""
+    la réponse de `GET /api/a-regler/compte`. Vue d'ensemble ne lit plus
+    `controle_prix_actif` du tout depuis le 25/09/2026 (sa tuile « Écart »
+    a été remplacée, voir `test_tuiles_ecart_utilisent_libelle_ecart_
+    partage`), donc hors de cette liste."""
     for chemin in (
         "ARegler.tsx",
-        "VueEnsemble.tsx",
         "FicheChantier.tsx",
         "FicheFournisseur.tsx",
     ):
@@ -451,7 +457,13 @@ def test_journal_lien_direct_vers_chaque_element_consultable() -> None:
     `app/modules/ingest/tests/test_referentiels.py::test_valider_alias_
     journalise_chantier_id_dans_apres`) -- le lien pointe donc vers ce
     chantier plutôt que vers la liste des chantiers à rattacher, repli
-    défensif si `chantier_id` est absent ou n'est pas une chaîne."""
+    défensif si `chantier_id` est absent ou n'est pas une chaîne.
+
+    Constat de relecture qualité, tour 1 de la Task C3 (27/09/2026) : une
+    entrée `commentaire` (toujours `commentaire_ajoute`,
+    `ingest/commentaires.py::ajouter_commentaire`) porte `document_id` dans
+    son `apres` -- le lien pointe donc vers ce document, même repli
+    défensif si `document_id` est absent ou n'est pas une chaîne."""
     journal_lib = (SRC / "lib" / "journal.ts").read_text()
     fonction = journal_lib.split("export function lienCible(", 1)[1].split("\n}\n", 1)[
         0
@@ -468,6 +480,7 @@ def test_journal_lien_direct_vers_chaque_element_consultable() -> None:
             "Voir les chantiers à rattacher",
         ),
         ("article", '"/a-regler"', "Voir les articles à valider"),
+        ("commentaire", "`/documents/${documentId}`", "Voir le document"),
     ):
         bloc = fonction.split(f'case "{table}":', 1)[1].split("case ", 1)[0]
         assert destination in bloc, table
@@ -480,6 +493,9 @@ def test_journal_lien_direct_vers_chaque_element_consultable() -> None:
     assert "apres?.chantier_id" in bloc_chantier_alias
     assert 'typeof chantierId === "string"' in bloc_chantier_alias
     assert "`/chantiers/${chantierId}`" in bloc_chantier_alias
+    bloc_commentaire = fonction.split('case "commentaire":', 1)[1]
+    assert "apres?.document_id" in bloc_commentaire
+    assert 'typeof documentId === "string"' in bloc_commentaire
     assert '"utilisateur"' not in fonction
     assert "default:\n      return null;" in fonction
 

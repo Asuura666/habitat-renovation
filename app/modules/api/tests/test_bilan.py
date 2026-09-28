@@ -1100,3 +1100,128 @@ async def test_get_bilan_fournisseurs_global_ligne_fournisseur_non_resolu_serial
     assert ligne["fournisseur_id"] is None
     assert ligne["nom"] is None
     assert ligne["montants"]["facture_ht"] == "77.00"
+
+
+# --------------------------------------------------------------------------
+# GET /api/bilan/livraisons (Task 13, mise en production du 1er octobre) --
+# voir `app/modules/ingest/tests/test_bilan.py` pour les scénarios métier
+# détaillés de `lister_livraisons` (déjà commité, non modifié ici).
+# --------------------------------------------------------------------------
+
+
+async def test_get_bilan_livraisons_anonyme_401(
+    sessions_test: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    app_test = _app_test(sessions_test, tmp_path)
+
+    reponse = await _requete(app_test, "/api/bilan/livraisons", cookie=None)
+
+    assert reponse.status_code == 401
+
+
+async def test_get_bilan_livraisons_agent_403(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    await _creer_utilisateur(
+        db_session, email="agent.bilan5@example.invalid", role="agent"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="agent.bilan5@example.invalid")
+
+    reponse = await _requete(app_test, "/api/bilan/livraisons", cookie=cookie)
+
+    assert reponse.status_code == 403
+
+
+async def test_get_bilan_livraisons_admin_200(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    chantier, fournisseur, bloc = await _scenario_simple(db_session)
+    await _creer_utilisateur(
+        db_session, email="admin.bilan20@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.bilan20@example.invalid")
+
+    reponse = await _requete(app_test, "/api/bilan/livraisons", cookie=cookie)
+
+    assert reponse.status_code == 200
+    lignes = reponse.json()
+    assert len(lignes) == 1
+    ligne = lignes[0]
+    assert ligne["bloc_id"] == str(bloc.id)
+    # Chaque ligne porte son propre chantier et fournisseur (contrairement à
+    # `LigneBilanBlReponse`, jamais imbriquée sous une URL qui les fixe déjà).
+    assert ligne["chantier_id"] == str(chantier.id)
+    assert ligne["chantier"] == chantier.nom_canonique
+    assert ligne["fournisseur_id"] == str(fournisseur.id)
+    assert ligne["fournisseur"] == fournisseur.nom
+    assert ligne["montants"]["facture_ht"] == "100.00"
+
+
+async def test_get_bilan_livraisons_filtre_chantier_et_fournisseur_transmis(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    chantier_1, _fournisseur_1, _bloc_1 = await _scenario_simple(
+        db_session, numero="LIV-F1"
+    )
+    chantier_2, fournisseur_2, bloc_2 = await _scenario_simple(
+        db_session, numero="LIV-F2"
+    )
+    await _creer_utilisateur(
+        db_session, email="admin.bilan21@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.bilan21@example.invalid")
+
+    reponse = await _requete(
+        app_test,
+        "/api/bilan/livraisons",
+        cookie=cookie,
+        params={"chantier": str(chantier_2.id), "fournisseur": str(fournisseur_2.id)},
+    )
+
+    assert reponse.status_code == 200
+    lignes = reponse.json()
+    assert len(lignes) == 1
+    assert lignes[0]["bloc_id"] == str(bloc_2.id)
+
+    # Un chantier seul (sans fournisseur) filtre sur tous les fournisseurs de
+    # ce chantier -- jamais restreint au côté « non résolu » (voir le
+    # docstring d'`ingest.bilan.lister_livraisons`).
+    reponse_chantier_seul = await _requete(
+        app_test,
+        "/api/bilan/livraisons",
+        cookie=cookie,
+        params={"chantier": str(chantier_1.id)},
+    )
+    assert reponse_chantier_seul.status_code == 200
+    ids_chantier_1 = {ligne["bloc_id"] for ligne in reponse_chantier_seul.json()}
+    assert ids_chantier_1 == {str(_bloc_1.id)}
+
+
+async def test_get_bilan_livraisons_mois_malforme_422(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    await _creer_utilisateur(
+        db_session, email="admin.bilan22@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.bilan22@example.invalid")
+
+    reponse = await _requete(
+        app_test,
+        "/api/bilan/livraisons",
+        cookie=cookie,
+        params={"mois": "pas-une-date"},
+    )
+
+    assert reponse.status_code == 422

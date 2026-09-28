@@ -10,15 +10,14 @@ import {
   type TableauDeBord,
   obtenirTableauDeBord,
 } from "../api/tableauDeBord";
+import { SyntheseCommentaires } from "../components/SyntheseCommentaires";
 import {
   Carte,
   Chiffre,
   EnTetePage,
   EtatVide,
-  libelleEcart,
   PastilleEtat,
   phraseProbleme,
-  sousTexteEcart,
   titreRegle,
 } from "../ui";
 import { formaterMontant, libelleMois, lireMois, moisApi, TIRET } from "../lib/formats";
@@ -327,6 +326,19 @@ function sousTexteBonsRecus(nbManquants: number): string {
   return `${nbManquants} bon${nbManquants > 1 ? "s" : ""} à réclamer`;
 }
 
+/** Sous-texte de la tuile « Montant des bons reçus » (décision d'Ilane,
+ * 25/09/2026, remplace « Écart de quantité » — voir docstring de module) :
+ * « N bon(s) reçu(s) » avec l'accord pluriel usuel (mise en forme
+ * d'affichage, pas une règle métier — le compte lui-même vient tel quel du
+ * serveur), puis « · M sans montant lu » seulement quand au moins un bon
+ * reçu n'a pas de montant exploitable (beaucoup de bons n'ont pas de prix
+ * imprimé) — jamais un pourcentage ni une comparaison calculée ici. */
+function sousTexteMontantBonsRecus(nbRecus: number, nbSansMontant: number): string {
+  const base =
+    nbRecus === 0 ? "aucun bon reçu" : `${nbRecus} bon${nbRecus > 1 ? "s" : ""} reçu${nbRecus > 1 ? "s" : ""}`;
+  return nbSansMontant > 0 ? `${base} · ${nbSansMontant} sans montant lu` : base;
+}
+
 /** Vue d'ensemble (Task 5, maquette `Main`) — écran d'accueil de l'admin :
  * six chiffres du mois, santé des chantiers, problèmes à régler en
  * priorité. Réservé à l'admin (`GardeAdmin`, voir `App.tsx`) : aucune
@@ -334,7 +346,13 @@ function sousTexteBonsRecus(nbManquants: number): string {
  * MM`) — défaut au mois courant Europe/Paris, jamais recalculé côté front
  * au-delà de cette mise en forme (aucune somme/différence/pourcentage sur
  * un montant, chaque valeur vient telle quelle de `GET /api/tableau-de-
- * bord`, y compris le nombre de bons à réclamer depuis la revue finale). */
+ * bord`, y compris le nombre de bons à réclamer depuis la revue finale).
+ * Décision d'Ilane du 25/09/2026 : la 3e tuile, autrefois « Écart de
+ * quantité » (`totaux.en_ecart`), affiche désormais « Montant des bons
+ * reçus » — l'accueil se construisait uniquement à partir des factures, un
+ * bon validé mais pas encore retrouvé sur une facture n'y apparaissait
+ * nulle part. `libelleEcart`/`sousTexteEcart` restent utilisés par la
+ * fiche chantier et la fiche fournisseur, seul cet écran change. */
 export function VueEnsemble(): ReactElement {
   const [parametres, setParametres] = useSearchParams();
   const mois = lireMois(parametres.get("mois")) ?? moisCourant();
@@ -348,10 +366,6 @@ export function VueEnsemble(): ReactElement {
   // Compte unique « à régler, en tout » (même clé que la pastille de
   // navigation : un seul appel, un seul nombre à l'écran).
   const compteARegler = useQuery({ queryKey: CLE_COMPTE_A_REGLER, queryFn: obtenirCompteARegler });
-  // Constat mineur 2 de la revue des contrôles de prix : le repli est
-  // `false`, même valeur que le défaut serveur -- jamais un flash de
-  // « Écart prix ou quantité » le temps que la requête réponde.
-  const controlePrixActif = compteARegler.data?.controle_prix_actif ?? false;
 
   // Brouillon local du sélecteur de mois (correction de revue, tour 1).
   // `mois` ci-dessus est la valeur *effective* (repli sur le mois courant
@@ -440,12 +454,12 @@ export function VueEnsemble(): ReactElement {
               libelle="Conforme"
               valeur={formaterMontant(donnees.totaux.conforme)}
               ton="conforme"
+              vers={`/livraisons?mois=${moisPourApi}&etat=conforme`}
             />
             <Chiffre
-              libelle={libelleEcart(controlePrixActif)}
-              valeur={formaterMontant(donnees.totaux.en_ecart)}
-              sousTexte={sousTexteEcart(controlePrixActif)}
-              ton="ecart"
+              libelle="Montant des bons reçus"
+              valeur={formaterMontant(donnees.montant_bons_recus)}
+              sousTexte={sousTexteMontantBonsRecus(donnees.nb_bons_recus, donnees.nb_bons_sans_montant)}
             />
             <Chiffre
               libelle="Sans bon de livraison"
@@ -485,6 +499,16 @@ export function VueEnsemble(): ReactElement {
           </div>
         </>
       )}
+
+      {/* Carte « Commentaires de la semaine » (T5, phase 4 IA, spec §4.6) :
+          après les chantiers et les problèmes à régler, plus urgents et
+          consultés à chaque visite -- cette synthèse hebdomadaire est un
+          point d'étape, plus utile en fin de lecture qu'en tête d'écran, où
+          elle repousserait sur téléphone les deux sections d'action sous la
+          ligne de flottaison. En dehors du `{donnees && (...)}` ci-dessus :
+          sa propre requête, indépendante du tableau de bord (une panne de
+          l'une n'empêche jamais l'autre de s'afficher). */}
+      <SyntheseCommentaires />
     </div>
   );
 }

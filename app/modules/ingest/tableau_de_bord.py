@@ -106,6 +106,28 @@ facture. Les factures fournisseur sont mensuelles (celle d'août arrive en
 septembre) : l'accueil, ouvert par défaut sur le mois courant, peut ainsi
 proposer d'aller directement au dernier mois facturé plutôt que d'afficher
 des zéros -- valeur fournie par le serveur, jamais devinée par le front.
+
+`nb_bons_recus`/`montant_bons_recus`/`nb_bons_sans_montant` (décision
+d'Ilane, 25/09/2026 : la tuile « Écart de quantité » de la Vue d'ensemble
+est remplacée par « Montant des bons reçus ») -- l'accueil est construit à
+partir des factures ; un bon validé mais pas encore retrouvé sur une
+facture n'y apparaissait nulle part, alors qu'Ilane veut voir tout de suite
+ce qui a été livré, facture ou non. `nb_bons_recus` compte les documents de
+type bon (`ingest.lecture.TYPES_BL` : « bl » et « enlevement », même
+constante que le reste du module) au statut `recu` du mois affiché --
+jamais `a_verifier` (pas encore confirmé) ni `archive` (sorti du suivi
+actif). `montant_bons_recus` en somme le `total_ht` (`0` si aucun).
+`nb_bons_sans_montant` compte, parmi ces bons reçus, ceux dont `total_ht`
+est `NULL` : ils comptent dans `nb_bons_recus` mais jamais dans le montant
+-- beaucoup de bons n'ont aucun prix imprimé (le CDC ne l'exige pas), leur
+absence de prix ne doit ni gonfler ni fausser `montant_bons_recus`. Un bon
+compte qu'il soit ou non déjà retrouvé sur une facture : c'est une notion
+différente de `nb_bl_recus`, qui compte des *blocs de facture* rapprochés,
+pas des bons. Ni filtre agence (le tableau de bord n'en a pas) ni second
+calcul du mois : `_compter_bons_recus` réutilise directement
+`ingest.bilan._condition_mois` sur `Document` (`date_doc`, sinon
+`created_at` converti en Europe/Paris, L5-D4), jamais une nouvelle
+définition de "quel bon appartient à ce mois".
 """
 
 from __future__ import annotations
@@ -125,11 +147,14 @@ from app.modules.ingest.bilan import (
     LigneBilanChantier,
     MontantsBilan,
     _anomalies_qte_prix_par_bloc,
+    _condition_mois,
     _conditions_base,
     _sous_requete_anomalies,
     _sous_requete_blocs,
     bilan_par_chantier,
 )
+from app.modules.ingest.commun import regles_masquees
+from app.modules.ingest.lecture import TYPES_BL
 from app.modules.ingest.models import Document
 
 Etat = Literal["a_rattacher", "bl_manquant", "prix", "quantites", "a_voir", "conforme"]
@@ -204,6 +229,9 @@ class TableauDeBord:
     chantiers: list[ChantierTableau]
     priorites: list[ProblemePrioritaire]
     dernier_mois_facture: date | None
+    nb_bons_recus: int
+    montant_bons_recus: Decimal
+    nb_bons_sans_montant: int
 
 
 def _montant_en_jeu(anomalie: AnomalieLue) -> Decimal | None:
@@ -282,8 +310,13 @@ async def _anomalies_ouvertes_du_mois(
     recalculés ici ; `lister_anomalies(ids=..., limite=len(ids))` les relit
     ensuite sous leur forme `AnomalieLue` complète, sans plafond arbitraire
     (la portée est déjà bornée par la sous-requête du mois)."""
+    exclues = await regles_masquees(session)
     ids_anomalies = (
-        (await session.execute(select(_sous_requete_anomalies(mois).c.anomalie_id)))
+        (
+            await session.execute(
+                select(_sous_requete_anomalies(mois, exclues).c.anomalie_id)
+            )
+        )
         .scalars()
         .all()
     )
@@ -301,7 +334,8 @@ async def _compter_blocs(session: AsyncSession, *, mois: date) -> tuple[int, int
     (`_anomalies_qte_prix_par_bloc`, qui porte `nb_bl_manquant`), jamais une
     seconde définition du périmètre du mois."""
     blocs = _sous_requete_blocs(_conditions_base(mois))
-    comptes = _anomalies_qte_prix_par_bloc(_sous_requete_anomalies(mois))
+    exclues = await regles_masquees(session)
+    comptes = _anomalies_qte_prix_par_bloc(_sous_requete_anomalies(mois, exclues))
     resultat = (
         await session.execute(
             select(
@@ -323,6 +357,39 @@ async def _compter_blocs(session: AsyncSession, *, mois: date) -> tuple[int, int
         )
     ).one()
     return resultat.nb_bl_factures, resultat.nb_bl_recus, resultat.nb_bl_manquants
+
+
+async def _compter_bons_recus(
+    session: AsyncSession, *, mois: date
+) -> tuple[int, Decimal, int]:
+    """`nb_bons_recus`/`montant_bons_recus`/`nb_bons_sans_montant` -- voir
+    docstring de module. Requête directe sur `Document` (bons de livraison
+    et bons d'enlèvement, `TYPES_BL`), au statut `recu`, même filtre de
+    mois que le reste du tableau de bord (`ingest.bilan._condition_mois`,
+    appliqué ici sur `Document` lui-même -- un bon porte sa propre date,
+    contrairement à un bloc de facture)."""
+    resultat = (
+        await session.execute(
+            select(
+                func.count().label("nb_bons_recus"),
+                func.coalesce(func.sum(Document.total_ht), Decimal("0")).label(
+                    "montant_bons_recus"
+                ),
+                func.count()
+                .filter(Document.total_ht.is_(None))
+                .label("nb_bons_sans_montant"),
+            ).where(
+                Document.type.in_(TYPES_BL),
+                Document.statut == "recu",
+                _condition_mois(mois),
+            )
+        )
+    ).one()
+    return (
+        resultat.nb_bons_recus,
+        resultat.montant_bons_recus,
+        resultat.nb_bons_sans_montant,
+    )
 
 
 async def _dernier_mois_facture(session: AsyncSession) -> date | None:
@@ -366,6 +433,9 @@ async def tableau_de_bord(session: AsyncSession, *, mois: date) -> TableauDeBord
     )
 
     nb_bl_factures, nb_bl_recus, nb_bl_manquants = await _compter_blocs(
+        session, mois=mois
+    )
+    nb_bons_recus, montant_bons_recus, nb_bons_sans_montant = await _compter_bons_recus(
         session, mois=mois
     )
 
@@ -416,4 +486,7 @@ async def tableau_de_bord(session: AsyncSession, *, mois: date) -> TableauDeBord
         chantiers=chantiers,
         priorites=priorites,
         dernier_mois_facture=await _dernier_mois_facture(session),
+        nb_bons_recus=nb_bons_recus,
+        montant_bons_recus=montant_bons_recus,
+        nb_bons_sans_montant=nb_bons_sans_montant,
     )

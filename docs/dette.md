@@ -495,6 +495,19 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   `flock`, rotation des logs et supervision des codes de sortie
   (`docs/deploiement-et-tests.md` §9 et §11) avant de considérer le
   déploiement complet.
+- **`backup.sh` ne pouvait plus lire `DOCS_HOST_DIR` en cron non-root, depuis
+  le durcissement des permissions des documents (0640/0750, tâche T3,
+  `a59daa3`).** Les documents sont écrits par le conteneur `api` avec l'uid
+  10001 (`Dockerfile`, `USER 10001`), sans droit de lecture pour « other » ;
+  `backup.sh` monte `DOCS_HOST_DIR` en lecture seule pour restic avec
+  `-u "$(id -u):$(id -g)"`, c'est-à-dire l'uid/gid de l'utilisateur **hôte**
+  qui invoque le script, jamais l'uid 10001. Un cron exécuté par un compte
+  hôte ordinaire (ex. `debian`) obtenait donc `permission denied` sur
+  `restic backup` dès qu'il tournait. **Résolu (constat R1 de la revue
+  finale du 25/09/2026, « Optimisations du 25/09/2026 » ci-dessous)** :
+  `backup.sh` ajoute désormais le gid 10001 comme groupe supplémentaire du
+  conteneur restic (`--group-add`), lisible quel que soit le compte hôte
+  qui invoque le script — plus besoin de root ni de `setfacl`.
 
 ### Bilan — définitions et validation provisoires
 
@@ -664,6 +677,11 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   n'existe pour peupler un sélecteur de comptes. Corriger proprement
   demande cette route et un composant de sélection, hors périmètre de
   cette tâche (habillage uniquement, contenu inchangé).
+  **Résolu le 28/09/2026** (recette de la démo) : le filtre « Auteur » est
+  une liste des comptes par nom (`GET /api/comptes`, écran Comptes de la
+  phase 1), et la colonne « Cible » d'une action sur un compte affiche son
+  nom (`ingest/journal.py` résout `cible_id` quand `cible_table` vaut
+  `utilisateur`) : plus aucun identifiant de compte à l'écran.
 
 ### Task 10, tour 2 (23/09/2026) — web (libellés des réglages dans le Journal)
 
@@ -972,3 +990,445 @@ méthode reste disponible que `openapi_url` soit `None` ou non.
 seulement si un besoin ponctuel le justifie (revue d'API par un tiers,
 par exemple), jamais en permanence sur la production.
 
+## Optimisations du 25/09/2026 (rapidité et sécurité)
+
+Audit « rapidité et sécurité » mené sur la branche `optimisations`
+(extraite de `main`), tâches T1 à T13, non encore fusionnée. Contexte
+d'hébergement à garder en tête pour toute cette section : le serveur
+actuel (VPS partagé du prestataire) est **provisoire**, partagé avec
+d'autres projets et d'autres comptes Unix ; le serveur cible, dédié au
+client, n'aura que le compte d'Ilane (administrateur). Deux constats
+ci-dessous (limite de connexion contournable, documents déjà présents
+lisibles par d'autres comptes) ne valent que sur ce serveur provisoire et
+tombent d'eux-mêmes sur le serveur dédié.
+
+### Corrigé
+
+- **T1 (`3b2c562`)** — base PostgreSQL de dev/test sans `fsync`
+  (`docker-compose.dev.yml` uniquement, jamais `habitat_prod`/
+  `habitat_demo`) : suite de tests plus rapide, base jetable sans valeur
+  de durabilité à préserver.
+- **T2 (`8918a55`)** — `conftest.py` réduit le coût Argon2 (`time_cost=1`,
+  `memory_cost=8`) pendant la suite de tests seulement ; coût réel intact
+  en production (`app/core/auth.py` non touché).
+- **T3 (`a59daa3`)** — documents écrits en 0640 (dossier 0750) au lieu de
+  0644/0755 : n'étaient plus protégés que par l'authentification
+  applicative, lisibles par tout autre compte Unix du VPS partagé sans
+  elle. Voir la limite résiduelle sur les fichiers déjà présents et
+  `backup.sh`, ci-dessous (« Reporté »).
+- **T3 fix (`80e06eb`)** — `fichier_document`
+  (`GET /api/documents/{id}/fichier`) contrôle désormais `document.type`
+  avant le rôle de l'appelant : une facture ne peut plus être servie par
+  cette route (défense en profondeur, `TYPES_BL` comme le reste
+  d'`ingest`).
+- **T5 (`d1a59ef`)** — alias chantier en attente : une seule requête par
+  `fournisseur_id` distinct au lieu d'une par alias (N+1 corrigé,
+  `referentiels.candidats_bruts_fournisseur` + filtre Python, même règle
+  qu'avant, non dupliquée).
+- **T6 (`b0948fc`)** — `Cache-Control: public, max-age=31536000, immutable`
+  sur les fichiers hachés de `/assets` (front Vite) ; `index.html` garde
+  `no-cache`.
+- **T7 (`3eab4c9`)** — `staleTime: 30_000` par défaut côté TanStack Query
+  (au lieu de 0) ; revue des 14 `useMutation` pour compléter les
+  invalidations qui en dépendaient désormais (réglages, agences,
+  fournisseurs).
+- **T3 fix (`64263f8`)** — avertissement documentaire : la sauvegarde
+  nocturne doit tourner en root (ou avec un accès donné explicitement à
+  l'uid 10001) depuis le durcissement des permissions T3 — entrée déjà
+  détaillée dans « Lot 5 — Restitution » ci-dessus (§ `backup.sh` ne
+  pourra plus lire `DOCS_HOST_DIR`…), non dupliquée ici.
+- **R1 (revue finale du 25/09/2026)** — corrige réellement l'avertissement
+  ci-dessus plutôt que de seulement le documenter : `deploy/backup.sh`
+  ajoute le gid 10001 (propriétaire des documents écrits par l'API) comme
+  groupe supplémentaire du conteneur restic (`--group-add`), lisible quel
+  que soit le compte hôte qui invoque le script — plus besoin de root ni
+  de `setfacl`. `deploy/test-restauration.sh` dépose désormais un second
+  fichier de test avec les droits réels d'un document produit par l'API
+  (0640, uid/gid 10001) et vérifie qu'il survit à l'aller-retour sauvegarde/
+  restauration — reproduit et vérifié en échec avant ce correctif
+  (`permission denied` de `restic backup`, snapshot partiel), en succès
+  après.
+- **T3 fix (`392b4d6`)** — le rapport `rapport-ocr --sortie` (peut
+  contenir des valeurs lues sur un document client réel) était encore
+  écrit en 0644, oublié par le grep de T3 (l'appel passait `write_text`
+  en référence de méthode à `asyncio.to_thread`, invisible au grep) ;
+  passe désormais par `rapport_ocr.ecrire_rapport` (0640).
+- **T8 (`bd3340a`)** — taille d'un fichier Telegram plafonnée avant le
+  téléchargement (déclaré par `getFile`) et pendant (flux tronqué si le
+  serveur Telegram mentirait) : plus de téléchargement illimité déclenché
+  par un simple envoi de fichier.
+- **T9 (`72a0b74`)** — `signature_conforme` (`ingest/commun.py`, fonction
+  pure) vérifie désormais la signature binaire réelle d'un fichier reçu
+  par Telegram (jpg/png/webp/pdf/tiff/heic/heif), pas seulement le
+  `mime_type` déclaré par le client — même principe que le contrôle déjà
+  en place sur le dépôt de facture (« %PDF- »), devenu la seule source de
+  vérité, reprise par `factures.py` et `depot_telegram.py`.
+- **T10 (`f9fb2b6`)** — CSP complétée (`base-uri`, `form-action`,
+  `object-src`), `Permissions-Policy`, `Cross-Origin-Opener-Policy` et
+  `Cross-Origin-Resource-Policy: same-origin` ajoutés ; zone `limit_req`
+  dédiée `login` (5 r/min) sur `/api/auth/login`, le reste garde
+  `general`. Mêmes en-têtes reportés dans les labels Traefik du compose
+  de production. Les deux zones (`general`, `login`) doivent exister dans
+  le `nginx.conf` du serveur (hors dépôt) — voir « Reporté » ci-dessous
+  pour la limite propre à `login` sur le serveur provisoire.
+- **T11 conteneurs (`3c74a1e`)** — `security_opt: no-new-privileges:true`
+  sur `api` et `postgres`, `cap_drop: ALL` sur `api` (déjà non-root, uid
+  10001), `pids_limit: 200` sur les deux. Pas de `cap_drop` sur
+  `postgres` (l'image officielle démarre en root avant d'abandonner ses
+  privilèges, a besoin de capacités que `ALL` retirerait) — voir
+  « Reporté » pour les limites mémoire et le rootfs en lecture seule,
+  non traités par cette tâche.
+- **T13 dépôt (`dae8bda`)** — hooks pre-commit `pip-audit` et
+  `npm audit --omit=dev --audit-level=high`, déclenchés uniquement quand
+  `uv.lock`/`pyproject.toml` ou `web/package-lock.json` changent (pas à
+  chaque commit).
+
+### Reporté
+
+- **Limite de connexion (5 requêtes/minute sur `/login`) contournable par
+  un processus local.** La zone nginx `login` (T10 ci-dessus) protège le
+  trafic Internet, mais un `uvicorn` lancé avec
+  `--forwarded-allow-ips=*` reste joignable sur son port TCP
+  `127.0.0.1` par tout autre processus de l'hôte, qui contournerait ainsi
+  nginx et sa limite. Parade : socket Unix entre nginx et uvicorn, ou
+  secret partagé nginx → API vérifié par un middleware. **Sans objet sur
+  le serveur dédié** s'il n'héberge rien d'autre que cette application ;
+  concerne uniquement le VPS provisoire, partagé avec d'autres comptes.
+- **Documents déjà présents sur le serveur provisoire, toujours en
+  0644.** T3 (`a59daa3`) corrige les *nouveaux* fichiers (0640/0750) ;
+  les documents déjà écrits avant ce commit restent en 0644 — choix
+  explicite d'Ilane, pas de `chmod` rétroactif sur ce serveur provisoire.
+  De toute façon, un compte membre du groupe `docker` de cet hôte a un
+  accès équivalent à root (peut lire/écrire n'importe quel fichier via un
+  conteneur) : le durcissement des permissions ne change donc rien face
+  à ce niveau d'accès-là — seulement face à un compte Unix ordinaire,
+  hors groupe `docker`. **Sans objet sur le serveur dédié**, sans autre
+  compte que l'administrateur.
+- **Session glissante de 12 h sans plafond absolu.** Conforme au CDC
+  (déconnexion après 12 h d'inactivité, cf. « L2-T1 » ci-dessus) ; à
+  confirmer avec Ilane si un plafond absolu (ex. 30 jours quelle que soit
+  l'activité) est également voulu.
+- **Limites mémoire des conteneurs, `cap_drop` sur `postgres`, rootfs en
+  lecture seule.** Non traitées par T11 (`3c74a1e`) : à mesurer d'abord
+  (`docker stats` sur une charge réelle) et à tester sur la démo avant la
+  production, une limite mémoire trop basse pouvant faire tuer le
+  conteneur (OOM) plutôt que de le protéger.
+- **Images Docker épinglées par tag (`postgres:18`, etc.), pas par
+  digest.** Choix assumé : un digest figé ne reçoit plus les correctifs
+  de sécurité de l'image de base.
+- **Pas de scanner de CVE de la couche système (paquets Debian, image de
+  base).** Les hooks `pip-audit`/`npm audit` (T13, `dae8bda`) couvrent les
+  dépendances applicatives, jamais la couche OS des images ; passer
+  `trivy` à la main avant un déploiement sensible, pas automatisé.
+- **Bundle JS unique de 108 Ko gzip.** Pas de découpage par page à ce
+  volume (peu d'écrans, peu de dépendances lourdes) ; Brotli non activé
+  (gain estimé ≈ 16 Ko, jugé non prioritaire au volume actuel).
+- **Liste « Documents » plafonnée à 100 lignes, filtres chantier/
+  fournisseur/mois côté navigateur.** Déjà noté ci-dessus (« Liste
+  Documents », Task 8) : suffisant pour ≈ 6 jours de dépôts au volume du
+  CDC ; filtrer côté SQL (sur le modèle de `bilan.py`) si le volume
+  grandit.
+- **Synchronisation des anomalies : une requête par anomalie candidate au
+  dépôt d'une facture.** Négligeable devant le coût d'un appel OCR
+  Mistral (même dépôt). Piège identifié à ne pas reproduire si ce code
+  est retouché : `_conditions_portee` (`ingest/anomalies.py`) filtre sur
+  `statut='ouverte'`, mais `_trouver_par_cle` doit, lui, retrouver aussi
+  une anomalie déjà `traitée`/`ignorée` (la contrainte d'unicité
+  couvrant toutes les anomalies, pas seulement les ouvertes) —
+  restreindre ce second point à `ouverte` casserait cette unicité.
+- **`preparer_base` rejouée 5 fois par run de tests.** Ne pas la
+  mémoïser : les tests de migration comptent sur sa ré-exécution après un
+  `alembic downgrade`. `pytest-xdist` non adopté pour autant (base de
+  test partagée entre tous les tests, incompatible avec une exécution
+  parallèle sans base par worker).
+
+- **[Corrigé le 27/09/2026, phase 2 : `ps -a -q api`]** **`restore.sh` refuse de restaurer quand l'API est arrêtée (bogue
+  antérieur aux optimisations, constaté le 25/09/2026).** Le garde-fou
+  `docker compose … ps -q api` (`deploy/restore.sh`, vers la ligne 131)
+  ne liste que les conteneurs **en marche** : après un `stop api` (fait
+  par `deploy/test-restauration.sh` juste avant, et naturel avant une
+  restauration), il conclut « conteneur api introuvable » et s'arrête sans
+  rien modifier. Correctif probable : `ps -a -q api` (conteneur créé, en
+  marche ou non), avec un test dans `tests/test_restore_script.py`. À
+  traiter avec la mise en place des sauvegardes restic (priorité n° 1),
+  en rejouant `deploy/test-restauration.sh` de bout en bout.
+
+## Mise en production du 1er octobre (27/09/2026) — reporté
+
+Relevé par les relectures (tâche par tâche et finale) et laissé de côté
+volontairement ; aucun ne met en jeu les montants, les règles ni la sécurité.
+Recette : `docs/mise-en-production-1er-octobre-recette.md`.
+
+- **Compteur `nb_demandes_alias`** (journal `facture_deposee`, `ingest/factures.py`) : compte aussi un bloc dont le chantier brut se réduit à un code entre parenthèses. Chiffre de journal seulement.
+- **Docstrings d'`ingest/anomalies.py`** : disent encore que `evaluer_chantier` n'est pas appelée par `ingest` (elle l'est depuis le rattachement automatique).
+- **Tests manquants** : bon d'un fournisseur inconnu rattaché ou créé sans apprentissage ; repli de `_exemple_brut_alias` quand aucun brut n'existe ; course `retirer_acces` × `retirer_acces` ; `..` explicite dans `normaliser_segment`. Comportements vérifiés à la lecture.
+- **Photos rangées** : si l'ancien lien est retiré et que le nouveau échoue, le bon n'a plus de lien jusqu'au prochain `ranger-photos` ; `corriger_entete` range la photo à chaque correction, même sans changement de chantier (idempotent). Les bons dont le chantier change par propagation d'un nom appris attendent `ranger-photos` (timer nocturne à poser en phase 2).
+- **Écran** : colonne « Fournisseur » redondante dans les livraisons de la fiche fournisseur ; classe du champ mois dupliquée entre deux pages ; petite duplication du formulaire de création de chantier entre l'alerte et « Noms à rattacher » ; si une création puis un choix échouent, un second essai réutilise le chantier déjà créé même si le nom a été modifié.
+- **Journal** : le libellé « Livraisons (total) » sert aussi au nombre de lignes de facture déplacées par une fusion ; le front traite `cible_id` comme un chantier sans connaître `cible_table` (sûr tant que seule la fusion l'écrit).
+- **Comptes** : pas de longueur maximale du mot de passe (coût argon2, administrateur de confiance seul) ; identifiant Telegram sans contrainte `> 0` ; unicité de l'identifiant Telegram garantie par verrou applicatif, pas par un index en base (à ajouter dans une migration planifiée).
+- **Reprise** : `rattacher-chantiers` garde le verrou des chantiers pendant toute sa durée (bloquerait les dépôts sur un gros arriéré).
+
+## Phase 2 — exploitation (27/09/2026)
+
+- **Sauvegardes dans un dépôt restic local** (`/home/debian/sauvegardes-habitat/restic-<instance>`, décision d'Ilane du 27/09) : protège d'une erreur ou d'une suppression, **pas de la perte du serveur** (même disque). Bascule vers OVH Object Storage (CDC §9) dès qu'Ilane a créé le conteneur et ses clés : changer `RESTIC_REPOSITORY` et ajouter `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` dans `.env.<instance>`, `restic init`, puis relancer une sauvegarde. Mots de passe restic dans `~/.secrets/restic-habitat.txt` : à recopier par Ilane dans son gestionnaire de mots de passe (sans eux, les sauvegardes sont illisibles).
+- **Tâches planifiées lancées depuis l'arbre de travail** `/home/debian/habitat_reno` (scripts `deploy/*.sh`) : un changement de branche qui retirerait ces scripts casserait les tâches. Sur le serveur dédié, installer depuis une copie propre de `main`.
+- **Contrôles différés et rangement des photos pas encore planifiés** : ils attendent le déploiement de la phase 1 (sinon ils tourneraient sur l'ancienne version et créeraient des rappels « chantier à rattacher » que la reprise résout).
+- **Unicité de l'identifiant Telegram** (rappel de la phase 1) : verrou applicatif ; index partiel en base à ajouter dans une migration planifiée.
+- **Alerte d'échec : angles morts** (relecture de la phase 2) : `controles-differes` et `ranger-photos` rendent toujours le code 0 (un échec sur un seul élément est journalisé mais ne fait pas échouer la tâche), donc seul un échec complet (base injoignable, conteneur arrêté) déclenche l'alerte Telegram ; la sauvegarde, elle, échoue au moindre problème. Si Telegram est injoignable, l'alerte elle-même échoue sans autre canal (journald seulement).
+
+## Phase 3 — commentaires (session B, 27/09/2026)
+
+Tâche C de la phase 3 (`docs/roadmap-octobre-2026.md` §6.2, §10) :
+commentaires sur les lignes d'un bon (migration `0012`, `ingest/
+commentaires.py`, `api/commentaires.py`, `web/src/components/
+CommentairesLignes.tsx`). Limites connues, prévues dès la conception
+(`docs/superpowers/specs/2026-09-27-commentaires-lignes-design.md` §3, §8) :
+
+- **Pas de verrou en base empêchant la modification ou la suppression d'un
+  commentaire.** La table `commentaire` n'a ni déclencheur ni règle qui
+  refuserait un `UPDATE`/`DELETE` fait hors de l'application (aucune route
+  n'en expose) : la mise à vide de `ligne_id` par `ON DELETE SET NULL`
+  quand la ligne commentée est supprimée en est déjà une, faite par la
+  base elle-même et voulue (garde le commentaire affichable via
+  `ligne_libelle`). La roadmap ne demande un tel verrou que pour
+  l'historique des prix (lot Prix, même session/branche) ; à réévaluer si
+  un usage réel montre le besoin d'un commentaire réellement immuable au
+  niveau base, pas seulement au niveau de l'API.
+- **Pas de nombre de commentaires dans la liste des documents.** Seule la
+  page d'un bon affiche « Commentaires (N) » (carte repliable) ; la liste
+  des documents (`web/src/pages/DocumentsListe.tsx`) n'indique nulle part
+  qu'un document en a. Hors périmètre de la demande client (§8 de la
+  spec, « possible plus tard si utile ») ; ajouterait une colonne calculée
+  (comptage par document) au routeur de la liste si demandé.
+
+## Phase 4 — IA (27/09/2026)
+
+Conception complète : `docs/superpowers/specs/2026-09-27-phase-4-ia-design.md`.
+Guide d'exploitation, avec le détail de la décision `read_only` du
+conteneur OpenCode : `docs/phase-4-ia.md` et la section « Phase 4 — IA,
+exploitation (T8, 28/09/2026) » ci-dessous. Ce qui suit est propre à la
+conception et au code métier (T1 à T7), pas à l'exploitation du conteneur.
+
+- **Moteur choisi contre la recommandation.** Ilane a choisi OpenCode
+  connecté à son abonnement personnel ChatGPT Plus/Pro (décision D2 de la
+  spec, 27/09/2026) plutôt que l'API Mistral déjà dans la stack, payante à
+  l'usage et hébergée en UE — recommandation écartée en connaissance de
+  cause (risques consignés à l'avenant CDC §15 et dans `docs/phase-4-ia.md`
+  §9). Un seul module, `ingest/opencode.py`, parle au moteur d'IA : changer
+  de fournisseur (revenir à Mistral ou une autre API) revient à réécrire ce
+  seul module, sans toucher `extract/reponses_ia.py` ni les services
+  `ingest/ia_synthese.py`/`ingest/ia_prix.py`.
+- **Version d'OpenCode figée (`opencode-ai@1.18.32`), aucune mise à jour
+  automatique.** `deploy/opencode/Dockerfile` épingle cette version : une
+  montée de version est un geste volontaire (reconstruction de l'image),
+  jamais un effet de bord d'un autre changement. Une version plus récente
+  pourrait changer le comportement des outils `websearch`/`webfetch` ou la
+  prise en charge de Firecrawl (D3 de la spec), à revérifier avant toute
+  montée de version.
+- **Recherche web par le service public d'Exa, limites inconnues.**
+  `OPENCODE_ENABLE_EXA=1` passe par le service public d'Exa, sans clé,
+  plutôt que par Firecrawl (demandé par Ilane, non pris en charge par la
+  version stable d'OpenCode, D3). Aucune limite de débit ni de volume n'est
+  documentée par Exa pour ce service public ; une clé gratuite
+  (`EXA_API_KEY`, 10 $ de crédit par mois) peut être ajoutée dans
+  `deploy/opencode/.env` si le service public s'avère limitant en usage réel.
+- **Aucun essai de bout en bout possible avant l'abonnement.** Les modèles
+  gratuits pris en charge par OpenCode refusent le mode serveur (`opencode
+  serve`) : aucun des trois usages (synthèse, explication, prix internet)
+  n'a pu être exercé contre une vraie réponse de modèle, seulement contre
+  des doubles (`httpx.MockTransport`) et des données inventées. L'essai réel
+  (document d'Ilane §16, `python -m app.cli essai-prix-internet`) n'est
+  possible qu'après la connexion de l'abonnement (`docs/phase-4-ia.md` §5).
+- **Explication et prix internet sans objet tant que le lot Prix n'est pas
+  fusionné.** Les alertes de catégorie « prix » que l'explication cible
+  (R07-R09) restent masquées côté serveur (`CONTROLE_PRIX_ACTIF=false`,
+  décision du 24/09/2026) et R22 (« Produit absent de la grille », seule
+  règle qui déclenche une recherche de prix internet) n'est pas encore
+  fusionnée dans `dev` (elle existe sur la branche du lot Prix) : le code
+  de `ingest/ia_prix.py` est écrit et testé sur des anomalies inventées,
+  mais n'a aujourd'hui aucune anomalie réelle à traiter.
+  **Résolu (T10a, 28/09/2026) :** le lot Prix est fusionné dans `dev` (PR
+  #5) — `expliquer_alertes` et `chercher_prix_internet` traitent désormais
+  de vraies anomalies R19-R25/R22, prouvé par un essai de bout en bout sur
+  une vraie anomalie R22 (`ingest/tests/test_ia_prix_bout_en_bout.py`,
+  vrais services `controler_prix_bl`/`chercher_prix_internet`, faux
+  transport OpenCode).
+- **R22 (lot Prix) ne porte pas encore `dernier_prix`.** Vérifié contre le
+  vrai code de la branche du lot Prix à la relecture finale du 28/09/2026
+  (`git show origin/feature/phase-3-prix:app/modules/rules/rules/R22.py`) :
+  le `detail` de R22 ne porte que `produit`, `code` (tiret cadratin si
+  absent), `prix_bon`, `unite_bon` (tiret cadratin si absent), `date_bon`
+  et `candidats` — jamais de clé `dernier_prix` (celle-ci n'existe que sur
+  R20). Tant que le lot Prix n'ajoute pas cette clé, `chercher_prix_internet`
+  (`ingest/ia_prix.py::_dernier_prix_utile`) ne peut jamais la trouver utile
+  et lancera donc aussi la recherche de prix internet pour un produit déjà
+  facturé mais simplement absent de la grille — contrairement à l'intention
+  du §6.1 de la spec (« ni grille ni facture »). Action précise à la fusion :
+  item dédié de T10, `docs/superpowers/plans/2026-09-27-phase-4-ia.md`.
+  **Résolu (T10a, 28/09/2026) :** `rules/rules/R22.py`, tel que fusionné dans
+  `dev`, porte bien `dernier_prix`/`date_dernier_prix` (« — » si aucun) —
+  `ingest/ia_prix.py` lit exactement ces clés, sans modification nécessaire ;
+  vérifié par l'essai de bout en bout (variante avec une facture antérieure :
+  `dernier_prix` utile, aucune recherche internet lancée).
+- **3ᵉ colonne « Internet » de la page `/prix` à construire (T10).** Elle
+  lira le même service (`ingest/ia_prix.py`) une fois le lot Prix fusionné
+  dans `dev` — hors périmètre de la phase 4 IA elle-même (spec §6.4, §11).
+  **Précision (T10a, 28/09/2026) :** le lot Prix est fusionné ; le service
+  serveur est fait (`ingest.ia_prix.prix_internet_des_anomalies`, route `GET
+  /api/ia/prix-internet`, T10a). Reste seulement l'écran (T10b) : la colonne
+  elle-même, consommant cette route.
+  **Fait (T10b, 28/09/2026) :** colonne construite (`Prix.tsx`,
+  `components/PrixInternetCellule.tsx`, `lib/prixInternet.ts` partagé avec
+  `AvisIA.tsx`). Acceptée en l'état : comme la requête groupée ne pose pas
+  de `placeholderData`, la colonne peut disparaître brièvement (retour à 6
+  colonnes) le temps que la nouvelle liste d'alertes recharge après un
+  changement de filtre (période/fournisseur), avant de réapparaître une fois
+  la réponse revenue.
+- **`appel_ia` jamais purgé.** Chaque appel à l'IA (réussi ou non) écrit une
+  ligne dans cette table technique, jamais supprimée. Volume attendu faible
+  (quelques lignes par jour, plafonné par `IA_APPELS_MAX_JOUR`) : à
+  surveiller si l'usage grandit, purge par une tâche planifiée à ajouter si
+  besoin.
+- **Un seul conteneur OpenCode pour la production et la démonstration**
+  (mémoire du VPS, `docs/phase-4-ia.md` §3) : un abonnement déconnecté ou un
+  plafond atteint affecte les deux instances à la fois, sans isolation entre
+  elles pour cet usage.
+- **Incident : une ligne du `.env` de développement affichée par un
+  sous-agent (T3, 27/09/2026).** En recherchant l'URL de la base de test
+  avant d'écrire le code, l'implémenteur a lancé par erreur un `grep` sur le
+  `.env` du worktree, ce qui a affiché la ligne `TEST_DATABASE_URL` (URL de
+  la base de test locale, avec son mot de passe de développement — pas un
+  secret de production). Transgression réelle de la consigne « ne jamais
+  lire ni afficher `.env` », signalée dans le suivi de la tâche plutôt que
+  passée sous silence ; aucune valeur n'est reproduite ici. Ilane peut faire
+  tourner ce mot de passe de base de test locale s'il le juge utile ; aucune
+  valeur de production n'est concernée.
+- **Limites mineures relevées en relecture, sans conséquence sur le
+  comportement observable :**
+  - pas de test négatif dédié du `CHECK` sur `prix_internet.taxes` (valeur
+    hors `HT`/`TTC`) ni de la borne de 300 caractères de
+    `synthese_action.texte` (T1) — le `CHECK` est bien posé et vérifié
+    structurellement (`alembic check`), seul un test positif dédié à son
+    comportement à l'exécution manque ;
+  - commentaire périmé dans `app/core/db.py` (« aucun index composite »)
+    depuis que `PrixInternet` en ajoute un premier (T1) ;
+  - la garde des chiffres de l'explication (T2) refuse « prudemment » un
+    nombre valide quand un chiffre isolé le précède sans séparateur net dans
+    le texte (ex. « Page 2 45,00 ») : faux négatif seulement (une
+    explication légitime parfois refusée), jamais de faux positif (aucun
+    chiffre inventé ne passe) ;
+  - `ingest/opencode.py::_journaliser_appel` (T3) prend une deuxième
+    connexion du pool de base pendant que l'appelant garde la sienne, pour
+    écrire la ligne `appel_ia` dans sa propre transaction (§3.4 de la
+    spec) — acceptable au volume attendu (quelques appels par jour), à
+    revoir si le pool de connexions devenait un point de contention ;
+  - un `SystemExit`/`KeyboardInterrupt` pendant un appel à l'IA (T3) saute
+    quand même la ligne `appel_ia` (jamais avalé, propagé normalement) ;
+    une annulation pendant la suppression de la session côté OpenCode
+    remplace le code d'erreur d'origine par « interrompu » dans cette ligne
+    technique ;
+  - pas de test de la synthèse traversant un changement d'heure (été/hiver)
+    (T4) — le chemin `IntegrityError`/`rollback` d'une course entre deux
+    générations de synthèse simultanées est, lui, désormais couvert
+    (`test_generer_synthese_vide_course_concurrente_deja_faite`, relecture
+    finale du 28/09/2026) ;
+  - l'essai (`essai-prix-internet`) reconnaît l'en-tête de son CSV par une
+    heuristique sur la première colonne : un fournisseur réellement nommé
+    « Fournisseur… » en première ligne serait pris à tort pour un en-tête
+    (T6) ;
+  - l'encart « Avis de l'IA » affiche le conditionnement du prix trouvé sur
+    internet s'il existe, sinon l'unité, jamais les deux à la fois (T7) —
+    affichage à confirmer par Ilane.
+
+## Phase 4 — IA, exploitation (T8, 28/09/2026)
+
+Conteneur OpenCode, rattachement de l'API et tâches planifiées
+(`deploy/opencode/`, `deploy/docker-compose.ia.yml`), détail et procédures
+dans `docs/phase-4-ia.md`.
+
+- **`read_only: true` non activé sur le conteneur OpenCode, par choix
+  délibéré** (`deploy/opencode/docker-compose.yml`) : confirmé en direct
+  (fix round 1, essai sur l'image construite) — OpenCode écrit un
+  `.gitignore` dans `~/.config/opencode` à chaque création de session
+  (`POST /session`) ; avec une racine en lecture seule (même avec un
+  `tmpfs` sur `/tmp`, `~/.cache`, `~/.local/share/opencode` et
+  `~/.local/state`), cette écriture échoue en `EROFS` et la création de
+  session échoue avec elle. Dans ce conteneur (sans `read_only`), le même
+  répertoire est déjà fermé à `opencode` (`root:root`, 0555, immuabilité
+  voulue de la configuration des agents) : l'écriture échoue aussi, mais
+  sans conséquence (ignorée par OpenCode). Rendre la racine en lecture
+  seule transformerait cet échec aujourd'hui sans gravité en échec bloquant
+  — le conteneur reste durci par ailleurs (`no-new-privileges`, `cap_drop:
+  ALL`, `pids_limit`, `mem_limit`, aucun port publié, utilisateur non root
+  dédié, réseau interne dédié). Détail : `docs/phase-4-ia.md` §9.
+- **Pas de route ni d'écran pour surveiller `appel_ia`** (plafond, échecs
+  par usage) : la surveillance se fait pour l'instant en base ou par les
+  logs (`docs/phase-4-ia.md` §6). Un écran dédié n'a pas été demandé par
+  Ilane à ce stade.
+
+## Phase 3 — prix (session B, 28/09/2026)
+
+Lot Prix de la phase 3 (`docs/roadmap-octobre-2026.md` §6.2, §10) : grilles
+fournisseur, contrôle des prix au bon (règles pures R19 à R25), page
+« Prix à vérifier » (migration `0013`,
+`docs/superpowers/specs/2026-09-27-prix-design.md`). Points hors
+périmètre de la spec (§13) et laissés ouverts par la relecture de fin de
+phase :
+
+- **Contrôle des prix à la facture, prix trouvé sur internet, commentaire
+  de l'IA sur l'écart** : renvoyés à la phase 4 par la spec (§13),
+  remplaceraient à terme R07-R09 (déjà désactivées).
+- **Suivi des réclamations fournisseur** après l'action « Contester » sur
+  une alerte de prix : pas de statut ni d'historique au-delà du journal.
+- **Prix des bons précédents comme « dernier prix payé »** (§6.3 de la
+  spec) : seule la dernière facture sert de référence pour R20, pas le
+  dernier bon.
+- **Lecture de la remise imprimée sur un bon** : non gérée, le contrôle
+  compare le prix unitaire brut.
+- **R20 inopérante chez Point.P** : elle compare au dernier prix facturé,
+  or le parseur de facture Point.P n'est toujours pas construit (blocage
+  connu depuis le lot 3, aucun document disponible) ; tant qu'il n'existe
+  pas, R20 ne se déclenche jamais pour ce fournisseur, même si son prix a
+  augmenté.
+- **Import d'une grille mise en page librement** (blocs de prix côte à
+  côte sur une même feuille) non géré : il faut le modèle de colonnes
+  attendu par `extract/grille_excel.py`.
+- **Cascade des alertes réglées sur une ligne supprimée** (§3.3 de la
+  spec) : la migration `0013` passe `anomalie.ligne_id` en
+  `ON DELETE CASCADE` pour ne plus bloquer la suppression d'une ligne
+  portant une alerte. Mais `corriger_lignes` supprime une ligne retirée
+  par `session.delete(ligne)` sans appeler `synchroniser_anomalies` ni
+  rien journaliser pour les anomalies qui pointaient dessus : la cascade
+  les supprime silencieusement en base, y compris une anomalie déjà
+  traitée ou ignorée (avec son commentaire de résolution et son auteur),
+  sans aucune entrée « anomalie levée » au journal — contrairement à
+  toute autre voie de suppression du code (`synchroniser_anomalies`, et
+  le correctif équivalent déjà fait sur l'archivage d'un document,
+  justement pour ce genre de perte silencieuse). Déjà noté au §3.3 de la
+  spec comme limite connue ; à corriger si un usage réel montre que des
+  alertes réglées disparaissent ainsi sans trace.
+- **Déclencheurs de `grille_prix` désactivés dans les fixtures de test**
+  (`conftest.py` de `app/core`, `app/modules/api`, `app/modules/ingest`,
+  `app/modules/jobs` et `tests/`) : la table refuse tout `TRUNCATE`
+  (historique inaltérable, déclencheur `grille_prix_sans_truncate`), donc
+  la remise à zéro de la base de test désactive ces déclencheurs le temps
+  du `TRUNCATE` puis les réactive. Sans base réelle exercée sur plusieurs
+  mois, ce comportement n'a été vérifié qu'en test.
+- **Tâche planifiée quotidienne jugée inutile** par la spec (§13) : le
+  contrôle tourne à chaque dépôt et la page lit l'état courant. Aucun
+  rattrapage périodique n'existe pour autant si le contrôle échoue
+  silencieusement sur un dépôt (même angle mort que `controles-differes`
+  et `ranger-photos`, phase 2).
+- **Barre de navigation basse (téléphone)** : le passage à six entrées
+  avec l'ajout de « Prix » resserre l'espace disponible par item ; les
+  libellés ne sont pas protégés par une largeur minimale, un libellé long
+  pourrait déborder à l'écran le plus étroit visé.
+- **Libellé de R24** : la phrase affichée à l'écran enchaîne ses
+  informations par des virgules sans les relier par un verbe, ce qui la
+  rend un peu plus dense à lire que les autres règles de prix (R19-R23,
+  R25).
+- **Interrupteur général `prix_controle_bl_actif` éteint par défaut** :
+  aucune alerte de prix n'est créée tant qu'il n'est pas activé (décision
+  de déploiement, §14 de la spec) ; l'ordre conseillé au déploiement est
+  d'importer les grilles, de vérifier la page Grille fournisseur, puis
+  d'allumer le contrôle et de relancer un recontrôle des bons existants.

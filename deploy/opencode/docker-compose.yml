@@ -1,0 +1,67 @@
+# Conteneur interne OpenCode (phase 4 IA, T8, spec §3.1). Un seul conteneur
+# sert la production et la démo (mémoire du VPS) : ce compose est un projet à
+# part (`habitat_ia`), lancé et mis à jour indépendamment des instances
+# applicatives. Aucun port publié -- seule `api`, rattachée au réseau
+# `habitat_ia` par `deploy/docker-compose.ia.yml`, peut le joindre.
+#
+# Usage :
+#   cp deploy/opencode/exemple.env deploy/opencode/.env   # une fois, voir docs/phase-4-ia.md
+#   docker compose -f deploy/opencode/docker-compose.yml up -d --build
+#
+# `deploy/opencode/.env` (ignoré par git, modèle `exemple.env`) sert deux
+# rôles distincts avec le même fichier : Compose le lit automatiquement (le
+# répertoire de ce fichier compose est le répertoire du projet, aucun
+# `--env-file` à passer) pour l'interpolation `${...}` ci-dessous, qui fait
+# échouer `up` avant tout démarrage si `OPENCODE_SERVER_PASSWORD` est
+# absent ; `env_file:` le relit pour le passer tel quel au processus dans le
+# conteneur (c'est ce que lit réellement `opencode serve`).
+name: habitat_ia
+
+services:
+  opencode:
+    build:
+      context: .
+    restart: unless-stopped
+    # Durcissement : même principe que `api`/`postgres` dans
+    # `deploy/docker-compose.yml` (T11), renforcé ici parce que ce
+    # conteneur parle à un fournisseur externe (OpenAI, Exa) avec des
+    # entrées non maîtrisées (contenu de pages web via `webfetch`).
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - "ALL"
+    pids_limit: 200
+    mem_limit: 512m
+    # `read_only: true` (racine en lecture seule) n'est PAS activé : constaté
+    # en direct (fix round 1, essai sur l'image construite) -- avec une
+    # racine en lecture seule (même avec un tmpfs sur `/tmp`, `~/.cache`,
+    # `~/.local/share/opencode` et `~/.local/state`), `POST /session` échoue
+    # (`EROFS`) : OpenCode écrit un `.gitignore` dans son répertoire de
+    # configuration à chaque création de session. Dans ce conteneur (sans
+    # `read_only`), cette même écriture échoue déjà (le répertoire est
+    # `root:root` 0555, voir `Dockerfile`) mais sans conséquence : OpenCode
+    # l'ignore et la session se crée quand même. Détail : `docs/phase-4-ia.md`
+    # §9 et `docs/dette.md`.
+    volumes:
+      - opencode-donnees:/home/opencode/.local/share/opencode
+    env_file:
+      - .env
+    environment:
+      # Obligatoire : `opencode serve` refuse toute requête sans ce mot de
+      # passe (authentification HTTP Basic, utilisateur `opencode`, lu côté
+      # client dans `OPENCODE_MOT_DE_PASSE`, T3). `:?` fait échouer `up`
+      # avant tout démarrage si `deploy/opencode/.env` ne le définit pas.
+      OPENCODE_SERVER_PASSWORD: "${OPENCODE_SERVER_PASSWORD:?OPENCODE_SERVER_PASSWORD manquant (voir deploy/opencode/exemple.env)}"
+      # Recherche web gratuite (D3) : service public d'Exa, sans clé. Une
+      # clé Exa (`EXA_API_KEY`, facultative, 10 $ de crédit/mois) peut être
+      # ajoutée plus tard dans `.env` si le service public limite.
+      OPENCODE_ENABLE_EXA: "1"
+      OPENCODE_WEBSEARCH_PROVIDER: exa
+      EXA_API_KEY: "${EXA_API_KEY:-}"
+
+networks:
+  default:
+    name: habitat_ia
+
+volumes:
+  opencode-donnees:

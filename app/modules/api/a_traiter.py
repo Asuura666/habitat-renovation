@@ -32,6 +32,7 @@ from app.modules.api.schemas import (
     AnomalieReponse,
     ArticleAValiderReponse,
     ATraiterReponse,
+    ChantierACompleterReponse,
     CompteProblemesReponse,
     DocumentATraiterReponse,
 )
@@ -71,6 +72,10 @@ async def obtenir_a_traiter(
         ],
         anomalies_hautes=[
             AnomalieReponse.model_validate(anomalie) for anomalie in anomalies_hautes
+        ],
+        chantiers_a_completer=[
+            ChantierACompleterReponse.model_validate(chantier)
+            for chantier in a_traiter.chantiers_a_completer
         ],
     )
 

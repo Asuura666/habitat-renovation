@@ -8,27 +8,38 @@ privée, assemblées par `lister_a_traiter`. La sélection des documents/blocs
 candidats à la propagation d'un alias (`nb_documents`/`exemple_brut` ici,
 propagation dans `ingest.referentiels.valider_alias`) vit dans `referentiels
 .candidats_alias` — décision du contrôleur : ne jamais dupliquer cette
-sélection entre les deux endroits.
+sélection entre les deux endroits. `_lister_alias_en_attente` appelle les
+deux briques dont `candidats_alias` est faite (`referentiels
+.candidats_bruts_fournisseur`/`filtrer_candidats_par_libelle`) plutôt que
+`candidats_alias` elle-même, pour charger les candidats bruts une seule
+fois par `fournisseur_id` distinct même avec plusieurs alias en attente du
+même fournisseur (tâche T5, décision du contrôleur : jamais une requête par
+alias).
 
 `compter_problemes_a_regler` (revue finale de la refonte du front, constats
 LIENS-2, ECRAN-6, TELEPHONE-2, COUVERTURE-2) : **la** définition du nombre
 de problèmes « à régler », tous mois confondus -- exactement les éléments
 de la liste de l'écran « À régler » : anomalies ouvertes, documents « à
-vérifier », chantiers à rattacher (alias en attente) et articles à valider.
-La pastille de navigation, la tuile de la vue d'ensemble (« … en tout ») et
-l'en-tête de l'écran « À régler » affichent ce même nombre ; avant ce
-correctif, trois compteurs de périmètres différents (urgents de tous les
-mois, problèmes du mois, liste complète) se contredisaient sur le même
-écran.
+vérifier », chantiers à rattacher (alias en attente), articles à valider et,
+depuis l'avenant du 27/09/2026, chantiers créés automatiquement encore à
+compléter (`chantiers_a_completer`, spec §2.6). La pastille de navigation,
+la tuile de la vue d'ensemble (« … en tout ») et l'en-tête de l'écran « À
+régler » affichent ce même nombre ; avant ce correctif, trois compteurs de
+périmètres différents (urgents de tous les mois, problèmes du mois, liste
+complète) se contredisaient sur le même écran.
 
 `CompteProblemes.controle_prix_actif` (décision d'Ilane du 24/09/2026,
-`docs/dette.md`) : reflet de `ingest.commun.controle_prix_actif()`, exposé
-ici -- un seul endroit -- car `GET /api/a-regler/compte` est déjà rechargé
-par toutes les pages (barre de navigation, vue d'ensemble, écran « À
-régler », `CLE_COMPTE_A_REGLER` côté front) : aucun autre point d'API n'a
-besoin de porter ce même drapeau. Aucun calcul métier n'en découle ici, le
-front ne fait qu'adapter des libellés (« Écart prix ou quantité » ->
-« Écart de quantité », filtre « Prix » masqué) à partir de ce booléen.
+`docs/dette.md`, étendu par la spec §6.5 du 27/09/2026) : vrai si le
+contrôle des prix des **factures** (`ingest.commun.controle_prix_actif()`)
+**ou** celui des **bons** (réglage `prix_controle_bl_actif`, base) est
+allumé -- exposé ici, un seul endroit, car `GET /api/a-regler/compte` est
+déjà rechargé par toutes les pages (barre de navigation, vue d'ensemble,
+écran « À régler », `CLE_COMPTE_A_REGLER` côté front) : aucun autre point
+d'API n'a besoin de porter ce même drapeau. Aucun calcul métier n'en
+découle ici, le front ne fait qu'adapter des libellés (« Écart prix ou
+quantité » -> « Écart de quantité », filtre « Prix » masqué) à partir de ce
+booléen -- le filtre reste donc affiché dès que l'un des deux contrôles
+est actif, même si l'autre est encore éteint.
 
 `controle_livre_non_facture_actif` n'est plus exposé ici : depuis que
 `ingest.parametres._cle_masquee` masque `delai_ligne_bl_non_facturee_j`
@@ -43,6 +54,7 @@ besoin de connaître ce second drapeau pour afficher un seuil « sans effet »
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -52,17 +64,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.modules.ingest.anomalies import compter_anomalies_ouvertes
-from app.modules.ingest.commun import controle_prix_actif
+from app.modules.ingest.commun import CLE_PRIX_CONTROLE_BL_ACTIF, controle_prix_actif
 from app.modules.ingest.lecture import _CONFIRMATION_PAR_ACTION, MotifLu, motifs_lus
 from app.modules.ingest.models import (
     Article,
+    BlocFacture,
+    Chantier,
     ChantierAlias,
     Document,
     Fournisseur,
     Journal,
     Utilisateur,
 )
-from app.modules.ingest.referentiels import candidats_alias
+from app.modules.ingest.referentiels import (
+    candidats_bruts_fournisseur,
+    filtrer_candidats_par_libelle,
+    lire_parametre_decimal,
+)
 
 
 @dataclass(frozen=True)
@@ -110,12 +128,27 @@ class ArticleAValider:
 
 
 @dataclass(frozen=True)
+class ChantierACompleter:
+    """Un chantier créé automatiquement (avenant du 27/09/2026, `ingest
+    .rattachement_chantier._creer_chantier_auto`, `Chantier.a_completer`),
+    encore sans agence ni client -- section « Nouveaux chantiers à
+    compléter » de l'écran « À régler » (spec §2.6). `nb_bons` compte les
+    BL/enlèvements rattachés à ce chantier, quel que soit leur statut."""
+
+    id: uuid.UUID
+    nom: str
+    nb_bons: int
+    cree_le: datetime
+
+
+@dataclass(frozen=True)
 class ATraiter:
     """Contenu complet de l'écran « À traiter » (L3-D18)."""
 
     documents: list[DocumentATraiter]
     alias: list[AliasEnAttente]
     articles: list[ArticleAValider]
+    chantiers_a_completer: list[ChantierACompleter]
 
 
 # --------------------------------------------------------------------------
@@ -198,7 +231,15 @@ async def _lister_alias_en_attente(session: AsyncSession) -> list[AliasEnAttente
     concernés et un exemple de libellé brut (le plus récent) — même
     sélection que la propagation de `referentiels.valider_alias`
     (`referentiels.candidats_alias`, décision du contrôleur : ne jamais
-    dupliquer cette logique)."""
+    dupliquer cette logique).
+
+    Les candidats bruts (`referentiels.candidats_bruts_fournisseur`, deux
+    requêtes) sont chargés une seule fois par `fournisseur_id` distinct,
+    dans un cache local à l'appel, puis filtrés par libellé en Python
+    (`referentiels.filtrer_candidats_par_libelle`, sans requête
+    supplémentaire) pour chaque alias -- jamais une requête par alias
+    (tâche T5 : plusieurs alias en attente d'un même fournisseur ne
+    doivent jamais multiplier les requêtes)."""
     lignes = (
         await session.execute(
             select(ChantierAlias, Fournisseur.nom)
@@ -208,10 +249,21 @@ async def _lister_alias_en_attente(session: AsyncSession) -> list[AliasEnAttente
         )
     ).all()
 
+    candidats_bruts_par_fournisseur: dict[
+        uuid.UUID, tuple[Sequence[Document], Sequence[BlocFacture]]
+    ] = {}
+
     resultat: list[AliasEnAttente] = []
     for alias, nom_fournisseur in lignes:
-        documents, blocs = await candidats_alias(
-            session, alias.fournisseur_id, alias.libelle_brut
+        if alias.fournisseur_id not in candidats_bruts_par_fournisseur:
+            candidats_bruts_par_fournisseur[
+                alias.fournisseur_id
+            ] = await candidats_bruts_fournisseur(session, alias.fournisseur_id)
+        documents_bruts, blocs_bruts = candidats_bruts_par_fournisseur[
+            alias.fournisseur_id
+        ]
+        documents, blocs = filtrer_candidats_par_libelle(
+            documents_bruts, blocs_bruts, alias.libelle_brut
         )
         brut_par_date = [
             (document.chantier_brut, document.created_at) for document in documents
@@ -267,6 +319,45 @@ async def _lister_articles_a_valider(session: AsyncSession) -> list[ArticleAVali
 
 
 # --------------------------------------------------------------------------
+# Chantiers à compléter (avenant du 27/09/2026, spec §2.6)
+# --------------------------------------------------------------------------
+
+
+async def _lister_chantiers_a_completer(
+    session: AsyncSession,
+) -> list[ChantierACompleter]:
+    """Chantiers `a_completer` (créés automatiquement, jamais encore
+    complétés ni fusionnés -- un chantier fusionné repasse `a_completer` à
+    faux, spec §2.7), du plus ancien au plus récent. `nb_bons` (BL/
+    enlèvements rattachés, jointure externe groupée) en une seule requête,
+    jamais une par chantier (même décision que le reste de ce fichier) --
+    un bon archivé ne compte pas (fix round 1, même exclusion que partout
+    ailleurs où un compte porte sur des documents, `ingest.bilan` et
+    `corrections.archiver_document`)."""
+    resultat = await session.execute(
+        select(
+            Chantier.id,
+            Chantier.nom_canonique,
+            Chantier.created_at,
+            func.count(Document.id),
+        )
+        .outerjoin(
+            Document,
+            (Document.chantier_id == Chantier.id)
+            & (Document.type.in_(("bl", "enlevement")))
+            & (Document.statut != "archive"),
+        )
+        .where(Chantier.a_completer.is_(True))
+        .group_by(Chantier.id)
+        .order_by(Chantier.created_at.asc())
+    )
+    return [
+        ChantierACompleter(id=chantier_id, nom=nom, nb_bons=nb_bons, cree_le=cree_le)
+        for chantier_id, nom, cree_le, nb_bons in resultat.all()
+    ]
+
+
+# --------------------------------------------------------------------------
 # lister_a_traiter
 # --------------------------------------------------------------------------
 
@@ -289,21 +380,27 @@ async def compter_problemes_a_regler(session: AsyncSession) -> CompteProblemes:
     sections de `lister_a_traiter`, jamais une seconde sélection."""
     nb_anomalies, nb_urgents = await compter_anomalies_ouvertes(session)
     a_traiter = await lister_a_traiter(session)
+    controle_bl_actif = await lire_parametre_decimal(
+        session, CLE_PRIX_CONTROLE_BL_ACTIF, Decimal("0")
+    ) != Decimal("0")
     return CompteProblemes(
         nb_problemes=nb_anomalies
         + len(a_traiter.documents)
         + len(a_traiter.alias)
-        + len(a_traiter.articles),
+        + len(a_traiter.articles)
+        + len(a_traiter.chantiers_a_completer),
         nb_urgents=nb_urgents,
-        controle_prix_actif=controle_prix_actif(),
+        controle_prix_actif=controle_prix_actif() or controle_bl_actif,
     )
 
 
 async def lister_a_traiter(session: AsyncSession) -> ATraiter:
     """Contenu complet de l'écran « À traiter » (L3-D18) : documents « à
-    vérifier », alias chantier en attente, articles à valider."""
+    vérifier », alias chantier en attente, articles à valider, chantiers
+    créés automatiquement encore à compléter (avenant du 27/09/2026)."""
     return ATraiter(
         documents=await _lister_documents_a_traiter(session),
         alias=await _lister_alias_en_attente(session),
         articles=await _lister_articles_a_valider(session),
+        chantiers_a_completer=await _lister_chantiers_a_completer(session),
     )

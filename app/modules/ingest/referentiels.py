@@ -46,7 +46,11 @@ documents/blocs concernés) et `valider_article` (fige unités et ratio).
 `candidats_alias` est la sélection des documents/blocs candidats à la
 propagation d'un alias, partagée par `ingest.a_traiter.lister_a_traiter`
 (comptage/exemple) et `valider_alias` (propagation) — décision du
-contrôleur : ne jamais la dupliquer entre les deux.
+contrôleur : ne jamais la dupliquer entre les deux. Elle se décompose en
+deux briques publiques réutilisables séparément (tâche T5) :
+`candidats_bruts_fournisseur` (les deux requêtes, à charger une seule fois
+par `fournisseur_id`) et `filtrer_candidats_par_libelle` (le filtre pur, à
+rejouer sans requête pour chaque alias d'un même fournisseur).
 """
 
 from __future__ import annotations
@@ -63,6 +67,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.ingest.commun import VERROU_CHANTIERS
 from app.modules.ingest.models import (
     AgenceFournisseur,
     Article,
@@ -420,13 +425,27 @@ async def definir_fournisseur(
 
 @dataclass(frozen=True)
 class ChantierResume:
-    """Une ligne de `GET /api/chantiers`."""
+    """Une ligne de `GET /api/chantiers`, et la fiche `GET /api
+    /chantiers/{id}` (`obtenir_chantier` ci-dessous). `a_completer` (avenant
+    du 27/09/2026, `ingest.rattachement_chantier`) : chantier créé
+    automatiquement, pas encore complété par un humain -- pastille « À
+    compléter » des écrans « Chantiers » et fiche chantier (spec §2.6).
+
+    `fusionne_dans_id`/`fusionne_dans_nom` (Task 7, avenant du 27/09/2026,
+    spec §2.7, « Fusionner avec… ») : chantier absorbé par un autre --
+    toujours `None` ici (`lister_chantiers` exclut déjà les chantiers
+    fusionnés, Task 6), non `None` seulement quand `obtenir_chantier` lit un
+    chantier fusionné pour sa fiche (seule route qui doit encore l'atteindre,
+    par son lien direct)."""
 
     id: uuid.UUID
     nom_canonique: str
     agence: str | None
     client: str | None
     actif: bool
+    a_completer: bool
+    fusionne_dans_id: uuid.UUID | None = None
+    fusionne_dans_nom: str | None = None
 
 
 @dataclass(frozen=True)
@@ -480,9 +499,16 @@ class ArticleIntrouvable(Exception):
 
 async def lister_chantiers(session: AsyncSession) -> list[ChantierResume]:
     """Référentiel chantier complet, actifs d'abord puis par nom (décision du
-    contrôleur) — pour le formulaire de validation d'un alias."""
+    contrôleur) — pour le formulaire de validation d'un alias. Exclut les
+    chantiers fusionnés (`fusionne_dans_id IS NOT NULL`, Task 7, avenant du
+    27/09/2026, spec §2.7) : ni sélecteur, ni écran « Chantiers » ne doivent
+    plus proposer un chantier absorbé par un autre -- sa fiche reste
+    atteignable par son lien direct (`GET /api/chantiers/{id}`), hors
+    périmètre de cette fonction."""
     resultat = await session.execute(
-        select(Chantier).order_by(Chantier.actif.desc(), Chantier.nom_canonique.asc())
+        select(Chantier)
+        .where(Chantier.fusionne_dans_id.is_(None))
+        .order_by(Chantier.actif.desc(), Chantier.nom_canonique.asc())
     )
     return [
         ChantierResume(
@@ -491,9 +517,49 @@ async def lister_chantiers(session: AsyncSession) -> list[ChantierResume]:
             agence=chantier.agence,
             client=chantier.client,
             actif=chantier.actif,
+            a_completer=chantier.a_completer,
         )
         for chantier in resultat.scalars().all()
     ]
+
+
+async def obtenir_chantier(
+    session: AsyncSession, chantier_id: uuid.UUID
+) -> ChantierResume | None:
+    """Un chantier par son identifiant, fusionné ou non (Task 7, avenant du
+    27/09/2026, spec §2.7) -- pour `GET /api/chantiers/{id}`, seule route
+    qui doit encore pouvoir atteindre un chantier fusionné (exclu de
+    `lister_chantiers` depuis Task 6, jamais supprimé physiquement).
+    `None` si `chantier_id` n'existe pas du tout.
+
+    `fusionne_dans_nom` : nom de la cible, résolu ici (une seconde requête,
+    seulement quand le chantier est fusionné) -- le front n'a pas le
+    référentiel d'un chantier absent de ses listes, il ne peut donc pas
+    l'afficher lui-même (« Ce chantier a été fusionné dans <cible> »)."""
+    chantier = await session.get(Chantier, chantier_id)
+    if chantier is None:
+        return None
+
+    nom_cible: str | None = None
+    if chantier.fusionne_dans_id is not None:
+        nom_cible = (
+            await session.execute(
+                select(Chantier.nom_canonique).where(
+                    Chantier.id == chantier.fusionne_dans_id
+                )
+            )
+        ).scalar_one_or_none()
+
+    return ChantierResume(
+        id=chantier.id,
+        nom_canonique=chantier.nom_canonique,
+        agence=chantier.agence,
+        client=chantier.client,
+        actif=chantier.actif,
+        a_completer=chantier.a_completer,
+        fusionne_dans_id=chantier.fusionne_dans_id,
+        fusionne_dans_nom=nom_cible,
+    )
 
 
 def _texte_ou_none(valeur: str | None) -> str | None:
@@ -525,7 +591,21 @@ async def creer_chantier(
     même principe que `definir_fournisseur` pour ses alias/agences — une
     requête SQL ne saurait pas appliquer `normaliser_libelle` (accents,
     casse, ponctuation) sans un index dédié, hors périmètre de cette tâche.
+
+    Verrou `pg_advisory_xact_lock(VERROU_CHANTIERS)` (Ruling 16 de la revue
+    finale du 27/09/2026, A2) : pris en tout premier, avant même de charger
+    les chantiers existants, comme `rattachement_chantier
+    .rattacher_chantier_document`/`rattacher_chantier_bloc` et
+    `fusion_chantier.fusionner_chantiers` qui partagent le même verrou --
+    sans lui, deux créations manuelles concurrentes du même nom (ou une
+    création manuelle qui recouvre une création automatique en cours) lisent
+    chacune « aucun chantier de ce nom » avant que l'autre n'ait commité, et
+    créent chacune leur chantier. Voir
+    `test_creation_concurrente_manuelle_un_seul_chantier`
+    (`app/modules/ingest/tests/test_referentiels.py`).
     """
+    await session.execute(select(func.pg_advisory_xact_lock(VERROU_CHANTIERS)))
+
     nom = nom_canonique.strip()
     normalise_cible = normaliser_libelle(nom)
 
@@ -570,6 +650,7 @@ async def creer_chantier(
         agence=chantier.agence,
         client=chantier.client,
         actif=chantier.actif,
+        a_completer=chantier.a_completer,
     )
 
 
@@ -585,7 +666,20 @@ async def modifier_chantier(
 ) -> ChantierResume:
     """Remplace nom, agence, client et état actif d'un chantier. Même règle
     de doublon que `creer_chantier` (autres chantiers seulement). Journalise
-    `chantier_modifie` avec l'état avant/après."""
+    `chantier_modifie` avec l'état avant/après.
+
+    `a_completer` retombe toujours à faux (avenant du 27/09/2026, spec
+    §2.6) : enregistrer la fiche d'un chantier créé automatiquement est
+    précisément l'action qui le « complète » -- même sans agence ni client
+    renseignés, un admin qui a revu et enregistré la fiche ne doit plus la
+    revoir dans la section « Nouveaux chantiers à compléter ».
+
+    Même verrou que `creer_chantier` (`pg_advisory_xact_lock
+    (VERROU_CHANTIERS)`, Ruling 16, A2), pris en tout premier -- une
+    modification qui renomme un chantier vers un nom déjà pris par une
+    création concurrente doit être sérialisée de la même façon."""
+    await session.execute(select(func.pg_advisory_xact_lock(VERROU_CHANTIERS)))
+
     chantier = await session.get(Chantier, chantier_id)
     if chantier is None:
         raise ChantierIntrouvable(str(chantier_id))
@@ -602,17 +696,20 @@ async def modifier_chantier(
         "agence": chantier.agence,
         "client": chantier.client,
         "actif": chantier.actif,
+        "a_completer": chantier.a_completer,
     }
     chantier.nom_canonique = nom
     chantier.agence = _texte_ou_none(agence)
     chantier.client = _texte_ou_none(client)
     chantier.actif = actif
+    chantier.a_completer = False
     chantier.updated_by = auteur_id
     apres = {
         "nom_canonique": chantier.nom_canonique,
         "agence": chantier.agence,
         "client": chantier.client,
         "actif": chantier.actif,
+        "a_completer": chantier.a_completer,
     }
     session.add(
         Journal(
@@ -632,6 +729,7 @@ async def modifier_chantier(
         agence=chantier.agence,
         client=chantier.client,
         actif=chantier.actif,
+        a_completer=chantier.a_completer,
     )
 
 
@@ -725,21 +823,48 @@ def _libelle_correspond(chantier_brut: str | None, libelle: str) -> bool:
     return decompose is not None and decompose.libelle == libelle
 
 
+async def candidats_bruts_fournisseur(
+    session: AsyncSession, fournisseur_id: uuid.UUID
+) -> tuple[Sequence[Document], Sequence[BlocFacture]]:
+    """Documents et blocs candidats à la propagation d'un alias pour
+    `fournisseur_id`, **avant** tout filtre de libellé (deux requêtes,
+    `_documents_candidats_alias`/`_blocs_candidats_alias`).
+
+    Séparée de `candidats_alias` pour que l'appelant puisse la mutualiser
+    par `fournisseur_id` quand il traite plusieurs alias d'un même
+    fournisseur (`ingest.a_traiter._lister_alias_en_attente`, tâche T5,
+    décision du contrôleur : jamais une requête par alias)."""
+    documents = await _documents_candidats_alias(session, fournisseur_id)
+    blocs = await _blocs_candidats_alias(session, fournisseur_id)
+    return documents, blocs
+
+
+def filtrer_candidats_par_libelle(
+    documents: Sequence[Document], blocs: Sequence[BlocFacture], libelle: str
+) -> tuple[list[Document], list[BlocFacture]]:
+    """Filtre pur (aucun accès base) : ne garde que les documents/blocs dont
+    le libellé décomposé de `chantier_brut` égale `libelle` -- même logique
+    que l'ancien filtre en ligne de `candidats_alias`, extraite pour être
+    rejouée sans requête supplémentaire pour chaque alias d'un même
+    fournisseur (tâche T5)."""
+    return (
+        [d for d in documents if _libelle_correspond(d.chantier_brut, libelle)],
+        [b for b in blocs if _libelle_correspond(b.chantier_brut, libelle)],
+    )
+
+
 async def candidats_alias(
     session: AsyncSession, fournisseur_id: uuid.UUID, libelle: str
 ) -> tuple[list[Document], list[BlocFacture]]:
     """Documents et blocs de facture de `fournisseur_id`, sans chantier
     résolu, dont le libellé décomposé de `chantier_brut` égale `libelle`
     (décision du contrôleur) : sélection **partagée** par `ingest.a_traiter
-    .lister_a_traiter` (comptage/exemple de l'alias en attente) et
-    `valider_alias` ci-dessous (propagation) — jamais dupliquée entre les
-    deux."""
-    documents = await _documents_candidats_alias(session, fournisseur_id)
-    blocs = await _blocs_candidats_alias(session, fournisseur_id)
-    return (
-        [d for d in documents if _libelle_correspond(d.chantier_brut, libelle)],
-        [b for b in blocs if _libelle_correspond(b.chantier_brut, libelle)],
-    )
+    .lister_a_traiter` (comptage/exemple de l'alias en attente, via les deux
+    briques ci-dessus quand plusieurs alias d'un même fournisseur sont en
+    jeu) et `valider_alias` ci-dessous (propagation) — jamais dupliquée
+    entre les deux."""
+    documents, blocs = await candidats_bruts_fournisseur(session, fournisseur_id)
+    return filtrer_candidats_par_libelle(documents, blocs, libelle)
 
 
 async def valider_alias(

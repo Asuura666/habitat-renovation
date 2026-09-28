@@ -32,6 +32,21 @@ const queryClient = new QueryClient({
         }
         return nombreEchecs < 2;
       },
+      // Fraîcheur de 30 s par défaut (tâche T7, audit rapidité) : le défaut
+      // TanStack (`staleTime: 0`) relançait 5 à 7 requêtes par écran à
+      // chaque montage et à chaque retour de focus sur la fenêtre (ex.
+      // ChantiersListe : chantiers, agences, bilan, tableau de bord,
+      // chantiers silencieux, dépôts par agent, réglages — souvent des
+      // agrégats recalculés côté serveur pour rien). Même durée que la
+      // pastille « À régler » de `Gabarit.tsx`, déjà à 30 s. La fraîcheur
+      // après une écriture reste garantie par les invalidations explicites
+      // de chaque mutation (`invaliderApresChangementAnomalies` et les
+      // autres `invalidateQueries` ciblés) : elles forcent le refetch des
+      // requêtes actives tout de suite, sans attendre ces 30 s. Les
+      // `refetchInterval` déjà posés (`ARegler.tsx`, `DocumentsListe.tsx`)
+      // continuent de rafraîchir à leur propre cadence, indépendante de
+      // `staleTime`.
+      staleTime: 30_000,
     },
   },
 });

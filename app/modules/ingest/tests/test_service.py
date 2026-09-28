@@ -47,6 +47,14 @@ pytestmark = [pytest.mark.anyio, pytest.mark.db]
 NUMERO_BL_INVENTE = "L209900000123"
 CHAT_SUPERVISION_INVENTE = 999999
 
+# T9 : contenu par défaut téléchargé par `MessagerieFactice` -- signature
+# JPEG valide (`FF D8 FF`) suivie du même repère de contenu qu'avant ce
+# correctif (`contenu-invente-du-fichier`), pour que `signature_conforme`
+# accepte le fichier `.jpg` que `MessagerieFactice.telecharger` renvoie
+# toujours par défaut, sans changer ce que les tests existants vérifient
+# au-delà de la signature elle-même.
+_CONTENU_TELECHARGE_DEFAUT = b"\xff\xd8\xff" + b"contenu-invente-du-fichier"
+
 _RE_LIGNE_SUPERVISION = re.compile(
     r"^Document n° (?P<numero_interne>\d+) · BL (?P<bl>.+) · fournisseur — · "
     r"chantier — · (?P<deposant>.+) · (?P<heure>\d{2}:\d{2}) · (?P<statut>\w+)$"
@@ -149,12 +157,19 @@ class MessagerieFactice:
         echoue_repondre: bool = False,
         echoue_accuser_clic: bool = False,
         echoue_editer_message: bool = False,
+        # T9 : personnalisables pour le test négatif de signature (contenu
+        # qui ne correspond pas à l'extension) -- signature JPEG valide par
+        # défaut, comme avant ce correctif.
+        contenu_telecharge: bytes = _CONTENU_TELECHARGE_DEFAUT,
+        extension_telechargee: str = "jpg",
     ) -> None:
         self.echoue_telechargement = echoue_telechargement
         self.echoue_envoyer = echoue_envoyer
         self.echoue_repondre = echoue_repondre
         self.echoue_accuser_clic = echoue_accuser_clic
         self.echoue_editer_message = echoue_editer_message
+        self.contenu_telecharge = contenu_telecharge
+        self.extension_telechargee = extension_telechargee
         self.reponses: list[
             tuple[int, int, str, tuple[tuple[str, str], ...] | None]
         ] = []
@@ -165,7 +180,9 @@ class MessagerieFactice:
     async def telecharger(self, fichier: FichierEntrant) -> FichierTelecharge:
         if self.echoue_telechargement:
             raise RuntimeError("échec factice de téléchargement")
-        return FichierTelecharge(contenu=b"contenu-invente-du-fichier", extension="jpg")
+        return FichierTelecharge(
+            contenu=self.contenu_telecharge, extension=self.extension_telechargee
+        )
 
     async def repondre(
         self,
@@ -200,6 +217,7 @@ def _entrant(
     update_id: int = 1,
     expediteur_id: int | None = None,
     expediteur_nom: str | None = None,
+    legende: str | None = None,
 ) -> FichierEntrant:
     return FichierEntrant(
         update_id=update_id,
@@ -211,6 +229,7 @@ def _entrant(
         nom_fichier=None,
         compresse=True,
         expediteur_nom=expediteur_nom,
+        legende=legende,
     )
 
 
@@ -429,7 +448,7 @@ async def test_traiter_fichier_ecrit_le_fichier_le_document_et_repond(
     fichiers = list(tmp_path.glob("*.jpg"))
     assert len(fichiers) == 1
     assert not list(tmp_path.glob("*.tmp"))
-    assert fichiers[0].read_bytes() == b"contenu-invente-du-fichier"
+    assert fichiers[0].read_bytes() == _CONTENU_TELECHARGE_DEFAUT
     assert document.fichier_path == str(fichiers[0])
 
     # L2-D9 : numéro interne dans le texte, deux boutons de confirmation.
@@ -483,6 +502,119 @@ async def test_traiter_fichier_photo_compressee_false_pour_un_document_envoye(
 
     document = (await db_session.execute(select(Document))).scalar_one()
     assert document.photo_compressee is False
+
+
+async def test_depot_conserve_la_legende(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    tmp_path: Path,
+) -> None:
+    """La légende Telegram (`message.caption`, avenant du 27/09/2026) est
+    conservée sur le document déposé, telle que déjà nettoyée par
+    `lire_update` (`FichierEntrant.legende`) -- `traiter_fichier` la reprend
+    sans la retoucher."""
+    utilisateur = await _creer_utilisateur(db_session, telegram_user_id=9012)
+    deposant = _deposant_depuis(utilisateur)
+    messagerie = MessagerieFactice()
+    entrant = _entrant(update_id=32, legende="Villa Test")
+
+    await traiter_fichier(
+        entrant,
+        messagerie,
+        sessions_test,
+        tmp_path,
+        _ocr_avec_numero_bl,
+        deposant,
+        CHAT_SUPERVISION_INVENTE,
+    )
+
+    document = (await db_session.execute(select(Document))).scalar_one()
+    assert document.legende == "Villa Test"
+
+
+async def test_traiter_fichier_signature_non_conforme_signale_echec_sans_ecrire(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Cas négatif (T9, constat CRITIQUE) : un contenu reçu sous
+    l'extension `jpg` (déduite du type MIME *déclaré* par le client
+    Telegram, jamais confronté au contenu réel avant ce correctif) mais qui
+    n'a pas la signature JPEG est refusé avant toute écriture disque et
+    avant tout appel OCR -- même chemin d'échec qu'un échec de
+    téléchargement (journalisation sans donnée client, supervision, réponse
+    d'échec à l'agent)."""
+    utilisateur = await _creer_utilisateur(db_session, telegram_user_id=9020)
+    deposant = _deposant_depuis(utilisateur)
+    messagerie = MessagerieFactice(
+        contenu_telecharge=b"ceci n'est pas un jpeg, juste du texte invente"
+    )
+    entrant = _entrant(update_id=30)
+
+    with caplog.at_level(logging.ERROR, logger="app.modules.ingest.service"):
+        await traiter_fichier(
+            entrant,
+            messagerie,
+            sessions_test,
+            tmp_path,
+            _ocr_jamais_appele,
+            deposant,
+            CHAT_SUPERVISION_INVENTE,
+        )
+
+    assert (await db_session.execute(select(Document))).scalars().all() == []
+    assert list(tmp_path.iterdir()) == []
+    assert str(entrant.update_id) in caplog.text
+    assert "ceci n'est pas un jpeg" not in caplog.text
+
+    # Même chemin d'échec qu'un échec de téléchargement (R22) : réponse
+    # d'échec à l'agent sans détail technique, jamais de boutons.
+    assert messagerie.reponses == [
+        (
+            entrant.chat_id,
+            entrant.message_id,
+            ingest_depot_telegram._MESSAGE_ECHEC_AGENT,
+            None,
+        )
+    ]
+    assert len(messagerie.supervisions) == 1
+    chat_id, texte = messagerie.supervisions[0]
+    assert chat_id == CHAT_SUPERVISION_INVENTE
+    assert "signature" in texte
+    assert "ceci n'est pas un jpeg" not in texte
+
+
+async def test_traiter_fichier_signature_conforme_photo_compressee_traitee(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    tmp_path: Path,
+) -> None:
+    """Cas positif (T9) : une vraie photo compressée Telegram (toujours un
+    JPEG, signature `FF D8 FF`) passe le contrôle de signature et continue
+    d'être traitée normalement (document enregistré, fichier écrit, OCR
+    appelé)."""
+    utilisateur = await _creer_utilisateur(db_session, telegram_user_id=9021)
+    deposant = _deposant_depuis(utilisateur)
+    messagerie = MessagerieFactice()
+    entrant = _entrant(update_id=31)
+
+    await traiter_fichier(
+        entrant,
+        messagerie,
+        sessions_test,
+        tmp_path,
+        _ocr_avec_numero_bl,
+        deposant,
+        CHAT_SUPERVISION_INVENTE,
+    )
+
+    document = (await db_session.execute(select(Document))).scalar_one()
+    assert document.photo_compressee is True
+    assert document.numero == NUMERO_BL_INVENTE
+    fichiers = list(tmp_path.glob("*.jpg"))
+    assert len(fichiers) == 1
+    assert fichiers[0].read_bytes() == _CONTENU_TELECHARGE_DEFAUT
 
 
 async def test_traiter_fichier_echec_telechargement_signale_supervision_et_agent(
@@ -967,6 +1099,48 @@ async def test_traiter_fichier_ligne_supervision_fournisseur_et_chantier_resolus
     assert "chantier MAISON TEST (9900000001)" in texte
     assert "fournisseur —" not in texte
     assert "chantier —" not in texte
+
+
+# --------------------------------------------------------------------------
+# Rangement des photos (Task 9, spec §5) : `traiter_fichier` pose un lien
+# physique après l'OCR. La logique de `chemin_range`/`ranger_document` est
+# testée en profondeur dans `test_rangement.py` -- ici, seul le câblage
+# (appelé, et bien après l'OCR) est sous test.
+# --------------------------------------------------------------------------
+
+
+async def test_depot_telegram_range_la_photo(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    tmp_path: Path,
+) -> None:
+    utilisateur = await _creer_utilisateur(
+        db_session, telegram_user_id=9077, nom="Agent Rangement"
+    )
+    deposant = _deposant_depuis(utilisateur)
+    messagerie = MessagerieFactice()
+    entrant = _entrant(update_id=77)
+
+    await traiter_fichier(
+        entrant,
+        messagerie,
+        sessions_test,
+        tmp_path,
+        _ocr_avec_numero_bl,
+        deposant,
+        CHAT_SUPERVISION_INVENTE,
+    )
+
+    document = (await db_session.execute(select(Document))).scalar_one()
+    liens = list(tmp_path.glob("bl/*/*/*"))
+    assert len(liens) == 1
+    lien = liens[0]
+    # Même inode que l'original (lien physique, jamais une copie).
+    assert lien.stat().st_ino == Path(document.fichier_path).stat().st_ino
+    assert f"_n{document.numero_interne}." in lien.name
+    assert "agent-rangement" in lien.name
+    # Aucun chantier résolu par `_ocr_avec_numero_bl` (pas d'annotation).
+    assert "sans-chantier" in lien.name
 
 
 # --------------------------------------------------------------------------

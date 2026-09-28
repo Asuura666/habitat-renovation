@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Aller-retour complet de backup.sh / restore.sh sur un projet compose
-# isolé (bl_restore_test, ports 127.0.0.1:5451 postgres / 127.0.0.1:8451
+# isolé (bl_restore_test, ports 127.0.0.1:5459 postgres / 127.0.0.1:8459
 # api) et un dépôt restic local jetable.
 #
 # Ne touche jamais au projet compose "habitat_reno" ni à son .env : un .env
@@ -14,8 +14,9 @@ set -euo pipefail
 RESTIC_IMAGE="restic/restic:0.19.1"
 POSTGRES_IMAGE="postgres:18"
 PROJECT_NAME="bl_restore_test"
-POSTGRES_PORT="5451"
-API_PORT="8451"
+POSTGRES_PORT="5459"
+# 8450/8451 sont pris par la production et la démo sur le VPS actuel.
+API_PORT="8459"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd)"
@@ -127,6 +128,29 @@ psql_test "$POSTGRES_DB" "INSERT INTO parametre (cle, valeur) VALUES ('test_rest
 echo "contenu inventé pour le test de restauration $(date -u +%FT%TZ)" > "$DOCS_DIR_TEST/test-restauration.txt"
 SHA_AVANT="$(sha256sum "$DOCS_DIR_TEST/test-restauration.txt" | awk '{print $1}')"
 
+# Constat R1 de la revue finale du 25/09/2026 : le fichier ci-dessus est
+# déposé en bash, sous l'utilisateur courant -- jamais avec les droits réels
+# des documents produits par l'API (0640, appartenant à l'uid 10001,
+# Dockerfile "USER 10001", tâche T3). Ce second fichier reproduit ces droits
+# exacts (uid/gid 10001, mode 0640), via un conteneur root jetable qui n'a
+# besoin d'aucune image supplémentaire (réutilise $POSTGRES_IMAGE, déjà
+# nécessaire ci-dessus), pour que ce script détecte si "backup.sh" perd
+# l'accès en lecture à un document réel du client. Le sha256 « avant » est
+# calculé par ce même conteneur root, jamais par l'utilisateur courant du
+# script : une fois chown/chmod appliqués, ce fichier n'est plus lisible
+# par l'utilisateur courant (c'est exactement le comportement reproduit).
+DOCUMENT_UID_10001="$DOCS_DIR_TEST/test-restauration-uid-10001.txt"
+SHA_AVANT_10001="$(
+  docker run --rm \
+    --entrypoint sh \
+    -v "$DOCS_DIR_TEST:$DOCS_DIR_TEST" \
+    "$POSTGRES_IMAGE" \
+    -c "echo 'contenu inventé (uid 10001) pour le test de restauration $(date -u +%FT%TZ)' > '$DOCUMENT_UID_10001' \
+        && chown 10001:10001 '$DOCUMENT_UID_10001' \
+        && chmod 0640 '$DOCUMENT_UID_10001' \
+        && sha256sum '$DOCUMENT_UID_10001' | awk '{print \$1}'"
+)"
+
 REQUETE_COMPTES="SELECT c.relname || ':' || (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM public.%I', c.relname), false, true, '')))[1]::text::bigint FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind = 'r' AND n.nspname = 'public' ORDER BY c.relname;"
 
 COMPTES_AVANT_FILE="$WORK_DIR/comptes-avant.txt"
@@ -187,6 +211,31 @@ if [[ -f "$DOCS_DIR_TEST/test-restauration.txt" ]]; then
   fi
 else
   echo "  - fichier docs restauré : ABSENT" >&2
+  ECHEC=1
+fi
+
+# R1 : le fichier 0640/uid 10001 (droits réels d'un document déposé par
+# l'API) doit avoir survécu au même aller-retour -- sinon "backup.sh" a
+# perdu l'accès en lecture à ce fichier (constat R1 de la revue finale du
+# 25/09/2026, régression de "backup.sh --group-add" si elle réapparaît).
+# Lu par le même conteneur root que pour SHA_AVANT_10001 : l'utilisateur
+# courant du script n'a toujours pas accès à ce fichier 0640/uid 10001.
+if [[ -f "$DOCUMENT_UID_10001" ]]; then
+  SHA_APRES_10001="$(
+    docker run --rm \
+      --entrypoint sh \
+      -v "$DOCS_DIR_TEST:$DOCS_DIR_TEST" \
+      "$POSTGRES_IMAGE" \
+      -c "sha256sum '$DOCUMENT_UID_10001' | awk '{print \$1}'"
+  )"
+  if [[ "$SHA_APRES_10001" == "$SHA_AVANT_10001" ]]; then
+    echo "  - sha256 du fichier docs (0640, uid 10001) : identique ($SHA_APRES_10001)."
+  else
+    echo "  - sha256 du fichier docs (0640, uid 10001) : DIFFÉRENT (avant=$SHA_AVANT_10001 après=$SHA_APRES_10001)" >&2
+    ECHEC=1
+  fi
+else
+  echo "  - fichier docs restauré (0640, uid 10001) : ABSENT" >&2
   ECHEC=1
 fi
 

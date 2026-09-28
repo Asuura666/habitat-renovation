@@ -231,6 +231,7 @@ class DocumentDetailReponse(BaseModel):
     agence_fournisseur: str | None
     chantier_id: uuid.UUID | None
     chantier: str | None
+    legende: str | None
     champs: ChampsDocumentReponse
     lignes: list[LigneDocumentReponse]
     motifs: list[MotifReponse]
@@ -290,6 +291,23 @@ class ArchivageRequete(BaseModel):
         if not valeur.strip():
             raise ValueError("commentaire requis")
         return valeur
+
+
+class ChoixChantierDocumentRequete(BaseModel):
+    """Corps de `PUT /api/documents/{id}/chantier` (Task 6, avenant du
+    27/09/2026, spec §2.4/§2.6) : le chantier choisi par un humain, pour
+    régler une alerte « Chantier à confirmer » (R18) ou corriger le
+    chantier d'un bon depuis sa fiche."""
+
+    chantier_id: uuid.UUID
+
+
+class ChoixChantierDocumentReponse(BaseModel):
+    """Réponse de `PUT /api/documents/{id}/chantier` : le chantier
+    réellement retenu (`ingest.rattachement_chantier.chantier_effectif` du
+    chantier choisi, Task 7)."""
+
+    chantier_id: uuid.UUID
 
 
 # --------------------------------------------------------------------------
@@ -408,10 +426,23 @@ class TraitementAnomalieRequete(BaseModel):
         return valeur
 
 
+class ChantierACompleterReponse(BaseModel):
+    """Un chantier créé automatiquement encore à compléter, dans `GET /api
+    /a-traiter` — mêmes attributs qu'`ingest.a_traiter.ChantierACompleter`
+    (Task 6, avenant du 27/09/2026, spec §2.6)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    nom: str
+    nb_bons: int
+    cree_le: datetime
+
+
 class ATraiterReponse(BaseModel):
     """`GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18),
     complété par `anomalies_hautes` (anomalies ouvertes de gravité haute,
-    L4-D18)."""
+    L4-D18) et `chantiers_a_completer` (Task 6, avenant du 27/09/2026)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -419,6 +450,7 @@ class ATraiterReponse(BaseModel):
     alias: list[AliasEnAttenteReponse]
     articles: list[ArticleAValiderReponse]
     anomalies_hautes: list[AnomalieReponse]
+    chantiers_a_completer: list[ChantierACompleterReponse]
 
 
 class CompteProblemesReponse(BaseModel):
@@ -445,9 +477,18 @@ class CompteProblemesReponse(BaseModel):
 
 
 class ChantierReponse(BaseModel):
-    """Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest
-    .referentiels.ChantierResume`. `client` : ajout hors CDC demandé le
-    23/09/2026 (`docs/dette.md`)."""
+    """Une ligne de `GET /api/chantiers`, et la fiche `GET /api
+    /chantiers/{id}` (Task 7) — mêmes attributs qu'`ingest.referentiels
+    .ChantierResume`. `client` : ajout hors CDC demandé le 23/09/2026
+    (`docs/dette.md`). `a_completer` (Task 6, avenant du 27/09/2026) :
+    chantier créé automatiquement, pas encore complété.
+
+    `fusionne_dans_id`/`fusionne_dans_nom` (Task 7, avenant du 27/09/2026,
+    spec §2.7) : chantier absorbé par un autre (« Fusionner avec… ») --
+    toujours `None` sur `GET /api/chantiers` (qui exclut déjà les chantiers
+    fusionnés, Task 6) ; non `None` seulement quand `GET /api/chantiers
+    /{id}` renvoie un chantier fusionné, pour son bandeau « Ce chantier a
+    été fusionné dans <cible> »."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -456,6 +497,9 @@ class ChantierReponse(BaseModel):
     agence: str | None
     client: str | None
     actif: bool
+    a_completer: bool
+    fusionne_dans_id: uuid.UUID | None
+    fusionne_dans_nom: str | None
 
 
 class ChantierCreationRequete(BaseModel):
@@ -489,6 +533,26 @@ class ChantierModificationRequete(BaseModel):
         if not valeur.strip():
             raise ValueError("nom vide")
         return valeur
+
+
+class FusionChantierRequete(BaseModel):
+    """Corps de `POST /api/chantiers/{id}/fusionner` (Task 7, avenant du
+    27/09/2026, spec §2.7) : `{id}` (source) est fusionné dans `cible_id`."""
+
+    cible_id: uuid.UUID
+
+
+class ResultatFusionReponse(BaseModel):
+    """Réponse de `POST /api/chantiers/{id}/fusionner` — mêmes attributs
+    qu'`ingest.fusion_chantier.ResultatFusion`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    cible_id: uuid.UUID
+    nb_documents: int
+    nb_blocs: int
+    nb_alias: int
+    nb_anomalies: int
 
 
 class AgenceFournisseurReponse(BaseModel):
@@ -613,6 +677,28 @@ class LigneBilanBlReponse(BaseModel):
     montants: MontantsBilanReponse
 
 
+class LigneLivraisonReponse(BaseModel):
+    """Une ligne de `GET /api/bilan/livraisons` (Task 13, mise en production
+    du 1er octobre) -- mêmes attributs qu'`ingest.bilan.LigneLivraison` :
+    ceux de `LigneBilanBlReponse`, plus le chantier et le fournisseur de
+    chaque ligne (cette liste n'est jamais imbriquée sous un chantier et un
+    fournisseur déjà fixés par l'URL, contrairement à `LigneBilanBlReponse`)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    bloc_id: uuid.UUID
+    numero_bl: str | None
+    date_bl: date | None
+    statut_rapprochement: str | None
+    bl_document_id: uuid.UUID | None
+    facture_id: uuid.UUID
+    chantier_id: uuid.UUID | None
+    chantier: str | None
+    fournisseur_id: uuid.UUID | None
+    fournisseur: str | None
+    montants: MontantsBilanReponse
+
+
 # --------------------------------------------------------------------------
 # Tableau de bord du mois (refonte front T2) : schémas construits à partir
 # des dataclasses d'`ingest.tableau_de_bord` (`TotauxMois`,
@@ -687,6 +773,9 @@ class TableauDeBordReponse(BaseModel):
     chantiers: list[ChantierTableauReponse]
     priorites: list[ProblemePrioritaireReponse]
     dernier_mois_facture: date | None
+    nb_bons_recus: int
+    montant_bons_recus: Decimal
+    nb_bons_sans_montant: int
 
 
 class DepotAgentReponse(BaseModel):
@@ -718,7 +807,11 @@ class ChantierSilencieuxReponse(BaseModel):
 
 
 class ParametreReponse(BaseModel):
-    """Un seuil administrable avec ses métadonnées de présentation."""
+    """Un seuil administrable avec ses métadonnées de présentation.
+
+    `interrupteur` et `groupe` (phase 3, §3.4 de la conception des prix) :
+    ajoutés à la fin, présents pour tous les réglages (défauts `False`/``""``
+    pour ceux d'avant cette phase)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -729,6 +822,8 @@ class ParametreReponse(BaseModel):
     minimum: str
     maximum: str
     entier: bool
+    interrupteur: bool = False
+    groupe: str = ""
 
 
 class ModificationParametreRequete(BaseModel):
@@ -791,7 +886,13 @@ class JournalReponse(BaseModel):
     `apres` sont exposés tels quels (JSON brut : `dict[str, Any] | None`,
     décision du contrôleur) — aucune interprétation métier ici, la mise en
     forme lisible revient au front (`Journal.tsx`), même principe que
-    `detail` sur `AnomalieReponse`."""
+    `detail` sur `AnomalieReponse`.
+
+    `noms` (Task 12, spec §4.1) : identifiant (texte) -> nom, pour toute
+    valeur d'`avant`/`apres` que le serveur a su résoudre (compte, chantier,
+    fournisseur — voir `ingest.journal.JournalLue`) ; jamais l'UUID brut
+    côté client, ni un calcul côté front, qui n'a pas accès aux
+    référentiels."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -804,3 +905,517 @@ class JournalReponse(BaseModel):
     avant: dict[str, Any] | None
     apres: dict[str, Any] | None
     horodatage: datetime
+    noms: dict[str, str]
+
+
+# --------------------------------------------------------------------------
+# Comptes (Task 10, spec §3) : schémas construits à partir d'`app.core.auth
+# .CompteLu`, consommés par `api/comptes.py`. `CompteReponse` n'expose jamais
+# `hashed_password`/`mdp_hash` -- `CompteLu` ne les porte même pas (défense
+# en profondeur, décision du contrôleur).
+# --------------------------------------------------------------------------
+
+
+class CompteReponse(BaseModel):
+    """Une ligne de `GET /api/comptes`, et la réponse de chaque route
+    d'écriture de l'écran « Comptes » -- mêmes attributs qu'`app.core.auth
+    .CompteLu`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    nom: str | None
+    email: str
+    role: str
+    agence: str | None
+    telegram_user_id: int | None
+    actif: bool
+    cree_le: datetime
+
+
+class CompteCreationRequete(BaseModel):
+    """Corps de `POST /api/comptes` (spec §3 : « Créer ») : e-mail et nom
+    obligatoires (blanc refusé, même convention que `ChantierCreationRequete`
+    ci-dessus), rôle restreint aux deux valeurs valides (`Literal`, un rôle
+    hors de cet ensemble est un 422 avant même d'atteindre le service),
+    agence et identifiant Telegram facultatifs, mot de passe provisoire
+    (longueur revérifiée par `app.core.auth._mot_de_passe_valide`, jamais
+    ici : une seule source de vérité pour ce seuil)."""
+
+    email: str = Field(min_length=1, max_length=320)
+    nom: str = Field(min_length=1, max_length=200)
+    role: Literal["admin", "agent"]
+    agence: str | None = Field(default=None, max_length=200)
+    telegram_user_id: int | None = None
+    mot_de_passe: str = Field(min_length=1)
+
+    @field_validator("email", "nom")
+    @classmethod
+    def _non_blanc(cls, valeur: str) -> str:
+        if not valeur.strip():
+            raise ValueError("champ requis")
+        return valeur
+
+
+class CompteModificationRequete(BaseModel):
+    """Corps de `PUT /api/comptes/{id}` (spec §3 : « Modifier ») -- jamais le
+    mot de passe (`ChangementMotDePasseRequete` ci-dessous), mêmes règles que
+    `CompteCreationRequete`."""
+
+    email: str = Field(min_length=1, max_length=320)
+    nom: str = Field(min_length=1, max_length=200)
+    role: Literal["admin", "agent"]
+    agence: str | None = Field(default=None, max_length=200)
+    telegram_user_id: int | None = None
+
+    @field_validator("email", "nom")
+    @classmethod
+    def _non_blanc(cls, valeur: str) -> str:
+        if not valeur.strip():
+            raise ValueError("champ requis")
+        return valeur
+
+
+class ChangementMotDePasseRequete(BaseModel):
+    """Corps de `PUT /api/comptes/{id}/mot-de-passe` (spec §3 : « Changer le
+    mot de passe ») : l'admin saisit lui-même le nouveau mot de passe, jamais
+    d'envoi d'e-mail -- longueur revérifiée par `app.core.auth
+    ._mot_de_passe_valide`, jamais ici (même raison que `mot_de_passe`
+    ci-dessus)."""
+
+    mot_de_passe: str = Field(min_length=1)
+
+
+# --------------------------------------------------------------------------
+# Commentaires sur les lignes d'un bon (tâche C2, phase 3) : schémas
+# construits à partir des dataclasses d'`ingest.commentaires`
+# (`CommentaireLu`, `LigneCommentee`, `CommentairesBon`).
+# --------------------------------------------------------------------------
+
+
+class CommentaireReponse(BaseModel):
+    """Un commentaire, sous sa ligne, dans `sans_ligne`, ou seul (retour de
+    `POST /api/commentaires/lignes/{id}`) — mêmes attributs
+    qu'`ingest.commentaires.CommentaireLu`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    ligne_libelle: str
+    auteur: str | None
+    texte: str
+    cree_le: datetime
+
+
+class LigneCommenteeReponse(BaseModel):
+    """Une ligne du bon avec ses commentaires, dans `GET
+    /api/commentaires/documents/{id}` — mêmes attributs
+    qu'`ingest.commentaires.LigneCommentee`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    ligne_id: uuid.UUID
+    code: str | None
+    article: str | None
+    quantite: Decimal | None
+    unite: str | None
+    commentaires: list[CommentaireReponse]
+
+
+class CommentairesBonReponse(BaseModel):
+    """Réponse de `GET /api/commentaires/documents/{id}` — mêmes attributs
+    qu'`ingest.commentaires.CommentairesBon`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    nb_commentaires: int
+    lignes: list[LigneCommenteeReponse]
+    sans_ligne: list[CommentaireReponse]
+
+
+class CommentaireRequete(BaseModel):
+    """Corps de `POST /api/commentaires/lignes/{id}` : borne de taille dès
+    la validation Pydantic (comme `ArchivageRequete`), pour rejeter un corps
+    trop volumineux avant même de le charger entièrement en mémoire. Un
+    texte blanc une fois nettoyé (espaces seuls) passe encore cette borne
+    (`min_length` compte les espaces) : il reste refusé par le service
+    (`ingest.commentaires.ajouter_commentaire`, `str.strip()`,
+    `CommentaireInvalide`, 422)."""
+
+    texte: str = Field(min_length=1, max_length=1000)
+
+
+# --------------------------------------------------------------------------
+# Synthèse hebdomadaire des commentaires (T4, phase 4 IA) : schémas
+# construits à partir des dataclasses d'`ingest.ia_synthese` (`BonLie`,
+# `ActionVue`, `SyntheseVue`, `SyntheseAccueil`), consommés par `api/ia.py`.
+# --------------------------------------------------------------------------
+
+
+class BonLieReponse(BaseModel):
+    """Un bon cité par une action de synthèse — mêmes attributs
+    qu'`ingest.ia_synthese.BonLie`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    document_id: uuid.UUID
+    numero: str | None
+
+
+class ActionSyntheseReponse(BaseModel):
+    """Une action de synthèse, dans `SyntheseReponse.actions` ou
+    `SyntheseAccueilReponse.encore_a_faire` — mêmes attributs
+    qu'`ingest.ia_synthese.ActionVue` ; réponse aussi de `POST /api/ia
+    /synthese/actions/{id}/faite` et `.../a-faire`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    texte: str
+    semaine_debut: date
+    faite_le: datetime | None
+    faite_par: str | None
+    bons: list[BonLieReponse]
+
+
+class SyntheseReponse(BaseModel):
+    """La dernière synthèse (`SyntheseAccueilReponse.derniere`) — mêmes
+    attributs qu'`ingest.ia_synthese.SyntheseVue`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    semaine_debut: date
+    semaine_fin: date
+    statut: str
+    resume: str
+    nb_commentaires: int
+    actions: list[ActionSyntheseReponse]
+
+
+class SyntheseAccueilReponse(BaseModel):
+    """Réponse de `GET /api/ia/synthese` — mêmes attributs
+    qu'`ingest.ia_synthese.SyntheseAccueil`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    ia_active: bool
+    derniere: SyntheseReponse | None
+    encore_a_faire: list[ActionSyntheseReponse]
+
+
+# --------------------------------------------------------------------------
+# Avis de l'IA sur une anomalie de prix (T6, phase 4 IA) : schémas construits
+# à partir des dataclasses d'`ingest.ia_prix` (`ExplicationVue`,
+# `PrixInternetVue`, `AvisIA`), consommés par `GET /api/ia/anomalies/{id}`
+# (`api/ia.py`).
+# --------------------------------------------------------------------------
+
+
+class ExplicationAlerteReponse(BaseModel):
+    """Explication d'une alerte prix — mêmes attributs
+    qu'`ingest.ia_prix.ExplicationVue`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    texte: str
+    cree_le: datetime
+
+
+class PrixInternetReponse(BaseModel):
+    """Dernier prix trouvé sur internet pour le produit d'une anomalie —
+    mêmes attributs qu'`ingest.ia_prix.PrixInternetVue`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    statut: str
+    prix: Decimal | None
+    devise: str | None
+    taxes: str | None
+    unite: str | None
+    conditionnement: str | None
+    produit_trouve: str | None
+    source_url: str | None
+    confiance: str | None
+    raison: str | None
+    consulte_le: datetime
+
+
+class AvisIAReponse(BaseModel):
+    """Réponse de `GET /api/ia/anomalies/{id}` — mêmes attributs
+    qu'`ingest.ia_prix.AvisIA`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    ia_active: bool
+    explication: ExplicationAlerteReponse | None
+    prix_internet: PrixInternetReponse | None
+
+
+class PrixInternetLotReponse(BaseModel):
+    """Réponse de `GET /api/ia/prix-internet` (T10a) — mêmes attributs
+    qu'`ingest.ia_prix.PrixInternetLot`, à ceci près que les identifiants
+    d'anomalie sont des clés texte (JSON n'admet pas l'UUID comme clé
+    d'objet) : réutilise `PrixInternetReponse`, déjà exposé par `GET
+    /api/ia/anomalies/{id}`. Construite à la main par le routeur (jamais
+    `model_validate` : la conversion UUID -> texte des clés n'est pas un
+    changement de forme que `from_attributes` sait faire)."""
+
+    ia_active: bool
+    prix: dict[str, PrixInternetReponse | None]
+
+
+# --------------------------------------------------------------------------
+# Grilles de prix fournisseur (phase 3, tâche P4) : schémas construits à
+# partir des dataclasses d'`ingest.grilles` (`ProduitGrilleAffiche`,
+# `GrilleFournisseur`, `LigneHistorique`, `ApercuImport`, `ImportEffectue`).
+# --------------------------------------------------------------------------
+
+
+class ProduitGrilleReponse(BaseModel):
+    """Un produit de la grille -- mêmes attributs qu'`ingest.grilles
+    .ProduitGrilleAffiche`. Réponse de `GET /api/grilles/fournisseurs/{id}`
+    (dans `GrilleFournisseurReponse.produits`) et de `POST /api/grilles
+    /fournisseurs/{id}/prix` (la ligne enregistrée)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    cle_produit: str
+    reference: str | None
+    designation: str
+    unite_brut: str | None
+    prix_ht: Decimal
+    remise_pct: Decimal | None
+    prix_net: Decimal
+    marque: str | None
+    famille: str | None
+    date_effet: date
+
+
+class GrilleFournisseurReponse(BaseModel):
+    """`GET /api/grilles/fournisseurs/{id}` -- mêmes attributs
+    qu'`ingest.grilles.GrilleFournisseur`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    fournisseur_id: uuid.UUID
+    nom_fournisseur: str
+    nb_produits: int
+    dernier_import_le: datetime | None
+    page: int
+    pages: int
+    produits: list[ProduitGrilleReponse]
+
+
+class LigneHistoriqueReponse(BaseModel):
+    """`GET /api/grilles/fournisseurs/{id}/produits/{cle}/historique` --
+    mêmes attributs qu'`ingest.grilles.LigneHistorique`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    reference: str | None
+    designation: str
+    unite_brut: str | None
+    unite: str | None
+    prix_ht: Decimal
+    remise_pct: Decimal | None
+    prix_net: Decimal
+    marque: str | None
+    famille: str | None
+    date_effet: date
+    retire: bool
+    source: str
+    document_id: uuid.UUID | None
+    ligne_libelle: str | None
+    auteur: str | None
+    created_at: datetime
+
+
+class SaisiePrixRequete(BaseModel):
+    """Corps de `POST /api/grilles/fournisseurs/{id}/prix` (spec §7.4) :
+    `date_effet` absente -> aujourd'hui, résolu par le routeur (le service
+    ne connaît que des dates déjà choisies, comme `ingest.grilles.SaisiePrix`
+    l'exige)."""
+
+    reference: str | None = Field(default=None, max_length=200)
+    designation: str = Field(min_length=1, max_length=500)
+    unite: str | None = Field(default=None, max_length=50)
+    prix_ht: Decimal
+    remise_pct: Decimal | None = None
+    date_effet: date | None = None
+    marque: str | None = Field(default=None, max_length=200)
+    famille: str | None = Field(default=None, max_length=200)
+
+
+class RetraitProduitRequete(BaseModel):
+    """Corps de `POST /api/grilles/fournisseurs/{id}/retrait`."""
+
+    # 4 (préfixe "ref:" ou "nom:") + 500 (désignation maximale, cf.
+    # `SaisiePrixRequete.designation`) : `cle_produit` peut produire jusqu'à
+    # 504 caractères, la colonne `grille_prix.cle_produit` étant un `Text`
+    # non borné (constat relecture qualité, tour 3).
+    cle_produit: str = Field(min_length=1, max_length=504)
+    date_effet: date
+
+
+class LigneCompareeGrilleReponse(BaseModel):
+    """Une ligne « nouveau » ou « modifié » d'un aperçu d'import de grille --
+    mêmes attributs qu'`ingest.grilles.LigneComparee`. Nommée distinctement
+    de `LigneCompareeReponse` (comparaison BL/facture, ci-dessus) : même
+    mot, deux objets métier sans rapport."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    reference: str | None
+    designation: str
+    nouveau_prix_net: Decimal
+    ancien_prix_net: Decimal | None
+    nouvelle_unite: str | None
+    ancienne_unite: str | None
+
+
+class ProduitAbsentReponse(BaseModel):
+    """Un produit en vigueur absent du fichier importé -- mêmes attributs
+    qu'`ingest.grilles.ProduitAbsent`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    reference: str | None
+    designation: str
+    prix_net: Decimal
+
+
+class ErreurImportReponse(BaseModel):
+    """Une ligne du fichier non retenue -- mêmes attributs
+    qu'`ingest.grilles.ErreurImport`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    feuille: str
+    numero_ligne: int
+    message: str
+
+
+class ApercuImportReponse(BaseModel):
+    """`POST /api/grilles/fournisseurs/{id}/import/apercu` -- mêmes
+    attributs qu'`ingest.grilles.ApercuImport`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    nb_nouveaux: int
+    nb_modifies: int
+    nb_inchanges: int
+    nb_erreurs: int
+    nouveaux: list[LigneCompareeGrilleReponse]
+    modifies: list[LigneCompareeGrilleReponse]
+    absents_du_fichier: list[ProduitAbsentReponse]
+    erreurs: list[ErreurImportReponse]
+    feuilles_ignorees: list[str]
+
+
+class ImportEffectueReponse(BaseModel):
+    """`POST /api/grilles/fournisseurs/{id}/import` -- mêmes attributs
+    qu'`ingest.grilles.ImportEffectue`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    import_id: uuid.UUID
+    nb_nouveaux: int
+    nb_modifies: int
+    nb_inchanges: int
+    nb_erreurs: int
+
+
+# --------------------------------------------------------------------------
+# Page « Prix à vérifier » (phase 3, tâche P8) : schémas construits à partir
+# des dataclasses d'`ingest.prix_bl` (`AlerteProduit`, `ValidationPrixEffectuee`,
+# `ResultatRecontrolePrix`).
+# --------------------------------------------------------------------------
+
+
+class AlerteProduitReponse(BaseModel):
+    """Une rangée de `GET /api/prix/alertes` -- mêmes attributs
+    qu'`ingest.prix_bl.AlerteProduit`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    fournisseur_id: uuid.UUID
+    fournisseur: str
+    produit: str
+    code: str | None
+    prix_bon: Decimal
+    unite_bon: str | None
+    date_bon: date
+    nb_bons: int
+    nb_prix_differents: int
+    prix_grille: Decimal | None
+    unite_grille: str | None
+    date_grille: date | None
+    grille_posterieure_au_bon: bool
+    dernier_prix: Decimal | None
+    unite_dernier_prix: str | None
+    date_dernier_prix: date | None
+    numero_facture: str | None
+    ecart_pct: Decimal | None
+    methode: str | None
+    ressemblance: int | None
+    unite_grille_non_comparable: str | None
+    regles: list[str]
+    anomalie_ids: list[uuid.UUID]
+    document_id: uuid.UUID
+    ligne_id: uuid.UUID
+    numero_interne: int | None
+
+
+class ValiderPrixRequete(BaseModel):
+    """Corps de `POST /api/prix/valider` (spec §8.2)."""
+
+    anomalie_ids: list[uuid.UUID] = Field(min_length=1)
+    ligne_id: uuid.UUID
+
+
+class ContesterPrixRequete(BaseModel):
+    """Corps de `POST /api/prix/contester` (spec §8.2) : commentaire
+    obligatoire (validé de nouveau par `ingest.prix_bl.contester_prix`, même
+    principe que `TraitementAnomalieRequete`)."""
+
+    anomalie_ids: list[uuid.UUID] = Field(min_length=1)
+    commentaire: str = Field(min_length=1, max_length=500)
+
+
+class IgnorerPrixRequete(BaseModel):
+    """Corps de `POST /api/prix/ignorer` (spec §8.2) : commentaire
+    facultatif."""
+
+    anomalie_ids: list[uuid.UUID] = Field(min_length=1)
+    commentaire: str | None = Field(default=None, max_length=500)
+
+
+class ValidationPrixReponse(BaseModel):
+    """`POST /api/prix/valider` -- mêmes attributs
+    qu'`ingest.prix_bl.ValidationPrixEffectuee`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    prix_net: Decimal
+    date_effet: date
+    nb_alertes_reglees: int
+
+
+class FermetureAlertesReponse(BaseModel):
+    """`POST /api/prix/contester` et `/ignorer` -- nombre d'alertes
+    fermées."""
+
+    nb_alertes_reglees: int
+
+
+class RecontrolePrixReponse(BaseModel):
+    """`POST /api/prix/recontrole` -- mêmes attributs
+    qu'`ingest.prix_bl.ResultatRecontrolePrix`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    nb_bons: int
+    nb_echecs: int
+    nb_alertes_ouvertes: int

@@ -26,6 +26,15 @@ services:
       context: ..
       dockerfile: Dockerfile
     restart: unless-stopped
+    # Durcissement (T11) : aucune élévation de privilèges, toutes les
+    # capacités Linux retirées (l'API n'en a besoin d'aucune, elle tourne
+    # déjà en uid 10001 non-root — voir Dockerfile), nombre de processus du
+    # conteneur plafonné contre un emballement (fork bomb, fuite).
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - "ALL"
+    pids_limit: 200
     environment:
       # Reconstruite vers l'hôte `postgres` du réseau compose : le `.env` du
       # dépôt n'est jamais copié dans l'image (voir Dockerfile), et sa
@@ -93,11 +102,26 @@ services:
       - "traefik.http.middlewares.entetes-securite.headers.referrerPolicy=same-origin"
       - "traefik.http.middlewares.entetes-securite.headers.stsSeconds=31536000"
       - "traefik.http.middlewares.entetes-securite.headers.stsIncludeSubdomains=true"
-      - "traefik.http.middlewares.entetes-securite.headers.contentSecurityPolicy=default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+      - "traefik.http.middlewares.entetes-securite.headers.contentSecurityPolicy=default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'"
+      - "traefik.http.middlewares.entetes-securite.headers.permissionsPolicy=camera=(), microphone=(), geolocation=(), payment=()"
+      # COOP/CORP : mêmes en-têtes que deploy/nginx/habitat.conf, sans
+      # équivalent nommé côté Traefik (customResponseHeaders générique).
+      # `same-origin` pour les deux — photos de BL et PDF de factures sont
+      # servis et consommés en même origine (voir habitat.conf).
+      - "traefik.http.middlewares.entetes-securite.headers.customResponseHeaders.Cross-Origin-Opener-Policy=same-origin"
+      - "traefik.http.middlewares.entetes-securite.headers.customResponseHeaders.Cross-Origin-Resource-Policy=same-origin"
 
   postgres:
     image: postgres:18
     restart: unless-stopped
+    # Durcissement (T11) : aucune élévation de privilèges, nombre de
+    # processus plafonné. Pas de cap_drop ici : l'image officielle démarre
+    # en root (postgres droppe ses propres privilèges vers l'utilisateur
+    # `postgres` au démarrage) et a besoin de capacités que cap_drop: ALL
+    # retirerait ; voir les vérifications de T11 pour le constat.
+    security_opt:
+      - "no-new-privileges:true"
+    pids_limit: 200
     environment:
       POSTGRES_USER: "${POSTGRES_USER:?POSTGRES_USER manquant}"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant}"

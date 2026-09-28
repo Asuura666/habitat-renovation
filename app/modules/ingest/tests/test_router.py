@@ -43,6 +43,14 @@ CHAT_BL_TEST = 555
 CHAT_SUPERVISION_TEST = 556
 CHAT_ETRANGER_TEST = 777
 
+# T9 (audit rapidité/sécurité du 25/09/2026) : `depot_telegram.traiter_fichier`
+# vérifie désormais la signature du fichier téléchargé avant tout traitement
+# -- signature JPEG valide (`FF D8 FF`) suivie du même repère de contenu
+# qu'avant ce correctif (`contenu-invente-photo`), pour que
+# `MessagerieFactice.telecharger` (toujours en `.jpg`) continue de passer le
+# contrôle.
+_CONTENU_TELECHARGE_TEST = b"\xff\xd8\xff" + b"contenu-invente-photo"
+
 _RE_LIGNE_SUPERVISION = re.compile(
     r"^Document n° (?P<numero_interne>\d+) · BL (?P<bl>.+) · fournisseur — · "
     r"chantier — · (?P<deposant>.+) · (?P<heure>\d{2}:\d{2}) · (?P<statut>\w+)$"
@@ -76,7 +84,7 @@ class MessagerieFactice:
         self.telechargements += 1
         if self.echoue_telechargement:
             raise RuntimeError("échec factice de téléchargement")
-        return FichierTelecharge(contenu=b"contenu-invente-photo", extension="jpg")
+        return FichierTelecharge(contenu=_CONTENU_TELECHARGE_TEST, extension="jpg")
 
     async def repondre(
         self,
@@ -292,7 +300,7 @@ async def test_photo_valide_cree_update_document_fichier_et_reponse(
 
     fichiers = list(tmp_path.glob("*.jpg"))
     assert len(fichiers) == 1
-    assert fichiers[0].read_bytes() == b"contenu-invente-photo"
+    assert fichiers[0].read_bytes() == _CONTENU_TELECHARGE_TEST
     assert document.fichier_path == str(fichiers[0])
 
     assert messagerie.reponses == [

@@ -25,12 +25,14 @@ Responsabilités :
 - `signaler_expediteur_inconnu` (L2-T2) : notifie le groupe de supervision
   qu'un expéditeur non rattaché a tenté un dépôt (L2-D7), sans rien écrire
   ni télécharger ;
-- `traiter_fichier` (T6, complété T6b puis L3-T6, L2-T2) : téléchargement,
-  écriture atomique sur disque, enregistrement du `document` (décisions du
-  contrôleur T6), OCR puis extraction complète du BL déléguée à
-  `ingest/extraction_bl.py` (`_executer_ocr`, décisions du contrôleur T6b et
-  L3-T6 ci-dessous), puis ligne de supervision (remplace L2-D8) et
-  notification d'échec à l'agent (Ruling R22, ci-dessous) ;
+- `traiter_fichier` (T6, complété T6b puis L3-T6, L2-T2, puis Task 9) :
+  téléchargement, écriture atomique sur disque, enregistrement du `document`
+  (décisions du contrôleur T6), OCR puis extraction complète du BL déléguée
+  à `ingest/extraction_bl.py` (`_executer_ocr`, décisions du contrôleur T6b
+  et L3-T6 ci-dessous), lien physique posé sur le serveur
+  (`ingest/rangement.py`, spec §5, `_ranger_photo_sans_lever`), puis ligne
+  de supervision (remplace L2-D8) et notification d'échec à l'agent (Ruling
+  R22, ci-dessous) ;
 - `traiter_clic` (L2-T3, L2-D10) : clic sur un des deux boutons de
   confirmation (« Quantités vérifiées » / « Écart constaté »).
 
@@ -68,6 +70,22 @@ Décisions du contrôleur L2-T2 (liste blanche, groupe BL, supervision) :
   technique) — corrige la dette notée en lot 1 (`docs/dette.md`, T6).
 - Un échec d'envoi d'un message de supervision est journalisé mais ne fait
   jamais échouer `traiter_fichier` (`_envoyer_supervision`).
+
+Audit rapidité et sécurité (T9, 25/09/2026, constat CRITIQUE) — signature du
+fichier reçu vérifiée avant tout traitement :
+- `messagerie.telecharger` déduit `FichierTelecharge.extension` du type MIME
+  *déclaré* par le client Telegram (`messaging.telegram
+  ._fichier_depuis_document`) ou, pour une photo compressée, du chemin
+  renvoyé par `getFile` — jamais confronté au contenu réel jusqu'ici, alors
+  que le dépôt de facture (`factures.deposer_facture`) vérifie déjà
+  `%PDF-`.
+- `ingest.commun.signature_conforme(fichier.extension, fichier.contenu)` est
+  appelée juste après le téléchargement, avant toute écriture disque et
+  avant tout appel OCR : une signature non conforme suit exactement le
+  chemin d'échec d'un échec de téléchargement (journalisation sans donnée
+  client, message de supervision, réponse d'échec à l'agent) — rien n'est
+  jamais écrit sur disque ni transmis à Mistral pour un fichier dont le
+  contenu ne correspond pas à l'extension annoncée.
 """
 
 from __future__ import annotations
@@ -91,12 +109,14 @@ from app.modules.ingest.commun import (
     _journaliser_echec,
     _mime_pour_extension,
     _supprimer_si_existe,
+    signature_conforme,
 )
 from app.modules.ingest.extraction_bl import (
     enregistrer_echec_ocr,
     enregistrer_extraction_bl,
 )
 from app.modules.ingest.models import Document, Journal, TelegramUpdate, Utilisateur
+from app.modules.ingest.rangement import ranger_document
 from app.modules.messaging.base import (
     PREFIXE_ECART_CONSTATE,
     PREFIXE_QUANTITES_VERIFIEES,
@@ -354,6 +374,27 @@ async def _executer_ocr(
     )
 
 
+async def _ranger_photo_sans_lever(
+    sessions: async_sessionmaker[AsyncSession],
+    document_id: uuid.UUID,
+    docs_dir: Path,
+    update_id: int,
+) -> None:
+    """Pose (ou renomme) le lien physique du bon (Task 9, spec §5, `ingest
+    .rangement`) dans une session neuve -- toujours après `_executer_ocr`
+    (le chantier lu a pu y être résolu). N'échoue jamais vers l'appelant :
+    `ranger_document` absorbe déjà toute `OSError`, cette fonction absorbe
+    en plus tout le reste (session injoignable, ...) -- le rangement n'est
+    qu'un confort de consultation sur le serveur (jamais une sauvegarde),
+    un échec ne doit jamais faire échouer un dépôt (rattrapé par `python -m
+    app.cli ranger-photos`)."""
+    try:
+        async with sessions() as session:
+            await ranger_document(session, docs_dir, document_id)
+    except Exception as exc:
+        _journaliser_echec("rangement", update_id, exc)
+
+
 async def traiter_fichier(
     entrant: FichierEntrant,
     messagerie: Messagerie,
@@ -396,6 +437,24 @@ async def traiter_fichier(
         )
         return
 
+    # T9 (audit rapidité/sécurité du 25/09/2026, constat CRITIQUE) : le
+    # contenu réellement téléchargé doit correspondre à l'extension déduite
+    # par `messagerie.telecharger` (elle-même déduite du type MIME déclaré
+    # par le client Telegram, jamais garanti) -- avant toute écriture disque
+    # et avant tout appel OCR, même chemin d'échec qu'un échec de
+    # téléchargement (journalisation sans donnée client, supervision,
+    # réponse d'échec à l'agent).
+    if not signature_conforme(fichier.extension, fichier.contenu):
+        _journaliser_echec(
+            "signature fichier",
+            entrant.update_id,
+            ValueError("signature de fichier non conforme à l'extension déclarée"),
+        )
+        await _signaler_echec_traitement(
+            messagerie, telegram_chat_supervision_id, entrant, "signature"
+        )
+        return
+
     identifiant = uuid.uuid4()
     # `.absolute()` (pas `.resolve()`, qui ferait un accès disque pour
     # résoudre les liens symboliques) : garantit un `fichier_path` absolu
@@ -425,6 +484,7 @@ async def traiter_fichier(
                 telegram_message_id=entrant.message_id,
                 deposant_id=deposant.id,
                 photo_compressee=entrant.compresse,
+                legende=entrant.legende,
             )
             session.add(document)
             # `flush` (pas seulement `commit`) : peuple `document.id` et
@@ -459,6 +519,11 @@ async def traiter_fichier(
         ocr,
         entrant.update_id,
     )
+
+    # Task 9 (spec §5) : posé après la lecture du bon (le chantier lu a pu
+    # être résolu par `_executer_ocr`), jamais avant -- voir
+    # `_ranger_photo_sans_lever`, qui n'échoue jamais vers l'appelant.
+    await _ranger_photo_sans_lever(sessions, document_id, docs_dir, entrant.update_id)
 
     await _envoyer_supervision(
         messagerie,
