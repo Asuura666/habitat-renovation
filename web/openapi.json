@@ -2408,6 +2408,346 @@
     }
    }
   },
+  "/api/grilles/modele": {
+   "get": {
+    "summary": "Modele Grille Endpoint",
+    "operationId": "modele_grille_endpoint_api_grilles_modele_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/grilles/fournisseurs/{fournisseur_id}": {
+   "get": {
+    "summary": "Grille Fournisseur Endpoint",
+    "operationId": "grille_fournisseur_endpoint_api_grilles_fournisseurs__fournisseur_id__get",
+    "parameters": [
+     {
+      "name": "fournisseur_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Fournisseur Id"
+      }
+     },
+     {
+      "name": "recherche",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Recherche"
+      }
+     },
+     {
+      "name": "page",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "default": 1,
+       "title": "Page"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/GrilleFournisseurReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/grilles/fournisseurs/{fournisseur_id}/produits/{cle_produit}/historique": {
+   "get": {
+    "summary": "Historique Produit Endpoint",
+    "operationId": "historique_produit_endpoint_api_grilles_fournisseurs__fournisseur_id__produits__cle_produit__historique_get",
+    "parameters": [
+     {
+      "name": "fournisseur_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Fournisseur Id"
+      }
+     },
+     {
+      "name": "cle_produit",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Cle Produit"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/LigneHistoriqueReponse"
+         },
+         "title": "Response Historique Produit Endpoint Api Grilles Fournisseurs  Fournisseur Id  Produits  Cle Produit  Historique Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/grilles/fournisseurs/{fournisseur_id}/prix": {
+   "post": {
+    "summary": "Enregistrer Prix Endpoint",
+    "operationId": "enregistrer_prix_endpoint_api_grilles_fournisseurs__fournisseur_id__prix_post",
+    "parameters": [
+     {
+      "name": "fournisseur_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Fournisseur Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SaisiePrixRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ProduitGrilleReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/grilles/fournisseurs/{fournisseur_id}/retrait": {
+   "post": {
+    "summary": "Retirer Produit Endpoint",
+    "operationId": "retirer_produit_endpoint_api_grilles_fournisseurs__fournisseur_id__retrait_post",
+    "parameters": [
+     {
+      "name": "fournisseur_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Fournisseur Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RetraitProduitRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "type": "string"
+         },
+         "title": "Response Retirer Produit Endpoint Api Grilles Fournisseurs  Fournisseur Id  Retrait Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/grilles/fournisseurs/{fournisseur_id}/import/apercu": {
+   "post": {
+    "summary": "Apercu Import Endpoint",
+    "operationId": "apercu_import_endpoint_api_grilles_fournisseurs__fournisseur_id__import_apercu_post",
+    "parameters": [
+     {
+      "name": "fournisseur_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Fournisseur Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "multipart/form-data": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_apercu_import_endpoint_api_grilles_fournisseurs__fournisseur_id__import_apercu_post"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ApercuImportReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/grilles/fournisseurs/{fournisseur_id}/import": {
+   "post": {
+    "summary": "Importer Grille Endpoint",
+    "operationId": "importer_grille_endpoint_api_grilles_fournisseurs__fournisseur_id__import_post",
+    "parameters": [
+     {
+      "name": "fournisseur_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Fournisseur Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "multipart/form-data": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_importer_grille_endpoint_api_grilles_fournisseurs__fournisseur_id__import_post"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ImportEffectueReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/health": {
    "get": {
     "summary": "Health",
@@ -2779,6 +3119,75 @@
     "title": "AnomalieReponse",
     "description": "Une anomalie, telle qu'exposée par `GET /api/anomalies` et par\n`POST /api/anomalies/{id}/traitement` — mêmes attributs qu'`ingest\n.anomalies.AnomalieLue`. `detail` est exposé tel quel (`dict[str,\nstr]`, décision du contrôleur) : la phrase de justification est\nconstruite côté front à partir de ce champ (L4-D17), jamais ici."
    },
+   "ApercuImportReponse": {
+    "properties": {
+     "nb_nouveaux": {
+      "type": "integer",
+      "title": "Nb Nouveaux"
+     },
+     "nb_modifies": {
+      "type": "integer",
+      "title": "Nb Modifies"
+     },
+     "nb_inchanges": {
+      "type": "integer",
+      "title": "Nb Inchanges"
+     },
+     "nb_erreurs": {
+      "type": "integer",
+      "title": "Nb Erreurs"
+     },
+     "nouveaux": {
+      "items": {
+       "$ref": "#/components/schemas/LigneCompareeGrilleReponse"
+      },
+      "type": "array",
+      "title": "Nouveaux"
+     },
+     "modifies": {
+      "items": {
+       "$ref": "#/components/schemas/LigneCompareeGrilleReponse"
+      },
+      "type": "array",
+      "title": "Modifies"
+     },
+     "absents_du_fichier": {
+      "items": {
+       "$ref": "#/components/schemas/ProduitAbsentReponse"
+      },
+      "type": "array",
+      "title": "Absents Du Fichier"
+     },
+     "erreurs": {
+      "items": {
+       "$ref": "#/components/schemas/ErreurImportReponse"
+      },
+      "type": "array",
+      "title": "Erreurs"
+     },
+     "feuilles_ignorees": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Feuilles Ignorees"
+     }
+    },
+    "type": "object",
+    "required": [
+     "nb_nouveaux",
+     "nb_modifies",
+     "nb_inchanges",
+     "nb_erreurs",
+     "nouveaux",
+     "modifies",
+     "absents_du_fichier",
+     "erreurs",
+     "feuilles_ignorees"
+    ],
+    "title": "ApercuImportReponse",
+    "description": "`POST /api/grilles/fournisseurs/{id}/import/apercu` -- mêmes\nattributs qu'`ingest.grilles.ApercuImport`."
+   },
    "ArchivageRequete": {
     "properties": {
      "commentaire": {
@@ -3008,6 +3417,26 @@
     "title": "BlocFactureReponse",
     "description": "Un bloc « Concerne le B.L. », dans `GET /api/factures/{id}`\n(`chantier_id`, L3-T7)."
    },
+   "Body_apercu_import_endpoint_api_grilles_fournisseurs__fournisseur_id__import_apercu_post": {
+    "properties": {
+     "fichier": {
+      "type": "string",
+      "contentMediaType": "application/octet-stream",
+      "title": "Fichier"
+     },
+     "date_effet": {
+      "type": "string",
+      "format": "date",
+      "title": "Date Effet"
+     }
+    },
+    "type": "object",
+    "required": [
+     "fichier",
+     "date_effet"
+    ],
+    "title": "Body_apercu_import_endpoint_api_grilles_fournisseurs__fournisseur_id__import_apercu_post"
+   },
    "Body_deposer_facture_pdf_api_factures_post": {
     "properties": {
      "fichier": {
@@ -3021,6 +3450,26 @@
      "fichier"
     ],
     "title": "Body_deposer_facture_pdf_api_factures_post"
+   },
+   "Body_importer_grille_endpoint_api_grilles_fournisseurs__fournisseur_id__import_post": {
+    "properties": {
+     "fichier": {
+      "type": "string",
+      "contentMediaType": "application/octet-stream",
+      "title": "Fichier"
+     },
+     "date_effet": {
+      "type": "string",
+      "format": "date",
+      "title": "Date Effet"
+     }
+    },
+    "type": "object",
+    "required": [
+     "fichier",
+     "date_effet"
+    ],
+    "title": "Body_importer_grille_endpoint_api_grilles_fournisseurs__fournisseur_id__import_post"
    },
    "Body_se_connecter_api_auth_login_post": {
     "properties": {
@@ -3508,6 +3957,8 @@
     "properties": {
      "texte": {
       "type": "string",
+      "maxLength": 1000,
+      "minLength": 1,
       "title": "Texte"
      }
     },
@@ -3516,7 +3967,7 @@
      "texte"
     ],
     "title": "CommentaireRequete",
-    "description": "Corps de `POST /api/commentaires/lignes/{id}` : le texte est nettoyé\net validé (1 à 1000 caractères une fois nettoyé) par le service\n(`ingest.commentaires.ajouter_commentaire`, `CommentaireInvalide`, 422)\n— pas de contrainte Pydantic redondante ici, contrairement à\n`ArchivageRequete`."
+    "description": "Corps de `POST /api/commentaires/lignes/{id}` : borne de taille dès\nla validation Pydantic (comme `ArchivageRequete`), pour rejeter un corps\ntrop volumineux avant même de le charger entièrement en mémoire. Un\ntexte blanc une fois nettoyé (espaces seuls) passe encore cette borne\n(`min_length` compte les espaces) : il reste refusé par le service\n(`ingest.commentaires.ajouter_commentaire`, `str.strip()`,\n`CommentaireInvalide`, 422)."
    },
    "CommentairesBonReponse": {
     "properties": {
@@ -4276,6 +4727,30 @@
     "title": "DocumentReponse",
     "description": "Une ligne de `GET /api/documents` (`confirmation` ajouté au Ruling\nL2-R8, correction de revue L2-T7 : le front ne doit plus dériver\nvérifié/écart à partir de `statut`, qui suit une tout autre logique —\nvoir `ingest/service.py::lister_documents` ; `fournisseur`/\n`chantier_brut` ajoutés en L3-T8a pour un aperçu utile dans la liste ;\n`chantier_id` ajouté au tour de correction 1 de Task 8 — le filtre\n`?chantier=` de la liste « Documents » ne peut comparer un identifiant\nde chantier connu (`?chantier=<id>`, résolu par `GET /api/chantiers`)\nqu'à un identifiant, jamais à un préfixe de texte brut non normalisé\n(`chantier_brut`) ; `date_doc` ajouté au tour de correction 2 — pour un\nBL/enlèvement, la date du bon telle qu'imprimée (sa date de livraison),\npas sa date de dépôt (`cree_le`) : le filtre `?mois=` de la liste\n« Documents » comparait tout document sur `cree_le`, ce qui excluait un\nBL de son mois de livraison réel quand il est déposé un autre mois."
    },
+   "ErreurImportReponse": {
+    "properties": {
+     "feuille": {
+      "type": "string",
+      "title": "Feuille"
+     },
+     "numero_ligne": {
+      "type": "integer",
+      "title": "Numero Ligne"
+     },
+     "message": {
+      "type": "string",
+      "title": "Message"
+     }
+    },
+    "type": "object",
+    "required": [
+     "feuille",
+     "numero_ligne",
+     "message"
+    ],
+    "title": "ErreurImportReponse",
+    "description": "Une ligne du fichier non retenue -- mêmes attributs\nqu'`ingest.grilles.ErreurImport`."
+   },
    "FactureDeposeeReponse": {
     "properties": {
      "id": {
@@ -4534,6 +5009,62 @@
     "title": "FournisseurReponse",
     "description": "Une ligne de `GET /api/fournisseurs` — mêmes attributs qu'`ingest\n.referentiels.FournisseurResume`. `agences` : liste vide si le\nfournisseur n'en a aucune, jamais `null` (Ruling L5-R9)."
    },
+   "GrilleFournisseurReponse": {
+    "properties": {
+     "fournisseur_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Fournisseur Id"
+     },
+     "nom_fournisseur": {
+      "type": "string",
+      "title": "Nom Fournisseur"
+     },
+     "nb_produits": {
+      "type": "integer",
+      "title": "Nb Produits"
+     },
+     "dernier_import_le": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Dernier Import Le"
+     },
+     "page": {
+      "type": "integer",
+      "title": "Page"
+     },
+     "pages": {
+      "type": "integer",
+      "title": "Pages"
+     },
+     "produits": {
+      "items": {
+       "$ref": "#/components/schemas/ProduitGrilleReponse"
+      },
+      "type": "array",
+      "title": "Produits"
+     }
+    },
+    "type": "object",
+    "required": [
+     "fournisseur_id",
+     "nom_fournisseur",
+     "nb_produits",
+     "dernier_import_le",
+     "page",
+     "pages",
+     "produits"
+    ],
+    "title": "GrilleFournisseurReponse",
+    "description": "`GET /api/grilles/fournisseurs/{id}` -- mêmes attributs\nqu'`ingest.grilles.GrilleFournisseur`."
+   },
    "HTTPValidationError": {
     "properties": {
      "detail": {
@@ -4546,6 +5077,41 @@
     },
     "type": "object",
     "title": "HTTPValidationError"
+   },
+   "ImportEffectueReponse": {
+    "properties": {
+     "import_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Import Id"
+     },
+     "nb_nouveaux": {
+      "type": "integer",
+      "title": "Nb Nouveaux"
+     },
+     "nb_modifies": {
+      "type": "integer",
+      "title": "Nb Modifies"
+     },
+     "nb_inchanges": {
+      "type": "integer",
+      "title": "Nb Inchanges"
+     },
+     "nb_erreurs": {
+      "type": "integer",
+      "title": "Nb Erreurs"
+     }
+    },
+    "type": "object",
+    "required": [
+     "import_id",
+     "nb_nouveaux",
+     "nb_modifies",
+     "nb_inchanges",
+     "nb_erreurs"
+    ],
+    "title": "ImportEffectueReponse",
+    "description": "`POST /api/grilles/fournisseurs/{id}/import` -- mêmes attributs\nqu'`ingest.grilles.ImportEffectue`."
    },
    "JournalReponse": {
     "properties": {
@@ -4894,6 +5460,75 @@
     ],
     "title": "LigneCommenteeReponse",
     "description": "Une ligne du bon avec ses commentaires, dans `GET\n/api/commentaires/documents/{id}` — mêmes attributs\nqu'`ingest.commentaires.LigneCommentee`."
+   },
+   "LigneCompareeGrilleReponse": {
+    "properties": {
+     "reference": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reference"
+     },
+     "designation": {
+      "type": "string",
+      "title": "Designation"
+     },
+     "nouveau_prix_net": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Nouveau Prix Net"
+     },
+     "ancien_prix_net": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ancien Prix Net"
+     },
+     "nouvelle_unite": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Nouvelle Unite"
+     },
+     "ancienne_unite": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ancienne Unite"
+     }
+    },
+    "type": "object",
+    "required": [
+     "reference",
+     "designation",
+     "nouveau_prix_net",
+     "ancien_prix_net",
+     "nouvelle_unite",
+     "ancienne_unite"
+    ],
+    "title": "LigneCompareeGrilleReponse",
+    "description": "Une ligne « nouveau » ou « modifié » d'un aperçu d'import de grille --\nmêmes attributs qu'`ingest.grilles.LigneComparee`. Nommée distinctement\nde `LigneCompareeReponse` (comparaison BL/facture, ci-dessus) : même\nmot, deux objets métier sans rapport."
    },
    "LigneCompareeReponse": {
     "properties": {
@@ -5278,6 +5913,170 @@
     "title": "LigneFactureReponse",
     "description": "Une ligne d'un bloc, dans `GET /api/factures/{id}`."
    },
+   "LigneHistoriqueReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "reference": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reference"
+     },
+     "designation": {
+      "type": "string",
+      "title": "Designation"
+     },
+     "unite_brut": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Brut"
+     },
+     "unite": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite"
+     },
+     "prix_ht": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Prix Ht"
+     },
+     "remise_pct": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Remise Pct"
+     },
+     "prix_net": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Prix Net"
+     },
+     "marque": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Marque"
+     },
+     "famille": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Famille"
+     },
+     "date_effet": {
+      "type": "string",
+      "format": "date",
+      "title": "Date Effet"
+     },
+     "retire": {
+      "type": "boolean",
+      "title": "Retire"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source"
+     },
+     "document_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Id"
+     },
+     "ligne_libelle": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ligne Libelle"
+     },
+     "auteur": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Auteur"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Created At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "reference",
+     "designation",
+     "unite_brut",
+     "unite",
+     "prix_ht",
+     "remise_pct",
+     "prix_net",
+     "marque",
+     "famille",
+     "date_effet",
+     "retire",
+     "source",
+     "document_id",
+     "ligne_libelle",
+     "auteur",
+     "created_at"
+    ],
+    "title": "LigneHistoriqueReponse",
+    "description": "`GET /api/grilles/fournisseurs/{id}/produits/{cle}/historique` --\nmêmes attributs qu'`ingest.grilles.LigneHistorique`."
+   },
    "LigneSaisieRequete": {
     "properties": {
      "id": {
@@ -5584,6 +6383,16 @@
      "entier": {
       "type": "boolean",
       "title": "Entier"
+     },
+     "interrupteur": {
+      "type": "boolean",
+      "title": "Interrupteur",
+      "default": false
+     },
+     "groupe": {
+      "type": "string",
+      "title": "Groupe",
+      "default": ""
      }
     },
     "type": "object",
@@ -5597,7 +6406,7 @@
      "entier"
     ],
     "title": "ParametreReponse",
-    "description": "Un seuil administrable avec ses métadonnées de présentation."
+    "description": "Un seuil administrable avec ses métadonnées de présentation.\n\n`interrupteur` et `groupe` (phase 3, §3.4 de la conception des prix) :\najoutés à la fin, présents pour tous les réglages (défauts `False`/``\"\"``\npour ceux d'avant cette phase)."
    },
    "ProblemePrioritaireReponse": {
     "properties": {
@@ -5624,6 +6433,262 @@
     ],
     "title": "ProblemePrioritaireReponse",
     "description": "Une ligne de `priorites` dans `GET /api/tableau-de-bord` — mêmes\nattributs qu'`ingest.tableau_de_bord.ProblemePrioritaire`.\n`montant_en_jeu` vaut `None` quand la règle de l'anomalie n'en porte\npas ou que la valeur lue sur `detail` n'est pas convertible."
+   },
+   "ProduitAbsentReponse": {
+    "properties": {
+     "reference": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reference"
+     },
+     "designation": {
+      "type": "string",
+      "title": "Designation"
+     },
+     "prix_net": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Prix Net"
+     }
+    },
+    "type": "object",
+    "required": [
+     "reference",
+     "designation",
+     "prix_net"
+    ],
+    "title": "ProduitAbsentReponse",
+    "description": "Un produit en vigueur absent du fichier importé -- mêmes attributs\nqu'`ingest.grilles.ProduitAbsent`."
+   },
+   "ProduitGrilleReponse": {
+    "properties": {
+     "cle_produit": {
+      "type": "string",
+      "title": "Cle Produit"
+     },
+     "reference": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reference"
+     },
+     "designation": {
+      "type": "string",
+      "title": "Designation"
+     },
+     "unite_brut": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Brut"
+     },
+     "prix_ht": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Prix Ht"
+     },
+     "remise_pct": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Remise Pct"
+     },
+     "prix_net": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Prix Net"
+     },
+     "marque": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Marque"
+     },
+     "famille": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Famille"
+     },
+     "date_effet": {
+      "type": "string",
+      "format": "date",
+      "title": "Date Effet"
+     }
+    },
+    "type": "object",
+    "required": [
+     "cle_produit",
+     "reference",
+     "designation",
+     "unite_brut",
+     "prix_ht",
+     "remise_pct",
+     "prix_net",
+     "marque",
+     "famille",
+     "date_effet"
+    ],
+    "title": "ProduitGrilleReponse",
+    "description": "Un produit de la grille -- mêmes attributs qu'`ingest.grilles\n.ProduitGrilleAffiche`. Réponse de `GET /api/grilles/fournisseurs/{id}`\n(dans `GrilleFournisseurReponse.produits`) et de `POST /api/grilles\n/fournisseurs/{id}/prix` (la ligne enregistrée)."
+   },
+   "RetraitProduitRequete": {
+    "properties": {
+     "cle_produit": {
+      "type": "string",
+      "maxLength": 504,
+      "minLength": 1,
+      "title": "Cle Produit"
+     },
+     "date_effet": {
+      "type": "string",
+      "format": "date",
+      "title": "Date Effet"
+     }
+    },
+    "type": "object",
+    "required": [
+     "cle_produit",
+     "date_effet"
+    ],
+    "title": "RetraitProduitRequete",
+    "description": "Corps de `POST /api/grilles/fournisseurs/{id}/retrait`."
+   },
+   "SaisiePrixRequete": {
+    "properties": {
+     "reference": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reference"
+     },
+     "designation": {
+      "type": "string",
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Designation"
+     },
+     "unite": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 50
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite"
+     },
+     "prix_ht": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       }
+      ],
+      "title": "Prix Ht"
+     },
+     "remise_pct": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Remise Pct"
+     },
+     "date_effet": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date Effet"
+     },
+     "marque": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Marque"
+     },
+     "famille": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Famille"
+     }
+    },
+    "type": "object",
+    "required": [
+     "designation",
+     "prix_ht"
+    ],
+    "title": "SaisiePrixRequete",
+    "description": "Corps de `POST /api/grilles/fournisseurs/{id}/prix` (spec §7.4) :\n`date_effet` absente -> aujourd'hui, résolu par le routeur (le service\nne connaît que des dates déjà choisies, comme `ingest.grilles.SaisiePrix`\nl'exige)."
    },
    "TableauDeBordReponse": {
     "properties": {

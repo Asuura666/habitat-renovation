@@ -10,6 +10,7 @@ import { DocumentsListe } from "./pages/DocumentsListe";
 import { FicheChantier } from "./pages/FicheChantier";
 import { FicheFournisseur } from "./pages/FicheFournisseur";
 import { FournisseursListe } from "./pages/FournisseursListe";
+import { GrilleFournisseur } from "./pages/GrilleFournisseur";
 import { Journal } from "./pages/Journal";
 import { PageBl } from "./pages/PageBl";
 import { Reglages } from "./pages/Reglages";
@@ -129,6 +130,18 @@ export function App(): ReactElement {
             element={
               <GardeAdmin>
                 <FicheFournisseur />
+              </GardeAdmin>
+            }
+          />
+          {/* Grille de prix d'un fournisseur (phase 3, tâche P5, spec
+              `docs/superpowers/specs/2026-09-27-prix-design.md` §9) —
+              admin seulement, comme les routes `/api/grilles/…`
+              (`admin_requis`, `api/grilles.py`). */}
+          <Route
+            path="fournisseurs/:fournisseurId/prix"
+            element={
+              <GardeAdmin>
+                <GrilleFournisseur />
               </GardeAdmin>
             }
           />

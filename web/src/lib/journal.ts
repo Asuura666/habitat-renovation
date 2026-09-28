@@ -81,6 +81,12 @@ const LIBELLES_ACTION: Record<string, string> = {
   // (spec §4 de `docs/superpowers/specs/2026-09-27-commentaires-lignes-
   // design.md`).
   commentaire_ajoute: "Commentaire ajouté",
+  // Grilles de prix fournisseur (phase 3, tâche P5, `ingest/grilles.py`) :
+  // import d'un fichier Excel confirmé, saisie manuelle d'un prix (« Ajouter
+  // un produit »/« Modifier »), retrait d'un produit de la grille.
+  grille_importee: "Grille importée",
+  grille_prix_saisi: "Prix de grille saisi",
+  grille_prix_retire: "Produit retiré de la grille",
 };
 
 export function libelleAction(action: string): string {
@@ -107,6 +113,8 @@ export const CIBLES_CONNUES = [
   "utilisateur",
   "parametre",
   "commentaire",
+  "grille_import",
+  "grille_prix",
 ] as const;
 
 const LIBELLES_CIBLE: Record<string, string> = {
@@ -124,6 +132,13 @@ const LIBELLES_CIBLE: Record<string, string> = {
   // les autres cibles (constat de relecture, tour 1 de la Task C3,
   // 27/09/2026).
   commentaire: "Commentaire",
+  // Phase 3, tâche P5 : la clé technique brute (un UUID) ne dit rien au
+  // dirigeant -- même principe que les autres cibles ci-dessus, aucune
+  // fiche dédiée n'existe pour un import ou une ligne de grille (`lienCible`
+  // ne construit donc aucun lien pour ces deux cibles, repli défensif comme
+  // le reste de ce fichier).
+  grille_import: "Import de grille",
+  grille_prix: "Grille de prix",
 };
 
 /** Libellé français de l'élément concerné par une entrée (`cible_table`) —

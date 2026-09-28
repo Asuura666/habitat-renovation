@@ -305,9 +305,16 @@ export function FicheFournisseur(): ReactElement {
         surtitre={texteSurtitre(filtresUrl)}
         titre={nom}
         actions={
-          <a href={urlExportBilanChantiersFournisseur(fournisseurId ?? "", filtres)} className={CLASSES_BOUTON_LIEN}>
-            Exporter pour Excel
-          </a>
+          <>
+            {/* Grille de prix du fournisseur (phase 3, tâche P5, spec §9) —
+                lien près de l'en-tête, comme demandé par le plan. */}
+            <Link to={`/fournisseurs/${fournisseurId ?? ""}/prix`} className={CLASSES_BOUTON_LIEN}>
+              Grille de prix
+            </Link>
+            <a href={urlExportBilanChantiersFournisseur(fournisseurId ?? "", filtres)} className={CLASSES_BOUTON_LIEN}>
+              Exporter pour Excel
+            </a>
+          </>
         }
       />
 
