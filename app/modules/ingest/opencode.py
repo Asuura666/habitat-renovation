@@ -22,13 +22,17 @@ API utilisée (extrait réel de l'OpenAPI d'OpenCode 1.18.32,
 Authentification HTTP Basic, utilisateur `opencode`, mot de passe
 `Settings.opencode_mot_de_passe` (§3.3/3.4 de la spec). Aucun message
 d'erreur de ce module ne contient jamais ce mot de passe, le texte envoyé à
-l'IA, ni sa réponse (même principe qu'`ErreurOCR`/`ErreurTelegram`) ; rien de
-tout cela n'est non plus écrit dans un log.
+l'IA, ni sa réponse (même principe qu'`ErreurOCR`/`ErreurTelegram`) ; les
+quelques `logger.warning` de ce module (fix round 1 : échec best-effort de
+la suppression d'une session ou de la journalisation d'un appel) ne portent
+jamais que l'`usage` et le nom de la classe d'une exception, jamais ce mot
+de passe, le texte envoyé ni la réponse.
 """
 
 from __future__ import annotations
 
-import contextlib
+import asyncio
+import logging
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -46,9 +50,19 @@ from app.core.fuseau import FUSEAU_PARIS
 from app.modules.extract.reponses_ia import PageLue
 from app.modules.ingest.models import AppelIA
 
+logger = logging.getLogger(__name__)
+
 _UTILISATEUR_BASIC = "opencode"
 _DELAI_DEFAUT_S = 90.0
 _OUTILS_PAGE = ("webfetch", "websearch")
+# Codes journalisés dans `appel_ia.erreur` pour une exception qui n'est pas
+# une `ErreurIA` (fix round 1) : `_creer_session`/`_envoyer_message` ne
+# lèvent normalement que des `ErreurIA`, mais un bug imprévu ou une
+# annulation de tâche (`asyncio.CancelledError`) doivent quand même être
+# journalisés avant de rejaillir, jamais silencieusement perdus ni
+# transformés en `UnboundLocalError` (voir `interroger`).
+_CODE_ERREUR_INATTENDUE = "inattendue"
+_CODE_ERREUR_INTERROMPU = "interrompu"
 
 
 class ErreurIA(Exception):
@@ -370,16 +384,34 @@ async def interroger(
     5. lecture de la réponse (`_envoyer_message`) ;
     6. suppression de la session OpenCode **toujours** tentée dès qu'elle a
        été créée (succès ou échec) -- un échec de cette suppression est
-       ignoré (`contextlib.suppress`) et ne masque jamais l'erreur d'origine ;
+       ignoré (best-effort) et ne masque jamais l'erreur d'origine ;
     7. une ligne `appel_ia` est **toujours** insérée et commitée (dans une
        session à part, voir `_journaliser_appel`) dès qu'une requête a été
-       tentée (donc jamais pour `IAIndisponible`, toujours pour toute
-       `ErreurIA` ou tout succès).
+       tentée (donc jamais pour `IAIndisponible`, toujours pour toute autre
+       exception ou tout succès).
 
     Délai par défaut 90 s (`delai=None`) ; `prix` passe `delai=240` (recherche
     internet, plus longue). `ErreurIA`/`IAIndisponible` ne contiennent jamais
-    le mot de passe, le texte envoyé, ni la réponse ; rien de tout cela n'est
-    non plus journalisé (aucun `logger.*` dans ce module)."""
+    le mot de passe, le texte envoyé, ni la réponse ; les `logger.warning` de
+    ce module (fix round 1, voir plus bas) non plus, ils ne portent jamais que
+    l'`usage` et le nom de la classe d'une exception.
+
+    Robustesse (fix round 1, revue de la tâche T3) : l'écriture de la ligne
+    `appel_ia` (étape 7) ne doit **jamais** remplacer l'exception d'origine
+    par une exception de comptabilité interne, y compris quand
+    `_creer_session`/`_envoyer_message` lève autre chose qu'une `ErreurIA`
+    (bug imprévu -- code `"inattendue"`) ou une `asyncio.CancelledError`
+    (annulation de la tâche -- code `"interrompu"`, jamais avalée : elle est
+    quand même journalisée avant de rejaillir, mais aucun `except Exception`
+    de cette fonction ne la capture jamais, puisqu'elle hérite de
+    `BaseException` depuis Python 3.8). Si la suppression de la session
+    (étape 6) est elle-même annulée, l'annulation prend le pas sur toute
+    erreur déjà en cours (elle sera rejaillie après la journalisation). Si la
+    journalisation elle-même échoue : sur un chemin d'échec, l'exception
+    d'origine est rejaillie **inchangée** (le même objet, jamais enveloppé) et
+    l'échec de la journalisation n'est que journalisé (`logger.warning`, sans
+    aucun contenu) ; sur le chemin de succès, un échec de la journalisation
+    remonte tel quel (rien à préserver derrière)."""
     if not ia_active():
         raise IAIndisponible("eteinte")
 
@@ -393,10 +425,16 @@ async def interroger(
 
     debut = time.monotonic()
     session_id: str | None = None
-    code_erreur: str | None
+    resultat: tuple[Any, tuple[PageLue, ...], str | None] | None = None
+    # Toujours bindés avant le `try` (fix round 1) : aucune exception, connue
+    # ou non, ne peut jamais laisser ces deux variables non définies au
+    # moment de la journalisation ci-dessous.
+    exception_survenue: BaseException | None = None
+    code_erreur: str | None = None
+
     try:
         session_id = await _creer_session(http, url, auth, usage, delai_effectif)
-        structure, pages, modele = await _envoyer_message(
+        resultat = await _envoyer_message(
             http,
             url,
             auth,
@@ -408,23 +446,63 @@ async def interroger(
         )
     except ErreurIA as erreur:
         code_erreur = erreur.code
-        raise
-    else:
-        code_erreur = None
-    finally:
-        if session_id is not None:
-            with contextlib.suppress(httpx.HTTPError):
-                reponse_suppression = await http.delete(
-                    f"{url}/session/{session_id}", auth=auth, timeout=delai_effectif
-                )
-                reponse_suppression.raise_for_status()
-        duree_ms = round((time.monotonic() - debut) * 1000)
+        exception_survenue = erreur
+    except asyncio.CancelledError as erreur:
+        code_erreur = _CODE_ERREUR_INTERROMPU
+        exception_survenue = erreur
+    except Exception as erreur:
+        code_erreur = _CODE_ERREUR_INATTENDUE
+        exception_survenue = erreur
+
+    if session_id is not None:
+        try:
+            reponse_suppression = await http.delete(
+                f"{url}/session/{session_id}", auth=auth, timeout=delai_effectif
+            )
+            reponse_suppression.raise_for_status()
+        except asyncio.CancelledError as erreur:
+            # Une annulation pendant la suppression prime sur toute erreur
+            # déjà en cours (jamais avalée) : elle remplace `exception_
+            # survenue`, rejaillie après la journalisation ci-dessous.
+            code_erreur = _CODE_ERREUR_INTERROMPU
+            exception_survenue = erreur
+        except Exception as erreur_suppression:
+            # Best-effort (§module) : jamais l'erreur d'origine (si déjà
+            # connue) n'est remplacée par un échec de suppression. Seul le
+            # nom de la classe est journalisé, jamais un message qui
+            # pourrait embarquer une URL ou un fragment de réponse.
+            logger.warning(
+                "échec de la suppression d'une session OpenCode : %s",
+                type(erreur_suppression).__name__,
+            )
+
+    duree_ms = round((time.monotonic() - debut) * 1000)
+
+    try:
         await _journaliser_appel(
             session,
             usage=usage,
-            statut="erreur" if code_erreur is not None else "ok",
+            statut="erreur" if exception_survenue is not None else "ok",
             erreur=code_erreur,
             duree_ms=duree_ms,
         )
+    except Exception as erreur_journal:
+        if exception_survenue is not None:
+            logger.warning(
+                "échec de la journalisation d'un appel IA en échec (usage=%s) : %s",
+                usage,
+                type(erreur_journal).__name__,
+            )
+            raise exception_survenue from None
+        raise
 
+    if exception_survenue is not None:
+        raise exception_survenue
+
+    if resultat is None:
+        raise RuntimeError(
+            "état interne incohérent (ni exception ni résultat) -- ne "
+            "devrait jamais arriver"
+        )
+    structure, pages, modele = resultat
     return ReponseIA(structure=structure, pages=pages, modele=modele, duree_ms=duree_ms)

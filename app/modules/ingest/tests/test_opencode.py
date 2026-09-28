@@ -9,6 +9,7 @@ jamais son contenu recopié tel quel.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from collections.abc import Callable
@@ -563,3 +564,163 @@ async def test_ligne_appel_ia_commitee_malgre_rollback_de_lappelant(
 
     fournisseurs = (await db_session.execute(select(Fournisseur))).scalars().all()
     assert fournisseurs == []
+
+
+# --------------------------------------------------------------------------
+# Fix round 1 : robustesse face à une exception inattendue / une annulation
+# (`code_erreur` ne doit jamais rester non lié, la journalisation ne doit
+# jamais remplacer l'exception d'origine).
+# --------------------------------------------------------------------------
+
+
+async def test_interroger_exception_inattendue_est_rejaillie_identique_et_journalisee(
+    db_session: AsyncSession,
+) -> None:
+    """Un bug imprévu (ici une `RuntimeError` levée pendant l'appel réseau du
+    message, jamais une `ErreurIA`) doit rejaillir tel quel -- ni avalé, ni
+    remplacé par une `UnboundLocalError` de comptabilité interne -- tout en
+    étant journalisé (`appel_ia`, code `"inattendue"`) et en tentant quand
+    même la suppression de la session."""
+    requetes: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requetes.append(request)
+        if request.method == "POST" and request.url.path == "/session":
+            return httpx.Response(200, json={"id": "ses_test_1"})
+        if (
+            request.method == "POST"
+            and request.url.path == "/session/ses_test_1/message"
+        ):
+            raise RuntimeError("boum inventé, bug imprévu")
+        if request.method == "DELETE" and request.url.path == "/session/ses_test_1":
+            return httpx.Response(200, json=True)
+        raise AssertionError(f"requête inattendue : {request.method} {request.url}")
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(RuntimeError, match="boum inventé, bug imprévu") as exc_info:
+        await interroger(
+            db_session,
+            http,
+            usage="synthese",
+            agent="habitat-synthese",
+            texte=TEXTE_ENVOYE_INVENTE,
+            schema=SCHEMA_INVENTE,
+        )
+
+    # Le même objet exception, jamais enveloppé dans une `ErreurIA`.
+    assert type(exc_info.value) is RuntimeError
+    assert exc_info.value.__cause__ is None
+
+    # La session est quand même supprimée (best-effort).
+    assert [(r.method, r.url.path) for r in requetes] == [
+        ("POST", "/session"),
+        ("POST", "/session/ses_test_1/message"),
+        ("DELETE", "/session/ses_test_1"),
+    ]
+
+    lignes = (await db_session.execute(select(AppelIA))).scalars().all()
+    assert len(lignes) == 1
+    assert lignes[0].usage == "synthese"
+    assert lignes[0].statut == "erreur"
+    assert lignes[0].erreur == "inattendue"
+
+
+async def test_interroger_annulation_pendant_le_message_est_rejaillie_et_journalisee(
+    db_session: AsyncSession,
+) -> None:
+    """`asyncio.CancelledError` (hérite de `BaseException`, pas d'`Exception`
+    depuis Python 3.8) ne doit jamais être avalée : elle est journalisée
+    (code `"interrompu"`) puis rejaillit sans changer de type."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path == "/session":
+            return httpx.Response(200, json={"id": "ses_test_1"})
+        if (
+            request.method == "POST"
+            and request.url.path == "/session/ses_test_1/message"
+        ):
+            raise asyncio.CancelledError()
+        if request.method == "DELETE" and request.url.path == "/session/ses_test_1":
+            return httpx.Response(200, json=True)
+        raise AssertionError(f"requête inattendue : {request.method} {request.url}")
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(asyncio.CancelledError):
+        await interroger(
+            db_session,
+            http,
+            usage="synthese",
+            agent="habitat-synthese",
+            texte=TEXTE_ENVOYE_INVENTE,
+            schema=SCHEMA_INVENTE,
+        )
+
+    lignes = (await db_session.execute(select(AppelIA))).scalars().all()
+    assert len(lignes) == 1
+    assert lignes[0].statut == "erreur"
+    assert lignes[0].erreur == "interrompu"
+
+
+async def test_interroger_exception_inattendue_pendant_la_suppression_napres_succes(
+    db_session: AsyncSession,
+) -> None:
+    """Une exception qui n'est pas `httpx.HTTPError` pendant la suppression
+    (best-effort, ici une `RuntimeError`) après un message réussi ne doit
+    jamais empêcher le résultat d'être renvoyé, ni transformer la ligne
+    `appel_ia` en échec."""
+    reponses_base = _reponse_nominale()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "DELETE":
+            raise RuntimeError("boum inventé pendant la suppression")
+        return _handler_json(reponses_base)(request)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    resultat = await interroger(
+        db_session,
+        http,
+        usage="synthese",
+        agent="habitat-synthese",
+        texte=TEXTE_ENVOYE_INVENTE,
+        schema=SCHEMA_INVENTE,
+    )
+
+    assert resultat.structure == {"resume": "résumé inventé", "actions": []}
+
+    lignes = (await db_session.execute(select(AppelIA))).scalars().all()
+    assert len(lignes) == 1
+    assert lignes[0].statut == "ok"
+    assert lignes[0].erreur is None
+
+
+async def test_interroger_journal_defaillant_sur_echec_ne_masque_pas_lorigine(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Si la journalisation elle-même échoue sur un chemin d'échec,
+    l'exception d'origine (ici une `ErreurIA` `http_401`) doit continuer à
+    remonter -- jamais remplacée par l'échec de comptabilité interne."""
+
+    async def _journal_qui_echoue(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("panne de la base inventée pour le test")
+
+    monkeypatch.setattr(opencode, "_journaliser_appel", _journal_qui_echoue)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"message": "non autorisé"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(ErreurIA) as exc_info:
+        await interroger(
+            db_session,
+            http,
+            usage="prix",
+            agent="habitat-prix",
+            texte=TEXTE_ENVOYE_INVENTE,
+            schema=SCHEMA_INVENTE,
+        )
+
+    assert exc_info.value.code == "http_401"

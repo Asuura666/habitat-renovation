@@ -345,6 +345,23 @@ def test_ia_active_sans_mot_de_passe_refuse_et_nomme_la_variable(
     assert "OPENCODE_MOT_DE_PASSE" in str(exc_info.value)
 
 
+def test_ia_active_avec_mot_de_passe_vide_refuse(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Fix round 1 : « absent ou vide » (brief T3) vaut aussi pour
+    `OPENCODE_MOT_DE_PASSE`, même garde que pour `OPENCODE_URL` vide
+    (`test_ia_active_avec_opencode_url_vide_refuse`)."""
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+    monkeypatch.setenv("IA_ACTIVE", "true")
+    monkeypatch.setenv("OPENCODE_URL", "http://opencode:4096")
+    monkeypatch.setenv("OPENCODE_MOT_DE_PASSE", "")
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert "OPENCODE_MOT_DE_PASSE" in str(exc_info.value)
+
+
 def test_ia_active_complete_ok(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
     monkeypatch.setenv("IA_ACTIVE", "true")
