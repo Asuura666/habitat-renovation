@@ -35,6 +35,13 @@ LIVRÉE / QTÉ TOTALE de la facture Unikalo, pour la comparaison du lot 4) ;
 une ligne d'éco-participation (`extract.bl.est_ligne_eco`) est typée `eco`
 et ne déclenche jamais de proposition d'article (L3-D26).
 
+Contrôle des prix du bon (phase 3, tâche P7, spec `docs/superpowers/specs/
+2026-09-27-prix-design.md` §6.2) : `controler_prix_bl_sans_echec` est
+appelée après chaque `_rapprocher_si_numero` ci-dessous (les deux chemins,
+annotation illisible comme extraction normale) -- ne fait jamais échouer
+l'extraction, déjà commitée à ce stade (même garantie que
+`_rapprocher_si_numero`).
+
 Concurrence (fix round 1, finding 3) : deux dépôts du même numéro pour le
 même fournisseur, traités en même temps, peuvent tous les deux passer
 `_numero_interne_doublon` avant que l'un des deux commit — le second lève
@@ -80,6 +87,7 @@ from app.modules.extract.verification import (
     verifier_bl,
 )
 from app.modules.ingest.models import Document, Journal, Ligne
+from app.modules.ingest.prix_bl import controler_prix_bl_sans_echec
 from app.modules.ingest.rapprochement import rapprocher_factures_du_bl
 from app.modules.ingest.rattachement_chantier import rattacher_chantier_document
 from app.modules.ingest.referentiels import (
@@ -334,6 +342,7 @@ async def enregistrer_extraction_bl(
             lambda: _enregistrer_annotation_illisible(session, document, reponse),
         )
         await _rapprocher_si_numero(session, document_id, resultat)
+        await controler_prix_bl_sans_echec(session, document_id)
         return resultat
 
     resultat = await _avec_reprise_doublon(
@@ -344,6 +353,7 @@ async def enregistrer_extraction_bl(
         ),
     )
     await _rapprocher_si_numero(session, document_id, resultat)
+    await controler_prix_bl_sans_echec(session, document_id)
     return resultat
 
 

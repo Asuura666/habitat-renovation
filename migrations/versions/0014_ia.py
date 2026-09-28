@@ -5,16 +5,16 @@ l'explication des alertes prix (§5.3) et du prix trouvé sur internet (§6.3).
 `appel_ia` est le journal technique commun aux trois usages (jamais le texte
 envoyé ni la réponse, sert au plafond quotidien).
 
-`down_revision = "0012"` : le lot Prix (session B, branche
-`feature/phase-3-prix`) ajoute en parallèle une migration `0013`. Cette
-branche (`feature/phase-4-ia`) ne la voit pas encore ; la chaîne
-`0012 -> 0013 -> 0014` sera remise en ligne par la branche qui fusionne dans
-`dev` en second (roadmap §2.4, vérifié par `tests/test_migrations.py`).
+`down_revision = "0013"` : la migration a d'abord été écrite sur `0012`,
+pendant que le lot Prix (session B, branche `feature/phase-3-prix`) ajoutait
+`0013` en parallèle ; la chaîne a été remise en ligne `0012 -> 0013 ->
+0014` à la fusion de `dev` dans la branche du lot Prix (roadmap §2.4,
+vérifié par `tests/test_migrations.py`), aucune des deux n'étant déployée.
 
 Autogénérée depuis `app/modules/ingest/models.py` puis relue.
 
 Revision ID: 0014
-Revises: 0012
+Revises: 0013
 Create Date: 2026-09-27 16:00:00.000000
 """
 
@@ -27,7 +27,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0014"
-down_revision: str | None = "0012"
+down_revision: str | None = "0013"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -153,6 +153,7 @@ from app.modules.ingest.bilan import (
     _sous_requete_blocs,
     bilan_par_chantier,
 )
+from app.modules.ingest.commun import regles_masquees
 from app.modules.ingest.lecture import TYPES_BL
 from app.modules.ingest.models import Document
 
@@ -309,8 +310,13 @@ async def _anomalies_ouvertes_du_mois(
     recalculés ici ; `lister_anomalies(ids=..., limite=len(ids))` les relit
     ensuite sous leur forme `AnomalieLue` complète, sans plafond arbitraire
     (la portée est déjà bornée par la sous-requête du mois)."""
+    exclues = await regles_masquees(session)
     ids_anomalies = (
-        (await session.execute(select(_sous_requete_anomalies(mois).c.anomalie_id)))
+        (
+            await session.execute(
+                select(_sous_requete_anomalies(mois, exclues).c.anomalie_id)
+            )
+        )
         .scalars()
         .all()
     )
@@ -328,7 +334,8 @@ async def _compter_blocs(session: AsyncSession, *, mois: date) -> tuple[int, int
     (`_anomalies_qte_prix_par_bloc`, qui porte `nb_bl_manquant`), jamais une
     seconde définition du périmètre du mois."""
     blocs = _sous_requete_blocs(_conditions_base(mois))
-    comptes = _anomalies_qte_prix_par_bloc(_sous_requete_anomalies(mois))
+    exclues = await regles_masquees(session)
+    comptes = _anomalies_qte_prix_par_bloc(_sous_requete_anomalies(mois, exclues))
     resultat = (
         await session.execute(
             select(

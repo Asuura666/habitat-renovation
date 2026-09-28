@@ -807,7 +807,11 @@ class ChantierSilencieuxReponse(BaseModel):
 
 
 class ParametreReponse(BaseModel):
-    """Un seuil administrable avec ses métadonnées de présentation."""
+    """Un seuil administrable avec ses métadonnées de présentation.
+
+    `interrupteur` et `groupe` (phase 3, §3.4 de la conception des prix) :
+    ajoutés à la fin, présents pour tous les réglages (défauts `False`/``""``
+    pour ceux d'avant cette phase)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -818,6 +822,8 @@ class ParametreReponse(BaseModel):
     minimum: str
     maximum: str
     entier: bool
+    interrupteur: bool = False
+    groupe: str = ""
 
 
 class ModificationParametreRequete(BaseModel):
@@ -1144,3 +1150,259 @@ class AvisIAReponse(BaseModel):
     ia_active: bool
     explication: ExplicationAlerteReponse | None
     prix_internet: PrixInternetReponse | None
+
+
+# --------------------------------------------------------------------------
+# Grilles de prix fournisseur (phase 3, tâche P4) : schémas construits à
+# partir des dataclasses d'`ingest.grilles` (`ProduitGrilleAffiche`,
+# `GrilleFournisseur`, `LigneHistorique`, `ApercuImport`, `ImportEffectue`).
+# --------------------------------------------------------------------------
+
+
+class ProduitGrilleReponse(BaseModel):
+    """Un produit de la grille -- mêmes attributs qu'`ingest.grilles
+    .ProduitGrilleAffiche`. Réponse de `GET /api/grilles/fournisseurs/{id}`
+    (dans `GrilleFournisseurReponse.produits`) et de `POST /api/grilles
+    /fournisseurs/{id}/prix` (la ligne enregistrée)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    cle_produit: str
+    reference: str | None
+    designation: str
+    unite_brut: str | None
+    prix_ht: Decimal
+    remise_pct: Decimal | None
+    prix_net: Decimal
+    marque: str | None
+    famille: str | None
+    date_effet: date
+
+
+class GrilleFournisseurReponse(BaseModel):
+    """`GET /api/grilles/fournisseurs/{id}` -- mêmes attributs
+    qu'`ingest.grilles.GrilleFournisseur`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    fournisseur_id: uuid.UUID
+    nom_fournisseur: str
+    nb_produits: int
+    dernier_import_le: datetime | None
+    page: int
+    pages: int
+    produits: list[ProduitGrilleReponse]
+
+
+class LigneHistoriqueReponse(BaseModel):
+    """`GET /api/grilles/fournisseurs/{id}/produits/{cle}/historique` --
+    mêmes attributs qu'`ingest.grilles.LigneHistorique`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    reference: str | None
+    designation: str
+    unite_brut: str | None
+    unite: str | None
+    prix_ht: Decimal
+    remise_pct: Decimal | None
+    prix_net: Decimal
+    marque: str | None
+    famille: str | None
+    date_effet: date
+    retire: bool
+    source: str
+    document_id: uuid.UUID | None
+    ligne_libelle: str | None
+    auteur: str | None
+    created_at: datetime
+
+
+class SaisiePrixRequete(BaseModel):
+    """Corps de `POST /api/grilles/fournisseurs/{id}/prix` (spec §7.4) :
+    `date_effet` absente -> aujourd'hui, résolu par le routeur (le service
+    ne connaît que des dates déjà choisies, comme `ingest.grilles.SaisiePrix`
+    l'exige)."""
+
+    reference: str | None = Field(default=None, max_length=200)
+    designation: str = Field(min_length=1, max_length=500)
+    unite: str | None = Field(default=None, max_length=50)
+    prix_ht: Decimal
+    remise_pct: Decimal | None = None
+    date_effet: date | None = None
+    marque: str | None = Field(default=None, max_length=200)
+    famille: str | None = Field(default=None, max_length=200)
+
+
+class RetraitProduitRequete(BaseModel):
+    """Corps de `POST /api/grilles/fournisseurs/{id}/retrait`."""
+
+    # 4 (préfixe "ref:" ou "nom:") + 500 (désignation maximale, cf.
+    # `SaisiePrixRequete.designation`) : `cle_produit` peut produire jusqu'à
+    # 504 caractères, la colonne `grille_prix.cle_produit` étant un `Text`
+    # non borné (constat relecture qualité, tour 3).
+    cle_produit: str = Field(min_length=1, max_length=504)
+    date_effet: date
+
+
+class LigneCompareeGrilleReponse(BaseModel):
+    """Une ligne « nouveau » ou « modifié » d'un aperçu d'import de grille --
+    mêmes attributs qu'`ingest.grilles.LigneComparee`. Nommée distinctement
+    de `LigneCompareeReponse` (comparaison BL/facture, ci-dessus) : même
+    mot, deux objets métier sans rapport."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    reference: str | None
+    designation: str
+    nouveau_prix_net: Decimal
+    ancien_prix_net: Decimal | None
+    nouvelle_unite: str | None
+    ancienne_unite: str | None
+
+
+class ProduitAbsentReponse(BaseModel):
+    """Un produit en vigueur absent du fichier importé -- mêmes attributs
+    qu'`ingest.grilles.ProduitAbsent`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    reference: str | None
+    designation: str
+    prix_net: Decimal
+
+
+class ErreurImportReponse(BaseModel):
+    """Une ligne du fichier non retenue -- mêmes attributs
+    qu'`ingest.grilles.ErreurImport`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    feuille: str
+    numero_ligne: int
+    message: str
+
+
+class ApercuImportReponse(BaseModel):
+    """`POST /api/grilles/fournisseurs/{id}/import/apercu` -- mêmes
+    attributs qu'`ingest.grilles.ApercuImport`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    nb_nouveaux: int
+    nb_modifies: int
+    nb_inchanges: int
+    nb_erreurs: int
+    nouveaux: list[LigneCompareeGrilleReponse]
+    modifies: list[LigneCompareeGrilleReponse]
+    absents_du_fichier: list[ProduitAbsentReponse]
+    erreurs: list[ErreurImportReponse]
+    feuilles_ignorees: list[str]
+
+
+class ImportEffectueReponse(BaseModel):
+    """`POST /api/grilles/fournisseurs/{id}/import` -- mêmes attributs
+    qu'`ingest.grilles.ImportEffectue`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    import_id: uuid.UUID
+    nb_nouveaux: int
+    nb_modifies: int
+    nb_inchanges: int
+    nb_erreurs: int
+
+
+# --------------------------------------------------------------------------
+# Page « Prix à vérifier » (phase 3, tâche P8) : schémas construits à partir
+# des dataclasses d'`ingest.prix_bl` (`AlerteProduit`, `ValidationPrixEffectuee`,
+# `ResultatRecontrolePrix`).
+# --------------------------------------------------------------------------
+
+
+class AlerteProduitReponse(BaseModel):
+    """Une rangée de `GET /api/prix/alertes` -- mêmes attributs
+    qu'`ingest.prix_bl.AlerteProduit`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    fournisseur_id: uuid.UUID
+    fournisseur: str
+    produit: str
+    code: str | None
+    prix_bon: Decimal
+    unite_bon: str | None
+    date_bon: date
+    nb_bons: int
+    nb_prix_differents: int
+    prix_grille: Decimal | None
+    unite_grille: str | None
+    date_grille: date | None
+    grille_posterieure_au_bon: bool
+    dernier_prix: Decimal | None
+    unite_dernier_prix: str | None
+    date_dernier_prix: date | None
+    numero_facture: str | None
+    ecart_pct: Decimal | None
+    methode: str | None
+    ressemblance: int | None
+    unite_grille_non_comparable: str | None
+    regles: list[str]
+    anomalie_ids: list[uuid.UUID]
+    document_id: uuid.UUID
+    ligne_id: uuid.UUID
+    numero_interne: int | None
+
+
+class ValiderPrixRequete(BaseModel):
+    """Corps de `POST /api/prix/valider` (spec §8.2)."""
+
+    anomalie_ids: list[uuid.UUID] = Field(min_length=1)
+    ligne_id: uuid.UUID
+
+
+class ContesterPrixRequete(BaseModel):
+    """Corps de `POST /api/prix/contester` (spec §8.2) : commentaire
+    obligatoire (validé de nouveau par `ingest.prix_bl.contester_prix`, même
+    principe que `TraitementAnomalieRequete`)."""
+
+    anomalie_ids: list[uuid.UUID] = Field(min_length=1)
+    commentaire: str = Field(min_length=1, max_length=500)
+
+
+class IgnorerPrixRequete(BaseModel):
+    """Corps de `POST /api/prix/ignorer` (spec §8.2) : commentaire
+    facultatif."""
+
+    anomalie_ids: list[uuid.UUID] = Field(min_length=1)
+    commentaire: str | None = Field(default=None, max_length=500)
+
+
+class ValidationPrixReponse(BaseModel):
+    """`POST /api/prix/valider` -- mêmes attributs
+    qu'`ingest.prix_bl.ValidationPrixEffectuee`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    prix_net: Decimal
+    date_effet: date
+    nb_alertes_reglees: int
+
+
+class FermetureAlertesReponse(BaseModel):
+    """`POST /api/prix/contester` et `/ignorer` -- nombre d'alertes
+    fermées."""
+
+    nb_alertes_reglees: int
+
+
+class RecontrolePrixReponse(BaseModel):
+    """`POST /api/prix/recontrole` -- mêmes attributs
+    qu'`ingest.prix_bl.ResultatRecontrolePrix`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    nb_bons: int
+    nb_echecs: int
+    nb_alertes_ouvertes: int

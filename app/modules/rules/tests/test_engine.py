@@ -27,9 +27,11 @@ from typing import Any
 from app.modules.rules.engine import (
     REGLES_CHANTIER,
     REGLES_FACTURE,
+    REGLES_PRIX_BL,
     REGLES_SUIVI,
     evaluer_chantier,
     evaluer_facture,
+    evaluer_prix_bl,
     evaluer_suivi,
 )
 from app.modules.rules.modeles import (
@@ -44,8 +46,11 @@ from app.modules.rules.modeles import (
     Gravite,
     HistoriqueArticle,
     LigneControlee,
+    LignePrixBl,
     LigneRapprochee,
     Parametres,
+    ParametresPrixBl,
+    ReferencePrix,
 )
 
 
@@ -1024,18 +1029,24 @@ def test_evaluer_suivi_regles_actives_filtre_regle_sans_garde_dediee() -> None:
     assert [a.regle for a in anomalies] == ["R06", "R15", "R16"]
 
 
-def test_regles_facture_et_suivi_sont_disjointes_et_couvrent_r01_a_r17() -> None:
+def test_regles_des_quatre_scopes_sont_disjointes_et_couvrent_r01_a_r25() -> None:
     """Adjonction du contrôleur (L4-T5), étendue par l'avenant du
-    27/09/2026 : `REGLES_FACTURE`/`REGLES_SUIVI`/`REGLES_CHANTIER` sont
-    l'unique source de vérité des scopes du moteur — une règle ajoutée plus
-    tard sans mise à jour de l'un des trois ensembles doit faire échouer ce
-    test."""
-    toutes_les_regles = {f"R{i:02d}" for i in range(1, 19)}
+    27/09/2026 puis par la phase 3 (prix des bons) : `REGLES_FACTURE`/
+    `REGLES_SUIVI`/`REGLES_CHANTIER`/`REGLES_PRIX_BL` sont l'unique source
+    de vérité des scopes du moteur — une règle ajoutée plus tard sans mise
+    à jour de l'un des quatre ensembles doit faire échouer ce test."""
+    toutes_les_regles = {f"R{i:02d}" for i in range(1, 26)}
 
     assert REGLES_FACTURE.isdisjoint(REGLES_SUIVI)
     assert REGLES_FACTURE.isdisjoint(REGLES_CHANTIER)
+    assert REGLES_FACTURE.isdisjoint(REGLES_PRIX_BL)
     assert REGLES_SUIVI.isdisjoint(REGLES_CHANTIER)
-    assert toutes_les_regles == REGLES_FACTURE | REGLES_SUIVI | REGLES_CHANTIER
+    assert REGLES_SUIVI.isdisjoint(REGLES_PRIX_BL)
+    assert REGLES_CHANTIER.isdisjoint(REGLES_PRIX_BL)
+    assert (
+        toutes_les_regles
+        == REGLES_FACTURE | REGLES_SUIVI | REGLES_CHANTIER | REGLES_PRIX_BL
+    )
 
 
 def test_evaluer_chantier_renvoie_R18() -> None:
@@ -1066,3 +1077,186 @@ def test_evaluer_chantier_renvoie_R18() -> None:
         incertain=False,
     )
     assert evaluer_chantier(controle_certain) == ()
+
+
+# --------------------------------------------------------------------------
+# `evaluer_prix_bl` (phase 3, prix des bons, R19 à R25) : quatrième point
+# d'entrée du moteur, distinct des trois précédents (voir le docstring de
+# module). Données inventées.
+# --------------------------------------------------------------------------
+
+
+def _ligne_prix(**overrides: Any) -> LignePrixBl:
+    base: dict[str, Any] = {
+        "document_id": uuid.uuid4(),
+        "ligne_id": uuid.uuid4(),
+        "designation": "PLAQUE STD 13",
+        "code": "PLQ13",
+        "prix_bon": Decimal("7.90"),
+        "unite_bon": "u",
+        "date_bon": date(2026, 8, 1),
+        "grille": None,
+        "candidats": (),
+        "dernier_prix": None,
+    }
+    base.update(overrides)
+    return LignePrixBl(**base)
+
+
+def _reference_prix(**overrides: Any) -> ReferencePrix:
+    base: dict[str, Any] = {
+        "prix": Decimal("7.50"),
+        "unite": "u",
+        "date": date(2026, 1, 1),
+        "comparable": True,
+        "methode": "reference",
+        "ressemblance": 100,
+        "designation": "Plaque std 13",
+        "source": "grille",
+    }
+    base.update(overrides)
+    return ReferencePrix(**base)
+
+
+def test_evaluer_prix_bl_sans_aucune_ligne_ne_produit_rien() -> None:
+    assert evaluer_prix_bl((), ParametresPrixBl()) == ()
+
+
+def test_evaluer_prix_bl_enchaine_toutes_les_alertes_dune_ligne_dans_lordre() -> None:
+    """Une même ligne, plus chère que la grille (R19), plus chère que la
+    dernière facture (R20), reconnue seulement par son nom (R23) et dont la
+    grille est ancienne (R25) : les quatre alertes se déclenchent ensemble,
+    dans l'ordre du catalogue (spec §5.2)."""
+    ligne = _ligne_prix(
+        prix_bon=Decimal("10.00"),
+        grille=_reference_prix(
+            prix=Decimal("7.50"), methode="nom", date=date(2024, 1, 1)
+        ),
+        dernier_prix=_reference_prix(
+            prix=Decimal("8.00"), source="facture", numero_facture="F123"
+        ),
+    )
+
+    anomalies = evaluer_prix_bl((ligne,), ParametresPrixBl(aujourdhui=date(2026, 8, 1)))
+
+    assert [a.regle for a in anomalies] == ["R19", "R20", "R23", "R25"]
+    assert all(a.document_id == ligne.document_id for a in anomalies)
+    assert all(a.ligne_id == ligne.ligne_id for a in anomalies)
+    assert all(a.article_id is None for a in anomalies)
+
+
+def test_evaluer_prix_bl_r19_et_r21_sont_exclusives() -> None:
+    plus_cher = _ligne_prix(
+        prix_bon=Decimal("10.00"), grille=_reference_prix(prix=Decimal("7.50"))
+    )
+    moins_cher = _ligne_prix(
+        prix_bon=Decimal("5.00"), grille=_reference_prix(prix=Decimal("7.50"))
+    )
+
+    anomalies_plus_cher = evaluer_prix_bl((plus_cher,), ParametresPrixBl())
+    anomalies_moins_cher = evaluer_prix_bl((moins_cher,), ParametresPrixBl())
+
+    assert [a.regle for a in anomalies_plus_cher] == ["R19"]
+    assert [a.regle for a in anomalies_moins_cher] == ["R21"]
+
+
+def test_evaluer_prix_bl_r22_exclut_r19_r21_r23_r25() -> None:
+    """Produit absent de la grille (`grille=None`) : seule R22 se déclenche
+    (spec §5.2, combinaisons) — R20 reste indépendante (dernière facture)."""
+    ligne = _ligne_prix(
+        grille=None,
+        dernier_prix=_reference_prix(
+            prix=Decimal("5.00"), source="facture", numero_facture="F1"
+        ),
+    )
+
+    anomalies = evaluer_prix_bl((ligne,), ParametresPrixBl(aujourdhui=date(2026, 8, 1)))
+
+    assert [a.regle for a in anomalies] == ["R20", "R22"]
+
+
+def test_evaluer_prix_bl_reference_non_comparable_nalimente_que_r24() -> None:
+    """Une grille non comparable (unités non convertibles) n'alimente
+    jamais R19/R21/R23/R25 -- seule R24 (spec §5.2)."""
+    ligne = _ligne_prix(
+        grille=_reference_prix(comparable=False, methode="nom"),
+    )
+
+    anomalies = evaluer_prix_bl((ligne,), ParametresPrixBl(aujourdhui=date(2026, 8, 1)))
+
+    assert [a.regle for a in anomalies] == ["R24"]
+
+
+def test_evaluer_prix_bl_plusieurs_lignes_dans_lordre() -> None:
+    ligne1 = _ligne_prix(
+        designation="ARTICLE UN", grille=_reference_prix(prix=Decimal("7.50"))
+    )
+    ligne2 = _ligne_prix(designation="ARTICLE DEUX", grille=None)
+
+    anomalies = evaluer_prix_bl((ligne1, ligne2), ParametresPrixBl())
+
+    assert [a.regle for a in anomalies] == ["R19", "R22"]
+    assert anomalies[0].ligne_id == ligne1.ligne_id
+    assert anomalies[1].ligne_id == ligne2.ligne_id
+
+
+def test_evaluer_prix_bl_regles_actives_none_evalue_toutes_les_regles() -> None:
+    ligne = _ligne_prix(
+        prix_bon=Decimal("10.00"), grille=_reference_prix(prix=Decimal("7.50"))
+    )
+
+    anomalies = evaluer_prix_bl((ligne,), ParametresPrixBl())
+
+    assert [a.regle for a in anomalies] == ["R19"]
+
+
+def test_evaluer_prix_bl_regles_actives_sans_r19_ne_lappelle_pas() -> None:
+    """R19 retirée de `regles_actives` : aucune anomalie R19, même avec un
+    écart de prix qui la déclencherait -- elle n'est pas seulement filtrée
+    en sortie, elle n'est plus appelée du tout (même principe que R07/R08/
+    R09 dans `evaluer_facture`)."""
+    ligne = _ligne_prix(
+        prix_bon=Decimal("10.00"), grille=_reference_prix(prix=Decimal("7.50"))
+    )
+
+    anomalies = evaluer_prix_bl((ligne,), ParametresPrixBl(), REGLES_PRIX_BL - {"R19"})
+
+    assert anomalies == ()
+
+
+def test_evaluer_prix_bl_regles_actives_ne_touche_pas_les_autres_regles() -> None:
+    ligne = _ligne_prix(
+        prix_bon=Decimal("10.00"),
+        grille=_reference_prix(prix=Decimal("7.50"), methode="nom"),
+    )
+
+    anomalies = evaluer_prix_bl((ligne,), ParametresPrixBl(), REGLES_PRIX_BL - {"R19"})
+
+    assert [a.regle for a in anomalies] == ["R23"]
+
+
+def test_evaluer_prix_bl_seuils_hausse_baisse_egalite_ne_declenche_rien() -> None:
+    """Comparaison stricte (spec §5.2) : exactement au seuil (0 % de hausse,
+    5 % de baisse par défaut) -> aucune anomalie."""
+    ligne_hausse = _ligne_prix(
+        prix_bon=Decimal("7.50"), grille=_reference_prix(prix=Decimal("7.50"))
+    )
+    ligne_baisse = _ligne_prix(
+        prix_bon=Decimal("7.125"), grille=_reference_prix(prix=Decimal("7.50"))
+    )
+
+    assert evaluer_prix_bl((ligne_hausse,), ParametresPrixBl()) == ()
+    assert evaluer_prix_bl((ligne_baisse,), ParametresPrixBl()) == ()
+
+
+def test_evaluer_prix_bl_r25_sans_aujourdhui_ne_declenche_rien() -> None:
+    """`aujourdhui` absent (`None`, valeur par défaut) : R25 ne se
+    déclenche jamais, faute de date de référence (spec §5.1)."""
+    ligne = _ligne_prix(
+        prix_bon=Decimal("7.50"),
+        grille=_reference_prix(prix=Decimal("7.50"), date=date(2020, 1, 1)),
+    )
+
+    anomalies = evaluer_prix_bl((ligne,), ParametresPrixBl())
+
+    assert [a.regle for a in anomalies] == []

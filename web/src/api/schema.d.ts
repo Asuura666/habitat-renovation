@@ -928,6 +928,210 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/grilles/modele": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Modele Grille Endpoint */
+        get: operations["modele_grille_endpoint_api_grilles_modele_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/grilles/fournisseurs/{fournisseur_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Grille Fournisseur Endpoint */
+        get: operations["grille_fournisseur_endpoint_api_grilles_fournisseurs__fournisseur_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/grilles/fournisseurs/{fournisseur_id}/produits/{cle_produit}/historique": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Historique Produit Endpoint */
+        get: operations["historique_produit_endpoint_api_grilles_fournisseurs__fournisseur_id__produits__cle_produit__historique_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/grilles/fournisseurs/{fournisseur_id}/prix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enregistrer Prix Endpoint */
+        post: operations["enregistrer_prix_endpoint_api_grilles_fournisseurs__fournisseur_id__prix_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/grilles/fournisseurs/{fournisseur_id}/retrait": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retirer Produit Endpoint */
+        post: operations["retirer_produit_endpoint_api_grilles_fournisseurs__fournisseur_id__retrait_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/grilles/fournisseurs/{fournisseur_id}/import/apercu": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apercu Import Endpoint */
+        post: operations["apercu_import_endpoint_api_grilles_fournisseurs__fournisseur_id__import_apercu_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/grilles/fournisseurs/{fournisseur_id}/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Importer Grille Endpoint */
+        post: operations["importer_grille_endpoint_api_grilles_fournisseurs__fournisseur_id__import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/prix/alertes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lister Alertes Prix Endpoint */
+        get: operations["lister_alertes_prix_endpoint_api_prix_alertes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/prix/valider": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Valider Prix Endpoint */
+        post: operations["valider_prix_endpoint_api_prix_valider_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/prix/contester": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Contester Prix Endpoint */
+        post: operations["contester_prix_endpoint_api_prix_contester_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/prix/ignorer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ignorer Prix Endpoint */
+        post: operations["ignorer_prix_endpoint_api_prix_ignorer_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/prix/recontrole": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Recontroler Prix Endpoint */
+        post: operations["recontroler_prix_endpoint_api_prix_recontrole_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ia/synthese": {
         parameters: {
             query?: never;
@@ -1084,6 +1288,77 @@ export interface components {
             adresse: string | null;
         };
         /**
+         * AlerteProduitReponse
+         * @description Une rangée de `GET /api/prix/alertes` -- mêmes attributs
+         *     qu'`ingest.prix_bl.AlerteProduit`.
+         */
+        AlerteProduitReponse: {
+            /**
+             * Fournisseur Id
+             * Format: uuid
+             */
+            fournisseur_id: string;
+            /** Fournisseur */
+            fournisseur: string;
+            /** Produit */
+            produit: string;
+            /** Code */
+            code: string | null;
+            /** Prix Bon */
+            prix_bon: string;
+            /** Unite Bon */
+            unite_bon: string | null;
+            /**
+             * Date Bon
+             * Format: date
+             */
+            date_bon: string;
+            /** Nb Bons */
+            nb_bons: number;
+            /** Nb Prix Differents */
+            nb_prix_differents: number;
+            /** Prix Grille */
+            prix_grille: string | null;
+            /** Unite Grille */
+            unite_grille: string | null;
+            /** Date Grille */
+            date_grille: string | null;
+            /** Grille Posterieure Au Bon */
+            grille_posterieure_au_bon: boolean;
+            /** Dernier Prix */
+            dernier_prix: string | null;
+            /** Unite Dernier Prix */
+            unite_dernier_prix: string | null;
+            /** Date Dernier Prix */
+            date_dernier_prix: string | null;
+            /** Numero Facture */
+            numero_facture: string | null;
+            /** Ecart Pct */
+            ecart_pct: string | null;
+            /** Methode */
+            methode: string | null;
+            /** Ressemblance */
+            ressemblance: number | null;
+            /** Unite Grille Non Comparable */
+            unite_grille_non_comparable: string | null;
+            /** Regles */
+            regles: string[];
+            /** Anomalie Ids */
+            anomalie_ids: string[];
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /**
+             * Ligne Id
+             * Format: uuid
+             */
+            ligne_id: string;
+            /** Numero Interne */
+            numero_interne: number | null;
+        };
+        /**
          * AliasEnAttenteReponse
          * @description Un alias chantier en attente de validation, dans `GET /api/a-traiter`
          *     — mêmes attributs qu'`ingest.a_traiter.AliasEnAttente`.
@@ -1172,6 +1447,31 @@ export interface components {
             categorie: "bl" | "prix" | "quantites" | "rattacher" | "autre";
         };
         /**
+         * ApercuImportReponse
+         * @description `POST /api/grilles/fournisseurs/{id}/import/apercu` -- mêmes
+         *     attributs qu'`ingest.grilles.ApercuImport`.
+         */
+        ApercuImportReponse: {
+            /** Nb Nouveaux */
+            nb_nouveaux: number;
+            /** Nb Modifies */
+            nb_modifies: number;
+            /** Nb Inchanges */
+            nb_inchanges: number;
+            /** Nb Erreurs */
+            nb_erreurs: number;
+            /** Nouveaux */
+            nouveaux: components["schemas"]["LigneCompareeGrilleReponse"][];
+            /** Modifies */
+            modifies: components["schemas"]["LigneCompareeGrilleReponse"][];
+            /** Absents Du Fichier */
+            absents_du_fichier: components["schemas"]["ProduitAbsentReponse"][];
+            /** Erreurs */
+            erreurs: components["schemas"]["ErreurImportReponse"][];
+            /** Feuilles Ignorees */
+            feuilles_ignorees: string[];
+        };
+        /**
          * ArchivageRequete
          * @description Corps de `POST /api/documents/{id}/archivage` : commentaire
          *     obligatoire (1 à 500 caractères, blanc refusé).
@@ -1254,10 +1554,30 @@ export interface components {
             /** Lignes */
             lignes: components["schemas"]["LigneFactureReponse"][];
         };
+        /** Body_apercu_import_endpoint_api_grilles_fournisseurs__fournisseur_id__import_apercu_post */
+        Body_apercu_import_endpoint_api_grilles_fournisseurs__fournisseur_id__import_apercu_post: {
+            /** Fichier */
+            fichier: string;
+            /**
+             * Date Effet
+             * Format: date
+             */
+            date_effet: string;
+        };
         /** Body_deposer_facture_pdf_api_factures_post */
         Body_deposer_facture_pdf_api_factures_post: {
             /** Fichier */
             fichier: string;
+        };
+        /** Body_importer_grille_endpoint_api_grilles_fournisseurs__fournisseur_id__import_post */
+        Body_importer_grille_endpoint_api_grilles_fournisseurs__fournisseur_id__import_post: {
+            /** Fichier */
+            fichier: string;
+            /**
+             * Date Effet
+             * Format: date
+             */
+            date_effet: string;
         };
         /** Body_se_connecter_api_auth_login_post */
         Body_se_connecter_api_auth_login_post: {
@@ -1691,6 +2011,18 @@ export interface components {
             cree_le: string;
         };
         /**
+         * ContesterPrixRequete
+         * @description Corps de `POST /api/prix/contester` (spec §8.2) : commentaire
+         *     obligatoire (validé de nouveau par `ingest.prix_bl.contester_prix`, même
+         *     principe que `TraitementAnomalieRequete`).
+         */
+        ContesterPrixRequete: {
+            /** Anomalie Ids */
+            anomalie_ids: string[];
+            /** Commentaire */
+            commentaire: string;
+        };
+        /**
          * CorrectionEnteteRequete
          * @description `PATCH /api/documents/{id}` : tous les champs sont optionnels
          *     (`None` par défaut) — seuls ceux présents dans `model_fields_set` sont
@@ -1883,6 +2215,19 @@ export interface components {
             chantier_id: string | null;
         };
         /**
+         * ErreurImportReponse
+         * @description Une ligne du fichier non retenue -- mêmes attributs
+         *     qu'`ingest.grilles.ErreurImport`.
+         */
+        ErreurImportReponse: {
+            /** Feuille */
+            feuille: string;
+            /** Numero Ligne */
+            numero_ligne: number;
+            /** Message */
+            message: string;
+        };
+        /**
          * ExplicationAlerteReponse
          * @description Explication d'une alerte prix — mêmes attributs
          *     qu'`ingest.ia_prix.ExplicationVue`.
@@ -1982,6 +2327,15 @@ export interface components {
             motifs: components["schemas"]["MotifReponse"][];
         };
         /**
+         * FermetureAlertesReponse
+         * @description `POST /api/prix/contester` et `/ignorer` -- nombre d'alertes
+         *     fermées.
+         */
+        FermetureAlertesReponse: {
+            /** Nb Alertes Reglees */
+            nb_alertes_reglees: number;
+        };
+        /**
          * FournisseurReponse
          * @description Une ligne de `GET /api/fournisseurs` — mêmes attributs qu'`ingest
          *     .referentiels.FournisseurResume`. `agences` : liste vide si le
@@ -2010,10 +2364,65 @@ export interface components {
              */
             cible_id: string;
         };
+        /**
+         * GrilleFournisseurReponse
+         * @description `GET /api/grilles/fournisseurs/{id}` -- mêmes attributs
+         *     qu'`ingest.grilles.GrilleFournisseur`.
+         */
+        GrilleFournisseurReponse: {
+            /**
+             * Fournisseur Id
+             * Format: uuid
+             */
+            fournisseur_id: string;
+            /** Nom Fournisseur */
+            nom_fournisseur: string;
+            /** Nb Produits */
+            nb_produits: number;
+            /** Dernier Import Le */
+            dernier_import_le: string | null;
+            /** Page */
+            page: number;
+            /** Pages */
+            pages: number;
+            /** Produits */
+            produits: components["schemas"]["ProduitGrilleReponse"][];
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * IgnorerPrixRequete
+         * @description Corps de `POST /api/prix/ignorer` (spec §8.2) : commentaire
+         *     facultatif.
+         */
+        IgnorerPrixRequete: {
+            /** Anomalie Ids */
+            anomalie_ids: string[];
+            /** Commentaire */
+            commentaire?: string | null;
+        };
+        /**
+         * ImportEffectueReponse
+         * @description `POST /api/grilles/fournisseurs/{id}/import` -- mêmes attributs
+         *     qu'`ingest.grilles.ImportEffectue`.
+         */
+        ImportEffectueReponse: {
+            /**
+             * Import Id
+             * Format: uuid
+             */
+            import_id: string;
+            /** Nb Nouveaux */
+            nb_nouveaux: number;
+            /** Nb Modifies */
+            nb_modifies: number;
+            /** Nb Inchanges */
+            nb_inchanges: number;
+            /** Nb Erreurs */
+            nb_erreurs: number;
         };
         /**
          * JournalReponse
@@ -2151,6 +2560,27 @@ export interface components {
             commentaires: components["schemas"]["CommentaireReponse"][];
         };
         /**
+         * LigneCompareeGrilleReponse
+         * @description Une ligne « nouveau » ou « modifié » d'un aperçu d'import de grille --
+         *     mêmes attributs qu'`ingest.grilles.LigneComparee`. Nommée distinctement
+         *     de `LigneCompareeReponse` (comparaison BL/facture, ci-dessus) : même
+         *     mot, deux objets métier sans rapport.
+         */
+        LigneCompareeGrilleReponse: {
+            /** Reference */
+            reference: string | null;
+            /** Designation */
+            designation: string;
+            /** Nouveau Prix Net */
+            nouveau_prix_net: string;
+            /** Ancien Prix Net */
+            ancien_prix_net: string | null;
+            /** Nouvelle Unite */
+            nouvelle_unite: string | null;
+            /** Ancienne Unite */
+            ancienne_unite: string | null;
+        };
+        /**
          * LigneCompareeReponse
          * @description Une ligne de `GET /api/documents/{id}/comparaison` — mêmes attributs
          *     qu'`ingest.comparaison_bl.LigneComparee`. `qte_facturee`/`pu_facture`
@@ -2241,6 +2671,56 @@ export interface components {
             montant_ht: string | null;
             /** Tva */
             tva: string | null;
+        };
+        /**
+         * LigneHistoriqueReponse
+         * @description `GET /api/grilles/fournisseurs/{id}/produits/{cle}/historique` --
+         *     mêmes attributs qu'`ingest.grilles.LigneHistorique`.
+         */
+        LigneHistoriqueReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Reference */
+            reference: string | null;
+            /** Designation */
+            designation: string;
+            /** Unite Brut */
+            unite_brut: string | null;
+            /** Unite */
+            unite: string | null;
+            /** Prix Ht */
+            prix_ht: string;
+            /** Remise Pct */
+            remise_pct: string | null;
+            /** Prix Net */
+            prix_net: string;
+            /** Marque */
+            marque: string | null;
+            /** Famille */
+            famille: string | null;
+            /**
+             * Date Effet
+             * Format: date
+             */
+            date_effet: string;
+            /** Retire */
+            retire: boolean;
+            /** Source */
+            source: string;
+            /** Document Id */
+            document_id: string | null;
+            /** Ligne Libelle */
+            ligne_libelle: string | null;
+            /** Auteur */
+            auteur: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /**
          * LigneLivraisonReponse
@@ -2379,6 +2859,10 @@ export interface components {
         /**
          * ParametreReponse
          * @description Un seuil administrable avec ses métadonnées de présentation.
+         *
+         *     `interrupteur` et `groupe` (phase 3, §3.4 de la conception des prix) :
+         *     ajoutés à la fin, présents pour tous les réglages (défauts `False`/``""``
+         *     pour ceux d'avant cette phase).
          */
         ParametreReponse: {
             /** Cle */
@@ -2395,6 +2879,16 @@ export interface components {
             maximum: string;
             /** Entier */
             entier: boolean;
+            /**
+             * Interrupteur
+             * @default false
+             */
+            interrupteur: boolean;
+            /**
+             * Groupe
+             * @default
+             */
+            groupe: string;
         };
         /**
          * PrixInternetReponse
@@ -2441,6 +2935,64 @@ export interface components {
             montant_en_jeu: string | null;
         };
         /**
+         * ProduitAbsentReponse
+         * @description Un produit en vigueur absent du fichier importé -- mêmes attributs
+         *     qu'`ingest.grilles.ProduitAbsent`.
+         */
+        ProduitAbsentReponse: {
+            /** Reference */
+            reference: string | null;
+            /** Designation */
+            designation: string;
+            /** Prix Net */
+            prix_net: string;
+        };
+        /**
+         * ProduitGrilleReponse
+         * @description Un produit de la grille -- mêmes attributs qu'`ingest.grilles
+         *     .ProduitGrilleAffiche`. Réponse de `GET /api/grilles/fournisseurs/{id}`
+         *     (dans `GrilleFournisseurReponse.produits`) et de `POST /api/grilles
+         *     /fournisseurs/{id}/prix` (la ligne enregistrée).
+         */
+        ProduitGrilleReponse: {
+            /** Cle Produit */
+            cle_produit: string;
+            /** Reference */
+            reference: string | null;
+            /** Designation */
+            designation: string;
+            /** Unite Brut */
+            unite_brut: string | null;
+            /** Prix Ht */
+            prix_ht: string;
+            /** Remise Pct */
+            remise_pct: string | null;
+            /** Prix Net */
+            prix_net: string;
+            /** Marque */
+            marque: string | null;
+            /** Famille */
+            famille: string | null;
+            /**
+             * Date Effet
+             * Format: date
+             */
+            date_effet: string;
+        };
+        /**
+         * RecontrolePrixReponse
+         * @description `POST /api/prix/recontrole` -- mêmes attributs
+         *     qu'`ingest.prix_bl.ResultatRecontrolePrix`.
+         */
+        RecontrolePrixReponse: {
+            /** Nb Bons */
+            nb_bons: number;
+            /** Nb Echecs */
+            nb_echecs: number;
+            /** Nb Alertes Ouvertes */
+            nb_alertes_ouvertes: number;
+        };
+        /**
          * ResultatFusionReponse
          * @description Réponse de `POST /api/chantiers/{id}/fusionner` — mêmes attributs
          *     qu'`ingest.fusion_chantier.ResultatFusion`.
@@ -2459,6 +3011,44 @@ export interface components {
             nb_alias: number;
             /** Nb Anomalies */
             nb_anomalies: number;
+        };
+        /**
+         * RetraitProduitRequete
+         * @description Corps de `POST /api/grilles/fournisseurs/{id}/retrait`.
+         */
+        RetraitProduitRequete: {
+            /** Cle Produit */
+            cle_produit: string;
+            /**
+             * Date Effet
+             * Format: date
+             */
+            date_effet: string;
+        };
+        /**
+         * SaisiePrixRequete
+         * @description Corps de `POST /api/grilles/fournisseurs/{id}/prix` (spec §7.4) :
+         *     `date_effet` absente -> aujourd'hui, résolu par le routeur (le service
+         *     ne connaît que des dates déjà choisies, comme `ingest.grilles.SaisiePrix`
+         *     l'exige).
+         */
+        SaisiePrixRequete: {
+            /** Reference */
+            reference?: string | null;
+            /** Designation */
+            designation: string;
+            /** Unite */
+            unite?: string | null;
+            /** Prix Ht */
+            prix_ht: number | string;
+            /** Remise Pct */
+            remise_pct?: number | string | null;
+            /** Date Effet */
+            date_effet?: string | null;
+            /** Marque */
+            marque?: string | null;
+            /** Famille */
+            famille?: string | null;
         };
         /**
          * SyntheseAccueilReponse
@@ -2616,6 +3206,35 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /**
+         * ValidationPrixReponse
+         * @description `POST /api/prix/valider` -- mêmes attributs
+         *     qu'`ingest.prix_bl.ValidationPrixEffectuee`.
+         */
+        ValidationPrixReponse: {
+            /** Prix Net */
+            prix_net: string;
+            /**
+             * Date Effet
+             * Format: date
+             */
+            date_effet: string;
+            /** Nb Alertes Reglees */
+            nb_alertes_reglees: number;
+        };
+        /**
+         * ValiderPrixRequete
+         * @description Corps de `POST /api/prix/valider` (spec §8.2).
+         */
+        ValiderPrixRequete: {
+            /** Anomalie Ids */
+            anomalie_ids: string[];
+            /**
+             * Ligne Id
+             * Format: uuid
+             */
+            ligne_id: string;
         };
     };
     responses: never;
@@ -3536,7 +4155,7 @@ export interface operations {
     lister_anomalies_endpoint_api_anomalies_get: {
         parameters: {
             query?: {
-                regle?: ("R01" | "R02" | "R03" | "R04" | "R05" | "R06" | "R07" | "R08" | "R09" | "R10" | "R11" | "R12" | "R13" | "R14" | "R15" | "R16" | "R17" | "R18") | null;
+                regle?: ("R01" | "R02" | "R03" | "R04" | "R05" | "R06" | "R07" | "R08" | "R09" | "R10" | "R11" | "R12" | "R13" | "R14" | "R15" | "R16" | "R17" | "R18" | "R19" | "R20" | "R21" | "R22" | "R23" | "R24" | "R25") | null;
                 gravite?: ("haute" | "moyenne" | "basse") | null;
                 statut?: "ouverte" | "traitee" | "ignoree" | "toutes";
                 bloc_id?: string | null;
@@ -4373,6 +4992,385 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    modele_grille_endpoint_api_grilles_modele_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    grille_fournisseur_endpoint_api_grilles_fournisseurs__fournisseur_id__get: {
+        parameters: {
+            query?: {
+                recherche?: string | null;
+                page?: number;
+            };
+            header?: never;
+            path: {
+                fournisseur_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrilleFournisseurReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    historique_produit_endpoint_api_grilles_fournisseurs__fournisseur_id__produits__cle_produit__historique_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fournisseur_id: string;
+                cle_produit: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LigneHistoriqueReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enregistrer_prix_endpoint_api_grilles_fournisseurs__fournisseur_id__prix_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fournisseur_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaisiePrixRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProduitGrilleReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retirer_produit_endpoint_api_grilles_fournisseurs__fournisseur_id__retrait_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fournisseur_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetraitProduitRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apercu_import_endpoint_api_grilles_fournisseurs__fournisseur_id__import_apercu_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fournisseur_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_apercu_import_endpoint_api_grilles_fournisseurs__fournisseur_id__import_apercu_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApercuImportReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    importer_grille_endpoint_api_grilles_fournisseurs__fournisseur_id__import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fournisseur_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_importer_grille_endpoint_api_grilles_fournisseurs__fournisseur_id__import_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportEffectueReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lister_alertes_prix_endpoint_api_prix_alertes_get: {
+        parameters: {
+            query?: {
+                periode?: "jour" | "tout";
+                fournisseur_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlerteProduitReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    valider_prix_endpoint_api_prix_valider_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValiderPrixRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationPrixReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    contester_prix_endpoint_api_prix_contester_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContesterPrixRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FermetureAlertesReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ignorer_prix_endpoint_api_prix_ignorer_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IgnorerPrixRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FermetureAlertesReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    recontroler_prix_endpoint_api_prix_recontrole_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecontrolePrixReponse"];
                 };
             };
         };

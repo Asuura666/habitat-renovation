@@ -13,21 +13,27 @@ comparer leur contenu — sans lui, l'énumération se désynchroniserait en
 silence à la première règle ajoutée au moteur (200 + liste vide sur une
 règle pourtant réelle, au lieu du filtre attendu).
 
-`REGLES_CHANTIER` (avenant du 27/09/2026, R18) fait partie de cette union
-bien qu'`evaluer_chantier` ne soit pas encore appelée par `ingest` :
-`RegleAnomalie` accepte déjà `"R18"` comme valeur de filtre (200 + liste
-vide tant qu'aucune anomalie R18 n'est persistée), pour ne pas retarder ce
-verrou au câblage de `ingest`."""
+`REGLES_CHANTIER` (avenant du 27/09/2026, R18) et `REGLES_PRIX_BL` (phase 3,
+R19-R25) font partie de cette union bien qu'`evaluer_chantier` et
+`evaluer_prix_bl` ne soient pas encore appelées par `ingest` :
+`RegleAnomalie` accepte déjà ces codes comme valeurs de filtre (200 + liste
+vide tant qu'aucune anomalie correspondante n'est persistée), pour ne pas
+retarder ce verrou au câblage de `ingest`."""
 
 from __future__ import annotations
 
 from typing import get_args
 
 from app.modules.api.anomalies import RegleAnomalie
-from app.modules.rules.engine import REGLES_CHANTIER, REGLES_FACTURE, REGLES_SUIVI
+from app.modules.rules.engine import (
+    REGLES_CHANTIER,
+    REGLES_FACTURE,
+    REGLES_PRIX_BL,
+    REGLES_SUIVI,
+)
 
 
 def test_regle_anomalie_couvre_exactement_les_regles_du_moteur() -> None:
-    assert (
-        set(get_args(RegleAnomalie)) == REGLES_FACTURE | REGLES_SUIVI | REGLES_CHANTIER
+    assert set(get_args(RegleAnomalie)) == (
+        REGLES_FACTURE | REGLES_SUIVI | REGLES_CHANTIER | REGLES_PRIX_BL
     )

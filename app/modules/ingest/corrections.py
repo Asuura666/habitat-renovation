@@ -44,6 +44,10 @@ orchestration.md`) :
   `rollback()` interne à `rapprocher_facture_sans_echec` expire tous les
   objets de la session, dont `document`, et un accès synchrone à l'un de
   ses attributs sans ce rafraîchissement lève `MissingGreenlet`.
+- Contrôle des prix du bon (phase 3, tâche P7, spec `docs/superpowers/specs/
+  2026-09-27-prix-design.md` §6.2) : `corriger_lignes` appelle
+  `controler_prix_bl_sans_echec` après le commit de la correction -- ne fait
+  jamais échouer la correction elle-même.
 - Ruling R25 (constat 3, Important) : `archiver_document` accepte aussi une
   facture (`_document_pour_archivage`, élargie à ce seul type en plus de
   `bl`/`enlevement` — l'archivage ne lit ni n'écrit aucun champ propre au
@@ -112,6 +116,7 @@ from app.modules.ingest.models import (
     Ligne,
     Utilisateur,
 )
+from app.modules.ingest.prix_bl import controler_prix_bl_sans_echec
 from app.modules.ingest.rangement import ranger_document
 from app.modules.ingest.rapprochement import rapprocher_factures_du_bl
 from app.modules.ingest.rattachement_chantier import rattacher_chantier_document
@@ -998,6 +1003,20 @@ async def corriger_lignes(
     )
     await session.commit()
     await session.refresh(document)
+
+    # Contrôle des prix du bon (phase 3, tâche P7, spec §6.2) : une
+    # correction de lignes peut changer le prix, l'unité ou le produit
+    # concerné -- recontrôlée après le commit de la correction, dans la
+    # même enveloppe (ne fait jamais échouer la correction elle-même,
+    # déjà commitée à ce stade). Même piège et même correctif que
+    # `valider_document`/`relancer_extraction` (Ruling R23, revue finale du
+    # lot 4) : un `rollback()` interne à `controler_prix_bl_sans_echec`
+    # (contrôle en échec) expire `document`, déjà rafraîchi juste au-dessus
+    # -- sans ce second `session.refresh`, l'accès synchrone suivant à un
+    # attribut de `document` dans `_charger_detail` lève `MissingGreenlet`.
+    await controler_prix_bl_sans_echec(session, document_id)
+    await session.refresh(document)
+
     return await _charger_detail(session, document, role="admin")
 
 

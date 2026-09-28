@@ -180,6 +180,49 @@ function chiffresProbleme(anomalie: Anomalie): ChiffreProbleme[] {
         { libelle: "Nom lu sur le bon", valeur: texteOuTiret(detail, "nom_lu") },
         { libelle: "Nom indiqué par l'employé", valeur: texteOuTiret(detail, "legende") },
       ];
+    // Phase 3, tâche P9 (spec §5.2) : les mêmes clés que `phraseProbleme`
+    // (`ui/libelles.ts`), en chiffres nommés plutôt qu'en phrase.
+    case "R19":
+    case "R21":
+      return [
+        { libelle: "Prix du bon", valeur: montantOuTiret(detail, "prix_bon"), ton: tonPrincipal },
+        { libelle: "Prix de la grille", valeur: montantOuTiret(detail, "prix_grille") },
+        { libelle: "Écart", valeur: pointsOuTiret(detail, "ecart_pct"), ton: tonPrincipal },
+      ];
+    case "R20":
+      return [
+        { libelle: "Prix du bon", valeur: montantOuTiret(detail, "prix_bon"), ton: tonPrincipal },
+        { libelle: "Dernier prix facturé", valeur: montantOuTiret(detail, "dernier_prix") },
+        { libelle: "Écart", valeur: pointsOuTiret(detail, "ecart_pct"), ton: tonPrincipal },
+      ];
+    case "R22":
+      return [{ libelle: "Prix du bon", valeur: montantOuTiret(detail, "prix_bon"), ton: tonPrincipal }];
+    case "R23":
+      return [
+        { libelle: "Prix du bon", valeur: montantOuTiret(detail, "prix_bon") },
+        { libelle: "Ressemblance", valeur: pointsOuTiret(detail, "ressemblance") },
+      ];
+    case "R24": {
+      // Fix relecture spec, tour 1, constat 1 : `unite_grille` n'est
+      // renseigné que lorsque c'est la grille qui est non comparable
+      // (`R24.py`) -- quand c'est la dernière facture, on bascule sur
+      // `unite_dernier_prix`, même choix que `phraseProbleme` ci-dessus
+      // (`ui/libelles.ts`, case "R24").
+      const uniteGrille = texteOuTiret(detail, "unite_grille");
+      const [libelleReference, valeurReference] =
+        uniteGrille !== TIRET
+          ? ["Unité de la grille", uniteGrille]
+          : ["Unité de la dernière facture", texteOuTiret(detail, "unite_dernier_prix")];
+      return [
+        { libelle: "Unité du bon", valeur: texteOuTiret(detail, "unite_bon"), ton: tonPrincipal },
+        { libelle: libelleReference, valeur: valeurReference },
+      ];
+    }
+    case "R25":
+      return [
+        { libelle: "Date de la grille", valeur: dateOuTiret(detail, "date_grille") },
+        { libelle: "Âge de la grille", valeur: `${texteOuTiret(detail, "age_mois")} mois` },
+      ];
     default:
       return [];
   }
@@ -689,6 +732,15 @@ function DetailAnomalie({
         {cibleBon !== null && (
           <Link to={`/bl/${cibleBon}`} className={CLASSES_LIEN}>
             Voir le bon de livraison
+          </Link>
+        )}
+        {/* Phase 3, tâche P9 (spec §8.3) : une alerte de prix (R19-R25,
+            catégorie « prix ») ouvre aussi la page « Prix à vérifier », qui
+            regroupe l'ensemble des bons du même produit -- jamais affiché
+            pour une autre catégorie. */}
+        {anomalie.categorie === "prix" && (
+          <Link to="/prix" className={CLASSES_LIEN}>
+            Voir sur la page Prix
           </Link>
         )}
       </div>

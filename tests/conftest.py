@@ -162,6 +162,12 @@ async def db_session(db_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
         f'"{table.name}"' for table in reversed(Base.metadata.sorted_tables)
     )
     async with db_engine.begin() as connexion:
+        # `grille_prix` (migration 0013) refuse tout TRUNCATE (historique
+        # inaltérable, déclencheur `grille_prix_sans_truncate`) : désactivé
+        # le temps de ce nettoyage de fin de test puis réactivé -- jamais
+        # contourné par le code applicatif, seulement par ce nettoyage.
+        await connexion.execute(text("ALTER TABLE grille_prix DISABLE TRIGGER ALL"))
         await connexion.execute(
             text(f"TRUNCATE {noms_tables} RESTART IDENTITY CASCADE")
         )
+        await connexion.execute(text("ALTER TABLE grille_prix ENABLE TRIGGER ALL"))

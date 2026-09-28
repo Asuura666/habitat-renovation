@@ -5,6 +5,10 @@ Comparaison sur `normaliser_libelle` sans espaces (insensible aux accents,
 observées sur les BL/factures des deux fournisseurs (L3-T4). Une unité
 absente de la table est jugée inconnue plutôt que devinée : aucune règle
 métier ne doit s'appuyer sur une unité mal reconnue.
+
+Phase 3 (grilles de prix, spec §4.4) ajoute trois variantes observées sur la
+grille Point.P, sans rien retirer : `SA` -> `sac`, `BT` -> `boite`,
+`PI` -> `u` (`M`/`ML` et `RL` étaient déjà reconnus).
 """
 
 from __future__ import annotations
@@ -35,17 +39,17 @@ _MESURES: dict[str, tuple[str, ...]] = {
     "m": ("M", "ML", "METRE", "METRES", "MTR"),
     "m2": ("M2", "M²", "MQ", "METRECARRE"),
     "m3": ("M3", "M³"),
-    "u": ("U", "UN", "UNITE", "UNITES", "PCE", "PC", "PIECE", "PIECES"),
+    "u": ("U", "UN", "UNITE", "UNITES", "PCE", "PC", "PIECE", "PIECES", "PI"),
 }
 
 _CONDITIONNEMENTS: dict[str, tuple[str, ...]] = {
     "seau": ("SEAU", "SEAUX", "SE"),
-    "sac": ("SAC", "SACS", "BAG", "BAGS"),
+    "sac": ("SAC", "SACS", "BAG", "BAGS", "SA"),
     "rouleau": ("ROULEAU", "ROULEAUX", "RLX", "RL"),
     "bidon": ("BIDON", "BIDONS", "BID"),
     "pot": ("POT", "POTS"),
     "carton": ("CARTON", "CARTONS", "CTN"),
-    "boite": ("BOITE", "BOITES", "BTE"),
+    "boite": ("BOITE", "BOITES", "BTE", "BT"),
     "palette": ("PALETTE", "PALETTES", "PAL"),
     "lot": ("LOT", "LOTS"),
     "paquet": ("PAQUET", "PAQUETS", "PAQ", "PQT"),

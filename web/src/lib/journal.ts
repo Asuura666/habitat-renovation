@@ -132,6 +132,23 @@ const LIBELLES_ACTION: Record<string, string> = {
   // de complétude ci-dessus.
   synthese_action_faite: "Action de synthèse cochée",
   synthese_action_a_faire: "Action de synthèse remise à faire",
+  // Grilles de prix fournisseur (phase 3, tâche P5, `ingest/grilles.py`) :
+  // import d'un fichier Excel confirmé, saisie manuelle d'un prix (« Ajouter
+  // un produit »/« Modifier »), retrait d'un produit de la grille.
+  grille_importee: "Grille importée",
+  grille_prix_saisi: "Prix de grille saisi",
+  grille_prix_retire: "Produit retiré de la grille",
+  // Page « Prix à vérifier » (phase 3, tâche P9, `ingest/prix_bl.py`) : un
+  // prix validé ajoute une ligne de grille (cible `grille_prix`, même
+  // famille que les trois entrées ci-dessus) ; contester/ignorer ferment
+  // les alertes sans toucher la grille (cible `anomalie`, comme
+  // `anomalie_traitee`/`anomalie_ignoree`, déjà journalisées à côté) ; le
+  // recontrôle ne porte sur aucune cible précise (plusieurs bons à la
+  // fois, `cible_table=None`).
+  prix_valide: "Prix validé",
+  prix_conteste: "Prix contesté",
+  prix_ignore: "Alerte de prix ignorée",
+  prix_recontrole: "Prix des bons recontrôlés",
 };
 
 export function libelleAction(action: string): string {
@@ -160,6 +177,8 @@ export const CIBLES_CONNUES = [
   "commentaire",
   "synthese_commentaires",
   "synthese_action",
+  "grille_import",
+  "grille_prix",
 ] as const;
 
 const LIBELLES_CIBLE: Record<string, string> = {
@@ -183,6 +202,13 @@ const LIBELLES_CIBLE: Record<string, string> = {
   // `synthese_action_faite`/`synthese_action_a_faire` (même module) : une
   // action à cocher de la synthèse.
   synthese_action: "Action de la synthèse",
+  // Phase 3, tâche P5 : la clé technique brute (un UUID) ne dit rien au
+  // dirigeant -- même principe que les autres cibles ci-dessus, aucune
+  // fiche dédiée n'existe pour un import ou une ligne de grille (`lienCible`
+  // ne construit donc aucun lien pour ces deux cibles, repli défensif comme
+  // le reste de ce fichier).
+  grille_import: "Import de grille",
+  grille_prix: "Grille de prix",
 };
 
 /** Libellé français de l'élément concerné par une entrée (`cible_table`) —
@@ -501,6 +527,16 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   semaine_fin: "Jusqu'au",
   nb_commentaires: "Commentaires",
   nb_actions: "Actions",
+  // Phase 3, tâche P9 (`ingest/prix_bl.py::valider_prix`/`contester_prix`/
+  // `ignorer_prix`/`recontroler_depuis_page`) : clés propres aux quatre
+  // actions de la page Prix, jamais recensées ci-dessus.
+  produit: "Produit",
+  prix_grille: "Prix de grille",
+  date_effet: "Date d'effet",
+  nb_alertes_reglees: "Alertes réglées",
+  nb_alertes: "Alertes",
+  nb_bons: "Bons contrôlés",
+  nb_alertes_ouvertes: "Alertes ouvertes",
 };
 
 /** Un identifiant (`chantier_id`, `fournisseur_id`…) désigne l'élément
@@ -804,8 +840,11 @@ function valeurDetail(cle: string, contexte: Record<string, unknown>, noms: Reco
   if ((cle === "total_ht" || cle === "total_tva" || cle === "total_ttc") && typeof brute === "string") {
     return formaterMontant(brute);
   }
-  if (cle === "date_doc" && typeof brute === "string") {
+  if ((cle === "date_doc" || cle === "date_effet") && typeof brute === "string") {
     return formaterDate(brute);
+  }
+  if (cle === "prix_grille" && typeof brute === "string") {
+    return formaterMontant(brute);
   }
   if (cle === "confirme_le" && typeof brute === "string") {
     return formaterDateHeure(brute);

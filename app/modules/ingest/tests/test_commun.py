@@ -17,11 +17,13 @@ from __future__ import annotations
 
 import os
 import stat
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 from app.modules.ingest import commun as ingest_commun
+from app.modules.ingest.parametres import DEFINITIONS_PAR_CLE
 
 
 def _mode(chemin: Path) -> int:
@@ -153,3 +155,17 @@ def test_signature_conforme_extension_inconnue_renvoie_false() -> None:
     stocker sans vérification."""
     assert ingest_commun.signature_conforme("exe", b"\xff\xd8\xff peu importe") is False
     assert ingest_commun.signature_conforme("gif", b"GIF89a") is False
+
+
+def test_defauts_regles_masquees_coherents_avec_definitions_parametres() -> None:
+    """Constat de la relecture (tour 2) : le docstring de module de
+    `commun.py` affirme que les valeurs par défaut recopiées en dur dans
+    `regles_masquees` (0 pour l'interrupteur général `prix_controle_bl_actif`,
+    1 pour chacune des sept alertes `prix_alerte_...`) sont cohérentes avec
+    `DEFINITIONS_PARAMETRES` (spec §3.4) et « vérifié par test_commun.py » --
+    ce test est cette vérification, absente jusqu'ici."""
+    assert DEFINITIONS_PAR_CLE[ingest_commun.CLE_PRIX_CONTROLE_BL_ACTIF].defaut == (
+        Decimal("0")
+    )
+    for regle, cle in ingest_commun.CLE_ALERTE_PAR_REGLE.items():
+        assert DEFINITIONS_PAR_CLE[cle].defaut == Decimal("1"), regle

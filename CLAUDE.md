@@ -166,6 +166,12 @@ Points à retenir :
   `/prix` attend cette fusion (T10). Avenant CDC §15 à confirmer par Ilane.
   Guide d'exploitation, connexion de l'abonnement, essai avant de se fier
   au prix internet : `docs/phase-4-ia.md`.
+- **Phase 3 (session B) : commentaires sur les lignes de bons et lot Prix
+  (grilles, contrôle au bon R19-R25, page Prix) sur
+  `feature/phase-3-prix`** ; contrôle éteint par défaut (réglage
+  `prix_controle_bl_actif`) ; migrations `0012`-`0013` ; détail
+  `docs/superpowers/specs/2026-09-27-prix-design.md` et `docs/dette.md`
+  (28/09/2026).
 
 ## Méthode
 

@@ -23,18 +23,23 @@ async def _creer_admin(db_session: AsyncSession) -> Utilisateur:
     return auteur
 
 
-async def test_lister_parametres_retourne_les_dix_cles_et_leurs_bornes(
+async def test_lister_parametres_retourne_toutes_les_cles_et_leurs_bornes(
     db_session: AsyncSession,
 ) -> None:
+    """Dix clés historiques + douze clés `prix_…` (phase 3, §3.4 de
+    `docs/superpowers/specs/2026-09-27-prix-design.md`), toujours visibles :
+    22 au total."""
     parametres = await lister_parametres(db_session)
 
-    assert len(parametres) == 10
+    assert len(parametres) == 22
     tolerance = next(p for p in parametres if p.cle == "tolerance_total_ht")
     assert tolerance.valeur == "0.05"
     assert tolerance.libelle == "Tolérance sur le total HT"
     assert tolerance.unite == "€"
     assert tolerance.minimum == "0"
     assert tolerance.maximum == "1000"
+    assert tolerance.interrupteur is False
+    assert tolerance.groupe == ""
 
 
 async def test_seuil_ressemblance_chantier_liste_avec_defaut(
@@ -194,6 +199,25 @@ def _regler_controles(
     monkeypatch.setattr(commun, "get_settings", lambda: _SettingsInventee())
 
 
+# Les douze clés `prix_…` (phase 3) ne sont jamais masquées par ces deux
+# contrôles : elles restent toujours visibles (spec §3.4), et s'ajoutent
+# donc à chacun des ensembles attendus ci-dessous.
+_CLES_PRIX = {
+    "prix_controle_bl_actif",
+    "prix_alerte_plus_cher_grille",
+    "prix_alerte_plus_cher_dernier_prix",
+    "prix_alerte_moins_cher_grille",
+    "prix_alerte_absent_grille",
+    "prix_alerte_reconnu_par_nom",
+    "prix_alerte_unites_differentes",
+    "prix_alerte_grille_ancienne",
+    "prix_seuil_hausse_pct",
+    "prix_seuil_baisse_pct",
+    "prix_age_grille_mois",
+    "prix_seuil_ressemblance_produit_pct",
+}
+
+
 async def test_lister_parametres_masque_les_seuils_de_prix_quand_desactives(
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
@@ -202,15 +226,19 @@ async def test_lister_parametres_masque_les_seuils_de_prix_quand_desactives(
 
     cles = {p.cle for p in await lister_parametres(db_session)}
 
-    assert cles == {
-        "tolerance_total_ht",
-        "delai_ligne_bl_non_facturee_j",
-        "delai_alias_non_resolu_h",
-        "seuil_ressemblance_chantier_pct",
-        "delai_confirmation_bl_h",
-        "delai_chantier_silencieux_j",
-        "duree_ignorance_j",
-    }
+    assert (
+        cles
+        == {
+            "tolerance_total_ht",
+            "delai_ligne_bl_non_facturee_j",
+            "delai_alias_non_resolu_h",
+            "seuil_ressemblance_chantier_pct",
+            "delai_confirmation_bl_h",
+            "delai_chantier_silencieux_j",
+            "duree_ignorance_j",
+        }
+        | _CLES_PRIX
+    )
 
 
 async def test_lister_parametres_masque_le_seuil_r06_quand_desactive(
@@ -222,17 +250,21 @@ async def test_lister_parametres_masque_le_seuil_r06_quand_desactive(
     cles = {p.cle for p in await lister_parametres(db_session)}
 
     assert "delai_ligne_bl_non_facturee_j" not in cles
-    assert cles == {
-        "tolerance_total_ht",
-        "seuil_prix_pct",
-        "seuil_prix_fort_pct",
-        "occurrences_prix_min",
-        "delai_alias_non_resolu_h",
-        "seuil_ressemblance_chantier_pct",
-        "delai_confirmation_bl_h",
-        "delai_chantier_silencieux_j",
-        "duree_ignorance_j",
-    }
+    assert (
+        cles
+        == {
+            "tolerance_total_ht",
+            "seuil_prix_pct",
+            "seuil_prix_fort_pct",
+            "occurrences_prix_min",
+            "delai_alias_non_resolu_h",
+            "seuil_ressemblance_chantier_pct",
+            "delai_confirmation_bl_h",
+            "delai_chantier_silencieux_j",
+            "duree_ignorance_j",
+        }
+        | _CLES_PRIX
+    )
 
 
 async def test_lister_parametres_toutes_les_cles_quand_les_deux_controles_actifs(
@@ -241,7 +273,7 @@ async def test_lister_parametres_toutes_les_cles_quand_les_deux_controles_actifs
 ) -> None:
     _regler_controles(monkeypatch, prix_actif=True, livre_non_facture_actif=True)
 
-    assert len(await lister_parametres(db_session)) == 10
+    assert len(await lister_parametres(db_session)) == 22
 
 
 @pytest.mark.parametrize(
@@ -292,6 +324,105 @@ async def test_valeur_d_un_reglage_masque_est_conservee_et_reapparait_reactive(
         p for p in await lister_parametres(db_session) if p.cle == "seuil_prix_pct"
     )
     assert reactive.valeur == "12"
+
+
+# ---------------------------------------------------------------------------
+# Réglages du contrôle des prix des bons (phase 3, §3.4 de
+# `docs/superpowers/specs/2026-09-27-prix-design.md`) : douze clés `prix_…`,
+# toujours visibles, groupées sous « Contrôle des prix des bons ».
+# ---------------------------------------------------------------------------
+
+
+async def test_prix_controle_bl_actif_defaut_eteint_et_groupe(
+    db_session: AsyncSession,
+) -> None:
+    parametres = await lister_parametres(db_session)
+    interrupteur = next(p for p in parametres if p.cle == "prix_controle_bl_actif")
+
+    assert interrupteur.valeur == "0"
+    assert interrupteur.interrupteur is True
+    assert interrupteur.groupe == "Contrôle des prix des bons"
+    assert interrupteur.minimum == "0"
+    assert interrupteur.maximum == "1"
+
+
+@pytest.mark.parametrize(
+    "cle",
+    [
+        "prix_alerte_plus_cher_grille",
+        "prix_alerte_plus_cher_dernier_prix",
+        "prix_alerte_moins_cher_grille",
+        "prix_alerte_absent_grille",
+        "prix_alerte_reconnu_par_nom",
+        "prix_alerte_unites_differentes",
+        "prix_alerte_grille_ancienne",
+    ],
+)
+async def test_alertes_de_prix_par_defaut_allumees_et_interrupteurs(
+    db_session: AsyncSession,
+    cle: str,
+) -> None:
+    parametre = next(p for p in await lister_parametres(db_session) if p.cle == cle)
+    assert parametre.valeur == "1"
+    assert parametre.interrupteur is True
+    assert parametre.groupe == "Contrôle des prix des bons"
+
+
+async def test_seuils_de_prix_par_defaut(db_session: AsyncSession) -> None:
+    parametres = {p.cle: p for p in await lister_parametres(db_session)}
+
+    hausse = parametres["prix_seuil_hausse_pct"]
+    assert hausse.valeur == "0"
+    assert hausse.interrupteur is False
+    assert hausse.groupe == "Contrôle des prix des bons"
+
+    baisse = parametres["prix_seuil_baisse_pct"]
+    assert baisse.valeur == "5"
+
+    age = parametres["prix_age_grille_mois"]
+    assert age.valeur == "12"
+    assert age.minimum == "1"
+    assert age.maximum == "60"
+
+    ressemblance = parametres["prix_seuil_ressemblance_produit_pct"]
+    assert ressemblance.valeur == "80"
+    assert ressemblance.minimum == "50"
+    assert ressemblance.maximum == "100"
+
+
+@pytest.mark.parametrize("valeur", ["2", "0.5"])
+async def test_modifier_un_interrupteur_refuse_hors_0_ou_1(
+    db_session: AsyncSession,
+    valeur: str,
+) -> None:
+    with pytest.raises(ValueError):
+        await modifier_parametre(
+            db_session, "prix_alerte_plus_cher_grille", valeur, auteur_id=None
+        )
+
+
+async def test_modifier_un_interrupteur_accepte_0_et_1_et_journalise(
+    db_session: AsyncSession,
+) -> None:
+    auteur = Utilisateur(email="admin.interrupteur@example.test", role="admin")
+    db_session.add(auteur)
+    await db_session.flush()
+
+    resultat = await modifier_parametre(
+        db_session, "prix_controle_bl_actif", "1", auteur_id=auteur.id
+    )
+
+    assert resultat.valeur == "1"
+    entree = (
+        await db_session.execute(
+            select(Journal).where(
+                Journal.action == "parametre_modifie",
+                Journal.cible_id == "prix_controle_bl_actif",
+            )
+        )
+    ).scalar_one()
+    assert entree.avant == {"valeur": "0"}
+    assert entree.apres == {"valeur": "1"}
 
 
 def test_libelles_des_reglages_en_francais_courant() -> None:

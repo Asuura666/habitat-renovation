@@ -27,7 +27,16 @@ contrôleur pour T3) :
   du 27/09/2026) : `document_id` en `ON DELETE CASCADE` et `ligne_id` en
   `ON DELETE SET NULL`, pour qu'un commentaire ne disparaisse jamais avec sa
   ligne (recréée à chaque lecture ou relance de la lecture) et reste
-  rattaché au bon tant que celui-ci existe.
+  rattaché au bon tant que celui-ci existe -- et `anomalie.ligne_id`
+  (migration 0013, §3.3 de
+  `docs/superpowers/specs/2026-09-27-prix-design.md`) : passé en
+  `ON DELETE CASCADE` pour que la suppression d'une ligne (recréée à chaque
+  lecture ou relance de la lecture, ou retirée par une correction) ne soit
+  jamais bloquée par une alerte de prix posée dessus ; le contrôle des prix
+  la recrée sur la nouvelle ligne juste après (même principe que le rejeu
+  actuel des autres règles). `SET NULL` est écarté : deux anomalies de la
+  même règle sur le même bon deviendraient identiques pour l'index unique
+  (`NULLS NOT DISTINCT`) et la suppression échouerait.
 """
 
 from __future__ import annotations
@@ -514,6 +523,17 @@ class Anomalie(Base):
     facture (cas non prévu par l'orchestration actuelle, toujours
     séquentielle) feraient échouer le second avec une violation de
     contrainte plutôt que d'être absorbés silencieusement.
+
+    Migration 0013 (contrôle des prix des bons, §3.3 de
+    `docs/superpowers/specs/2026-09-27-prix-design.md`) :
+    - `ligne_id` passe en `ON DELETE CASCADE` (au lieu d'aucun `ondelete`) :
+      les lignes d'un bon sont supprimées puis recréées à chaque relance de
+      la lecture, et une correction peut en retirer -- une alerte de prix
+      (R19-R25) posée sur une ligne bloquerait sinon cette suppression. Une
+      anomalie ouverte disparaît avec sa ligne et le contrôle la recrée sur
+      la nouvelle ligne juste après (même principe que le rejeu actuel des
+      autres règles) ; une anomalie réglée disparaît aussi, sa trace reste
+      au journal (`docs/dette.md`).
     """
 
     __tablename__ = "anomalie"
@@ -546,7 +566,7 @@ class Anomalie(Base):
         UUID(as_uuid=True), ForeignKey("bloc_facture.id"), nullable=True
     )
     ligne_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("ligne.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("ligne.id", ondelete="CASCADE"), nullable=True
     )
     article_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("article.id"), nullable=True
@@ -870,5 +890,132 @@ class PrixInternet(Base):
     modele: Mapped[str | None] = mapped_column(Text, nullable=True)
     consulte_le: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
+    )
+    created_at: Mapped[datetime] = _created_at()
+
+
+class GrilleImport(Base):
+    """Import confirmé d'un fichier Excel de grille de prix (une ligne par
+    import confirmé, jamais pour un aperçu) -- migration 0013, §3.1 de
+    `docs/superpowers/specs/2026-09-27-prix-design.md`.
+
+    `chemin` : copie du fichier gardée sous
+    `DOCS_DIR/grilles/<fournisseur_id>/<id>.xlsx` (0640), incluse dans les
+    sauvegardes des documents (`ingest.grilles`, tâche P4).
+    """
+
+    __tablename__ = "grille_import"
+
+    id: Mapped[uuid.UUID] = _id()
+    fournisseur_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fournisseur.id"), nullable=False
+    )
+    nom_fichier: Mapped[str] = mapped_column(Text, nullable=False)
+    empreinte: Mapped[str] = mapped_column(Text, nullable=False)
+    chemin: Mapped[str] = mapped_column(Text, nullable=False)
+    date_effet: Mapped[date] = mapped_column(Date, nullable=False)
+    nb_nouveaux: Mapped[int] = mapped_column(Integer, nullable=False)
+    nb_modifies: Mapped[int] = mapped_column(Integer, nullable=False)
+    nb_inchanges: Mapped[int] = mapped_column(Integer, nullable=False)
+    nb_erreurs: Mapped[int] = mapped_column(Integer, nullable=False)
+    auteur_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("utilisateur.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = _created_at()
+
+
+class GrillePrix(Base):
+    """Historique inaltérable des prix de grille d'un fournisseur --
+    migration 0013, §3.2 de
+    `docs/superpowers/specs/2026-09-27-prix-design.md`. Chaque changement de
+    prix d'un produit **ajoute** une ligne ; rien n'est jamais modifié ni
+    supprimé (décision de la roadmap reprise telle quelle : historique des
+    prix jamais écrasé ni supprimé).
+
+    - `cle_produit` : identité du produit dans la grille du fournisseur
+      (`normalize.prix.cle_produit`, tâche P2) -- par référence normalisée
+      si elle existe, sinon par désignation normalisée.
+    - `prix_net` : `prix_ht x (1 - remise/100)`, calculé une fois à
+      l'insertion (`normalize.prix.prix_net`), jamais recalculé.
+    - `retire` : vrai si le produit sort de la grille à `date_effet` (bouton
+      « Retirer de la grille », tâche P4) -- reprend le dernier prix connu
+      pour respecter la contrainte `prix_ht > 0`.
+    - `source` : `'import'` (fichier Excel), `'saisie'` (formulaire) ou
+      `'validation'` (bouton « Valider ce prix » de la page Prix, tâche P8).
+      `import_id` est obligatoire pour `'import'`, `document_id` pour
+      `'validation'` (contraintes `CHECK` ci-dessous).
+    - `ligne_libelle` : copie du libellé de la ligne du bon validée (la
+      ligne peut disparaître, recréée à chaque lecture ou relance).
+    - Aucune clé étrangère vers `anomalie` ni vers `ligne` : une suppression
+      en cascade ferait un `UPDATE` que le déclencheur `grille_prix
+      _inalterable` refuserait.
+    - Déclencheurs (posés par la migration, absents de ce fichier ORM comme
+      le reste du schéma généré) : `grille_prix_inalterable` (`BEFORE UPDATE
+      OR DELETE ... FOR EACH ROW`) et `grille_prix_sans_truncate` (`BEFORE
+      TRUNCATE ... FOR EACH STATEMENT`), tous deux appelant la fonction
+      `grille_prix_refuser_modification()` qui lève `RAISE EXCEPTION
+      'historique des prix inaltérable'`. Le seul chemin de suppression est
+      une migration descendante, jamais le code applicatif.
+
+    Pas de colonne `updated_at`/`updated_by` : append-only, comme
+    `journal`/`telegram_update`.
+    """
+
+    __tablename__ = "grille_prix"
+    __table_args__ = (
+        CheckConstraint("prix_ht > 0", name="prix_ht_positif"),
+        CheckConstraint(
+            "remise_pct IS NULL OR (remise_pct >= 0 AND remise_pct < 100)",
+            name="remise_pct_bornee",
+        ),
+        CheckConstraint("prix_net > 0", name="prix_net_positif"),
+        CheckConstraint(
+            "source IN ('import', 'saisie', 'validation')", name="source_valide"
+        ),
+        CheckConstraint(
+            "source <> 'import' OR import_id IS NOT NULL",
+            name="import_id_requis_si_import",
+        ),
+        CheckConstraint(
+            "source <> 'validation' OR document_id IS NOT NULL",
+            name="document_id_requis_si_validation",
+        ),
+        Index(
+            "ix_grille_prix_prix_en_vigueur",
+            "fournisseur_id",
+            "cle_produit",
+            "date_effet",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _id()
+    fournisseur_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fournisseur.id"), nullable=False
+    )
+    cle_produit: Mapped[str] = mapped_column(Text, nullable=False)
+    reference: Mapped[str | None] = mapped_column(Text, nullable=True)
+    designation: Mapped[str] = mapped_column(Text, nullable=False)
+    unite_brut: Mapped[str | None] = mapped_column(Text, nullable=True)
+    unite: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prix_ht: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    remise_pct: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    prix_net: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    marque: Mapped[str | None] = mapped_column(Text, nullable=True)
+    famille: Mapped[str | None] = mapped_column(Text, nullable=True)
+    date_effet: Mapped[date] = mapped_column(Date, nullable=False)
+    retire: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    import_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("grille_import.id"), nullable=True
+    )
+    document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document.id"), nullable=True
+    )
+    ligne_libelle: Mapped[str | None] = mapped_column(Text, nullable=True)
+    auteur_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("utilisateur.id"), nullable=True
     )
     created_at: Mapped[datetime] = _created_at()

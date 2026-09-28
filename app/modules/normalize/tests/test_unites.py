@@ -37,6 +37,23 @@ def test_normaliser_unite_metre_carre_symbole_exposant() -> None:
     assert normaliser_unite("M²") == Unite(code="m2", nature=NatureUnite.MESURE)
 
 
+def test_normaliser_unite_sa_reconnue_comme_sac() -> None:
+    """Phase 3, spec §4.4 : `SA` (grille Point.P) est un sac."""
+    assert normaliser_unite("SA") == Unite(
+        code="sac", nature=NatureUnite.CONDITIONNEMENT
+    )
+
+
+def test_normaliser_unite_bt_reconnue_comme_boite() -> None:
+    assert normaliser_unite("BT") == Unite(
+        code="boite", nature=NatureUnite.CONDITIONNEMENT
+    )
+
+
+def test_normaliser_unite_pi_reconnue_comme_u() -> None:
+    assert normaliser_unite("PI") == Unite(code="u", nature=NatureUnite.MESURE)
+
+
 def test_normaliser_unite_inconnue_renvoie_none() -> None:
     assert normaliser_unite("XYZ") is None
 

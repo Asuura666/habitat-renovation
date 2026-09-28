@@ -19,10 +19,12 @@ from app.modules.api import (
     comptes,
     documents,
     factures,
+    grilles,
     ia,
     journal,
     moi,
     parametres,
+    prix,
     referentiels,
     tableau_de_bord,
 )
@@ -40,6 +42,8 @@ router.include_router(parametres.router)
 router.include_router(comptes.router)
 router.include_router(tableau_de_bord.router)
 router.include_router(commentaires.router)
+router.include_router(grilles.router)
+router.include_router(prix.router)
 router.include_router(ia.router)
 
 __all__ = ["router"]

@@ -11,9 +11,11 @@ import { DocumentsListe } from "./pages/DocumentsListe";
 import { FicheChantier } from "./pages/FicheChantier";
 import { FicheFournisseur } from "./pages/FicheFournisseur";
 import { FournisseursListe } from "./pages/FournisseursListe";
+import { GrilleFournisseur } from "./pages/GrilleFournisseur";
 import { Journal } from "./pages/Journal";
 import { Livraisons } from "./pages/Livraisons";
 import { PageBl } from "./pages/PageBl";
+import { Prix } from "./pages/Prix";
 import { Reglages } from "./pages/Reglages";
 import { GardeAdmin } from "./routes/GardeAdmin";
 import { RedirectionAccueil } from "./routes/RedirectionAccueil";
@@ -134,6 +136,18 @@ export function App(): ReactElement {
               </GardeAdmin>
             }
           />
+          {/* Grille de prix d'un fournisseur (phase 3, tâche P5, spec
+              `docs/superpowers/specs/2026-09-27-prix-design.md` §9) —
+              admin seulement, comme les routes `/api/grilles/…`
+              (`admin_requis`, `api/grilles.py`). */}
+          <Route
+            path="fournisseurs/:fournisseurId/prix"
+            element={
+              <GardeAdmin>
+                <GrilleFournisseur />
+              </GardeAdmin>
+            }
+          />
 
           {/* Livraisons (Task 13, mise en production du 1er octobre, spec
               §4.3) : liste des bons conformes cliquables, point d'arrivée
@@ -157,6 +171,19 @@ export function App(): ReactElement {
               (BL/enlèvement) puis, sur 404, délègue à `FactureDetail` — un
               même identifiant peut être celui d'un document ou d'une
               facture (voir `pages/PageBl.tsx`). */}
+          {/* Prix à vérifier (phase 3, tâche P9, spec
+              `docs/superpowers/specs/2026-09-27-prix-design.md` §8.3) --
+              admin seulement, comme les routes `/api/prix/…`
+              (`admin_requis`, `api/prix.py`). */}
+          <Route
+            path="prix"
+            element={
+              <GardeAdmin>
+                <Prix />
+              </GardeAdmin>
+            }
+          />
+
           <Route path="documents" element={<DocumentsListe />} />
           <Route path="documents/:id" element={<PageBl />} />
           <Route path="bl/:id" element={<PageBl />} />

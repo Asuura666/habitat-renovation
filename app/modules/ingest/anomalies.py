@@ -99,6 +99,22 @@ Décisions du contrôleur (L4-T8) :
   (404), jamais un statut changé ni une ligne de journal. Le journal
   (`ingest/journal.py`) ne filtre jamais sur ce critère : il garde
   l'historique tel quel, décision explicite de la tâche.
+- `condition_regles_actives` reçoit désormais un paramètre `exclues:
+  frozenset[str] | None = None` (phase 3, contrôle des prix des bons, spec
+  §6.5) : `None` (défaut) reproduit le comportement ci-dessus
+  (`regles_desactivees()` seule -- R07/R08/R09/R06 selon les deux
+  drapeaux d'environnement), sans rien savoir des règles de prix des bons
+  (R19-R25) ni lire la base. Chaque lecture qui masque effectivement les
+  anomalies (`_requete_anomalies`, via `lister_anomalies`/
+  `traiter_anomalie`, `compter_anomalies_ouvertes`,
+  `compter_anomalies_hautes_ouvertes`, ainsi que `ingest.bilan`,
+  `ingest.comparaison_bl` et `ingest.a_traiter`, pour leurs propres
+  requêtes) passe explicitement `await ingest.commun.regles_masquees
+  (session)` -- l'union de `regles_desactivees()` et des règles R19-R25
+  masquées par les réglages `prix_…` (interrupteur général puis, s'il est
+  allumé, chacune des sept alertes). `traiter_anomalie` en tient compte
+  avant toute modification, comme pour R07-R09/R06 : une alerte de prix
+  masquée est `AnomalieIntrouvable` (404), jamais un statut changé.
 """
 
 from __future__ import annotations
@@ -114,7 +130,7 @@ from sqlalchemy import ColumnElement, Select, case, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.modules.ingest.commun import regles_desactivees
+from app.modules.ingest.commun import regles_desactivees, regles_masquees
 from app.modules.ingest.models import (
     Anomalie,
     BlocFacture,
@@ -153,7 +169,14 @@ Categorie = Literal["bl", "prix", "quantites", "rattacher", "autre"]
 # ligne »). R18 (chantier à confirmer, avenant du 27/09/2026) rejoint R14
 # dans « rattacher » -- même famille de problème (un chantier pas encore
 # identifié avec certitude), bien qu'`evaluer_chantier` ne soit pas encore
-# appelée par `ingest`.
+# appelée par `ingest`. R19 à R25 (phase 3, prix des bons, spec `docs/
+# superpowers/specs/2026-09-27-prix-design.md` §6.5) rejoignent R07-R09
+# dans « prix » -- même famille de problème (un écart de prix), bien
+# qu'`evaluer_prix_bl` ne soit pas encore appelée par `ingest` : elles
+# élargissent mécaniquement `REGLES_QUANTITE_OU_PRIX` (`ingest.bilan`), sans
+# effet sur `en_ecart` en pratique -- ces règles ne posent jamais
+# `bloc_id` (elles portent sur un bon, pas sur un bloc de facture) et la
+# requête du bilan ne retient que les anomalies avec `bloc_id` non nul.
 CATEGORIES_REGLE: dict[str, Categorie] = {
     "R01": "bl",
     "R02": "bl",
@@ -166,6 +189,13 @@ CATEGORIES_REGLE: dict[str, Categorie] = {
     "R09": "prix",
     "R14": "rattacher",
     "R18": "rattacher",
+    "R19": "prix",
+    "R20": "prix",
+    "R21": "prix",
+    "R22": "prix",
+    "R23": "prix",
+    "R24": "prix",
+    "R25": "prix",
 }
 
 
@@ -517,26 +547,37 @@ class TransitionInterdite(Exception):
     """L'anomalie est déjà `traitee` ou `ignoree` (transition refusée)."""
 
 
-def condition_regles_actives() -> ColumnElement[bool]:
+def condition_regles_actives(
+    exclues: frozenset[str] | None = None,
+) -> ColumnElement[bool]:
     """Masque les anomalies dont la règle est désactivée côté serveur --
-    voir le docstring de module (décision d'Ilane du 24/09/2026). `true()`
-    (jamais de filtre `IN` avec une liste vide, dont la portabilité SQL
-    n'est pas garantie) quand `regles_desactivees()` est vide, c'est-à-dire
-    la quasi-totalité du temps une fois le drapeau réactivé."""
-    exclues = regles_desactivees()
-    if not exclues:
+    voir le docstring de module (décision d'Ilane du 24/09/2026, étendu par
+    la spec §6.5). `exclues` : `None` (défaut, comportement inchangé)
+    recalcule `regles_desactivees()` ; sinon l'appelant a déjà déterminé
+    l'ensemble exact des règles à masquer (typiquement `await ingest.commun
+    .regles_masquees(session)`, qui y ajoute R19-R25 selon les réglages
+    `prix_…`) et le passe tel quel. `true()` (jamais de filtre `IN` avec une
+    liste vide, dont la portabilité SQL n'est pas garantie) quand l'ensemble
+    obtenu est vide."""
+    exclues_effectives = regles_desactivees() if exclues is None else exclues
+    if not exclues_effectives:
         return true()
-    return Anomalie.regle.not_in(tuple(exclues))
+    return Anomalie.regle.not_in(tuple(exclues_effectives))
 
 
-def _requete_anomalies(*conditions: Any) -> Select[Any]:
+def _requete_anomalies(
+    *conditions: Any, exclues: frozenset[str] | None = None
+) -> Select[Any]:
     """Requête commune à `lister_anomalies` et à la relecture d'une
     anomalie après `traiter_anomalie` (décision du contrôleur : jamais
     dupliquer les jointures). Chantier résolu par `CHANTIER_ID_RESOLU`
     (Ruling R19, fix round 2 de L4-T7) : `Anomalie.chantier_id` d'abord,
-    sinon le bloc, sinon le document lui-même. `condition_regles_actives()`
-    masque les anomalies des règles désactivées (voir son docstring) --
-    point unique pour tous les appelants de cette requête."""
+    sinon le bloc, sinon le document lui-même. `condition_regles_actives
+    (exclues)` masque les anomalies des règles désactivées (voir son
+    docstring) -- point unique pour tous les appelants de cette requête ;
+    `exclues` est calculé par l'appelant (`lister_anomalies`/
+    `traiter_anomalie`, `await ingest.commun.regles_masquees(session)`,
+    spec §6.5)."""
     traitee_par_alias = aliased(Utilisateur)
     return (
         select(
@@ -557,7 +598,7 @@ def _requete_anomalies(*conditions: Any) -> Select[Any]:
         .outerjoin(Chantier, Chantier.id == CHANTIER_ID_RESOLU)
         .outerjoin(Fournisseur, Fournisseur.id == Document.fournisseur_id)
         .outerjoin(traitee_par_alias, traitee_par_alias.id == Anomalie.traitee_par)
-        .where(condition_regles_actives(), *conditions)
+        .where(condition_regles_actives(exclues), *conditions)
     )
 
 
@@ -700,8 +741,9 @@ async def lister_anomalies(
     if ids is not None:
         conditions.append(Anomalie.id.in_(tuple(ids)))
 
+    exclues = await regles_masquees(session)
     resultat = await session.execute(
-        _requete_anomalies(*conditions)
+        _requete_anomalies(*conditions, exclues=exclues)
         .order_by(_ORDRE_GRAVITE, Anomalie.created_at.asc())
         .limit(limite)
     )
@@ -715,8 +757,10 @@ async def compter_anomalies_ouvertes(session: AsyncSession) -> tuple[int, int]:
     jointures externes, qui ne retirent ni ne dupliquent aucune anomalie).
     Sert au compte unique des problèmes « à régler » (`ingest.a_traiter
     .compter_problemes_a_regler`, revue finale de la refonte du front).
-    `condition_regles_actives()` masque les règles désactivées, même
-    principe que `_requete_anomalies`."""
+    `condition_regles_actives(exclues)` masque les règles désactivées et
+    les alertes de prix masquées (spec §6.5), même principe que
+    `_requete_anomalies`."""
+    exclues = await regles_masquees(session)
     resultat = (
         await session.execute(
             select(
@@ -724,7 +768,7 @@ async def compter_anomalies_ouvertes(session: AsyncSession) -> tuple[int, int]:
                 func.count().filter(Anomalie.gravite == "haute"),
             )
             .select_from(Anomalie)
-            .where(condition_regles_actives(), Anomalie.statut == "ouverte")
+            .where(condition_regles_actives(exclues), Anomalie.statut == "ouverte")
         )
     ).one()
     return int(resultat[0]), int(resultat[1])
@@ -733,14 +777,16 @@ async def compter_anomalies_ouvertes(session: AsyncSession) -> tuple[int, int]:
 async def compter_anomalies_hautes_ouvertes(session: AsyncSession) -> int:
     """Nombre d'anomalies `ouverte` de gravité `haute` (section « anomalies
     ouvertes de gravité haute » de l'écran « À traiter », L4-D18).
-    `condition_regles_actives()` masque les règles désactivées, même
-    principe que `_requete_anomalies`."""
+    `condition_regles_actives(exclues)` masque les règles désactivées et les
+    alertes de prix masquées (spec §6.5), même principe que
+    `_requete_anomalies`."""
+    exclues = await regles_masquees(session)
     return (
         await session.execute(
             select(func.count())
             .select_from(Anomalie)
             .where(
-                condition_regles_actives(),
+                condition_regles_actives(exclues),
                 Anomalie.statut == "ouverte",
                 Anomalie.gravite == "haute",
             )
@@ -775,11 +821,12 @@ async def traiter_anomalie(
     `corrections.corriger_entete`).
 
     Anomalie d'une règle désactivée (constat mineur 1 de la revue des
-    contrôles de prix, décision d'Ilane du 24/09/2026) : elle est masquée
-    de toute lecture (`condition_regles_actives`, voir le docstring de
-    module), donc traitée comme introuvable ici aussi -- `AnomalieIntrouvable`
-    (404), **avant** toute modification, jamais un statut changé ni une
-    ligne de journal pour une anomalie que l'écran ne montre plus.
+    contrôles de prix, décision d'Ilane du 24/09/2026, étendu par la spec
+    §6.5 à R19-R25) : elle est masquée de toute lecture
+    (`condition_regles_actives`, voir le docstring de module), donc traitée
+    comme introuvable ici aussi -- `AnomalieIntrouvable` (404), **avant**
+    toute modification, jamais un statut changé ni une ligne de journal
+    pour une anomalie que l'écran ne montre plus.
     """
     if statut not in _STATUTS_TRANSITION:
         raise ValueError(f"statut invalide : {statut!r}")
@@ -792,8 +839,9 @@ async def traiter_anomalie(
     ):
         raise ValueError("commentaire obligatoire (1 à 500 caractères)")
 
+    exclues = await regles_masquees(session)
     anomalie = await session.get(Anomalie, anomalie_id)
-    if anomalie is None or anomalie.regle in regles_desactivees():
+    if anomalie is None or anomalie.regle in exclues:
         raise AnomalieIntrouvable(str(anomalie_id))
     if anomalie.statut != "ouverte":
         raise TransitionInterdite(str(anomalie_id))
@@ -817,7 +865,9 @@ async def traiter_anomalie(
     await session.commit()
 
     ligne = (
-        await session.execute(_requete_anomalies(Anomalie.id == anomalie_id))
+        await session.execute(
+            _requete_anomalies(Anomalie.id == anomalie_id, exclues=exclues)
+        )
     ).first()
     if ligne is None:
         # Incohérence impossible juste après le commit ci-dessus (défensif,
