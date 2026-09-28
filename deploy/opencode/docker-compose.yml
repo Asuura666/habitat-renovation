@@ -32,18 +32,16 @@ services:
       - "ALL"
     pids_limit: 200
     mem_limit: 512m
-    # `read_only: true` (racine en lecture seule) n'est PAS activé : d'après
-    # la documentation publique d'OpenCode et des essais communautaires de
-    # conteneurisation en lecture seule, `opencode serve` écrit aussi dans
-    # un répertoire de cache (`~/.cache/opencode`), en plus du répertoire de
-    # données couvert ici par le volume nommé et de `/tmp` -- un chemin que
-    # les « faits vérifiés » de cette tâche (27/09/2026) ne couvrent pas et
-    # qu'aucune commande docker n'a été exécutée pour vérifier (hors
-    # périmètre de cette tâche). Activer `read_only` sans couvrir ce
-    # troisième chemin risquerait un échec silencieux au premier appel
-    # utilisant la recherche web plutôt qu'un simple refus de démarrer.
-    # Détail et marche à suivre pour l'essayer plus tard : `docs/phase-4-ia.md`
-    # et `docs/dette.md`.
+    # `read_only: true` (racine en lecture seule) n'est PAS activé : constaté
+    # en direct (fix round 1, essai sur l'image construite) -- avec une
+    # racine en lecture seule (même avec un tmpfs sur `/tmp`, `~/.cache`,
+    # `~/.local/share/opencode` et `~/.local/state`), `POST /session` échoue
+    # (`EROFS`) : OpenCode écrit un `.gitignore` dans son répertoire de
+    # configuration à chaque création de session. Dans ce conteneur (sans
+    # `read_only`), cette même écriture échoue déjà (le répertoire est
+    # `root:root` 0555, voir `Dockerfile`) mais sans conséquence : OpenCode
+    # l'ignore et la session se crée quand même. Détail : `docs/phase-4-ia.md`
+    # §9 et `docs/dette.md`.
     volumes:
       - opencode-donnees:/home/opencode/.local/share/opencode
     env_file:

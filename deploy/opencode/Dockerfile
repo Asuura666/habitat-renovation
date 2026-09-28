@@ -17,8 +17,23 @@ RUN groupadd --gid 10002 opencode \
        --shell /usr/sbin/nologin opencode
 ENV HOME=/home/opencode
 
+# `npm install -g` tourne ici en root (avant `USER opencode` ci-dessous),
+# mais avec `$HOME=/home/opencode` déjà fixé au-dessus : npm -- et le
+# paquet lui-même, qui touche son propre répertoire de cache à
+# l'installation -- y écrivent `.npm` et `.cache` (dont `.cache/opencode`)
+# appartenant à `root:root`. Constaté en vrai (fix round 1, essai en
+# direct) : sans le nettoyage ci-dessous, `opencode serve` démarre bien
+# (uid `opencode`) mais échoue à chaque appel à écrire son cache de
+# modèles (`EACCES` sur `.cache/opencode/models.json...tmp`) -- `.npm` ne
+# sert plus à rien après l'installation (supprimé), `.cache` doit
+# appartenir à `opencode` pour que le serveur puisse y écrire à
+# l'exécution (contrairement à `.config`, ci-dessous, qui doit lui rester
+# fermé à `opencode`).
 RUN npm install -g opencode-ai@1.18.32 \
-    && npm cache clean --force
+    && npm cache clean --force \
+    && rm -rf /home/opencode/.npm \
+    && mkdir -p /home/opencode/.cache \
+    && chown -R opencode:opencode /home/opencode/.cache
 
 # Configuration copiée dans l'image, jamais montée : `opencode.json` ne
 # contient aucun secret (mots de passe et clé Exa restent dans `.env`, lus

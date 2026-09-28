@@ -102,6 +102,20 @@ def test_seul_habitat_prix_a_le_droit_de_chercher_ou_lire_le_web() -> None:
             assert autorisations == {}, nom
 
 
+def test_dockerfile_rend_le_cache_opencode_inscriptible() -> None:
+    """Fix round 1 (T8, essai en direct sur l'image construite) : `npm
+    install -g` tourne en root avec `$HOME=/home/opencode` déjà fixé, donc
+    `.cache` (dont `.cache/opencode`) est créé `root:root` à l'installation
+    -- constaté en direct par un `EACCES` au démarrage (`opencode serve` ne
+    peut plus écrire son cache de modèles). Le `chown` doit venir dans le
+    `RUN` qui installe le paquet (ou juste après), jamais avant : un
+    `chown` placé plus haut serait écrasé par l'installation elle-même."""
+    dockerfile = (DEPLOY_OPENCODE / "Dockerfile").read_text(encoding="utf-8")
+    indice_install = dockerfile.index("npm install -g opencode-ai")
+    apres_install = dockerfile[indice_install:]
+    assert "chown -R opencode:opencode /home/opencode/.cache" in apres_install
+
+
 def test_compose_opencode_ne_publie_aucun_port() -> None:
     config = _compose(DEPLOY_OPENCODE / "docker-compose.yml")
     assert config["name"] == "habitat_ia"

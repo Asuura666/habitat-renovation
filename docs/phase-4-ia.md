@@ -39,8 +39,8 @@ ni un prix de grille.
 ## 2. Prérequis
 
 - Un abonnement **ChatGPT Plus ou Pro** actif au nom d'Ilane (usage
-  personnel, décision D2 — voir les risques au §7).
-- **Avant** de connecter l'abonnement (§4.2) : dans ChatGPT, `Paramètres` →
+  personnel, décision D2 — voir les risques au §9).
+- **Avant** de connecter l'abonnement (§3.1) : dans ChatGPT, `Paramètres` →
   `Contrôle des données` → désactiver **« Améliorer le modèle pour tout le
   monde »**. Sans ce réglage, le contenu envoyé par l'application (textes de
   commentaires, désignations de produits) pourrait servir à l'entraînement
@@ -64,7 +64,7 @@ Remplir `deploy/opencode/.env` :
 
 - `OPENCODE_SERVER_PASSWORD` : générer une valeur avec
   `openssl rand -hex 32` — **noter ce mot de passe**, il sera recopié à
-  l'identique dans `OPENCODE_MOT_DE_PASSE` de chaque `.env.<instance>` (§4).
+  l'identique dans `OPENCODE_MOT_DE_PASSE` de chaque `.env.<instance>` (§4.1).
 - `EXA_API_KEY` : laisser vide (la recherche web fonctionne déjà via le
   service public d'Exa, `OPENCODE_ENABLE_EXA=1`, câblé dans le compose).
 
@@ -306,21 +306,21 @@ jour : `docs/superpowers/specs/2026-09-27-phase-4-ia-design.md` §9.
 
 ## 9. Limites connues
 
-- **Conteneur `read_only` non activé** (`deploy/opencode/docker-compose.yml`) :
-  d'après la documentation publique d'OpenCode, `opencode serve` écrit non
-  seulement dans le répertoire de données couvert par le volume nommé, mais
-  aussi dans un répertoire de cache (`~/.cache/opencode`) — un chemin que
-  les faits vérifiés de cette tâche ne couvraient pas et qu'aucune commande
-  docker n'a été exécutée pour vérifier (hors périmètre de la tâche T8).
-  Activer `read_only: true` sans couvrir ce troisième chemin risquerait un
-  échec silencieux au premier appel utilisant la recherche web plutôt qu'un
-  simple refus de démarrer. Le conteneur reste durci par ailleurs
-  (`no-new-privileges`, `cap_drop: ALL`, `pids_limit`, `mem_limit`, aucun
-  port publié, utilisateur non root, réseau dédié). Piste pour l'activer
-  plus tard : ajouter un `tmpfs` pour `/tmp` **et** un pour
-  `/home/opencode/.cache`, puis vérifier que le conteneur démarre et
-  qu'un essai `habitat-prix` (recherche + lecture d'une page) fonctionne
-  avant de le garder.
+- **Conteneur `read_only` non activé, par choix délibéré**
+  (`deploy/opencode/docker-compose.yml`) : confirmé en direct (fix round 1,
+  essai sur l'image construite) — OpenCode écrit un `.gitignore` dans
+  `~/.config/opencode` à chaque création de session (`POST /session`).
+  Racine en lecture seule (même avec un `tmpfs` sur `/tmp`, `~/.cache`,
+  `~/.local/share/opencode` et `~/.local/state`) → cette écriture échoue en
+  `EROFS` et la création de session échoue avec elle. Dans ce conteneur
+  (sans `read_only`), le même répertoire est déjà fermé à `opencode`
+  (`root:root`, 0555 — immuabilité voulue de la configuration des agents) :
+  l'écriture échoue aussi, mais sans conséquence, OpenCode l'ignore et
+  la session se crée quand même. Rendre la racine en lecture seule
+  transformerait donc cet échec aujourd'hui sans gravité en échec bloquant :
+  le conteneur reste durci par ailleurs (`no-new-privileges`, `cap_drop:
+  ALL`, `pids_limit`, `mem_limit`, aucun port publié, utilisateur non root,
+  réseau dédié).
 - **Abonnement personnel d'Ilane** (D2, risque consigné au §9 de la spec) :
   l'usage de l'application consomme son quota ; un compte suspendu rend
   l'IA indisponible sans casser le reste de l'application
