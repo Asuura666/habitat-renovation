@@ -3698,6 +3698,17 @@
       ],
       "title": "Ressemblance"
      },
+     "unite_grille_non_comparable": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Grille Non Comparable"
+     },
      "regles": {
       "items": {
        "type": "string"
@@ -3757,6 +3768,7 @@
      "ecart_pct",
      "methode",
      "ressemblance",
+     "unite_grille_non_comparable",
      "regles",
      "anomalie_ids",
      "document_id",

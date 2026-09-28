@@ -863,7 +863,14 @@ class AlerteProduit:
     regroupant toutes les alertes ouvertes de tous ses bons. Les champs
     « grille »/« dernier prix » viennent du bon le plus récent du groupe
     (`date_bon`, puis `Document.created_at`) ; `nb_bons`/
-    `nb_prix_differents` comptent sur l'ensemble du groupe."""
+    `nb_prix_differents` comptent sur l'ensemble du groupe.
+
+    `unite_grille_non_comparable` distingue « produit absent de la grille »
+    (R22, `prix_grille` restera `None`) de « grille présente mais unité non
+    comparable » (R24 : un produit de la grille existe mais son prix n'a pas
+    pu être comparé -- `rules/R24.py`) -- ce second cas n'a ni `prix_grille`
+    ni R22 et ne doit pas être affiché comme « absent de la grille » (constat
+    front, tour 2)."""
 
     fournisseur_id: uuid.UUID
     fournisseur: str
@@ -885,6 +892,7 @@ class AlerteProduit:
     ecart_pct: Decimal | None
     methode: str | None
     ressemblance: int | None
+    unite_grille_non_comparable: str | None
     regles: tuple[str, ...]
     anomalie_ids: tuple[uuid.UUID, ...]
     document_id: uuid.UUID
@@ -981,6 +989,13 @@ def _alerte_produit(items: Sequence[_LigneAlerte]) -> AlerteProduit:
         if ressemblance is None:
             ressemblance = _entier_ou_aucun(detail.get("ressemblance"))
 
+    unite_grille_non_comparable = None
+    r24_anomalie = _trouver_anomalie(items_tries, frozenset({"R24"}))
+    if r24_anomalie is not None:
+        unite_grille_non_comparable = _texte_ou_aucun(
+            r24_anomalie.detail.get("unite_grille")
+        )
+
     return AlerteProduit(
         fournisseur_id=_fournisseur_id_document(plus_recent.document),
         fournisseur=plus_recent.fournisseur_nom,
@@ -1002,6 +1017,7 @@ def _alerte_produit(items: Sequence[_LigneAlerte]) -> AlerteProduit:
         ecart_pct=_plus_grand_ecart(plus_recent.anomalies),
         methode=methode,
         ressemblance=ressemblance,
+        unite_grille_non_comparable=unite_grille_non_comparable,
         regles=regles,
         anomalie_ids=anomalie_ids,
         document_id=plus_recent.document.id,

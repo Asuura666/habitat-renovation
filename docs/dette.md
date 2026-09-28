@@ -1249,14 +1249,6 @@ phase :
   rattrapage périodique n'existe pour autant si le contrôle échoue
   silencieusement sur un dépôt (même angle mort que `controles-differes`
   et `ranger-photos`, phase 2).
-- **Écran « Prix à vérifier »** : la colonne « Écart » ne distingue pas à
-  l'affichage un pourcentage d'écart de prix d'un pourcentage de
-  ressemblance de nom (R23 seule active) ; l'absence de code fournisseur
-  sur une ligne en alerte s'affiche par un tiret nu, sans le mot
-  « Sans référence » utilisé ailleurs dans l'application ; la colonne
-  « Produit » du tableau n'a pas de largeur minimale garantie face à la
-  colonne « Alertes », ce qui peut forcer les désignations longues sur
-  plusieurs lignes.
 - **Barre de navigation basse (téléphone)** : le passage à six entrées
   avec l'ajout de « Prix » resserre l'espace disponible par item ; les
   libellés ne sont pas protégés par une largeur minimale, un libellé long

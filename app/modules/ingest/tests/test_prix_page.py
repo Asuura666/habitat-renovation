@@ -242,6 +242,30 @@ async def test_produits_sans_grille_regroupes_par_ligne_du_bon(
     assert produits[0].prix_grille is None
 
 
+async def test_r24_seule_grille_presente_mais_non_comparable(
+    db_session: AsyncSession,
+) -> None:
+    """Un produit de la grille existe mais son unité ne se ramène pas à
+    celle du bon (R24, `rules/R24.py`) : contrairement à R22, ce n'est pas
+    « absent de la grille » -- `prix_grille` reste `None` (aucun prix
+    comparable) mais `unite_grille_non_comparable` porte l'unité de la
+    grille, pour que l'écran distingue les deux cas (spec §8.1, constat
+    front, tour 2)."""
+    await _activer_controle(db_session)
+    fournisseur = await _creer_fournisseur(db_session)
+    await _creer_prix_grille(db_session, fournisseur=fournisseur, unite="kg")
+    bon = await _creer_bl(db_session, fournisseur=fournisseur)
+    await _creer_ligne(db_session, document=bon, unite_brut="m")
+
+    await _controler(db_session, bon.id)
+
+    produits = await lister_alertes_prix(db_session)
+    assert len(produits) == 1
+    assert produits[0].regles == ("R24",)
+    assert produits[0].prix_grille is None
+    assert produits[0].unite_grille_non_comparable == "kg"
+
+
 async def test_tri_gravite_puis_ecart(db_session: AsyncSession) -> None:
     """Gravité haute (R19) avant gravité basse (R21 seul) -- deux produits
     distincts."""

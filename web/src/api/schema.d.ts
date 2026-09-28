@@ -1244,6 +1244,8 @@ export interface components {
             methode: string | null;
             /** Ressemblance */
             ressemblance: number | null;
+            /** Unite Grille Non Comparable */
+            unite_grille_non_comparable: string | null;
             /** Regles */
             regles: string[];
             /** Anomalie Ids */

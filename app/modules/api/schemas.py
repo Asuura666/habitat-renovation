@@ -1240,6 +1240,7 @@ class AlerteProduitReponse(BaseModel):
     ecart_pct: Decimal | None
     methode: str | None
     ressemblance: int | None
+    unite_grille_non_comparable: str | None
     regles: list[str]
     anomalie_ids: list[uuid.UUID]
     document_id: uuid.UUID

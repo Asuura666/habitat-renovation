@@ -1,4 +1,4 @@
-import { type ReactElement, useState } from "react";
+import { Fragment, type ReactElement, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 
@@ -49,17 +49,27 @@ function cleProduit(produit: AlerteProduit): string {
   return produit.anomalie_ids.join(",");
 }
 
-/** Prix de la grille (spec §8.1) : « absent de la grille » quand aucune
- * alerte du groupe ne porte de prix de grille comparable (R22, ou seule
- * R20/R24 déclenchée). */
+/** Prix de la grille (spec §8.1) : « absent de la grille » seulement quand
+ * R22 est présente pour ce groupe (aucun produit retrouvé dans la grille).
+ * Un groupe dont la seule alerte de grille est R24 (unités différentes) a
+ * un produit de la grille, simplement non comparable : afficher son unité
+ * plutôt que de prétendre qu'il est absent (constat front, tour 2). Les
+ * autres cas sans prix comparable (ex. seule R20 déclenchée, sans info de
+ * grille du tout) affichent le tiret. */
 function texteGrille(produit: AlerteProduit): string {
-  if (produit.prix_grille === null) {
+  if (produit.prix_grille !== null) {
+    const unite = produit.unite_grille ? ` ${produit.unite_grille}` : "";
+    const date = produit.date_grille ? ` (${formaterDate(produit.date_grille)})` : "";
+    const posterieure = produit.grille_posterieure_au_bon ? " -- grille postérieure au bon" : "";
+    return `${formaterMontant(produit.prix_grille)}${unite}${date}${posterieure}`;
+  }
+  if (produit.regles.includes("R22")) {
     return "Absent de la grille";
   }
-  const unite = produit.unite_grille ? ` ${produit.unite_grille}` : "";
-  const date = produit.date_grille ? ` (${formaterDate(produit.date_grille)})` : "";
-  const posterieure = produit.grille_posterieure_au_bon ? " -- grille postérieure au bon" : "";
-  return `${formaterMontant(produit.prix_grille)}${unite}${date}${posterieure}`;
+  if (produit.unite_grille_non_comparable !== null) {
+    return `Unité différente (${produit.unite_grille_non_comparable})`;
+  }
+  return TIRET;
 }
 
 function texteDernierPrix(produit: AlerteProduit): string {
@@ -101,7 +111,17 @@ function texteEcart(produit: AlerteProduit): string | null {
   return `${fleche}${signe}${formaterPoints(String(Math.abs(valeur)))}`;
 }
 
-function texteBon(produit: AlerteProduit): string {
+interface PrixBon {
+  /** Le prix et son unité, en police à chasse fixe. */
+  prix: string;
+  /** « sur 3 bons, 3 prix différents » -- `null` s'il n'y a qu'un bon et un
+   * seul prix. Affiché à part, en texte courant (spec §8.1 point 2) : dans
+   * la police à chasse fixe du prix, cette phrase se cassait mot par mot au
+   * lieu de rester lisible (constat capture, tour 2). */
+  complement: string | null;
+}
+
+function texteBon(produit: AlerteProduit): PrixBon {
   const unite = produit.unite_bon ? ` ${produit.unite_bon}` : "";
   const mentions: string[] = [];
   if (produit.nb_bons > 1) {
@@ -110,8 +130,31 @@ function texteBon(produit: AlerteProduit): string {
   if (produit.nb_prix_differents > 1) {
     mentions.push(`${produit.nb_prix_differents} prix différents`);
   }
-  const suffixe = mentions.length > 0 ? ` (${mentions.join(", ")})` : "";
-  return `${formaterMontant(produit.prix_bon)}${unite}${suffixe}`;
+  return {
+    prix: `${formaterMontant(produit.prix_bon)}${unite}`,
+    complement: mentions.length > 0 ? mentions.join(", ") : null,
+  };
+}
+
+/** Rendu commun du prix du bon (carte et tableau, spec §8.1 point 2). */
+function PrixBonAffiche({ produit }: { produit: AlerteProduit }): ReactElement {
+  const bon = texteBon(produit);
+  return (
+    <>
+      <span className="font-mono">{bon.prix}</span>
+      {bon.complement !== null && <p className="mt-0.5 text-xs font-normal text-encre-2">{bon.complement}</p>}
+    </>
+  );
+}
+
+/** Code et fournisseur, sous le nom du produit (spec §8.1) : sans code, un
+ * tiret suivi du fournisseur (« — · Fournisseur ») ne dit rien d'utile --
+ * le libellé combiné « Sans référence · Fournisseur » ne s'utilise nulle
+ * part ailleurs dans l'application (seul `GrilleFournisseur.tsx` affiche
+ * « Sans référence », seul), donc ici seul le fournisseur reste affiché
+ * (constat front, tour 2). */
+function texteCodeFournisseur(produit: AlerteProduit): string {
+  return produit.code !== null ? `${produit.code} · ${produit.fournisseur}` : produit.fournisseur;
 }
 
 function texteAlertes(produit: AlerteProduit): string {
@@ -151,13 +194,23 @@ function ActionsAlertePrix({
     <div className="flex flex-col gap-2">
       {panneauOuvert === null && (
         <div className="flex flex-wrap gap-2">
-          <Bouton onClick={onValider} disabled={enCours}>
+          <Bouton className="whitespace-nowrap" onClick={onValider} disabled={enCours}>
             {enCours ? "En cours…" : "Valider ce prix"}
           </Bouton>
-          <Bouton variante="secondaire" onClick={() => onOuvrirPanneau("contester")} disabled={enCours}>
+          <Bouton
+            className="whitespace-nowrap"
+            variante="secondaire"
+            onClick={() => onOuvrirPanneau("contester")}
+            disabled={enCours}
+          >
             Contester
           </Bouton>
-          <Bouton variante="secondaire" onClick={() => onOuvrirPanneau("ignorer")} disabled={enCours}>
+          <Bouton
+            className="whitespace-nowrap"
+            variante="secondaire"
+            onClick={() => onOuvrirPanneau("ignorer")}
+            disabled={enCours}
+          >
             Ignorer
           </Bouton>
         </div>
@@ -205,12 +258,14 @@ function CarteAlertePrix({ produit, actions }: { produit: AlerteProduit; actions
     <li className="rounded-carte border border-bordure bg-surface p-4">
       <p className="font-medium text-encre">{produit.produit}</p>
       <p className="text-sm text-encre-2">
-        {produit.code ?? TIRET} · {produit.fournisseur}
+        {texteCodeFournisseur(produit)}
       </p>
       <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
         <div>
           <dt className="text-xs text-encre-2">Prix du bon</dt>
-          <dd className="font-mono text-encre">{texteBon(produit)}</dd>
+          <dd className="text-encre">
+            <PrixBonAffiche produit={produit} />
+          </dd>
         </div>
         <div>
           <dt className="text-xs text-encre-2">Grille</dt>
@@ -484,10 +539,15 @@ export function Prix(): ReactElement {
 
               {/* Tableau — ordinateur (>= md), 6 colonnes au plus (spec
                   §8.3) : produit, prix du bon, grille, dernier prix
-                  facturé, écart (avec la ressemblance), alertes/lien/
-                  actions. */}
+                  facturé, écart (avec la ressemblance), alertes/lien.
+                  Rangées compactes : les trois actions occupent une ligne
+                  pleine largeur sous les informations du produit plutôt
+                  que la colonne Alertes (trop étroite pour trois boutons
+                  côte à côte -- constat capture, tour 2), qui garde une
+                  largeur raisonnable pour les titres d'alertes et le lien
+                  « Voir le bon ». */}
               <div className="hidden overflow-x-auto rounded-carte border border-bordure md:block">
-                <table className="w-full min-w-[960px] divide-y divide-bordure text-sm">
+                <table className="w-full min-w-[960px] text-sm">
                   <caption className="sr-only">Produits en alerte de prix</caption>
                   <thead className="bg-fond text-left text-xs font-medium uppercase tracking-wide text-encre-2">
                     <tr>
@@ -496,40 +556,48 @@ export function Prix(): ReactElement {
                       <th scope="col" className="px-5 py-3">Grille</th>
                       <th scope="col" className="px-5 py-3">Dernier prix facturé</th>
                       <th scope="col" className="px-5 py-3">Écart</th>
-                      <th scope="col" className="px-5 py-3">Alertes</th>
+                      <th scope="col" className="min-w-[14rem] px-5 py-3">Alertes</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-bordure bg-surface">
+                  <tbody className="bg-surface">
                     {alertes.data.map((produit) => {
                       const ressemblance = texteRessemblance(produit);
                       return (
-                        <tr key={cleProduit(produit)}>
-                          <th scope="row" className="px-5 py-3 text-left align-top font-medium text-encre">
-                            <p className="whitespace-normal break-words">{produit.produit}</p>
-                            <p className="mt-0.5 text-xs font-normal text-encre-2">
-                              {produit.code ?? TIRET} · {produit.fournisseur}
-                            </p>
-                          </th>
-                          <td className="px-5 py-3 align-top font-mono text-encre">{texteBon(produit)}</td>
-                          <td className="px-5 py-3 align-top text-encre">{texteGrille(produit)}</td>
-                          <td className="px-5 py-3 align-top text-encre">{texteDernierPrix(produit)}</td>
-                          <td className="px-5 py-3 align-top font-mono font-medium text-encre">
-                            {texteEcart(produit) ?? TIRET}
-                            {ressemblance !== null && (
-                              <p className="mt-0.5 text-xs font-normal text-encre-2">{ressemblance}</p>
-                            )}
-                          </td>
-                          <td className="px-5 py-3 align-top text-encre">
-                            <p>{texteAlertes(produit)}</p>
-                            <Link
-                              to={lienBon(produit.document_id)}
-                              className="mt-1 inline-flex min-h-[44px] items-center text-sm font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                            >
-                              Voir le bon
-                            </Link>
-                            <div className="mt-2">{actionsPour(produit)}</div>
-                          </td>
-                        </tr>
+                        <Fragment key={cleProduit(produit)}>
+                          <tr className="border-t border-bordure">
+                            <th scope="row" className="px-5 pb-1 pt-3 text-left align-top font-medium text-encre">
+                              <p className="whitespace-normal break-words">{produit.produit}</p>
+                              <p className="mt-0.5 text-xs font-normal text-encre-2">
+                                {texteCodeFournisseur(produit)}
+                              </p>
+                            </th>
+                            <td className="px-5 pb-1 pt-3 align-top text-encre">
+                              <PrixBonAffiche produit={produit} />
+                            </td>
+                            <td className="px-5 pb-1 pt-3 align-top text-encre">{texteGrille(produit)}</td>
+                            <td className="px-5 pb-1 pt-3 align-top text-encre">{texteDernierPrix(produit)}</td>
+                            <td className="px-5 pb-1 pt-3 align-top font-mono font-medium text-encre">
+                              {texteEcart(produit) ?? TIRET}
+                              {ressemblance !== null && (
+                                <p className="mt-0.5 text-xs font-normal text-encre-2">{ressemblance}</p>
+                              )}
+                            </td>
+                            <td className="min-w-[14rem] px-5 pb-1 pt-3 align-top text-encre">
+                              <p>{texteAlertes(produit)}</p>
+                              <Link
+                                to={lienBon(produit.document_id)}
+                                className="mt-1 inline-flex min-h-[44px] items-center text-sm font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                              >
+                                Voir le bon
+                              </Link>
+                            </td>
+                          </tr>
+                          <tr>
+                            <td colSpan={6} className="px-5 pb-3 pt-0 align-top">
+                              {actionsPour(produit)}
+                            </td>
+                          </tr>
+                        </Fragment>
                       );
                     })}
                   </tbody>
