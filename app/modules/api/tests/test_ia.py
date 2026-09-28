@@ -49,6 +49,7 @@ from app.modules.ingest.models import (
     SyntheseCommentaires,
     Utilisateur,
 )
+from app.modules.ingest.parametres import modifier_parametre
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
 
@@ -201,6 +202,19 @@ def _regler_controle_prix(monkeypatch: pytest.MonkeyPatch, *, actif: bool) -> No
         controle_livre_non_facture_actif = True
 
     monkeypatch.setattr(commun, "get_settings", lambda: _SettingsInventee())
+
+
+async def _activer_controle_prix_bl(
+    session: AsyncSession, *, cle_alerte: str | None = None
+) -> None:
+    """R19-R25 (dont R22) sont masquées par défaut (réglage `prix_controle_
+    bl_actif`, en base, défaut 0) -- fix round 1, T10a : `ia_prix.py` masque
+    désormais ces règles via `ingest.commun.regles_masquees`, comme le reste
+    d'`ingest`. `cle_alerte` : en plus de l'interrupteur général, écrase
+    l'interrupteur d'une alerte précise (ex. `prix_alerte_absent_grille`)."""
+    await modifier_parametre(session, "prix_controle_bl_actif", "1", auteur_id=None)
+    if cle_alerte is not None:
+        await modifier_parametre(session, cle_alerte, "1", auteur_id=None)
 
 
 # --------------------------------------------------------------------------
@@ -438,6 +452,7 @@ async def test_get_avis_ia_anomalie_admin_200_forme_json(
             consulte_le=datetime.now(UTC),
         )
     )
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     app_test = _app_test(sessions_test, tmp_path)
@@ -478,11 +493,13 @@ async def test_get_avis_ia_anomalie_admin_200_aucun_avis(
     admin = await _creer_utilisateur(
         db_session, email="admin.ia.avis.vide@example.invalid", role="admin"
     )
-    # R22 (jamais masquée, contrairement à R07/R08/R09 -- `CONTROLE_PRIX_ACTIF`
-    # vaut son défaut réel `False` dans ce test, l'app de test n'écrasant pas
-    # ce réglage) : aucune `ExplicationAlerte` ni `PrixInternet` en base pour
-    # cette clé, donc rien à afficher, jamais une erreur.
+    # R22 non masquée ici (interrupteur `prix_controle_bl_actif` allumé, fix
+    # round 1, T10a -- sinon la route répondrait 404, cf. les tests de
+    # masquage plus bas) : aucune `ExplicationAlerte` ni `PrixInternet` en
+    # base pour cette clé, donc rien à afficher, jamais une erreur.
     anomalie, _fournisseur, _document = await _creer_anomalie_prix(db_session)
+    await _activer_controle_prix_bl(db_session)
+    await db_session.commit()
     app_test = _app_test(sessions_test, tmp_path)
     cookie = await _login(app_test, email=admin.email)
 
@@ -635,6 +652,8 @@ async def test_get_prix_internet_lot_admin_200_forme_json(
         fournisseur_nom="Fournisseur Lot C",
     )
     inconnue = uuid.uuid4()
+    await _activer_controle_prix_bl(db_session)
+    await db_session.commit()
 
     app_test = _app_test(sessions_test, tmp_path)
     cookie = await _login(app_test, email=admin.email)
@@ -712,3 +731,30 @@ async def test_get_prix_internet_lot_plus_de_200_422(
 
     assert reponse.status_code == 422
     assert isinstance(reponse.json()["detail"], str)
+
+
+async def test_get_prix_internet_lot_uuid_invalide_422(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Test permanent (revue de fix round 1, T10a) : un `anomalie_id` qui
+    n'est pas un UUID valide est refusé par la validation FastAPI/Pydantic
+    du paramètre de requête, avant même d'atteindre `prix_internet_des_
+    anomalies` -- 422, jamais une erreur serveur."""
+    admin = await _creer_utilisateur(
+        db_session, email="admin.ia.prix-internet.uuid@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app_test),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        reponse = await client.get(
+            "/api/ia/prix-internet", params={"anomalie_id": "pas-un-uuid"}
+        )
+
+    assert reponse.status_code == 422

@@ -61,7 +61,7 @@ from app.modules.ingest.anomalies import (
     condition_regles_actives,
     regles_de_categorie,
 )
-from app.modules.ingest.commun import regles_desactivees
+from app.modules.ingest.commun import regles_masquees
 from app.modules.ingest.models import (
     Anomalie,
     Document,
@@ -307,10 +307,18 @@ async def expliquer_alertes(session: AsyncSession, http: httpx.AsyncClient) -> B
     """Explique chaque alerte prix ouverte qui en a besoin (§5.1) : statut
     `ouverte`, catégorie « prix » (`ingest.anomalies.CATEGORIES_REGLE` lue à
     l'exécution via `regles_de_categorie`, jamais une liste écrite à la
-    main), règle active (`condition_regles_actives`), plus récentes
-    d'abord ; à traiter si l'anomalie n'a pas encore d'`ExplicationAlerte`,
-    si son détail a changé depuis (empreinte différente), ou si la dernière
-    tentative a échoué sur le même détail et `echecs < ECHECS_MAX`.
+    main), règle active -- `condition_regles_actives(exclues=await
+    ingest.commun.regles_masquees(session))`, calculé une seule fois pour
+    cet appel : depuis la fusion du lot Prix, la catégorie « prix » inclut
+    R19-R25 (fix round 1, T10a), dont le masquage ne dépend pas seulement de
+    `regles_desactivees()` (R07-R09/R06) mais aussi de l'interrupteur
+    général `prix_controle_bl_actif` et des sept interrupteurs par alerte
+    (réglages `prix_…`, en base) -- sans `regles_masquees`, l'IA expliquerait
+    des alertes que la page Prix elle-même ne montre plus, gaspillant le
+    plafond quotidien --, plus récentes d'abord ; à traiter si l'anomalie
+    n'a pas encore d'`ExplicationAlerte`, si son détail a changé depuis
+    (empreinte différente), ou si la dernière tentative a échoué sur le même
+    détail et `echecs < ECHECS_MAX`.
 
     Chargées en lot (deux requêtes seulement, jamais une par anomalie) :
     les anomalies elles-mêmes (jointes au fournisseur de leur document) puis
@@ -332,6 +340,7 @@ async def expliquer_alertes(session: AsyncSession, http: httpx.AsyncClient) -> B
     if not regles_prix:
         return BilanIA()
 
+    exclues = await regles_masquees(session)
     lignes = (
         await session.execute(
             select(Anomalie, Fournisseur.nom)
@@ -339,7 +348,7 @@ async def expliquer_alertes(session: AsyncSession, http: httpx.AsyncClient) -> B
             .outerjoin(Fournisseur, Fournisseur.id == Document.fournisseur_id)
             .where(
                 Anomalie.statut == "ouverte",
-                condition_regles_actives(),
+                condition_regles_actives(exclues=exclues),
                 Anomalie.regle.in_(tuple(regles_prix)),
             )
             .order_by(Anomalie.created_at.desc())
@@ -546,7 +555,16 @@ async def chercher_prix_internet(
 
     `IAIndisponible` arrête la boucle (`BilanIA.arret`), comme
     `expliquer_alertes`. Une ligne `PrixInternet` est commitée après chaque
-    produit cherché (succès, non vérifiable ou échec)."""
+    produit cherché (succès, non vérifiable ou échec).
+
+    Sélection non masquée -- `condition_regles_actives(exclues=await
+    ingest.commun.regles_masquees(session))`, calculé une seule fois pour
+    cet appel (fix round 1, T10a) : R22 est masquée dès que l'interrupteur
+    général `prix_controle_bl_actif` est éteint (défaut) ou que son propre
+    interrupteur `prix_alerte_absent_grille` l'est -- sans quoi la recherche
+    internet se déclencherait pour une alerte que la page Prix ne montre
+    plus, gaspillant le plafond quotidien pour rien."""
+    exclues = await regles_masquees(session)
     lignes = (
         await session.execute(
             select(Anomalie, Document.fournisseur_id, Fournisseur.nom)
@@ -554,7 +572,7 @@ async def chercher_prix_internet(
             .outerjoin(Fournisseur, Fournisseur.id == Document.fournisseur_id)
             .where(
                 Anomalie.statut == "ouverte",
-                condition_regles_actives(),
+                condition_regles_actives(exclues=exclues),
                 Anomalie.regle.in_(tuple(REGLES_PRIX_INTERNET)),
             )
             .order_by(Anomalie.created_at.desc())
@@ -885,9 +903,13 @@ async def _dernieres_vues_prix_internet(
 
 async def avis_ia_anomalie(session: AsyncSession, anomalie_id: uuid.UUID) -> AvisIA:
     """Avis de l'IA sur une anomalie (§6.4) : `AnomalieIntrouvable` si
-    l'anomalie n'existe pas ou si sa règle est désactivée côté serveur
-    (masquée de tout le reste de l'application, même principe que
-    `ingest.anomalies.traiter_anomalie`).
+    l'anomalie n'existe pas ou si sa règle est masquée côté serveur
+    (`ingest.commun.regles_masquees`, même fonction que le reste d'`ingest`
+    -- fix round 1, T10a : avant cette correction, seul `regles_desactivees`
+    était vérifié, ce qui ne masquait jamais R19-R25 malgré leurs propres
+    interrupteurs `prix_…` ; corrigé pour la même raison que `traiter_
+    anomalie`, dont cette route reprend le principe : une alerte masquée est
+    introuvable pour tout le reste de l'application).
 
     `explication` n'est rendue que si la dernière tentative a réussi
     (`statut="ok"`) **et** que son empreinte correspond encore au détail
@@ -900,7 +922,7 @@ async def avis_ia_anomalie(session: AsyncSession, anomalie_id: uuid.UUID) -> Avi
     `non_verifiable` de la clé du produit -- une ligne `echec` n'est jamais
     montrée."""
     anomalie = await session.get(Anomalie, anomalie_id)
-    if anomalie is None or anomalie.regle in regles_desactivees():
+    if anomalie is None or anomalie.regle in await regles_masquees(session):
         raise AnomalieIntrouvable(str(anomalie_id))
 
     explication_vue: ExplicationVue | None = None
@@ -971,11 +993,14 @@ async def prix_internet_des_anomalies(
 ) -> PrixInternetLot:
     """Prix internet de plusieurs anomalies en une seule fois (brief T10a) :
     même sélection qu'`avis_ia_anomalie` (anomalie ouverte, non masquée --
-    `condition_regles_actives`, sans le paramètre `exclues` : exactement le
-    même filtre que le `anomalie.regle in regles_desactivees()` de
-    `avis_ia_anomalie` --, règle ∈ `REGLES_PRIX_INTERNET`) et même lecture du
-    cache (`_cle_produit_pour_anomalie`/`_dernieres_vues_prix_internet`,
-    aucune duplication de calcul entre les deux fonctions -- le comportement
+    `condition_regles_actives(exclues=await ingest.commun.regles_masquees
+    (session))`, calculé une seule fois pour cet appel : même fonction que
+    le reste d'`ingest` (`ingest.prix_bl.lister_alertes_prix`, notamment),
+    qui tient compte à la fois de `regles_desactivees()` (R07-R09/R06) et des
+    interrupteurs `prix_…` du lot Prix (général et par alerte) -- fix round
+    1, T10a --, règle ∈ `REGLES_PRIX_INTERNET`) et même lecture du cache
+    (`_cle_produit_pour_anomalie`/`_dernieres_vues_prix_internet`, aucune
+    duplication de calcul entre les deux fonctions -- le comportement
     d'`avis_ia_anomalie` ne change pas), mais en lot : une seule requête pour
     les anomalies (jointes à leur document pour le fournisseur), une seule
     pour les `PrixInternet` de toutes les clés concernées -- jamais une
@@ -993,6 +1018,7 @@ async def prix_internet_des_anomalies(
     if not ids_uniques:
         return PrixInternetLot(ia_active=ia_active(), par_anomalie={})
 
+    exclues = await regles_masquees(session)
     lignes = (
         await session.execute(
             select(Anomalie, Document.fournisseur_id)
@@ -1000,7 +1026,7 @@ async def prix_internet_des_anomalies(
             .where(
                 Anomalie.id.in_(ids_uniques),
                 Anomalie.statut == "ouverte",
-                condition_regles_actives(),
+                condition_regles_actives(exclues=exclues),
                 Anomalie.regle.in_(tuple(REGLES_PRIX_INTERNET)),
             )
         )

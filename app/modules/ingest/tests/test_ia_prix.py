@@ -60,6 +60,7 @@ from app.modules.ingest.models import (
     Fournisseur,
     PrixInternet,
 )
+from app.modules.ingest.parametres import modifier_parametre
 from app.modules.normalize.texte import normaliser_libelle
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
@@ -110,6 +111,19 @@ def _regler_controle_prix(monkeypatch: pytest.MonkeyPatch, *, actif: bool) -> No
         controle_livre_non_facture_actif = True
 
     monkeypatch.setattr(commun, "get_settings", lambda: _SettingsInventee())
+
+
+async def _activer_controle_prix_bl(session: AsyncSession) -> None:
+    """R19-R25 (dont R22) sont masquées par défaut (réglage `prix_controle_
+    bl_actif`, en base, défaut 0) -- fix round 1, T10a : depuis que `ia_prix
+    .py` masque ces règles via `ingest.commun.regles_masquees`, chaque test
+    qui attend une anomalie R22 traitée (et non masquée) doit allumer
+    l'interrupteur explicitement, comme `ingest.tests.test_prix_bl
+    ._activer_controle` -- jamais une fixture autouse : ce fichier mélange
+    des tests purs (sync, sans `db_session`) et des tests base de données,
+    et une fixture autouse async casse la collecte des premiers (plugin
+    anyio, absence de boucle événementielle pour un test synchrone)."""
+    await modifier_parametre(session, "prix_controle_bl_actif", "1", auteur_id=None)
 
 
 # --------------------------------------------------------------------------
@@ -518,6 +532,7 @@ async def test_expliquer_alertes_lit_categories_regle_a_lexecution(
     facture = await _creer_facture(db_session, fournisseur=fournisseur)
     detail = _detail_r22()
     await _creer_anomalie(db_session, regle="R22", detail=detail, document=facture)
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     structured = {"explication": "Ce produit ne figure pas dans la grille."}
@@ -822,6 +837,7 @@ async def test_chercher_prix_internet_R22_seulement(db_session: AsyncSession) ->
     await _creer_anomalie(
         db_session, regle="R22", detail=_detail_r22(), document=facture
     )
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     requetes: list[httpx.Request] = []
@@ -856,6 +872,7 @@ async def test_chercher_prix_internet_dernier_prix_present_pas_de_recherche(
         detail=_detail_r22(dernier_prix="9.50"),
         document=facture,
     )
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(_aucune_requete))
@@ -880,6 +897,7 @@ async def test_chercher_prix_internet_prix_du_bon_absent_du_texte_envoye(
         detail=_detail_r22(prix_bon="7.90"),
         document=facture,
     )
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     requetes: list[httpx.Request] = []
@@ -925,6 +943,7 @@ async def test_chercher_prix_internet_detail_r22_reel_code_et_unite_tiret(
     facture = await _creer_facture(db_session, fournisseur=fournisseur)
     detail = _detail_r22(code="—", unite_bon="—", prix_bon="7.90")
     await _creer_anomalie(db_session, regle="R22", detail=detail, document=facture)
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     requetes: list[httpx.Request] = []
@@ -974,6 +993,7 @@ async def test_chercher_prix_internet_cache_29_jours_rien(
         consulte_le=datetime.now(UTC) - timedelta(days=29),
         fournisseur_id=fournisseur.id,
     )
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(_aucune_requete))
@@ -998,6 +1018,7 @@ async def test_chercher_prix_internet_cache_31_jours_recherche(
         consulte_le=datetime.now(UTC) - timedelta(days=31),
         fournisseur_id=fournisseur.id,
     )
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     reponses = _reponses_prix_trouve(
@@ -1030,6 +1051,7 @@ async def test_chercher_prix_internet_trois_echecs_sept_jours_rien(
             fournisseur_id=fournisseur.id,
             raison="reseau",
         )
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(_aucune_requete))
@@ -1050,6 +1072,7 @@ async def test_chercher_prix_internet_une_seule_recherche_meme_produit(
     detail = _detail_r22(produit="Produit Partage Invente")
     await _creer_anomalie(db_session, regle="R22", detail=detail, document=facture_1)
     await _creer_anomalie(db_session, regle="R22", detail=detail, document=facture_2)
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     requetes: list[httpx.Request] = []
@@ -1085,6 +1108,7 @@ async def test_chercher_prix_internet_trouve_enregistre_avec_taxes(
     facture = await _creer_facture(db_session, fournisseur=fournisseur)
     detail = _detail_r22(produit="Produit Trouve Taxes")
     await _creer_anomalie(db_session, regle="R22", detail=detail, document=facture)
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     reponses = _reponses_prix_trouve(
@@ -1117,6 +1141,7 @@ async def test_chercher_prix_internet_non_verifiable_enregistre(
     facture = await _creer_facture(db_session, fournisseur=fournisseur)
     detail = _detail_r22(produit="Produit Non Verifiable")
     await _creer_anomalie(db_session, regle="R22", detail=detail, document=facture)
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     reponses = _reponses_prix_non_verifiable("prix non communiqué par le revendeur")
@@ -1138,6 +1163,7 @@ async def test_chercher_prix_internet_erreur_ia_ligne_echec(
     facture = await _creer_facture(db_session, fournisseur=fournisseur)
     detail = _detail_r22(produit="Produit Erreur IA")
     await _creer_anomalie(db_session, regle="R22", detail=detail, document=facture)
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     erreur_info = {"name": "ProviderAuthError", "data": {}}
@@ -1162,6 +1188,7 @@ async def test_chercher_prix_internet_plafond_arret(
     await _creer_anomalie(
         db_session, regle="R22", detail=_detail_r22(), document=facture
     )
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     monkeypatch.setattr(
@@ -1312,6 +1339,7 @@ async def test_avis_ia_anomalie_ligne_echec_jamais_montree(
         fournisseur_id=fournisseur.id,
         raison="reseau",
     )
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     avis = await avis_ia_anomalie(db_session, anomalie.id)
@@ -1334,6 +1362,7 @@ async def test_avis_ia_anomalie_prix_trouve_rendu(db_session: AsyncSession) -> N
         consulte_le=datetime.now(UTC),
         fournisseur_id=fournisseur.id,
     )
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     avis = await avis_ia_anomalie(db_session, anomalie.id)
@@ -1360,6 +1389,156 @@ async def test_avis_ia_anomalie_masquee_introuvable(
 
     with pytest.raises(AnomalieIntrouvable):
         await avis_ia_anomalie(db_session, anomalie.id)
+
+
+# --------------------------------------------------------------------------
+# Masquage du lot Prix (fix round 1, T10a) : les quatre sélections de ce
+# module (`expliquer_alertes`, `chercher_prix_internet`, `avis_ia_anomalie`,
+# `prix_internet_des_anomalies`) utilisaient `condition_regles_actives()`
+# sans `exclues`, qui ne masque jamais R19-R25 -- seulement R07-R09/R06
+# (`regles_desactivees`). Corrigé pour utiliser partout `ingest.commun
+# .regles_masquees(session)`, qui tient aussi compte de l'interrupteur
+# général `prix_controle_bl_actif` et des sept interrupteurs par alerte.
+# --------------------------------------------------------------------------
+
+
+async def test_masquage_interrupteur_general_eteint_rien_ne_se_passe(
+    db_session: AsyncSession,
+) -> None:
+    """`prix_controle_bl_actif` à son défaut réel (éteint) : une alerte R22
+    et une alerte R19 ouvertes ne sont ni expliquées, ni cherchées sur
+    internet (aucune requête au faux transport), `avis_ia_anomalie` les
+    traite comme introuvables et le service groupé les omet toutes les deux
+    du dictionnaire."""
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    anomalie_r22 = await _creer_anomalie(
+        db_session, regle="R22", detail=_detail_r22(), document=facture
+    )
+    anomalie_r19 = await _creer_anomalie(
+        db_session, regle="R19", detail=_detail_r07(), document=facture
+    )
+    # Aucun réglage `prix_…` modifié : défaut réel de l'application (éteint).
+    await db_session.commit()
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_aucune_requete))
+
+    assert await expliquer_alertes(db_session, http) == BilanIA()
+    assert await chercher_prix_internet(db_session, http) == BilanIA()
+
+    with pytest.raises(AnomalieIntrouvable):
+        await avis_ia_anomalie(db_session, anomalie_r22.id)
+    with pytest.raises(AnomalieIntrouvable):
+        await avis_ia_anomalie(db_session, anomalie_r19.id)
+
+    lot = await prix_internet_des_anomalies(
+        db_session, [anomalie_r22.id, anomalie_r19.id]
+    )
+    assert lot.par_anomalie == {}
+
+    explications = (await db_session.execute(select(ExplicationAlerte))).scalars().all()
+    lignes_prix = (await db_session.execute(select(PrixInternet))).scalars().all()
+    assert explications == []
+    assert lignes_prix == []
+
+
+async def test_masquage_alerte_absent_grille_eteinte_r22_omise(
+    db_session: AsyncSession,
+) -> None:
+    """Interrupteur général allumé mais `prix_alerte_absent_grille` (alerte
+    propre à R22) éteint : R22 reste masquée malgré le général -- ni
+    cherchée sur internet, ni visible par `avis_ia_anomalie` ou le service
+    groupé."""
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    anomalie = await _creer_anomalie(
+        db_session, regle="R22", detail=_detail_r22(), document=facture
+    )
+    await modifier_parametre(db_session, "prix_controle_bl_actif", "1", auteur_id=None)
+    await modifier_parametre(
+        db_session, "prix_alerte_absent_grille", "0", auteur_id=None
+    )
+    await db_session.commit()
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_aucune_requete))
+
+    assert await chercher_prix_internet(db_session, http) == BilanIA()
+
+    with pytest.raises(AnomalieIntrouvable):
+        await avis_ia_anomalie(db_session, anomalie.id)
+
+    lot = await prix_internet_des_anomalies(db_session, [anomalie.id])
+    assert lot.par_anomalie == {}
+
+
+async def test_prix_internet_des_anomalies_deux_cles_plusieurs_lignes_chacune(
+    db_session: AsyncSession,
+) -> None:
+    """Deux produits distincts, chacun avec plusieurs lignes `PrixInternet`
+    (dont un `echec`) : la vue rendue pour chaque anomalie est la plus
+    récente `trouve`/`non_verifiable` de SA clé -- jamais celle de l'autre
+    produit, jamais une ligne `echec` même la plus récente (revue de fix
+    round 1, T10a)."""
+    fournisseur = await _creer_fournisseur(db_session)
+    facture_1 = await _creer_facture(db_session, fournisseur=fournisseur, numero="FA-A")
+    facture_2 = await _creer_facture(db_session, fournisseur=fournisseur, numero="FA-B")
+    detail_a = _detail_r22(produit="Produit Deux Cles A", code="CODE-A")
+    detail_b = _detail_r22(produit="Produit Deux Cles B", code="CODE-B")
+    anomalie_a = await _creer_anomalie(
+        db_session, regle="R22", detail=detail_a, document=facture_1
+    )
+    anomalie_b = await _creer_anomalie(
+        db_session, regle="R22", detail=detail_b, document=facture_2
+    )
+    cle_a = cle_produit_internet(fournisseur.id, detail_a["produit"], detail_a["code"])
+    cle_b = cle_produit_internet(fournisseur.id, detail_b["produit"], detail_b["code"])
+    maintenant = datetime.now(UTC)
+
+    # Clé A : un `trouve` ancien, puis un `echec` plus récent -- ignoré.
+    await _creer_prix_internet(
+        db_session,
+        cle=cle_a,
+        statut="trouve",
+        consulte_le=maintenant - timedelta(days=2),
+        fournisseur_id=fournisseur.id,
+    )
+    await _creer_prix_internet(
+        db_session,
+        cle=cle_a,
+        statut="echec",
+        consulte_le=maintenant - timedelta(hours=1),
+        fournisseur_id=fournisseur.id,
+        raison="reseau",
+    )
+
+    # Clé B : deux résultats exploitables -- le plus récent (`trouve`)
+    # l'emporte sur le plus ancien (`non_verifiable`).
+    await _creer_prix_internet(
+        db_session,
+        cle=cle_b,
+        statut="non_verifiable",
+        consulte_le=maintenant - timedelta(days=5),
+        fournisseur_id=fournisseur.id,
+        raison="ancienne raison",
+    )
+    await _creer_prix_internet(
+        db_session,
+        cle=cle_b,
+        statut="trouve",
+        consulte_le=maintenant - timedelta(days=1),
+        fournisseur_id=fournisseur.id,
+    )
+    await _activer_controle_prix_bl(db_session)
+    await db_session.commit()
+
+    lot = await prix_internet_des_anomalies(db_session, [anomalie_a.id, anomalie_b.id])
+
+    vue_a = lot.par_anomalie[anomalie_a.id]
+    vue_b = lot.par_anomalie[anomalie_b.id]
+    assert vue_a is not None
+    assert vue_a.statut == "trouve"  # jamais l'échec, pourtant plus récent
+    assert vue_b is not None
+    assert vue_b.statut == "trouve"  # le plus récent des deux exploitables
 
 
 def test_regles_prix_internet_contient_r22() -> None:
@@ -1410,6 +1589,7 @@ async def test_prix_internet_des_anomalies_trouve_et_en_attente(
         detail=_detail_r22(produit="Produit Lot Sans Cache", code="AUTRE-CODE"),
         document=facture_2,
     )
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     lot = await prix_internet_des_anomalies(
@@ -1463,6 +1643,7 @@ async def test_prix_internet_des_anomalies_doublons_ignores_hors_limite(
     anomalie = await _creer_anomalie(
         db_session, regle="R22", detail=_detail_r22(), document=facture
     )
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     lot = await prix_internet_des_anomalies(db_session, [anomalie.id] * 300)
@@ -1517,6 +1698,7 @@ async def test_prix_internet_des_anomalies_sans_n_plus_1(
         return resultat
 
     anomalies_deux = await _creer_n_anomalies_r22(2, prefixe="FA-N1-DEUX")
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     sync_engine: Engine = db_engine.sync_engine
@@ -1568,6 +1750,7 @@ async def test_prix_internet_des_anomalies_meme_calcul_qu_avis_ia_anomalie(
         consulte_le=datetime.now(UTC),
         fournisseur_id=fournisseur.id,
     )
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     avis = await avis_ia_anomalie(db_session, anomalie.id)
