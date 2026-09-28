@@ -91,19 +91,24 @@ _FENETRE_ECHECS_PRIX = timedelta(days=7)
 
 # Titres courts, en mots, des règles de prix -- `ui`/`libelles` n'étant pas
 # côté serveur (§5.2). Reprend R07-R09 (actives sur cette branche) et R19-R25
-# (lot Prix, pas encore fusionné) : aucune modification de ce fichier ne sera
-# nécessaire à la fusion.
+# (lot Prix, pas encore fusionné dans `dev` -- ces règles existent déjà sur
+# la branche du lot Prix, `origin/feature/phase-3-prix`) : aucune
+# modification de ce fichier ne sera nécessaire à la fusion. R19, R21 et R25
+# recopient mot pour mot les titres de `web/src/ui/libelles.ts` de cette
+# branche (fix round 2, relecture finale, lus via `git show
+# origin/feature/phase-3-prix:web/src/ui/libelles.ts`) : les cinq autres
+# (R20, R22, R23, R24) correspondaient déjà.
 TITRES_REGLES_PRIX: dict[str, str] = {
     "R07": "Prix un peu plus cher",
     "R08": "Prix plus cher que d'habitude",
     "R09": "Remise habituelle oubliée",
-    "R19": "Plus cher que la grille",
-    "R20": "Plus cher que la dernière fois",
-    "R21": "Moins cher que la grille",
+    "R19": "Prix plus cher que la grille",
+    "R20": "Prix plus cher que la dernière fois",
+    "R21": "Prix moins cher que la grille",
     "R22": "Produit absent de la grille",
     "R23": "Produit reconnu seulement par son nom",
     "R24": "Unités différentes",
-    "R25": "Grille ancienne",
+    "R25": "Grille de prix ancienne",
 }
 _TITRE_REPLI = "Écart de prix"
 

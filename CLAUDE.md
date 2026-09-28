@@ -161,10 +161,11 @@ Points à retenir :
   `ingest/opencode.py`) connecté à l'abonnement ChatGPT personnel d'Ilane —
   tout est construit et testé sans lui, `IA_ACTIVE=false` par défaut.
   Explication et prix internet restent sans objet tant que le lot Prix
-  n'est pas fusionné (R07-R09 masquées, R22 inexistante) ; la 3ᵉ colonne
-  « Internet » de `/prix` attend cette fusion (T10). Avenant CDC §15 à
-  confirmer par Ilane. Guide d'exploitation, connexion de l'abonnement,
-  essai avant de se fier au prix internet : `docs/phase-4-ia.md`.
+  n'est pas fusionné (R07-R09 masquées, R22 pas encore fusionnée dans `dev`
+  — elle existe sur la branche du lot Prix) ; la 3ᵉ colonne « Internet » de
+  `/prix` attend cette fusion (T10). Avenant CDC §15 à confirmer par Ilane.
+  Guide d'exploitation, connexion de l'abonnement, essai avant de se fier
+  au prix internet : `docs/phase-4-ia.md`.
 
 ## Méthode
 

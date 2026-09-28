@@ -17,6 +17,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.fuseau import FUSEAU_PARIS
@@ -623,6 +624,56 @@ async def test_generer_synthese_deja_faite_aucune_requete(
     resultat = await generer_synthese(db_session, http, semaine_debut=_LUNDI)
 
     assert resultat == ResultatSynthese(statut="deja_faite", semaine_debut=_LUNDI)
+
+
+async def test_generer_synthese_vide_course_concurrente_deja_faite(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Course entre deux passages simultanés sur la même semaine (brief T4,
+    dernier paragraphe ; relevé comme dette, jamais testé jusqu'ici,
+    `docs/dette.md`), chemin `vide` : simulée en forçant le premier
+    `flush()` de la session à lever l'`IntegrityError` que poserait la
+    vraie contrainte d'unicité de `semaine_debut` si une autre synthèse
+    pour la même semaine avait été committée juste avant ce `flush` par un
+    passage concurrent -- `_enregistrer_synthese_vide` doit alors faire
+    `rollback`, rendre `deja_faite`, ne rien laisser d'écrit (ni synthèse
+    partielle, ni journal orphelin), et la session doit rester utilisable
+    ensuite (vérifié en l'utilisant une seconde fois, avec succès, après le
+    `rollback`)."""
+    flush_reel = db_session.flush
+    appels = 0
+
+    async def _flush_leve_une_fois() -> None:
+        nonlocal appels
+        appels += 1
+        if appels == 1:
+            raise IntegrityError("insert", {}, Exception("contrainte unique inventée"))
+        await flush_reel()
+
+    monkeypatch.setattr(db_session, "flush", _flush_leve_une_fois)
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_aucune_requete))
+
+    resultat = await generer_synthese(db_session, http, semaine_debut=_LUNDI)
+
+    assert resultat == ResultatSynthese(statut="deja_faite", semaine_debut=_LUNDI)
+    assert appels == 1
+
+    syntheses = (await db_session.execute(select(SyntheseCommentaires))).scalars().all()
+    assert syntheses == []
+    journaux = (await db_session.execute(select(Journal))).scalars().all()
+    assert journaux == []
+
+    # La session reste utilisable après le rollback (rendu à son
+    # comportement réel pour ce dernier appel) : un passage normal, sur une
+    # autre semaine, doit réussir sans hériter d'une session cassée.
+    monkeypatch.setattr(db_session, "flush", flush_reel)
+    autre_lundi = _LUNDI + timedelta(days=7)
+    resultat_suivant = await generer_synthese(
+        db_session, http, semaine_debut=autre_lundi
+    )
+    assert resultat_suivant == ResultatSynthese(
+        statut="vide", semaine_debut=autre_lundi, nb_commentaires=0
+    )
 
 
 async def test_generer_synthese_semaine_debut_pas_lundi_value_error(

@@ -2046,6 +2046,90 @@ def test_essai_prix_internet_champ_ia_echappe_dans_la_sortie(
     assert ligne_donnees[9] == raison_piegee  # colonne "raison", intacte
 
 
+def test_essai_prix_internet_formule_csv_neutralisee_dans_la_sortie(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Fix round 2 (relecture finale) : un champ texte venu de l'IA ou du
+    fichier d'entrée d'Ilane (`designation`) qui commencerait par `=`, `+`,
+    `-` ou `@` deviendrait une formule vivante à l'ouverture du CSV dans
+    Excel/Sheets (injection de formule CSV) -- chaque champ concerné doit
+    ressortir préfixé d'un guillemet simple (`_champ_texte_csv`), un texte
+    normal et un prix restant, eux, inchangés."""
+    monkeypatch.setattr(cli, "ia_active", lambda: True)
+    chemin = tmp_path / "produits.csv"
+    chemin.write_text("Fournisseur Un;Produit Un;COD1;u\n", encoding="utf-8")
+
+    produit_piege = ProduitEssai(
+        fournisseur=None, designation="=cmd|' /c calc'!A1", code=None, unite=None
+    )
+    produit_normal = ProduitEssai(
+        fournisseur=None, designation="Produit normal", code=None, unite=None
+    )
+
+    ligne_piegee = LigneEssai(
+        produit=produit_piege,
+        resultat=PrixInternetLu(
+            statut="non_verifiable",
+            prix=None,
+            devise=None,
+            taxes=None,
+            unite=None,
+            conditionnement=None,
+            produit_trouve='=HYPERLINK("https://exemple.invalid";"clic")',
+            source_url=None,
+            confiance="faible",
+            raison="+1 ne pas faire confiance à ce prix",
+        ),
+        erreur=None,
+        duree_s=0.1,
+    )
+    ligne_normale = LigneEssai(
+        produit=produit_normal,
+        resultat=PrixInternetLu(
+            statut="trouve",
+            prix=Decimal("12.50"),
+            devise="EUR",
+            taxes="HT",
+            unite="u",
+            conditionnement=None,
+            produit_trouve="@SUM(A1:A2) invente",
+            source_url=None,
+            confiance="elevee",
+            raison="-2+3 raison inventée normale",
+        ),
+        erreur=None,
+        duree_s=0.2,
+    )
+
+    async def _essayer_prix_internet_factice(
+        session: Any, http: Any, produits: Any
+    ) -> list[LigneEssai]:
+        return [ligne_piegee, ligne_normale]
+
+    monkeypatch.setattr(cli, "essayer_prix_internet", _essayer_prix_internet_factice)
+
+    code = cli.main(["essai-prix-internet", "--fichier", str(chemin)])
+    sortie = capsys.readouterr().out
+
+    assert code == 0
+    lignes = list(csv.reader(io.StringIO(sortie), delimiter=";"))
+    assert len(lignes) == 3  # en-tête + deux lignes de données
+
+    ligne_1 = lignes[1]
+    assert ligne_1[0] == "'=cmd|' /c calc'!A1"  # designation neutralisée
+    assert ligne_1[6] == '\'=HYPERLINK("https://exemple.invalid";"clic")'
+    assert ligne_1[9] == "'+1 ne pas faire confiance à ce prix"
+
+    ligne_2 = lignes[2]
+    assert ligne_2[0] == "Produit normal"  # texte normal jamais préfixé
+    assert ligne_2[2] == "12.50"  # prix reste un nombre, jamais neutralisé
+    assert ligne_2[6] == "'@SUM(A1:A2) invente"
+    assert ligne_2[9] == "'-2+3 raison inventée normale"
+
+
 def test_essai_prix_internet_ia_eteinte_code_1(
     _env_bl_test: None,
     monkeypatch: pytest.MonkeyPatch,

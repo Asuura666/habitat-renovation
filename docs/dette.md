@@ -1238,9 +1238,22 @@ conception et au code métier (T1 à T7), pas à l'exploitation du conteneur.
   fusionné.** Les alertes de catégorie « prix » que l'explication cible
   (R07-R09) restent masquées côté serveur (`CONTROLE_PRIX_ACTIF=false`,
   décision du 24/09/2026) et R22 (« Produit absent de la grille », seule
-  règle qui déclenche une recherche de prix internet) n'existe pas encore :
-  le code de `ingest/ia_prix.py` est écrit et testé sur des anomalies
-  inventées, mais n'a aujourd'hui aucune anomalie réelle à traiter.
+  règle qui déclenche une recherche de prix internet) n'est pas encore
+  fusionnée dans `dev` (elle existe sur la branche du lot Prix) : le code
+  de `ingest/ia_prix.py` est écrit et testé sur des anomalies inventées,
+  mais n'a aujourd'hui aucune anomalie réelle à traiter.
+- **R22 (lot Prix) ne porte pas encore `dernier_prix`.** Vérifié contre le
+  vrai code de la branche du lot Prix à la relecture finale du 28/09/2026
+  (`git show origin/feature/phase-3-prix:app/modules/rules/rules/R22.py`) :
+  le `detail` de R22 ne porte que `produit`, `code` (tiret cadratin si
+  absent), `prix_bon`, `unite_bon` (tiret cadratin si absent), `date_bon`
+  et `candidats` — jamais de clé `dernier_prix` (celle-ci n'existe que sur
+  R20). Tant que le lot Prix n'ajoute pas cette clé, `chercher_prix_internet`
+  (`ingest/ia_prix.py::_dernier_prix_utile`) ne peut jamais la trouver utile
+  et lancera donc aussi la recherche de prix internet pour un produit déjà
+  facturé mais simplement absent de la grille — contrairement à l'intention
+  du §6.1 de la spec (« ni grille ni facture »). Action précise à la fusion :
+  item dédié de T10, `docs/superpowers/plans/2026-09-27-phase-4-ia.md`.
 - **3ᵉ colonne « Internet » de la page `/prix` à construire (T10).** Elle
   lira le même service (`ingest/ia_prix.py`) une fois le lot Prix fusionné
   dans `dev` — hors périmètre de la phase 4 IA elle-même (spec §6.4, §11).
@@ -1288,8 +1301,10 @@ conception et au code métier (T1 à T7), pas à l'exploitation du conteneur.
     remplace le code d'erreur d'origine par « interrompu » dans cette ligne
     technique ;
   - pas de test de la synthèse traversant un changement d'heure (été/hiver)
-    ni du chemin `IntegrityError`/`rollback` d'une course entre deux
-    générations de synthèse simultanées (T4) ;
+    (T4) — le chemin `IntegrityError`/`rollback` d'une course entre deux
+    générations de synthèse simultanées est, lui, désormais couvert
+    (`test_generer_synthese_vide_course_concurrente_deja_faite`, relecture
+    finale du 28/09/2026) ;
   - l'essai (`essai-prix-internet`) reconnaît l'en-tête de son CSV par une
     heuristique sur la première colonne : un fournisseur réellement nommé
     « Fournisseur… » en première ligne serait pris à tort pour un en-tête

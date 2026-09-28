@@ -911,6 +911,30 @@ _ENTETE_CSV_ESSAI = (
 )
 
 
+# Fix round 2 (relecture finale) : injection de formule CSV. Un champ texte
+# venu de l'IA ou du fichier d'entrée d'Ilane (`designation`) qui commencerait
+# par l'un de ces caractères devient une formule vivante à l'ouverture du
+# fichier dans Excel/Sheets (`=HYPERLINK(...)`, `+1+1`, `-2+3`, `@SUM(...)`,
+# une tabulation ou un retour chariot pouvant aussi amorcer une formule selon
+# le logiciel) -- mitigation standard de l'injection de formule CSV (OWASP) :
+# aucun de ces caractères n'a de sens en tête d'un texte métier légitime ici.
+_PREFIXES_FORMULE_CSV: tuple[str, ...] = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _champ_texte_csv(valeur: str) -> str:
+    """Neutralise une cellule CSV texte qui commencerait par un déclencheur
+    de formule (fix round 2) : un guillemet simple `'` ajouté en tête
+    empêche Excel/Sheets d'interpréter la cellule comme une formule, sans
+    changer le texte affiché (les deux masquent ce guillemet de tête à
+    l'affichage). Jamais appliqué à `prix`/`duree_s` (écrits ailleurs,
+    directement en nombre) : un nombre négatif écrit par ce programme (cas
+    non attendu pour ces deux champs) doit rester un nombre, jamais une
+    cellule neutralisée."""
+    if valeur.startswith(_PREFIXES_FORMULE_CSV):
+        return f"'{valeur}"
+    return valeur
+
+
 def _champs_csv_essai(ligne: LigneEssai) -> list[str]:
     """Champs d'une ligne du CSV de sortie de `essai-prix-internet` (brief
     T6, colonnes de `_ENTETE_CSV_ESSAI`) -- écrits par `csv.writer` (fix
@@ -920,23 +944,45 @@ def _champs_csv_essai(ligne: LigneEssai) -> list[str]:
     correctement (guillemets doublés, champ entre guillemets) sans décaler
     les colonnes suivantes. `statut="echec"` et `raison` = code de l'erreur
     quand `ligne.resultat` est absent (aucun champ de résultat n'est alors
-    rempli)."""
+    rempli).
+
+    Fix round 2 (relecture finale) : `designation` (fichier d'entrée
+    d'Ilane) et chaque champ texte libre de l'IA (`unite`, `conditionnement`,
+    `produit_trouve`, `source_url`, `raison`, ou le code d'erreur d'OpenCode)
+    passent par `_champ_texte_csv` avant l'écriture -- `statut`, `taxes` et
+    `confiance` viennent d'un vocabulaire fermé écrit par ce dépôt
+    (`extract.reponses_ia`, jamais un texte libre) et n'en ont pas besoin,
+    et `prix`/`duree_s` restent des nombres bruts, jamais neutralisés."""
     resultat = ligne.resultat
     if resultat is None:
-        champs = ["echec", "", "", "", "", "", "", "", ligne.erreur or ""]
+        champs = [
+            "echec",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            _champ_texte_csv(ligne.erreur or ""),
+        ]
     else:
         champs = [
             resultat.statut,
             str(resultat.prix) if resultat.prix is not None else "",
             resultat.taxes or "",
-            resultat.unite or "",
-            resultat.conditionnement or "",
-            resultat.produit_trouve or "",
-            resultat.source_url or "",
+            _champ_texte_csv(resultat.unite or ""),
+            _champ_texte_csv(resultat.conditionnement or ""),
+            _champ_texte_csv(resultat.produit_trouve or ""),
+            _champ_texte_csv(resultat.source_url or ""),
             resultat.confiance or "",
-            resultat.raison or "",
+            _champ_texte_csv(resultat.raison or ""),
         ]
-    return [ligne.produit.designation, *champs, f"{ligne.duree_s:.1f}"]
+    return [
+        _champ_texte_csv(ligne.produit.designation),
+        *champs,
+        f"{ligne.duree_s:.1f}",
+    ]
 
 
 async def _essai_prix_internet(fichier: Path) -> int:

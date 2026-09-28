@@ -6,13 +6,19 @@ toutes les données (fournisseurs, anomalies, détails) sont entièrement
 inventées.
 
 Contexte (brief T6) : les règles de prix au bon (R19-R25, dont R22
-« Produit absent de la grille ») n'existent pas encore sur cette branche (lot
-Prix construit en parallèle) : les anomalies R22 de ce fichier sont donc
-inventées, avec un `detail` de la forme donnée par le brief (`produit`,
-`code`, `prix_bon`, `unite_bon`, `date_bon`, `candidats`). Pour la sélection
-par catégorie, un test dédié ajoute temporairement `"R22": "prix"` à
-`ingest.anomalies.CATEGORIES_REGLE` via `monkeypatch.setitem` (jamais une
-modification du dictionnaire lui-même)."""
+« Produit absent de la grille ») ne sont pas encore fusionnées dans `dev`
+(lot Prix construit en parallèle sur `origin/feature/phase-3-prix`) : les
+anomalies R22 de ce fichier sont donc inventées, avec un `detail` de la
+forme donnée par le brief (`produit`, `code`, `prix_bon`, `unite_bon`,
+`date_bon`, `candidats`) -- forme confirmée mot pour mot contre le vrai code
+de cette branche (fix round 2, relecture finale, lu via `git show
+origin/feature/phase-3-prix:app/modules/rules/rules/R22.py`) : `code` et
+`unite_bon` valent le tiret cadratin quand la ligne n'a ni référence ni
+unité connue, et **aucune** clé `dernier_prix` n'y figure jamais (portée par
+R20, pas R22 -- le test dédié plus bas, sur ce detail exact, couvre ce cas).
+Pour la sélection par catégorie, un test dédié ajoute temporairement
+`"R22": "prix"` à `ingest.anomalies.CATEGORIES_REGLE` via
+`monkeypatch.setitem` (jamais une modification du dictionnaire lui-même)."""
 
 from __future__ import annotations
 
@@ -894,6 +900,60 @@ async def test_chercher_prix_internet_prix_du_bon_absent_du_texte_envoye(
     assert "Désignation : Plaque std 13" in texte_envoye
     assert "Référence : PL13" in texte_envoye
     assert "Unité : u" in texte_envoye
+
+
+async def test_chercher_prix_internet_detail_r22_reel_code_et_unite_tiret(
+    db_session: AsyncSession,
+) -> None:
+    """Fix round 2 (relecture finale) : forme EXACTE du vrai `R22` de la
+    branche du lot Prix (`git show
+    origin/feature/phase-3-prix:app/modules/rules/rules/R22.py`) quand la
+    ligne n'a ni référence (`code`) ni unité connue -- `ligne.code or TIRET`
+    et `ligne.unite_bon or TIRET` y valent alors le tiret cadratin, jamais
+    une chaîne vide ni la clé absente. Ce test prouve trois choses à la
+    fois : le produit est quand même retenu pour la recherche (la
+    désignation seule suffit, `code`/`unite_bon` ne sont pas obligatoires) ;
+    les deux tirets sont bien traités comme absents par `_valeur_utile`
+    (clé de cache retombant sur la désignation normalisée, jamais sur
+    `ref:—`) ; et le texte envoyé à l'IA ne contient jamais `prix_bon`."""
+    fournisseur = await _creer_fournisseur(
+        db_session, nom="Fournisseur Habituel Invente"
+    )
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    detail = _detail_r22(code="—", unite_bon="—", prix_bon="7.90")
+    await _creer_anomalie(db_session, regle="R22", detail=detail, document=facture)
+    await db_session.commit()
+
+    requetes: list[httpx.Request] = []
+    reponses = _reponses_prix_trouve(
+        prix="89.90",
+        source_url="https://exemple.invalid/plaque-std-13",
+        page_texte="Plaque std 13 -- Prix : 89,90 € TTC.",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requetes.append(request)
+        return _handler_json(reponses)(request)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    bilan = await chercher_prix_internet(db_session, http)
+
+    # Le produit est retenu malgré `code` et `unite_bon` absents (tiret).
+    assert bilan == BilanIA(ok=1)
+
+    # « — » traité comme absent pour la clé de cache : avec `code=None`, la
+    # clé retombe sur la désignation normalisée, jamais sur `ref:—`.
+    ligne_prix = (await db_session.execute(select(PrixInternet))).scalar_one()
+    assert ligne_prix.cle == cle_produit_internet(
+        fournisseur.id, detail["produit"], None
+    )
+
+    texte_envoye = json.loads(requetes[1].content)["parts"][0]["text"]
+    assert "7.90" not in texte_envoye
+    assert "7,90" not in texte_envoye
+    assert "Désignation : Plaque std 13" in texte_envoye
+    assert "Référence : —" in texte_envoye
+    assert "Unité : —" in texte_envoye
 
 
 async def test_chercher_prix_internet_cache_29_jours_rien(

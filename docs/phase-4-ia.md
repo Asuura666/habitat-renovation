@@ -267,7 +267,13 @@ tâche planifiée `ia-prix` où « rien à faire » n'est pas un échec).
 
 ## 7. Éteindre en urgence
 
-Deux niveaux, du plus léger au plus complet :
+Deux niveaux, du plus léger au plus complet. `$P`/`$C` (mêmes variables
+qu'au §4.2, à redéfinir ici si cette section est suivie seule) :
+
+```bash
+P="-p habitat_prod --env-file .env.prod"      # puis -p habitat_demo --env-file .env.demo
+C="-f deploy/docker-compose.yml -f deploy/docker-compose.vps.yml -f deploy/docker-compose.ia.yml"
+```
 
 1. **Couper une instance sans toucher au conteneur** (le plus rapide, ne
    coupe pas l'autre instance) :
@@ -333,4 +339,8 @@ jour : `docs/superpowers/specs/2026-09-27-phase-4-ia-design.md` §9.
   échecs se fait en base ou par les logs (§6), pas encore par un écran.
 - **La 3ᵉ colonne « Internet » de la page Prix** n'existe pas encore (hors
   périmètre de cette phase, arrivera avec la tâche T10 du plan, une fois le
-  lot Prix fusionné dans `dev`).
+  lot Prix fusionné dans `dev`). À cette fusion, vérifier que le détail de
+  R22 porte bien une clé `dernier_prix` (avec sa date) quand un dernier prix
+  facturé existe : sans elle, la recherche de prix internet se déclenche
+  aussi pour un produit déjà facturé mais absent de la grille, pas
+  seulement pour un produit absent des deux (`docs/dette.md`, T10 du plan).
