@@ -29,15 +29,19 @@ import { Bouton, Carte, EnTetePage, EtatVide, Filtres, type OptionFiltre, titreR
  * mais évite de jamais provoquer ce 422 si la liste explosait un jour. */
 const MAX_IDS_PRIX_INTERNET = 200;
 
-/** Identifiant représentatif d'une rangée pour la colonne « Internet »
- * (brief T10b : « le premier de `anomalie_ids` ») -- `null` si la rangée n'a
- * pas d'alerte R22 (exclue de la requête groupée, cellule à tiret) ou, cas
- * défensif jamais atteint en pratique, si `anomalie_ids` est vide. */
-function idPourInternet(produit: AlerteProduit): string | null {
-  if (!produit.regles.includes("R22")) {
-    return null;
-  }
-  return produit.anomalie_ids[0] ?? null;
+/** Identifiants d'anomalies à interroger pour une rangée (fix round 1,
+ * ruling du contrôleur : le brief T10b disait « le premier de
+ * `anomalie_ids` », mais `regles` et `anomalie_ids` sont deux tableaux
+ * indépendants -- R22 peut cohabiter avec R20/R24 sur la même ligne
+ * (`rules/rules/R22.py` : seules ces deux règles peuvent encore se
+ * déclencher sur une ligne déjà en R22) et une rangée peut grouper
+ * plusieurs lignes, donc `anomalie_ids[0]` n'est pas forcément celui de
+ * R22. Tableau vide si la rangée n'a pas d'alerte R22 (exclue de la requête
+ * groupée, cellule à tiret) -- tous les identifiants sinon, la réponse ne
+ * portant de toute façon jamais de clé pour un identifiant qui ne désigne
+ * pas une alerte R22 ouverte et non masquée (brief T10a). */
+function idsInternetPour(produit: AlerteProduit): readonly string[] {
+  return produit.regles.includes("R22") ? produit.anomalie_ids : [];
 }
 
 /** Réglage qui commande l'écran tout entier (spec §3.4, §8.3) -- toujours
@@ -372,17 +376,20 @@ export function Prix(): ReactElement {
   });
 
   /** Colonne « Internet » (T10b, phase 4 IA, spec §6.4) : requête groupée,
-   * un identifiant par rangée R22 (brief T10b), activée seulement quand la
-   * liste des alertes est chargée, non vide, et en contient au moins une --
-   * aucune requête sinon. Si l'IA est éteinte, si la requête échoue ou
-   * pendant son chargement : `colonneInternetVisible` reste faux et rien ne
-   * change (la page reste à 6 colonnes, aucun message, brief T10b). */
+   * tous les identifiants des rangées R22 (fix round 1, `idsInternetPour`
+   * ci-dessus), dédupliqués en gardant l'ordre de la page (`Set` préserve
+   * l'ordre d'insertion en JavaScript) et plafonnés à `MAX_IDS_PRIX_
+   * INTERNET` au total -- activée seulement quand la liste des alertes est
+   * chargée, non vide, et en contient au moins un -- aucune requête sinon.
+   * Si l'IA est éteinte, si la requête échoue ou pendant son chargement :
+   * `colonneInternetVisible` reste faux et rien ne change (la page reste à
+   * 6 colonnes, aucun message, brief T10b). */
   const alertesChargees = alertes.data !== undefined && alertes.data.length > 0;
   const idsR22 = alertesChargees
-    ? alertes.data
-        .map((produit) => idPourInternet(produit))
-        .filter((id): id is string => id !== null)
-        .slice(0, MAX_IDS_PRIX_INTERNET)
+    ? Array.from(new Set(alertes.data.flatMap((produit) => idsInternetPour(produit)))).slice(
+        0,
+        MAX_IDS_PRIX_INTERNET,
+      )
     : [];
 
   const prixInternetLot = useQuery({
@@ -393,9 +400,21 @@ export function Prix(): ReactElement {
 
   const colonneInternetVisible = prixInternetLot.data?.ia_active === true;
 
+  /** Prix internet d'une rangée (fix round 1) : le premier des identifiants
+   * de la rangée qui est présent **comme clé** de la réponse groupée --
+   * jamais `anomalie_ids[0]` (voir `idsInternetPour` ci-dessus), et jamais
+   * uniquement une valeur non nulle (une clé présente avec une valeur
+   * `null`, « recherché sans résultat récent », doit arrêter la recherche
+   * là, pas continuer vers un identifiant suivant qui n'a pas de sens pour
+   * cette rangée). Aucune clé trouvée (rangée sans R22, ou au-delà du
+   * plafond) -> `undefined`, même « en attente » que `null` côté cellule. */
   function prixInternetPour(produit: AlerteProduit): PrixInternet | null | undefined {
-    const id = idPourInternet(produit);
-    return id === null ? undefined : prixInternetLot.data?.prix[id];
+    const prix = prixInternetLot.data?.prix;
+    if (prix === undefined) {
+      return undefined;
+    }
+    const idConnu = produit.anomalie_ids.find((id) => id in prix);
+    return idConnu === undefined ? undefined : prix[idConnu];
   }
 
   async function apresAction(texte: string): Promise<void> {

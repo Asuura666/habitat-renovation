@@ -1272,6 +1272,13 @@ conception et au code métier (T1 à T7), pas à l'exploitation du conteneur.
   serveur est fait (`ingest.ia_prix.prix_internet_des_anomalies`, route `GET
   /api/ia/prix-internet`, T10a). Reste seulement l'écran (T10b) : la colonne
   elle-même, consommant cette route.
+  **Fait (T10b, 28/09/2026) :** colonne construite (`Prix.tsx`,
+  `components/PrixInternetCellule.tsx`, `lib/prixInternet.ts` partagé avec
+  `AvisIA.tsx`). Acceptée en l'état : comme la requête groupée ne pose pas
+  de `placeholderData`, la colonne peut disparaître brièvement (retour à 6
+  colonnes) le temps que la nouvelle liste d'alertes recharge après un
+  changement de filtre (période/fournisseur), avant de réapparaître une fois
+  la réponse revenue.
 - **`appel_ia` jamais purgé.** Chaque appel à l'IA (réussi ou non) écrit une
   ligne dans cette table technique, jamais supprimée. Volume attendu faible
   (quelques lignes par jour, plafonné par `IA_APPELS_MAX_JOUR`) : à

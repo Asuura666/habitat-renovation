@@ -206,26 +206,75 @@ def test_prix_page_importe_la_cellule_partagee() -> None:
     assert page.count("<PrixInternetCellule") == 2
 
 
-def test_prix_page_requete_seulement_pour_les_rangees_r22() -> None:
+def test_ids_internet_pour_envoie_tous_les_ids_dune_rangee_r22() -> None:
+    """Fix round 1 (ruling du contrôleur, 28/09) : le brief T10b disait « le
+    premier de `anomalie_ids` », mais `regles` et `anomalie_ids` sont deux
+    tableaux indépendants -- R22 peut cohabiter avec R20/R24 sur la même
+    ligne (`rules/rules/R22.py`, seules ces deux règles peuvent encore se
+    déclencher sur une ligne déjà en R22) et une rangée peut grouper
+    plusieurs lignes, donc `anomalie_ids[0]` n'est pas forcément celui de
+    R22. `idsInternetPour` envoie donc tous les identifiants d'une rangée
+    R22, jamais seulement le premier -- le serveur ne renvoie de toute façon
+    jamais de clé pour un identifiant qui ne désigne pas une alerte R22
+    ouverte et non masquée (brief T10a)."""
     page = _lire("pages", "Prix.tsx")
 
-    fonction_id = (
-        "function idPourInternet(produit: AlerteProduit): string | null {\n"
-        '  if (!produit.regles.includes("R22")) {\n'
-        "    return null;\n"
-        "  }\n"
-        "  return produit.anomalie_ids[0] ?? null;\n"
+    fonction = (
+        "function idsInternetPour(produit: AlerteProduit): readonly string[] {\n"
+        '  return produit.regles.includes("R22") ? produit.anomalie_ids : [];\n'
         "}"
     )
-    assert fonction_id in page
+    assert fonction in page
+    # Plus aucune indexation par position pour choisir un identifiant --
+    # hors commentaires (qui expliquent justement l'erreur corrigée, donc
+    # mentionnent `anomalie_ids[0]` en toutes lettres).
+    assert "anomalie_ids[0]" not in _sans_commentaires(page)
 
-    # La liste envoyée à la requête groupée ne garde que les identifiants
-    # non nuls (donc uniquement les rangées R22) -- aucune requête si la
-    # liste des alertes n'a pas de rangée R22 (brief T10b : « aucune requête
-    # s'il n'y en a pas »).
-    assert "idsR22" in page
-    assert ".filter((id): id is string => id !== null)" in page
+
+def test_prix_page_requete_agrege_tous_les_ids_r22_dedupliques() -> None:
+    page = _lire("pages", "Prix.tsx")
+
+    # La liste envoyée à la requête groupée agrège `idsInternetPour` de
+    # toutes les rangées (donc tous les identifiants des rangées R22, pas un
+    # par rangée), dédupliquée et plafonnée -- aucune requête si la liste
+    # des alertes n'a pas de rangée R22 (brief T10b : « aucune requête s'il
+    # n'y en a pas »), la clé de requête reste dérivée de cette même liste
+    # ordonnée (`clePrixInternet(idsR22)`, inchangé).
+    assert "alertes.data.flatMap((produit) => idsInternetPour(produit))" in page
+    assert "Array.from(new Set(" in page
+    assert ".slice(\n        0,\n        MAX_IDS_PRIX_INTERNET,\n      )" in page
+    assert "queryKey: clePrixInternet(idsR22)" in page
     assert "enabled: alertesChargees && idsR22.length > 0" in page
+
+
+def test_prix_internet_pour_selectionne_par_cle_jamais_par_index() -> None:
+    """Fix round 1 : une rangée dont `regles` vaut `["R20", "R22"]` et
+    `anomalie_ids` vaut `[idR20, idR22]` -- seul `idR22` est une clé de la
+    réponse groupée (le serveur ne renvoie jamais de clé pour une anomalie
+    qui n'est pas R22). La cellule doit donc afficher la valeur d'`idR22`,
+    jamais celle d'`idR20` (« le premier de `anomalie_ids` », l'erreur du
+    brief d'origine) : `prixInternetPour` doit chercher, dans l'ordre des
+    identifiants de la rangée, le premier présent comme **clé** de la
+    réponse (`.find((id) => id in prix)`), jamais indexer par position."""
+    page = _lire("pages", "Prix.tsx")
+
+    fonction = (
+        "  function prixInternetPour(produit: AlerteProduit): PrixInternet | "
+        "null | undefined {\n"
+        "    const prix = prixInternetLot.data?.prix;\n"
+        "    if (prix === undefined) {\n"
+        "      return undefined;\n"
+        "    }\n"
+        "    const idConnu = produit.anomalie_ids.find((id) => id in prix);\n"
+        "    return idConnu === undefined ? undefined : prix[idConnu];\n"
+        "  }"
+    )
+    assert fonction in page
+    # Une seule fonction de sélection dans tout le fichier, jamais une
+    # variante qui indexerait par position (`anomalie_ids[0]`, l'erreur
+    # d'origine du brief T10b) -- hors commentaires.
+    assert page.count("function prixInternetPour(") == 1
+    assert "anomalie_ids[0]" not in _sans_commentaires(page)
 
 
 def test_prix_page_colonne_seulement_si_ia_active() -> None:
