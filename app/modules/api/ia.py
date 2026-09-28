@@ -10,9 +10,16 @@ l'IA (explication de l'alerte, prix trouvé sur internet) pour l'encart
 `AvisIA.tsx` du détail d'un problème (T7 construira l'écran) — même
 principe, toute la logique vit dans `ingest.ia_prix.avis_ia_anomalie`.
 
+`GET /api/ia/prix-internet` (T10a) : la même chose que la route précédente,
+mais pour plusieurs anomalies d'un coup (`ingest.ia_prix
+.prix_internet_des_anomalies`) — décision du contrôleur : une route dédiée
+pour la 3ᵉ colonne « Internet » de la page « Prix à vérifier » (lot Prix)
+plutôt que d'enrichir `GET /api/prix/alertes`, pour ne jamais faire dépendre
+le service du lot Prix (`ingest.prix_bl`) de l'IA.
+
 Couche d'entrée (L2-D3) : ce routeur n'importe que `app.core` et
 `app.modules.ingest` (jamais `extract` directement — garde vérifiée par
-`tests/test_frontieres.py`). Les quatre routes sont réservées à l'admin
+`tests/test_frontieres.py`). Toutes les routes sont réservées à l'admin
 (`admin_requis`, même principe qu'`api/comptes.py`) : la synthèse résume des
 commentaires (donc, indirectement, des chantiers) et l'avis IA porte sur une
 anomalie de prix, deux données qu'un simple agent ne voit normalement qu'au
@@ -24,7 +31,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import Utilisateur, admin_requis
@@ -32,10 +39,12 @@ from app.core.db import get_session
 from app.modules.api.schemas import (
     ActionSyntheseReponse,
     AvisIAReponse,
+    PrixInternetLotReponse,
+    PrixInternetReponse,
     SyntheseAccueilReponse,
 )
 from app.modules.ingest.anomalies import AnomalieIntrouvable
-from app.modules.ingest.ia_prix import avis_ia_anomalie
+from app.modules.ingest.ia_prix import avis_ia_anomalie, prix_internet_des_anomalies
 from app.modules.ingest.ia_synthese import (
     ActionIntrouvable,
     marquer_action,
@@ -115,3 +124,27 @@ async def avis_ia_anomalie_endpoint(
             status_code=status.HTTP_404_NOT_FOUND, detail="anomalie introuvable"
         ) from exc
     return AvisIAReponse.model_validate(avis)
+
+
+@router.get("/ia/prix-internet", response_model=PrixInternetLotReponse)
+async def prix_internet_lot_endpoint(
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    anomalie_id: Annotated[list[uuid.UUID] | None, Query()] = None,
+) -> PrixInternetLotReponse:
+    del utilisateur
+    try:
+        lot = await prix_internet_des_anomalies(session, anomalie_id or [])
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    return PrixInternetLotReponse(
+        ia_active=lot.ia_active,
+        prix={
+            str(identifiant): (
+                PrixInternetReponse.model_validate(vue) if vue is not None else None
+            )
+            for identifiant, vue in lot.par_anomalie.items()
+        },
+    )

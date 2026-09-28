@@ -1200,6 +1200,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ia/prix-internet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Prix Internet Lot Endpoint */
+        get: operations["prix_internet_lot_endpoint_api_ia_prix_internet_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -2889,6 +2906,24 @@ export interface components {
              * @default
              */
             groupe: string;
+        };
+        /**
+         * PrixInternetLotReponse
+         * @description Réponse de `GET /api/ia/prix-internet` (T10a) — mêmes attributs
+         *     qu'`ingest.ia_prix.PrixInternetLot`, à ceci près que les identifiants
+         *     d'anomalie sont des clés texte (JSON n'admet pas l'UUID comme clé
+         *     d'objet) : réutilise `PrixInternetReponse`, déjà exposé par `GET
+         *     /api/ia/anomalies/{id}`. Construite à la main par le routeur (jamais
+         *     `model_validate` : la conversion UUID -> texte des clés n'est pas un
+         *     changement de forme que `from_attributes` sait faire).
+         */
+        PrixInternetLotReponse: {
+            /** Ia Active */
+            ia_active: boolean;
+            /** Prix */
+            prix: {
+                [key: string]: components["schemas"]["PrixInternetReponse"] | null;
+            };
         };
         /**
          * PrixInternetReponse
@@ -5475,6 +5510,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AvisIAReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prix_internet_lot_endpoint_api_ia_prix_internet_get: {
+        parameters: {
+            query?: {
+                anomalie_id?: string[] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrixInternetLotReponse"];
                 };
             };
             /** @description Validation Error */

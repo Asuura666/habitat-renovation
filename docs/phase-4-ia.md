@@ -337,10 +337,14 @@ jour : `docs/superpowers/specs/2026-09-27-phase-4-ia-design.md` §9.
   de prix R07-R09, `docs/dette.md`).
 - **Pas de route qui expose `appel_ia`** : la surveillance du plafond et des
   échecs se fait en base ou par les logs (§6), pas encore par un écran.
-- **La 3ᵉ colonne « Internet » de la page Prix** n'existe pas encore (hors
-  périmètre de cette phase, arrivera avec la tâche T10 du plan, une fois le
-  lot Prix fusionné dans `dev`). À cette fusion, vérifier que le détail de
-  R22 porte bien une clé `dernier_prix` (avec sa date) quand un dernier prix
-  facturé existe : sans elle, la recherche de prix internet se déclenche
-  aussi pour un produit déjà facturé mais absent de la grille, pas
-  seulement pour un produit absent des deux (`docs/dette.md`, T10 du plan).
+- **La 3ᵉ colonne « Internet » de la page Prix** n'existe pas encore à
+  l'écran (T10b) ; le service serveur qui l'alimentera est fait (T10a,
+  `ingest.ia_prix.prix_internet_des_anomalies`, route `GET
+  /api/ia/prix-internet`). Le lot Prix est fusionné dans `dev` depuis le
+  28/09/2026 (PR #5) et le détail de R22 porte bien une clé `dernier_prix`
+  (avec `date_dernier_prix`, « — » sinon) : **le déclencheur de la recherche
+  de prix internet est définitif** -- elle ne se déclenche que pour un
+  produit absent à la fois de la grille et de toute facture, jamais pour un
+  produit déjà facturé mais simplement absent de la grille -- vérifié par un
+  essai de bout en bout sur une vraie anomalie R22
+  (`ingest/tests/test_ia_prix_bout_en_bout.py`, T10a).

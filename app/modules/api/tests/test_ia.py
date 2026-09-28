@@ -1,9 +1,12 @@
 """Tests de `GET /api/ia/synthese`, `POST /api/ia/synthese/actions/{id}
-/faite`, `POST /api/ia/synthese/actions/{id}/a-faire` (T4, phase 4 IA) et
-`GET /api/ia/anomalies/{id}` (T6, même phase) : autorisation, codes HTTP,
-forme JSON -- voir `app/modules/ingest/tests/test_ia_synthese.py` et
-`app/modules/ingest/tests/test_ia_prix.py` pour les scénarios métier
-détaillés (sélection, troncature, cochage, journal, empreinte, cache).
+/faite`, `POST /api/ia/synthese/actions/{id}/a-faire` (T4, phase 4 IA),
+`GET /api/ia/anomalies/{id}` (T6, même phase) et `GET /api/ia/prix-internet`
+(T10a) : autorisation, codes HTTP, forme JSON -- voir
+`app/modules/ingest/tests/test_ia_synthese.py`,
+`app/modules/ingest/tests/test_ia_prix.py` et
+`app/modules/ingest/tests/test_ia_prix_bout_en_bout.py` pour les scénarios
+métier détaillés (sélection, troncature, cochage, journal, empreinte, cache,
+essai de bout en bout sur une vraie anomalie R22).
 
 Ce fichier ne teste que le routeur (couche d'entrée, L2-D3). Même schéma que
 `test_comptes.py`/`test_bilan.py` : `FastAPI` isolé, `app.state.sessions`
@@ -31,7 +34,11 @@ from app.core.auth import router as auth_router
 from app.core.config import get_settings
 from app.modules.api import router as api_router
 from app.modules.ingest import commun
-from app.modules.ingest.ia_prix import cle_produit_internet, empreinte_detail
+from app.modules.ingest.ia_prix import (
+    MAX_ANOMALIES_PRIX_INTERNET,
+    cle_produit_internet,
+    empreinte_detail,
+)
 from app.modules.ingest.models import (
     Anomalie,
     Document,
@@ -42,6 +49,7 @@ from app.modules.ingest.models import (
     SyntheseCommentaires,
     Utilisateur,
 )
+from app.modules.ingest.parametres import modifier_parametre
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
 
@@ -196,6 +204,19 @@ def _regler_controle_prix(monkeypatch: pytest.MonkeyPatch, *, actif: bool) -> No
     monkeypatch.setattr(commun, "get_settings", lambda: _SettingsInventee())
 
 
+async def _activer_controle_prix_bl(
+    session: AsyncSession, *, cle_alerte: str | None = None
+) -> None:
+    """R19-R25 (dont R22) sont masquées par défaut (réglage `prix_controle_
+    bl_actif`, en base, défaut 0) -- fix round 1, T10a : `ia_prix.py` masque
+    désormais ces règles via `ingest.commun.regles_masquees`, comme le reste
+    d'`ingest`. `cle_alerte` : en plus de l'interrupteur général, écrase
+    l'interrupteur d'une alerte précise (ex. `prix_alerte_absent_grille`)."""
+    await modifier_parametre(session, "prix_controle_bl_actif", "1", auteur_id=None)
+    if cle_alerte is not None:
+        await modifier_parametre(session, cle_alerte, "1", auteur_id=None)
+
+
 # --------------------------------------------------------------------------
 # Autorisation
 # --------------------------------------------------------------------------
@@ -235,10 +256,13 @@ async def test_routes_ia_agent_403(
         faite = await client.post(f"/api/ia/synthese/actions/{action_id}/faite")
         a_faire = await client.post(f"/api/ia/synthese/actions/{action_id}/a-faire")
         avis = await client.get(f"/api/ia/anomalies/{anomalie_id}")
+        prix_internet = await client.get(
+            "/api/ia/prix-internet", params={"anomalie_id": str(anomalie_id)}
+        )
 
-    assert [reponse.status_code for reponse in [liste, faite, a_faire, avis]] == [
-        403
-    ] * 4
+    assert [
+        reponse.status_code for reponse in [liste, faite, a_faire, avis, prix_internet]
+    ] == [403] * 5
 
 
 async def test_get_avis_ia_anomalie_anonyme_401(
@@ -428,6 +452,7 @@ async def test_get_avis_ia_anomalie_admin_200_forme_json(
             consulte_le=datetime.now(UTC),
         )
     )
+    await _activer_controle_prix_bl(db_session)
     await db_session.commit()
 
     app_test = _app_test(sessions_test, tmp_path)
@@ -468,11 +493,13 @@ async def test_get_avis_ia_anomalie_admin_200_aucun_avis(
     admin = await _creer_utilisateur(
         db_session, email="admin.ia.avis.vide@example.invalid", role="admin"
     )
-    # R22 (jamais masquée, contrairement à R07/R08/R09 -- `CONTROLE_PRIX_ACTIF`
-    # vaut son défaut réel `False` dans ce test, l'app de test n'écrasant pas
-    # ce réglage) : aucune `ExplicationAlerte` ni `PrixInternet` en base pour
-    # cette clé, donc rien à afficher, jamais une erreur.
+    # R22 non masquée ici (interrupteur `prix_controle_bl_actif` allumé, fix
+    # round 1, T10a -- sinon la route répondrait 404, cf. les tests de
+    # masquage plus bas) : aucune `ExplicationAlerte` ni `PrixInternet` en
+    # base pour cette clé, donc rien à afficher, jamais une erreur.
     anomalie, _fournisseur, _document = await _creer_anomalie_prix(db_session)
+    await _activer_controle_prix_bl(db_session)
+    await db_session.commit()
     app_test = _app_test(sessions_test, tmp_path)
     cookie = await _login(app_test, email=admin.email)
 
@@ -548,3 +575,186 @@ async def test_get_avis_ia_anomalie_regle_masquee_404(
         reponse = await client.get(f"/api/ia/anomalies/{anomalie.id}")
 
     assert reponse.status_code == 404
+
+
+# --------------------------------------------------------------------------
+# GET /api/ia/prix-internet (T10a)
+# --------------------------------------------------------------------------
+
+
+async def test_get_prix_internet_lot_anonyme_401(
+    sessions_test: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    app_test = _app_test(sessions_test, tmp_path)
+    transport = ASGITransport(app=app_test, client=(_ip_isolee(), 12345))
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        reponse = await client.get(
+            "/api/ia/prix-internet", params={"anomalie_id": str(uuid.uuid4())}
+        )
+
+    assert reponse.status_code == 401
+
+
+async def test_get_prix_internet_lot_admin_200_forme_json(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.ia.prix-internet@example.invalid", role="admin"
+    )
+    anomalie_trouve, fournisseur, _document = await _creer_anomalie_prix(
+        db_session,
+        detail=dict(_DETAIL_R22_INVENTE),
+        fournisseur_nom="Fournisseur Lot A",
+    )
+    cle = cle_produit_internet(
+        fournisseur.id, _DETAIL_R22_INVENTE["produit"], _DETAIL_R22_INVENTE["code"]
+    )
+    db_session.add(
+        PrixInternet(
+            fournisseur_id=fournisseur.id,
+            cle=cle,
+            designation=_DETAIL_R22_INVENTE["produit"],
+            code=_DETAIL_R22_INVENTE["code"],
+            statut="trouve",
+            prix=Decimal("89.9000"),
+            devise="EUR",
+            taxes="TTC",
+            unite="u",
+            conditionnement="boîte de 10",
+            produit_trouve="Plaque std 13",
+            source_url="https://exemple.invalid/plaque-std-13",
+            confiance="elevee",
+            raison=None,
+            modele="modele-invente",
+            consulte_le=datetime.now(UTC),
+        )
+    )
+    await db_session.commit()
+    anomalie_sans_avis, _f2, _d2 = await _creer_anomalie_prix(
+        db_session,
+        detail={**_DETAIL_R22_INVENTE, "produit": "Produit sans avis"},
+        fournisseur_nom="Fournisseur Lot B",
+    )
+    anomalie_autre_regle, _f3, _d3 = await _creer_anomalie_prix(
+        db_session,
+        regle="R07",
+        detail={
+            "article": "Sable 0/4",
+            "code": "SAB04",
+            "pu_facture": "12.50",
+            "mediane": "10.00",
+            "occurrences": "6",
+            "ecart_pct": "25.00",
+        },
+        fournisseur_nom="Fournisseur Lot C",
+    )
+    inconnue = uuid.uuid4()
+    await _activer_controle_prix_bl(db_session)
+    await db_session.commit()
+
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app_test),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        reponse = await client.get(
+            "/api/ia/prix-internet",
+            params=[
+                ("anomalie_id", str(anomalie_trouve.id)),
+                ("anomalie_id", str(anomalie_sans_avis.id)),
+                ("anomalie_id", str(anomalie_autre_regle.id)),
+                ("anomalie_id", str(inconnue)),
+            ],
+        )
+
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert corps["ia_active"] is False  # IA_ACTIVE absente en test -> éteinte
+    assert set(corps["prix"].keys()) == {
+        str(anomalie_trouve.id),
+        str(anomalie_sans_avis.id),
+    }
+    assert corps["prix"][str(anomalie_trouve.id)]["statut"] == "trouve"
+    assert corps["prix"][str(anomalie_trouve.id)]["prix"] == "89.9000"
+    assert corps["prix"][str(anomalie_sans_avis.id)] is None
+
+
+async def test_get_prix_internet_lot_admin_200_aucun_identifiant(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.ia.prix-internet.vide@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app_test),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        reponse = await client.get("/api/ia/prix-internet")
+
+    assert reponse.status_code == 200
+    assert reponse.json() == {"ia_active": False, "prix": {}}
+
+
+async def test_get_prix_internet_lot_plus_de_200_422(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.ia.prix-internet.422@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+    trop_ids = [str(uuid.uuid4()) for _ in range(MAX_ANOMALIES_PRIX_INTERNET + 1)]
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app_test),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        reponse = await client.get(
+            "/api/ia/prix-internet",
+            params=[("anomalie_id", identifiant) for identifiant in trop_ids],
+        )
+
+    assert reponse.status_code == 422
+    assert isinstance(reponse.json()["detail"], str)
+
+
+async def test_get_prix_internet_lot_uuid_invalide_422(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Test permanent (revue de fix round 1, T10a) : un `anomalie_id` qui
+    n'est pas un UUID valide est refusé par la validation FastAPI/Pydantic
+    du paramètre de requête, avant même d'atteindre `prix_internet_des_
+    anomalies` -- 422, jamais une erreur serveur."""
+    admin = await _creer_utilisateur(
+        db_session, email="admin.ia.prix-internet.uuid@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app_test),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        reponse = await client.get(
+            "/api/ia/prix-internet", params={"anomalie_id": "pas-un-uuid"}
+        )
+
+    assert reponse.status_code == 422

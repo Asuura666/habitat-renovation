@@ -2,7 +2,8 @@ import { type ReactElement } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { cleAvisIA, lireAvisIA, type PrixInternet } from "../api/ia";
-import { formaterJourMois, formaterMontant, TIRET } from "../lib/formats";
+import { formaterJourMois, TIRET } from "../lib/formats";
+import { domaineSource, texteMontantPrixInternet } from "../lib/prixInternet";
 
 /**
  * Encart « Avis de l'IA — à titre indicatif » (T7, phase 4 IA, spec §6.4) :
@@ -50,50 +51,13 @@ export function AvisIA({ anomalieId }: { anomalieId: string }): ReactElement | n
   );
 }
 
-/** Nom de domaine d'une adresse (« exemple.invalid », jamais l'adresse
- * complète -- brief T7 : « pour rester court »), `www.` retiré -- `null` si
- * l'adresse ne doit **pas** devenir un lien cliquable : non analysable,
- * protocole autre que `https:` (fix round 1, revue T7 : une adresse
- * `javascript:`/`data:` ne fait pas lever `new URL`, elle rend juste un
- * `hostname` vide -- rendre le lien tout de même l'aurait rendu cliquable),
- * ou hôte vide. `source_url` vient d'une réponse de l'IA : ce composant se
- * défend lui-même, jamais uniquement sur la garde déjà faite côté serveur
- * (`extract/reponses_ia.py`, qui ne garde que des adresses `https://`
- * vérifiées pour le statut `trouve` -- une défense en profondeur, pas une
- * confiance aveugle en amont). */
-function domaine(url: string): string | null {
-  let analysee: URL;
-  try {
-    analysee = new URL(url);
-  } catch {
-    return null;
-  }
-  if (analysee.protocol !== "https:" || analysee.hostname === "") {
-    return null;
-  }
-  return analysee.hostname.replace(/^www\./, "");
-}
-
-/** Unité et conditionnement en un seul groupe entre parenthèses (brief T7 :
- * « unité/conditionnement si présents ») -- le conditionnement (« seau de
- * 15 L », « boîte de 10 ») est déjà la description la plus parlante pour un
- * non-technicien ; l'unité seule (« u », « L ») ne complète l'écran que
- * lorsque le conditionnement manque, jamais les deux à la fois (redondant,
- * l'un contenant souvent déjà l'autre). Chaîne vide si aucun des deux
- * n'est présent -- jamais une parenthèse vide affichée. */
-function parentheseConditionnement(prixInternet: PrixInternet): string {
-  const partie = prixInternet.conditionnement ?? prixInternet.unite;
-  return partie !== null && partie !== "" ? ` (${partie})` : "";
-}
-
 function LignePrixInternet({ prixInternet }: { prixInternet: PrixInternet }): ReactElement | null {
   if (prixInternet.statut === "trouve" && prixInternet.prix !== null) {
-    const taxes = prixInternet.taxes !== null ? ` ${prixInternet.taxes}` : "";
-    const conditionnement = parentheseConditionnement(prixInternet);
-    const sourceDomaine = prixInternet.source_url !== null ? domaine(prixInternet.source_url) : null;
+    const sourceDomaine =
+      prixInternet.source_url !== null ? domaineSource(prixInternet.source_url) : null;
     return (
       <p className="text-sm text-encre">
-        {`Prix trouvé sur internet : ${formaterMontant(prixInternet.prix)}${taxes}${conditionnement} — consulté le ${formaterJourMois(prixInternet.consulte_le)}`}
+        {`Prix trouvé sur internet : ${texteMontantPrixInternet(prixInternet)} — consulté le ${formaterJourMois(prixInternet.consulte_le)}`}
         {sourceDomaine !== null && prixInternet.source_url !== null && (
           <>
             {" "}

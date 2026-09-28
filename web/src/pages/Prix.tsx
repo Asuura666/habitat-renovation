@@ -14,12 +14,35 @@ import {
   validerPrix,
 } from "../api/prix";
 import { ErreurApi } from "../api/client";
+import { clePrixInternet, lirePrixInternet, type PrixInternet } from "../api/ia";
 import { invaliderApresChangementAnomalies } from "../api/invalidations";
 import { CLE_PARAMETRES, listerParametres } from "../api/parametres";
 import { CLE_FOURNISSEURS, listerFournisseurs } from "../api/referentiels";
+import { PrixInternetCellule } from "../components/PrixInternetCellule";
 import { formaterDate, formaterMontant, formaterPoints, TIRET } from "../lib/formats";
 import { lienBon } from "../lib/liens";
 import { Bouton, Carte, EnTetePage, EtatVide, Filtres, type OptionFiltre, titreRegle } from "../ui";
+
+/** Plafond de `GET /api/ia/prix-internet` (`MAX_ANOMALIES_PRIX_INTERNET`,
+ * `ingest/ia_prix.py`, 422 au-delà) -- défense côté front, jamais atteinte
+ * en pratique (nombre de rangées R22 affichées en même temps très en-deçà),
+ * mais évite de jamais provoquer ce 422 si la liste explosait un jour. */
+const MAX_IDS_PRIX_INTERNET = 200;
+
+/** Identifiants d'anomalies à interroger pour une rangée (fix round 1,
+ * ruling du contrôleur : le brief T10b disait « le premier de
+ * `anomalie_ids` », mais `regles` et `anomalie_ids` sont deux tableaux
+ * indépendants -- R22 peut cohabiter avec R20/R24 sur la même ligne
+ * (`rules/rules/R22.py` : seules ces deux règles peuvent encore se
+ * déclencher sur une ligne déjà en R22) et une rangée peut grouper
+ * plusieurs lignes, donc `anomalie_ids[0]` n'est pas forcément celui de
+ * R22. Tableau vide si la rangée n'a pas d'alerte R22 (exclue de la requête
+ * groupée, cellule à tiret) -- tous les identifiants sinon, la réponse ne
+ * portant de toute façon jamais de clé pour un identifiant qui ne désigne
+ * pas une alerte R22 ouverte et non masquée (brief T10a). */
+function idsInternetPour(produit: AlerteProduit): readonly string[] {
+  return produit.regles.includes("R22") ? produit.anomalie_ids : [];
+}
 
 /** Réglage qui commande l'écran tout entier (spec §3.4, §8.3) -- toujours
  * présent dans `GET /api/parametres` (interrupteur général « toujours
@@ -251,8 +274,21 @@ function ActionsAlertePrix({
 }
 
 /** Une rangée de la page, en carte (téléphone) — mêmes informations que le
- * tableau ci-dessous (spec §8.1, §8.3). */
-function CarteAlertePrix({ produit, actions }: { produit: AlerteProduit; actions: ReactElement }): ReactElement {
+ * tableau ci-dessous (spec §8.1, §8.3), plus la colonne « Internet » (T10b,
+ * phase 4 IA) au même endroit qu'au tableau : juste après « Dernier prix
+ * facturé », seulement quand l'IA est active (`colonneInternetVisible`,
+ * calculé par `Prix()` -- jamais relu ici). */
+function CarteAlertePrix({
+  produit,
+  actions,
+  colonneInternetVisible,
+  prixInternet,
+}: {
+  produit: AlerteProduit;
+  actions: ReactElement;
+  colonneInternetVisible: boolean;
+  prixInternet: PrixInternet | null | undefined;
+}): ReactElement {
   const ressemblance = texteRessemblance(produit);
   return (
     <li className="rounded-carte border border-bordure bg-surface p-4">
@@ -275,6 +311,14 @@ function CarteAlertePrix({ produit, actions }: { produit: AlerteProduit; actions
           <dt className="text-xs text-encre-2">Dernier prix facturé</dt>
           <dd className="text-encre">{texteDernierPrix(produit)}</dd>
         </div>
+        {colonneInternetVisible && (
+          <div>
+            <dt className="text-xs text-encre-2">Internet</dt>
+            <dd className="text-encre">
+              <PrixInternetCellule produit={produit} prixInternet={prixInternet} />
+            </dd>
+          </div>
+        )}
         <div>
           <dt className="text-xs text-encre-2">Écart</dt>
           <dd className="font-mono font-medium text-encre">
@@ -330,6 +374,48 @@ export function Prix(): ReactElement {
       }),
     enabled: controleActif,
   });
+
+  /** Colonne « Internet » (T10b, phase 4 IA, spec §6.4) : requête groupée,
+   * tous les identifiants des rangées R22 (fix round 1, `idsInternetPour`
+   * ci-dessus), dédupliqués en gardant l'ordre de la page (`Set` préserve
+   * l'ordre d'insertion en JavaScript) et plafonnés à `MAX_IDS_PRIX_
+   * INTERNET` au total -- activée seulement quand la liste des alertes est
+   * chargée, non vide, et en contient au moins un -- aucune requête sinon.
+   * Si l'IA est éteinte, si la requête échoue ou pendant son chargement :
+   * `colonneInternetVisible` reste faux et rien ne change (la page reste à
+   * 6 colonnes, aucun message, brief T10b). */
+  const alertesChargees = alertes.data !== undefined && alertes.data.length > 0;
+  const idsR22 = alertesChargees
+    ? Array.from(new Set(alertes.data.flatMap((produit) => idsInternetPour(produit)))).slice(
+        0,
+        MAX_IDS_PRIX_INTERNET,
+      )
+    : [];
+
+  const prixInternetLot = useQuery({
+    queryKey: clePrixInternet(idsR22),
+    queryFn: () => lirePrixInternet(idsR22),
+    enabled: alertesChargees && idsR22.length > 0,
+  });
+
+  const colonneInternetVisible = prixInternetLot.data?.ia_active === true;
+
+  /** Prix internet d'une rangée (fix round 1) : le premier des identifiants
+   * de la rangée qui est présent **comme clé** de la réponse groupée --
+   * jamais `anomalie_ids[0]` (voir `idsInternetPour` ci-dessus), et jamais
+   * uniquement une valeur non nulle (une clé présente avec une valeur
+   * `null`, « recherché sans résultat récent », doit arrêter la recherche
+   * là, pas continuer vers un identifiant suivant qui n'a pas de sens pour
+   * cette rangée). Aucune clé trouvée (rangée sans R22, ou au-delà du
+   * plafond) -> `undefined`, même « en attente » que `null` côté cellule. */
+  function prixInternetPour(produit: AlerteProduit): PrixInternet | null | undefined {
+    const prix = prixInternetLot.data?.prix;
+    if (prix === undefined) {
+      return undefined;
+    }
+    const idConnu = produit.anomalie_ids.find((id) => id in prix);
+    return idConnu === undefined ? undefined : prix[idConnu];
+  }
 
   async function apresAction(texte: string): Promise<void> {
     setPanneau(null);
@@ -533,19 +619,27 @@ export function Prix(): ReactElement {
               {/* Cartes — téléphone (< md). */}
               <ul className="space-y-3 md:hidden">
                 {alertes.data.map((produit) => (
-                  <CarteAlertePrix key={cleProduit(produit)} produit={produit} actions={actionsPour(produit)} />
+                  <CarteAlertePrix
+                    key={cleProduit(produit)}
+                    produit={produit}
+                    actions={actionsPour(produit)}
+                    colonneInternetVisible={colonneInternetVisible}
+                    prixInternet={prixInternetPour(produit)}
+                  />
                 ))}
               </ul>
 
               {/* Tableau — ordinateur (>= md), 6 colonnes au plus (spec
                   §8.3) : produit, prix du bon, grille, dernier prix
-                  facturé, écart (avec la ressemblance), alertes/lien.
-                  Rangées compactes : les trois actions occupent une ligne
-                  pleine largeur sous les informations du produit plutôt
-                  que la colonne Alertes (trop étroite pour trois boutons
-                  côte à côte -- constat capture, tour 2), qui garde une
-                  largeur raisonnable pour les titres d'alertes et le lien
-                  « Voir le bon ». */}
+                  facturé, écart (avec la ressemblance), alertes/lien --
+                  7ᵉ colonne « Internet » (T10b, phase 4 IA) seulement quand
+                  l'IA est active (`colonneInternetVisible`), jamais montrée
+                  sinon (page inchangée, IA éteinte). Rangées compactes : les
+                  trois actions occupent une ligne pleine largeur sous les
+                  informations du produit plutôt que la colonne Alertes (trop
+                  étroite pour trois boutons côte à côte -- constat capture,
+                  tour 2), qui garde une largeur raisonnable pour les titres
+                  d'alertes et le lien « Voir le bon ». */}
               <div className="hidden overflow-x-auto rounded-carte border border-bordure md:block">
                 <table className="w-full min-w-[960px] text-sm">
                   <caption className="sr-only">Produits en alerte de prix</caption>
@@ -555,6 +649,9 @@ export function Prix(): ReactElement {
                       <th scope="col" className="px-5 py-3">Prix du bon</th>
                       <th scope="col" className="px-5 py-3">Grille</th>
                       <th scope="col" className="px-5 py-3">Dernier prix facturé</th>
+                      {colonneInternetVisible && (
+                        <th scope="col" className="px-5 py-3">Internet</th>
+                      )}
                       <th scope="col" className="px-5 py-3">Écart</th>
                       <th scope="col" className="min-w-[14rem] px-5 py-3">Alertes</th>
                     </tr>
@@ -576,6 +673,11 @@ export function Prix(): ReactElement {
                             </td>
                             <td className="px-5 pb-1 pt-3 align-top text-encre">{texteGrille(produit)}</td>
                             <td className="px-5 pb-1 pt-3 align-top text-encre">{texteDernierPrix(produit)}</td>
+                            {colonneInternetVisible && (
+                              <td className="px-5 pb-1 pt-3 align-top text-encre">
+                                <PrixInternetCellule produit={produit} prixInternet={prixInternetPour(produit)} />
+                              </td>
+                            )}
                             <td className="px-5 pb-1 pt-3 align-top font-mono font-medium text-encre">
                               {texteEcart(produit) ?? TIRET}
                               {ressemblance !== null && (
@@ -593,7 +695,7 @@ export function Prix(): ReactElement {
                             </td>
                           </tr>
                           <tr>
-                            <td colSpan={6} className="px-5 pb-3 pt-0 align-top">
+                            <td colSpan={colonneInternetVisible ? 7 : 6} className="px-5 pb-3 pt-0 align-top">
                               {actionsPour(produit)}
                             </td>
                           </tr>

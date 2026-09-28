@@ -1152,6 +1152,19 @@ class AvisIAReponse(BaseModel):
     prix_internet: PrixInternetReponse | None
 
 
+class PrixInternetLotReponse(BaseModel):
+    """Réponse de `GET /api/ia/prix-internet` (T10a) — mêmes attributs
+    qu'`ingest.ia_prix.PrixInternetLot`, à ceci près que les identifiants
+    d'anomalie sont des clés texte (JSON n'admet pas l'UUID comme clé
+    d'objet) : réutilise `PrixInternetReponse`, déjà exposé par `GET
+    /api/ia/anomalies/{id}`. Construite à la main par le routeur (jamais
+    `model_validate` : la conversion UUID -> texte des clés n'est pas un
+    changement de forme que `from_attributes` sait faire)."""
+
+    ia_active: bool
+    prix: dict[str, PrixInternetReponse | None]
+
+
 # --------------------------------------------------------------------------
 # Grilles de prix fournisseur (phase 3, tâche P4) : schémas construits à
 # partir des dataclasses d'`ingest.grilles` (`ProduitGrilleAffiche`,
