@@ -42,3 +42,34 @@ export function marquerActionSynthese(id: string, faite: boolean): Promise<Actio
     method: "POST",
   });
 }
+
+/**
+ * Avis de l'IA sur une anomalie de prix (T6/T7, phase 4 IA, spec §6.4) :
+ * explication de l'alerte et dernier prix trouvé sur internet, lus par
+ * l'encart `components/AvisIA.tsx` (T7) du détail d'un problème de
+ * catégorie « prix » (`pages/ProblemeDetail.tsx`). Mêmes attributs que les
+ * dataclasses d'`ingest.ia_prix` (`ExplicationVue`, `PrixInternetVue`,
+ * `AvisIA`) — voir `app/modules/api/schemas.py`.
+ */
+export type ExplicationAlerte = components["schemas"]["ExplicationAlerteReponse"];
+export type PrixInternet = components["schemas"]["PrixInternetReponse"];
+export type AvisIA = components["schemas"]["AvisIAReponse"];
+
+/** Clé de requête TanStack Query propre à chaque anomalie (même principe
+ * que `cleAnomalies`) : un avis par anomalie, jamais partagé entre deux
+ * problèmes différents. */
+export function cleAvisIA(anomalieId: string): readonly [string, string, string] {
+  return ["ia", "anomalie", anomalieId] as const;
+}
+
+/** `GET /api/ia/anomalies/{anomalie_id}` (admin) : 404 si l'anomalie est
+ * inconnue ou masquée (`ingest.ia_prix.avis_ia_anomalie`) — `ProblemeDetail
+ * .tsx` n'appelle cette route que pour une anomalie déjà chargée par `GET
+ * /api/anomalies`, ce 404 ne devrait donc jamais se produire en usage
+ * normal ; `AvisIA.tsx` le traite comme n'importe quelle erreur (rien à
+ * l'écran, l'avis est un bonus, jamais un blocage). */
+export function lireAvisIA(anomalieId: string): Promise<AvisIA> {
+  return appelerApi<AvisIA>("/api/ia/anomalies/{anomalie_id}", {
+    url: `/api/ia/anomalies/${anomalieId}`,
+  });
+}

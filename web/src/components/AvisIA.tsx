@@ -1,0 +1,116 @@
+import { type ReactElement } from "react";
+import { useQuery } from "@tanstack/react-query";
+
+import { cleAvisIA, lireAvisIA, type PrixInternet } from "../api/ia";
+import { formaterJourMois, formaterMontant, TIRET } from "../lib/formats";
+
+/**
+ * Encart « Avis de l'IA — à titre indicatif » (T7, phase 4 IA, spec §6.4) :
+ * explication de l'alerte et prix trouvé sur internet (T6, `GET /api/ia
+ * /anomalies/{id}`), montré sous la phrase du problème dans
+ * `pages/ProblemeDetail.tsx` -- **seulement** pour un problème de catégorie
+ * « prix » (même critère que celui déjà utilisé pour la catégorie
+ * affichée, `categorieFiltreProbleme`), monté par une seule ligne.
+ *
+ * Un bonus, jamais un blocage (brief T7) : pendant le chargement, en cas
+ * d'erreur, ou si l'IA n'a encore rien produit pour cette anomalie
+ * (`ia_active` faux, ou ni explication ni prix), ce composant ne rend
+ * rien -- jamais un message d'attente ni une alerte, à la différence du
+ * reste de l'écran « À régler ». Sa propre requête TanStack Query, isolée
+ * du reste du panneau (même principe que `SyntheseCommentaires`, T5) :
+ * une panne ici n'empêche jamais de traiter le problème.
+ *
+ * Aucun jargon (brief T7) : ni « OpenCode », ni « modèle », ni
+ * « confiance » (le champ `confiance` de `PrixInternetReponse` n'est même
+ * pas lu ici), ni aucun identifiant.
+ */
+export function AvisIA({ anomalieId }: { anomalieId: string }): ReactElement | null {
+  const avis = useQuery({
+    queryKey: cleAvisIA(anomalieId),
+    queryFn: () => lireAvisIA(anomalieId),
+  });
+
+  if (avis.isPending || avis.isError || avis.data === undefined) {
+    return null;
+  }
+
+  const { ia_active: iaActive, explication, prix_internet: prixInternet } = avis.data;
+  if (!iaActive || (explication === null && prixInternet === null)) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-bordure bg-fond p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-encre-2">
+        Avis de l'IA — à titre indicatif
+      </p>
+      {explication !== null && <p className="text-sm text-encre">{explication.texte}</p>}
+      {prixInternet !== null && <LignePrixInternet prixInternet={prixInternet} />}
+    </div>
+  );
+}
+
+/** Nom de domaine d'une adresse (« exemple.invalid », jamais l'adresse
+ * complète -- brief T7 : « pour rester court »), `www.` retiré. `null` si
+ * l'adresse n'est pas analysable (défensif : `source_url` vient de l'IA,
+ * jamais garanti valide côté front même si le serveur ne garde que des
+ * adresses `https://` déjà vérifiées, `extract/reponses_ia.py`). */
+function domaine(url: string): string | null {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+/** Unité et conditionnement en un seul groupe entre parenthèses (brief T7 :
+ * « unité/conditionnement si présents ») -- le conditionnement (« seau de
+ * 15 L », « boîte de 10 ») est déjà la description la plus parlante pour un
+ * non-technicien ; l'unité seule (« u », « L ») ne complète l'écran que
+ * lorsque le conditionnement manque, jamais les deux à la fois (redondant,
+ * l'un contenant souvent déjà l'autre). Chaîne vide si aucun des deux
+ * n'est présent -- jamais une parenthèse vide affichée. */
+function parentheseConditionnement(prixInternet: PrixInternet): string {
+  const partie = prixInternet.conditionnement ?? prixInternet.unite;
+  return partie !== null && partie !== "" ? ` (${partie})` : "";
+}
+
+function LignePrixInternet({ prixInternet }: { prixInternet: PrixInternet }): ReactElement | null {
+  if (prixInternet.statut === "trouve" && prixInternet.prix !== null) {
+    const taxes = prixInternet.taxes !== null ? ` ${prixInternet.taxes}` : "";
+    const conditionnement = parentheseConditionnement(prixInternet);
+    const sourceDomaine = prixInternet.source_url !== null ? domaine(prixInternet.source_url) : null;
+    return (
+      <p className="text-sm text-encre">
+        {`Prix trouvé sur internet : ${formaterMontant(prixInternet.prix)}${taxes}${conditionnement} — consulté le ${formaterJourMois(prixInternet.consulte_le)}`}
+        {sourceDomaine !== null && prixInternet.source_url !== null && (
+          <>
+            {" "}
+            <a
+              href={prixInternet.source_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {`Voir la source (${sourceDomaine})`}
+            </a>
+          </>
+        )}
+      </p>
+    );
+  }
+
+  if (prixInternet.statut === "non_verifiable") {
+    return (
+      <p className="text-sm text-encre-2">
+        {`Prix introuvable sur internet : ${prixInternet.raison ?? TIRET}`}
+      </p>
+    );
+  }
+
+  // Statut inconnu (`echec`, en principe jamais renvoyé par `avis_ia_
+  // anomalie` -- une ligne `echec` n'est jamais montrée, `ia_prix.py`) :
+  // rien plutôt qu'un texte incohérent, même discipline que le reste de ce
+  // composant (l'avis est un bonus, jamais un blocage).
+  return null;
+}
