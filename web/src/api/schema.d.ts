@@ -901,6 +901,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/prix/alertes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lister Alertes Prix Endpoint */
+        get: operations["lister_alertes_prix_endpoint_api_prix_alertes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/prix/valider": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Valider Prix Endpoint */
+        post: operations["valider_prix_endpoint_api_prix_valider_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/prix/contester": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Contester Prix Endpoint */
+        post: operations["contester_prix_endpoint_api_prix_contester_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/prix/ignorer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ignorer Prix Endpoint */
+        post: operations["ignorer_prix_endpoint_api_prix_ignorer_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/prix/recontrole": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Recontroler Prix Endpoint */
+        post: operations["recontroler_prix_endpoint_api_prix_recontrole_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -958,6 +1043,75 @@ export interface components {
             nom: string;
             /** Adresse */
             adresse: string | null;
+        };
+        /**
+         * AlerteProduitReponse
+         * @description Une rangée de `GET /api/prix/alertes` -- mêmes attributs
+         *     qu'`ingest.prix_bl.AlerteProduit`.
+         */
+        AlerteProduitReponse: {
+            /**
+             * Fournisseur Id
+             * Format: uuid
+             */
+            fournisseur_id: string;
+            /** Fournisseur */
+            fournisseur: string;
+            /** Produit */
+            produit: string;
+            /** Code */
+            code: string | null;
+            /** Prix Bon */
+            prix_bon: string;
+            /** Unite Bon */
+            unite_bon: string | null;
+            /**
+             * Date Bon
+             * Format: date
+             */
+            date_bon: string;
+            /** Nb Bons */
+            nb_bons: number;
+            /** Nb Prix Differents */
+            nb_prix_differents: number;
+            /** Prix Grille */
+            prix_grille: string | null;
+            /** Unite Grille */
+            unite_grille: string | null;
+            /** Date Grille */
+            date_grille: string | null;
+            /** Grille Posterieure Au Bon */
+            grille_posterieure_au_bon: boolean;
+            /** Dernier Prix */
+            dernier_prix: string | null;
+            /** Unite Dernier Prix */
+            unite_dernier_prix: string | null;
+            /** Date Dernier Prix */
+            date_dernier_prix: string | null;
+            /** Numero Facture */
+            numero_facture: string | null;
+            /** Ecart Pct */
+            ecart_pct: string | null;
+            /** Methode */
+            methode: string | null;
+            /** Ressemblance */
+            ressemblance: number | null;
+            /** Regles */
+            regles: string[];
+            /** Anomalie Ids */
+            anomalie_ids: string[];
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /**
+             * Ligne Id
+             * Format: uuid
+             */
+            ligne_id: string;
+            /** Numero Interne */
+            numero_interne: number | null;
         };
         /**
          * AliasEnAttenteReponse
@@ -1433,6 +1587,18 @@ export interface components {
             controle_prix_actif: boolean;
         };
         /**
+         * ContesterPrixRequete
+         * @description Corps de `POST /api/prix/contester` (spec §8.2) : commentaire
+         *     obligatoire (validé de nouveau par `ingest.prix_bl.contester_prix`, même
+         *     principe que `TraitementAnomalieRequete`).
+         */
+        ContesterPrixRequete: {
+            /** Anomalie Ids */
+            anomalie_ids: string[];
+            /** Commentaire */
+            commentaire: string;
+        };
+        /**
          * CorrectionEnteteRequete
          * @description `PATCH /api/documents/{id}` : tous les champs sont optionnels
          *     (`None` par défaut) — seuls ceux présents dans `model_fields_set` sont
@@ -1721,6 +1887,15 @@ export interface components {
             motifs: components["schemas"]["MotifReponse"][];
         };
         /**
+         * FermetureAlertesReponse
+         * @description `POST /api/prix/contester` et `/ignorer` -- nombre d'alertes
+         *     fermées.
+         */
+        FermetureAlertesReponse: {
+            /** Nb Alertes Reglees */
+            nb_alertes_reglees: number;
+        };
+        /**
          * FournisseurReponse
          * @description Une ligne de `GET /api/fournisseurs` — mêmes attributs qu'`ingest
          *     .referentiels.FournisseurResume`. `agences` : liste vide si le
@@ -1765,6 +1940,17 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * IgnorerPrixRequete
+         * @description Corps de `POST /api/prix/ignorer` (spec §8.2) : commentaire
+         *     facultatif.
+         */
+        IgnorerPrixRequete: {
+            /** Anomalie Ids */
+            anomalie_ids: string[];
+            /** Commentaire */
+            commentaire?: string | null;
         };
         /**
          * ImportEffectueReponse
@@ -2263,6 +2449,19 @@ export interface components {
             date_effet: string;
         };
         /**
+         * RecontrolePrixReponse
+         * @description `POST /api/prix/recontrole` -- mêmes attributs
+         *     qu'`ingest.prix_bl.ResultatRecontrolePrix`.
+         */
+        RecontrolePrixReponse: {
+            /** Nb Bons */
+            nb_bons: number;
+            /** Nb Echecs */
+            nb_echecs: number;
+            /** Nb Alertes Ouvertes */
+            nb_alertes_ouvertes: number;
+        };
+        /**
          * RetraitProduitRequete
          * @description Corps de `POST /api/grilles/fournisseurs/{id}/retrait`.
          */
@@ -2414,6 +2613,35 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /**
+         * ValidationPrixReponse
+         * @description `POST /api/prix/valider` -- mêmes attributs
+         *     qu'`ingest.prix_bl.ValidationPrixEffectuee`.
+         */
+        ValidationPrixReponse: {
+            /** Prix Net */
+            prix_net: string;
+            /**
+             * Date Effet
+             * Format: date
+             */
+            date_effet: string;
+            /** Nb Alertes Reglees */
+            nb_alertes_reglees: number;
+        };
+        /**
+         * ValiderPrixRequete
+         * @description Corps de `POST /api/prix/valider` (spec §8.2).
+         */
+        ValiderPrixRequete: {
+            /** Anomalie Ids */
+            anomalie_ids: string[];
+            /**
+             * Ligne Id
+             * Format: uuid
+             */
+            ligne_id: string;
         };
     };
     responses: never;
@@ -4081,6 +4309,157 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lister_alertes_prix_endpoint_api_prix_alertes_get: {
+        parameters: {
+            query?: {
+                periode?: "jour" | "tout";
+                fournisseur_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlerteProduitReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    valider_prix_endpoint_api_prix_valider_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValiderPrixRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationPrixReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    contester_prix_endpoint_api_prix_contester_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContesterPrixRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FermetureAlertesReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ignorer_prix_endpoint_api_prix_ignorer_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IgnorerPrixRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FermetureAlertesReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    recontroler_prix_endpoint_api_prix_recontrole_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecontrolePrixReponse"];
                 };
             };
         };

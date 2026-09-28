@@ -2755,6 +2755,203 @@
     }
    }
   },
+  "/api/prix/alertes": {
+   "get": {
+    "summary": "Lister Alertes Prix Endpoint",
+    "operationId": "lister_alertes_prix_endpoint_api_prix_alertes_get",
+    "parameters": [
+     {
+      "name": "periode",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "jour",
+        "tout"
+       ],
+       "type": "string",
+       "default": "tout",
+       "title": "Periode"
+      }
+     },
+     {
+      "name": "fournisseur_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uuid"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Fournisseur Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/AlerteProduitReponse"
+         },
+         "title": "Response Lister Alertes Prix Endpoint Api Prix Alertes Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/prix/valider": {
+   "post": {
+    "summary": "Valider Prix Endpoint",
+    "operationId": "valider_prix_endpoint_api_prix_valider_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ValiderPrixRequete"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ValidationPrixReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/prix/contester": {
+   "post": {
+    "summary": "Contester Prix Endpoint",
+    "operationId": "contester_prix_endpoint_api_prix_contester_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ContesterPrixRequete"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FermetureAlertesReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/prix/ignorer": {
+   "post": {
+    "summary": "Ignorer Prix Endpoint",
+    "operationId": "ignorer_prix_endpoint_api_prix_ignorer_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/IgnorerPrixRequete"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FermetureAlertesReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/prix/recontrole": {
+   "post": {
+    "summary": "Recontroler Prix Endpoint",
+    "operationId": "recontroler_prix_endpoint_api_prix_recontrole_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RecontrolePrixReponse"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/health": {
    "get": {
     "summary": "Health",
@@ -2847,6 +3044,248 @@
     ],
     "title": "AgenceFournisseurReponse",
     "description": "Une agence (point de vente) d'un fournisseur, dans `GET /api\n/fournisseurs` (Ruling L5-R9, tour de correction 1 de L5-T8) — mêmes\nattributs qu'`ingest.referentiels.AgenceResume`."
+   },
+   "AlerteProduitReponse": {
+    "properties": {
+     "fournisseur_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Fournisseur Id"
+     },
+     "fournisseur": {
+      "type": "string",
+      "title": "Fournisseur"
+     },
+     "produit": {
+      "type": "string",
+      "title": "Produit"
+     },
+     "code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Code"
+     },
+     "prix_bon": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Prix Bon"
+     },
+     "unite_bon": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Bon"
+     },
+     "date_bon": {
+      "type": "string",
+      "format": "date",
+      "title": "Date Bon"
+     },
+     "nb_bons": {
+      "type": "integer",
+      "title": "Nb Bons"
+     },
+     "nb_prix_differents": {
+      "type": "integer",
+      "title": "Nb Prix Differents"
+     },
+     "prix_grille": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Prix Grille"
+     },
+     "unite_grille": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Grille"
+     },
+     "date_grille": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date Grille"
+     },
+     "grille_posterieure_au_bon": {
+      "type": "boolean",
+      "title": "Grille Posterieure Au Bon"
+     },
+     "dernier_prix": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Dernier Prix"
+     },
+     "unite_dernier_prix": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Dernier Prix"
+     },
+     "date_dernier_prix": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date Dernier Prix"
+     },
+     "numero_facture": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero Facture"
+     },
+     "ecart_pct": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ecart Pct"
+     },
+     "methode": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Methode"
+     },
+     "ressemblance": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ressemblance"
+     },
+     "regles": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Regles"
+     },
+     "anomalie_ids": {
+      "items": {
+       "type": "string",
+       "format": "uuid"
+      },
+      "type": "array",
+      "title": "Anomalie Ids"
+     },
+     "document_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Document Id"
+     },
+     "ligne_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Ligne Id"
+     },
+     "numero_interne": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero Interne"
+     }
+    },
+    "type": "object",
+    "required": [
+     "fournisseur_id",
+     "fournisseur",
+     "produit",
+     "code",
+     "prix_bon",
+     "unite_bon",
+     "date_bon",
+     "nb_bons",
+     "nb_prix_differents",
+     "prix_grille",
+     "unite_grille",
+     "date_grille",
+     "grille_posterieure_au_bon",
+     "dernier_prix",
+     "unite_dernier_prix",
+     "date_dernier_prix",
+     "numero_facture",
+     "ecart_pct",
+     "methode",
+     "ressemblance",
+     "regles",
+     "anomalie_ids",
+     "document_id",
+     "ligne_id",
+     "numero_interne"
+    ],
+    "title": "AlerteProduitReponse",
+    "description": "Une rangée de `GET /api/prix/alertes` -- mêmes attributs\nqu'`ingest.prix_bl.AlerteProduit`."
    },
    "AliasEnAttenteReponse": {
     "properties": {
@@ -4109,6 +4548,32 @@
     "title": "CompteProblemesReponse",
     "description": "`GET /api/a-regler/compte` : nombre de problèmes « à régler », tous\nmois confondus -- mêmes attributs qu'`ingest.a_traiter.CompteProblemes`\n(revue finale de la refonte du front : un seul compte pour la pastille\nde navigation, la vue d'ensemble et l'écran « À régler »).\n\n`controle_prix_actif` (décision d'Ilane du 24/09/2026, `docs/dette.md`) :\nle front adapte ses libellés (« Écart prix ou quantité » -> « Écart de\nquantité ») et masque le filtre « Prix » de l'écran « À régler » quand\nce drapeau est faux -- voir `ingest.a_traiter.CompteProblemes`.\n\n`controle_livre_non_facture_actif` n'est plus un attribut de cette\nréponse : depuis que `ingest.parametres._cle_masquee` masque\n`delai_ligne_bl_non_facturee_j` côté serveur, plus aucun écran ne lit\nce second drapeau -- voir `ingest.a_traiter.CompteProblemes`."
    },
+   "ContesterPrixRequete": {
+    "properties": {
+     "anomalie_ids": {
+      "items": {
+       "type": "string",
+       "format": "uuid"
+      },
+      "type": "array",
+      "minItems": 1,
+      "title": "Anomalie Ids"
+     },
+     "commentaire": {
+      "type": "string",
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Commentaire"
+     }
+    },
+    "type": "object",
+    "required": [
+     "anomalie_ids",
+     "commentaire"
+    ],
+    "title": "ContesterPrixRequete",
+    "description": "Corps de `POST /api/prix/contester` (spec §8.2) : commentaire\nobligatoire (validé de nouveau par `ingest.prix_bl.contester_prix`, même\nprincipe que `TraitementAnomalieRequete`)."
+   },
    "CorrectionEnteteRequete": {
     "properties": {
      "type": {
@@ -4988,6 +5453,20 @@
     "title": "FactureResumeReponse",
     "description": "Une ligne de `GET /api/factures` (statut/confiance/motifs, L3-T7)."
    },
+   "FermetureAlertesReponse": {
+    "properties": {
+     "nb_alertes_reglees": {
+      "type": "integer",
+      "title": "Nb Alertes Reglees"
+     }
+    },
+    "type": "object",
+    "required": [
+     "nb_alertes_reglees"
+    ],
+    "title": "FermetureAlertesReponse",
+    "description": "`POST /api/prix/contester` et `/ignorer` -- nombre d'alertes\nfermées."
+   },
    "FournisseurReponse": {
     "properties": {
      "id": {
@@ -5084,6 +5563,37 @@
     },
     "type": "object",
     "title": "HTTPValidationError"
+   },
+   "IgnorerPrixRequete": {
+    "properties": {
+     "anomalie_ids": {
+      "items": {
+       "type": "string",
+       "format": "uuid"
+      },
+      "type": "array",
+      "minItems": 1,
+      "title": "Anomalie Ids"
+     },
+     "commentaire": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 500
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Commentaire"
+     }
+    },
+    "type": "object",
+    "required": [
+     "anomalie_ids"
+    ],
+    "title": "IgnorerPrixRequete",
+    "description": "Corps de `POST /api/prix/ignorer` (spec §8.2) : commentaire\nfacultatif."
    },
    "ImportEffectueReponse": {
     "properties": {
@@ -6571,6 +7081,30 @@
     "title": "ProduitGrilleReponse",
     "description": "Un produit de la grille -- mêmes attributs qu'`ingest.grilles\n.ProduitGrilleAffiche`. Réponse de `GET /api/grilles/fournisseurs/{id}`\n(dans `GrilleFournisseurReponse.produits`) et de `POST /api/grilles\n/fournisseurs/{id}/prix` (la ligne enregistrée)."
    },
+   "RecontrolePrixReponse": {
+    "properties": {
+     "nb_bons": {
+      "type": "integer",
+      "title": "Nb Bons"
+     },
+     "nb_echecs": {
+      "type": "integer",
+      "title": "Nb Echecs"
+     },
+     "nb_alertes_ouvertes": {
+      "type": "integer",
+      "title": "Nb Alertes Ouvertes"
+     }
+    },
+    "type": "object",
+    "required": [
+     "nb_bons",
+     "nb_echecs",
+     "nb_alertes_ouvertes"
+    ],
+    "title": "RecontrolePrixReponse",
+    "description": "`POST /api/prix/recontrole` -- mêmes attributs\nqu'`ingest.prix_bl.ResultatRecontrolePrix`."
+   },
    "RetraitProduitRequete": {
     "properties": {
      "cle_produit": {
@@ -6963,6 +7497,57 @@
      "type"
     ],
     "title": "ValidationError"
+   },
+   "ValidationPrixReponse": {
+    "properties": {
+     "prix_net": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Prix Net"
+     },
+     "date_effet": {
+      "type": "string",
+      "format": "date",
+      "title": "Date Effet"
+     },
+     "nb_alertes_reglees": {
+      "type": "integer",
+      "title": "Nb Alertes Reglees"
+     }
+    },
+    "type": "object",
+    "required": [
+     "prix_net",
+     "date_effet",
+     "nb_alertes_reglees"
+    ],
+    "title": "ValidationPrixReponse",
+    "description": "`POST /api/prix/valider` -- mêmes attributs\nqu'`ingest.prix_bl.ValidationPrixEffectuee`."
+   },
+   "ValiderPrixRequete": {
+    "properties": {
+     "anomalie_ids": {
+      "items": {
+       "type": "string",
+       "format": "uuid"
+      },
+      "type": "array",
+      "minItems": 1,
+      "title": "Anomalie Ids"
+     },
+     "ligne_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Ligne Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "anomalie_ids",
+     "ligne_id"
+    ],
+    "title": "ValiderPrixRequete",
+    "description": "Corps de `POST /api/prix/valider` (spec §8.2)."
    }
   }
  }

@@ -48,6 +48,16 @@ function IconeFournisseurs({ className }: { className: string }): ReactElement {
   );
 }
 
+/** Phase 3, tâche P9 (spec §8.3 : « lien "Prix" dans la navigation admin
+ * (Gabarit.tsx, une ligne), après "Fournisseurs" »). */
+function IconePrix({ className }: { className: string }): ReactElement {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className} aria-hidden="true">
+      <path d="M12 5v14M8.5 8.2c0-1.6 1.6-2.7 3.5-2.7s3.5 1.1 3.5 2.6c0 3.4-7 1.6-7 5 0 1.5 1.6 2.6 3.5 2.6s3.5-1.1 3.5-2.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function IconeDocuments({ className }: { className: string }): ReactElement {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className} aria-hidden="true">
@@ -81,6 +91,10 @@ const NAV_ADMIN: EntreeNav[] = [
   { vers: "/a-regler", libelle: "À régler", Icone: IconeARegler },
   { vers: "/chantiers", libelle: "Chantiers", Icone: IconeChantiers },
   { vers: "/fournisseurs", libelle: "Fournisseurs", Icone: IconeFournisseurs },
+  // Phase 3, tâche P9 : ajouté après « Fournisseurs » (spec §8.3), avant
+  // « Documents » -- ne déborde pas la barre basse à 375 px (libellé
+  // court, testé à la vérification visuelle de la tâche).
+  { vers: "/prix", libelle: "Prix", Icone: IconePrix },
   { vers: "/documents", libelle: "Documents", Icone: IconeDocuments },
 ];
 

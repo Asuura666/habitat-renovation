@@ -87,6 +87,17 @@ const LIBELLES_ACTION: Record<string, string> = {
   grille_importee: "Grille importée",
   grille_prix_saisi: "Prix de grille saisi",
   grille_prix_retire: "Produit retiré de la grille",
+  // Page « Prix à vérifier » (phase 3, tâche P9, `ingest/prix_bl.py`) : un
+  // prix validé ajoute une ligne de grille (cible `grille_prix`, même
+  // famille que les trois entrées ci-dessus) ; contester/ignorer ferment
+  // les alertes sans toucher la grille (cible `anomalie`, comme
+  // `anomalie_traitee`/`anomalie_ignoree`, déjà journalisées à côté) ; le
+  // recontrôle ne porte sur aucune cible précise (plusieurs bons à la
+  // fois, `cible_table=None`).
+  prix_valide: "Prix validé",
+  prix_conteste: "Prix contesté",
+  prix_ignore: "Alerte de prix ignorée",
+  prix_recontrole: "Prix des bons recontrôlés",
 };
 
 export function libelleAction(action: string): string {
@@ -415,6 +426,16 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   // `CLES_JAMAIS_AFFICHEES` plus bas).
   ligne: "Ligne",
   texte: "Commentaire",
+  // Phase 3, tâche P9 (`ingest/prix_bl.py::valider_prix`/`contester_prix`/
+  // `ignorer_prix`/`recontroler_depuis_page`) : clés propres aux quatre
+  // actions de la page Prix, jamais recensées ci-dessus.
+  produit: "Produit",
+  prix_grille: "Prix de grille",
+  date_effet: "Date d'effet",
+  nb_alertes_reglees: "Alertes réglées",
+  nb_alertes: "Alertes",
+  nb_bons: "Bons contrôlés",
+  nb_alertes_ouvertes: "Alertes ouvertes",
 };
 
 /** Un identifiant (`chantier_id`, `fournisseur_id`…) désigne l'élément
@@ -660,8 +681,11 @@ function valeurDetail(cle: string, contexte: Record<string, unknown>): string {
   if ((cle === "total_ht" || cle === "total_tva" || cle === "total_ttc") && typeof brute === "string") {
     return formaterMontant(brute);
   }
-  if (cle === "date_doc" && typeof brute === "string") {
+  if ((cle === "date_doc" || cle === "date_effet") && typeof brute === "string") {
     return formaterDate(brute);
+  }
+  if (cle === "prix_grille" && typeof brute === "string") {
+    return formaterMontant(brute);
   }
   if (cle === "confirme_le" && typeof brute === "string") {
     return formaterDateHeure(brute);
