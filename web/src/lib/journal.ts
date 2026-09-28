@@ -242,18 +242,23 @@ const LIBELLES_PARAMETRE: Record<string, string> = {
 /** Libellé de la cible (`cible_id`) d'une entrée : pour un réglage
  * (`cible_table === "parametre"`), la clé technique brute n'a aucun sens
  * pour le dirigeant — remplacée par le nom du réglage. Pour un compte
- * utilisateur, l'identifiant reste affiché : c'est la seule façon, tant
- * qu'aucune liste des comptes n'existe, de le recopier dans le filtre
- * « Auteur » (limite inscrite dans `docs/dette.md`). Pour toute autre table,
- * `null` : l'identifiant brut (UUID) ne dit rien au dirigeant, le libellé
- * de la table suffit (revue finale de la refonte du front, constat
+ * utilisateur, le nom du compte résolu par le serveur (`noms`,
+ * `ingest/journal.py::_ids_references`), jamais son identifiant (recette
+ * du 28/09/2026 : l'identifiant s'affichait ; le filtre « Auteur » est
+ * désormais une liste des comptes, il n'y a plus rien à recopier) — `null`
+ * si le nom est inconnu. Pour toute autre table, `null` : le libellé de la
+ * table suffit (revue finale de la refonte du front, constat
  * COUVERTURE-10). */
-export function libelleCibleId(cibleTable: string | null, cibleId: string): string | null {
+export function libelleCibleId(
+  cibleTable: string | null,
+  cibleId: string,
+  noms: Record<string, string>,
+): string | null {
   if (cibleTable === "parametre") {
     return LIBELLES_PARAMETRE[cibleId] ?? cibleId;
   }
   if (cibleTable === "utilisateur") {
-    return cibleId;
+    return noms[cibleId] ?? null;
   }
   return null;
 }

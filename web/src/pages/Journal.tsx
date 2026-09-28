@@ -2,6 +2,7 @@ import { type ReactElement, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 
+import { CLE_COMPTES, listerComptes } from "../api/comptes";
 import { type EntreeJournal, type FiltresJournal, cleJournal, listerJournal } from "../api/journal";
 import { formaterDateHeure, TIRET } from "../lib/formats";
 import {
@@ -68,10 +69,10 @@ function DetailAvantApres({
 }
 
 function LigneJournal({ entree }: { entree: EntreeJournal }): ReactElement {
-  // Identifiant de la cible, seulement quand il a un sens pour le lecteur
-  // (nom d'un réglage, identifiant d'un compte pour le filtre « Auteur ») —
-  // jamais un UUID brut sous chaque ligne (revue finale, COUVERTURE-10).
-  const idCible = entree.cible_id !== null ? libelleCibleId(entree.cible_table, entree.cible_id) : null;
+  // Nom de la cible, seulement quand il a un sens pour le lecteur (nom d'un
+  // réglage, nom d'un compte) — jamais un identifiant (revue finale,
+  // COUVERTURE-10 ; recette du 28/09/2026 pour les comptes).
+  const idCible = entree.cible_id !== null ? libelleCibleId(entree.cible_table, entree.cible_id, entree.noms) : null;
   const lien = lienCible(entree.cible_table, entree.cible_id, entree.action, entree.apres);
   return (
     <tr>
@@ -89,15 +90,7 @@ function LigneJournal({ entree }: { entree: EntreeJournal }): ReactElement {
         {idCible !== null && (
           <>
             <br />
-            <span
-              className={
-                entree.cible_table === "parametre"
-                  ? "text-xs text-encre-2 [overflow-wrap:anywhere]"
-                  : "font-mono text-xs text-encre-2 [overflow-wrap:anywhere]"
-              }
-            >
-              {idCible}
-            </span>
+            <span className="text-xs text-encre-2 [overflow-wrap:anywhere]">{idCible}</span>
           </>
         )}
         {lien !== null && (
@@ -120,7 +113,7 @@ function LigneJournal({ entree }: { entree: EntreeJournal }): ReactElement {
  * mêmes informations que `LigneJournal`, un tableau ne tenant pas dans
  * 375 px (contrainte téléphone = cible à part entière, spec §7). */
 function CarteJournal({ entree }: { entree: EntreeJournal }): ReactElement {
-  const idCible = entree.cible_id !== null ? libelleCibleId(entree.cible_table, entree.cible_id) : null;
+  const idCible = entree.cible_id !== null ? libelleCibleId(entree.cible_table, entree.cible_id, entree.noms) : null;
   const lien = lienCible(entree.cible_table, entree.cible_id, entree.action, entree.apres);
   return (
     <Carte>
@@ -134,15 +127,7 @@ function CarteJournal({ entree }: { entree: EntreeJournal }): ReactElement {
         {idCible !== null && (
           <>
             {" "}
-            <span
-              className={
-                entree.cible_table === "parametre"
-                  ? "text-xs [overflow-wrap:anywhere]"
-                  : "font-mono text-xs [overflow-wrap:anywhere]"
-              }
-            >
-              {idCible}
-            </span>
+            <span className="text-xs [overflow-wrap:anywhere]">{idCible}</span>
           </>
         )}
       </p>
@@ -169,6 +154,7 @@ interface FormFiltresProps {
  * route sans limite). Chaque changement met à jour `filtres` immédiatement,
  * même convention que `pages/Anomalies.tsx::FormFiltres`. */
 function FormFiltres({ filtres, onChange }: FormFiltresProps): ReactElement {
+  const comptes = useQuery({ queryKey: CLE_COMPTES, queryFn: listerComptes });
   return (
     <Carte>
       <form onSubmit={(evenement) => evenement.preventDefault()} className="space-y-5">
@@ -218,37 +204,34 @@ function FormFiltres({ filtres, onChange }: FormFiltresProps): ReactElement {
             </select>
           </div>
 
-          {/* Revue finale (constat COUVERTURE-10) : filtre replié sous
-              « Filtre avancé » — il demande un identifiant de compte, faute
-              d'une liste des comptes (limite inscrite dans docs/dette.md).
-              Ouvert d'office quand il est déjà utilisé. */}
-          <details className="group" open={filtres.utilisateurId !== undefined}>
-            <summary className="inline-flex min-h-[44px] cursor-pointer list-none items-center gap-2 text-sm font-medium text-encre-2 outline-none focus-visible:ring-2 focus-visible:ring-accent">
-              <span aria-hidden="true" className="inline-block transition-transform group-open:rotate-90">
-                ▸
-              </span>
-              Filtre avancé
-            </summary>
+          {/* Recette du 28/09/2026 : le filtre « Auteur » demandait un
+              identifiant de compte à recopier (affiché sous « Compte
+              utilisateur ») ; c'est désormais la liste des comptes, par nom
+              (`GET /api/comptes`, admin comme cet écran). Liste pas encore
+              chargée ou en échec : seul « Tous les auteurs » reste proposé. */}
+          <div>
             <label htmlFor="filtre-utilisateur-id" className={CLASSES_LABEL}>
               Auteur
             </label>
-            <input
+            <select
               id="filtre-utilisateur-id"
-              type="text"
-              placeholder="Identifiant du compte"
               value={filtres.utilisateurId ?? ""}
               onChange={(evenement) =>
                 onChange({
                   ...filtres,
-                  utilisateurId: evenement.target.value.trim() === "" ? undefined : evenement.target.value.trim(),
+                  utilisateurId: evenement.target.value === "" ? undefined : evenement.target.value,
                 })
               }
               className={CLASSES_CHAMP}
-            />
-            <p className="mt-1 text-xs text-encre-2">
-              Identifiant affiché sous « Compte utilisateur » dans une entrée « Compte utilisateur créé ».
-            </p>
-          </details>
+            >
+              <option value="">Tous les auteurs</option>
+              {(comptes.data ?? []).map((compte) => (
+                <option key={compte.id} value={compte.id}>
+                  {compte.nom ?? compte.email}
+                </option>
+              ))}
+            </select>
+          </div>
 
           <div>
             <label htmlFor="filtre-depuis" className={CLASSES_LABEL}>
