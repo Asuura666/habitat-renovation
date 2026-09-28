@@ -141,6 +141,154 @@ def test_sous_ensemble_de_taches_sans_sauvegarde(tmp_path: Path) -> None:
     assert (dossier / "habitat-prod-photos.timer").exists()
 
 
+def test_synthese_et_ia_prix_absentes_par_defaut(tmp_path: Path) -> None:
+    """T8, phase 4 IA : le défaut reste inchangé (sauvegarde, controles,
+    photos) -- les deux tâches IA n'ont de sens qu'une fois OpenCode
+    installé et ne sont donc jamais posées sans `--taches` explicite."""
+    dossier = tmp_path / "unites"
+    resultat = _installer(tmp_path, "prod", "--dossier", str(dossier))
+
+    assert resultat.returncode == 0, resultat.stderr
+    noms = {p.name for p in dossier.iterdir()}
+    assert "habitat-prod-synthese.timer" not in noms
+    assert "habitat-prod-ia-prix.timer" not in noms
+
+
+def test_installe_synthese_et_ia_prix_avec_les_bons_horaires_et_commandes(
+    tmp_path: Path,
+) -> None:
+    dossier = tmp_path / "unites"
+    resultat = _installer(
+        tmp_path,
+        "prod",
+        "--taches",
+        "synthese,ia-prix",
+        "--dossier",
+        str(dossier),
+        env_file=_env_file(tmp_path, restic=False),
+    )
+
+    assert resultat.returncode == 0, resultat.stderr
+    noms = sorted(p.name for p in dossier.iterdir())
+    assert noms == [
+        "habitat-prod-alerte@.service",
+        "habitat-prod-ia-prix.service",
+        "habitat-prod-ia-prix.timer",
+        "habitat-prod-synthese.service",
+        "habitat-prod-synthese.timer",
+    ]
+
+    synthese_service = (dossier / "habitat-prod-synthese.service").read_text(
+        encoding="utf-8"
+    )
+    assert synthese_service.rstrip().endswith(
+        "exec -T api python -m app.cli synthese-commentaires"
+    )
+    assert "OnFailure=habitat-prod-alerte@%n.service" in synthese_service
+    synthese_timer = (dossier / "habitat-prod-synthese.timer").read_text(
+        encoding="utf-8"
+    )
+    assert "OnCalendar=*-*-* 07:00:00 Europe/Paris" in synthese_timer
+    assert "Persistent=true" in synthese_timer
+
+    ia_prix_service = (dossier / "habitat-prod-ia-prix.service").read_text(
+        encoding="utf-8"
+    )
+    assert ia_prix_service.rstrip().endswith("exec -T api python -m app.cli ia-prix")
+    ia_prix_timer = (dossier / "habitat-prod-ia-prix.timer").read_text(encoding="utf-8")
+    assert "OnCalendar=*-*-* 07..20:10:00 Europe/Paris" in ia_prix_timer
+    assert "Persistent=true" in ia_prix_timer
+
+
+def test_ia_prix_et_synthese_decalees_entre_prod_et_demo(tmp_path: Path) -> None:
+    prod, demo = tmp_path / "prod", tmp_path / "demo"
+    for instance, dossier in (("prod", prod), ("demo", demo)):
+        resultat = _installer(
+            tmp_path,
+            instance,
+            "--taches",
+            "synthese,ia-prix",
+            "--dossier",
+            str(dossier),
+            env_file=_env_file(tmp_path, restic=False),
+        )
+        assert resultat.returncode == 0, resultat.stderr
+
+    synthese_prod = _calendrier(
+        (prod / "habitat-prod-synthese.timer").read_text(encoding="utf-8")
+    )
+    synthese_demo = _calendrier(
+        (demo / "habitat-demo-synthese.timer").read_text(encoding="utf-8")
+    )
+    assert synthese_prod == "OnCalendar=*-*-* 07:00:00 Europe/Paris"
+    assert synthese_demo == "OnCalendar=*-*-* 07:20:00 Europe/Paris"
+    assert synthese_prod != synthese_demo
+
+    ia_prix_prod = _calendrier(
+        (prod / "habitat-prod-ia-prix.timer").read_text(encoding="utf-8")
+    )
+    ia_prix_demo = _calendrier(
+        (demo / "habitat-demo-ia-prix.timer").read_text(encoding="utf-8")
+    )
+    assert ia_prix_prod == "OnCalendar=*-*-* 07..20:10:00 Europe/Paris"
+    assert ia_prix_demo == "OnCalendar=*-*-* 07..20:40:00 Europe/Paris"
+    assert ia_prix_prod != ia_prix_demo
+
+
+def test_desinstaller_retire_aussi_synthese_et_ia_prix(tmp_path: Path) -> None:
+    dossier = tmp_path / "unites"
+    assert (
+        _installer(
+            tmp_path,
+            "prod",
+            "--taches",
+            "sauvegarde,controles,photos,synthese,ia-prix",
+            "--dossier",
+            str(dossier),
+        ).returncode
+        == 0
+    )
+    assert sorted(p.name for p in dossier.iterdir()) == [
+        "habitat-prod-alerte@.service",
+        "habitat-prod-controles.service",
+        "habitat-prod-controles.timer",
+        "habitat-prod-ia-prix.service",
+        "habitat-prod-ia-prix.timer",
+        "habitat-prod-photos.service",
+        "habitat-prod-photos.timer",
+        "habitat-prod-sauvegarde.service",
+        "habitat-prod-sauvegarde.timer",
+        "habitat-prod-synthese.service",
+        "habitat-prod-synthese.timer",
+    ]
+
+    env = dict(os.environ)
+    env["HABITAT_RENO_ENV_FILE"] = str(_env_file(tmp_path))
+    resultat = subprocess.run(  # noqa: S603 -- script du dépôt, arguments de test fixes
+        [str(INSTALLEUR), "prod", "--desinstaller", "--dossier", str(dossier)],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert resultat.returncode == 0, resultat.stderr
+    assert list(dossier.iterdir()) == []
+
+
+def test_tache_ia_inconnue_listee_dans_le_message_d_erreur(tmp_path: Path) -> None:
+    dossier = tmp_path / "unites"
+    resultat = _installer(
+        tmp_path, "prod", "--taches", "synthese,ia-prixxx", "--dossier", str(dossier)
+    )
+
+    assert resultat.returncode == 2
+    assert "tâche inconnue « ia-prixxx »" in resultat.stderr
+    assert "synthese" in resultat.stderr
+    assert "ia-prix" in resultat.stderr
+    assert not dossier.exists()
+
+
 def test_instance_inconnue_refusee(tmp_path: Path) -> None:
     resultat = _installer(tmp_path, "staging", "--dossier", str(tmp_path / "u"))
 

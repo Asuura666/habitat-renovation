@@ -1,0 +1,36 @@
+# Surcouche FACULTATIVE (phase 4 IA, T8, spec §3.2) : à ajouter aux commandes
+# compose d'une instance seulement quand l'IA y est installée (allumage
+# décrit dans `docs/phase-4-ia.md`). Sans elle, rien ne change pour une
+# instance : `IA_ACTIVE` reste absente, donc fausse (`app/core/config.py`),
+# et l'API ne rejoint pas le réseau `habitat_ia`.
+#
+# Usage (après le conteneur OpenCode, `deploy/opencode/docker-compose.yml`,
+# déjà démarré -- un seul conteneur sert la production et la démo) :
+#   docker compose -p habitat_prod --env-file .env.prod \
+#     -f deploy/docker-compose.yml -f deploy/docker-compose.vps.yml \
+#     -f deploy/docker-compose.ia.yml up -d api
+#
+# `OPENCODE_URL`/`OPENCODE_MOT_DE_PASSE`/`IA_APPELS_MAX_JOUR` sont lues par
+# `app.modules.ingest.opencode` (T3) ; `IA_ACTIVE` est l'interrupteur général
+# (`ia_active()`, même module). Le mot de passe doit être le même que
+# `OPENCODE_SERVER_PASSWORD` de `deploy/opencode/.env`.
+
+services:
+  api:
+    networks:
+      # `default` explicite (spec §3.2) : sans cette ligne, ne déclarer que
+      # `habitat_ia` ferait perdre à `api` son réseau par défaut (celui qui
+      # le relie à `postgres`) -- Compose fusionne les surcouches par clé,
+      # une liste de réseaux d'un fichier ultérieur remplace celle du
+      # fichier de base plutôt que de s'y ajouter.
+      - default
+      - habitat_ia
+    environment:
+      IA_ACTIVE: "${IA_ACTIVE:-false}"
+      OPENCODE_URL: "${OPENCODE_URL:-http://opencode:4096}"
+      OPENCODE_MOT_DE_PASSE: "${OPENCODE_MOT_DE_PASSE:-}"
+      IA_APPELS_MAX_JOUR: "${IA_APPELS_MAX_JOUR:-40}"
+
+networks:
+  habitat_ia:
+    external: true

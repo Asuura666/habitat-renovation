@@ -55,6 +55,15 @@ files = ["app", "tests"]
 module = "asyncpg.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# PyYAML (déjà dans `uv.lock`, dépendance transitive) ne fournit pas de
+# stubs par défaut (`types-PyYAML` n'est pas une dépendance du dépôt) ;
+# utilisé uniquement par `tests/test_opencode_config.py` (T8, phase 4 IA)
+# pour relire les fichiers Compose statiques du dépôt, jamais côté
+# application.
+module = "yaml.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["app", "tests"]
 addopts = "--import-mode=importlib"

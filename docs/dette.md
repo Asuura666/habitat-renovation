@@ -1195,3 +1195,31 @@ CommentairesLignes.tsx`). Limites connues, prévues dès la conception
   qu'un document en a. Hors périmètre de la demande client (§8 de la
   spec, « possible plus tard si utile ») ; ajouterait une colonne calculée
   (comptage par document) au routeur de la liste si demandé.
+
+## Phase 4 — IA, exploitation (T8, 28/09/2026)
+
+Conteneur OpenCode, rattachement de l'API et tâches planifiées
+(`deploy/opencode/`, `deploy/docker-compose.ia.yml`), détail et procédures
+dans `docs/phase-4-ia.md`.
+
+- **`read_only: true` non activé sur le conteneur OpenCode**
+  (`deploy/opencode/docker-compose.yml`) : d'après la documentation publique
+  d'OpenCode (troubleshooting officiel et essais communautaires de
+  conteneurisation en lecture seule), `opencode serve` écrit aussi dans un
+  répertoire de cache (`~/.cache/opencode`), en plus du répertoire de
+  données déjà couvert par le volume nommé `opencode-donnees` et de `/tmp` —
+  un chemin que les « faits vérifiés » de la tâche T8 (27/09/2026) ne
+  couvraient pas, et qu'aucune commande docker n'a été exécutée pour
+  vérifier (hors périmètre de cette tâche, aucun build/`up` demandé).
+  Activer `read_only` sans couvrir ce troisième chemin risquerait un échec
+  silencieux au premier appel utilisant la recherche web plutôt qu'un
+  simple refus de démarrer : le conteneur reste durci par ailleurs
+  (`no-new-privileges`, `cap_drop: ALL`, `pids_limit`, `mem_limit`, aucun
+  port publié, utilisateur non root dédié, réseau interne dédié). À
+  réévaluer une fois l'abonnement connecté et un premier essai réel possible
+  (`docs/phase-4-ia.md` §9 donne la piste : ajouter un `tmpfs` pour `/tmp`
+  et un pour `~/.cache`, puis vérifier avant de garder).
+- **Pas de route ni d'écran pour surveiller `appel_ia`** (plafond, échecs
+  par usage) : la surveillance se fait pour l'instant en base ou par les
+  logs (`docs/phase-4-ia.md` §6). Un écran dédié n'a pas été demandé par
+  Ilane à ce stade.
