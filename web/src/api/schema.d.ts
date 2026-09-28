@@ -928,6 +928,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ia/synthese": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Synthese Accueil Endpoint */
+        get: operations["synthese_accueil_endpoint_api_ia_synthese_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ia/synthese/actions/{action_id}/faite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Marquer Action Faite Endpoint */
+        post: operations["marquer_action_faite_endpoint_api_ia_synthese_actions__action_id__faite_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ia/synthese/actions/{action_id}/a-faire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Marquer Action A Faire Endpoint */
+        post: operations["marquer_action_a_faire_endpoint_api_ia_synthese_actions__action_id__a_faire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -970,6 +1021,33 @@ export interface components {
             anomalies_hautes: components["schemas"]["AnomalieReponse"][];
             /** Chantiers A Completer */
             chantiers_a_completer: components["schemas"]["ChantierACompleterReponse"][];
+        };
+        /**
+         * ActionSyntheseReponse
+         * @description Une action de synthèse, dans `SyntheseReponse.actions` ou
+         *     `SyntheseAccueilReponse.encore_a_faire` — mêmes attributs
+         *     qu'`ingest.ia_synthese.ActionVue` ; réponse aussi de `POST /api/ia
+         *     /synthese/actions/{id}/faite` et `.../a-faire`.
+         */
+        ActionSyntheseReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Texte */
+            texte: string;
+            /**
+             * Semaine Debut
+             * Format: date
+             */
+            semaine_debut: string;
+            /** Faite Le */
+            faite_le: string | null;
+            /** Faite Par */
+            faite_par: string | null;
+            /** Bons */
+            bons: components["schemas"]["BonLieReponse"][];
         };
         /**
          * AgenceFournisseurReponse
@@ -1176,6 +1254,20 @@ export interface components {
              * Format: password
              */
             client_secret?: string | null;
+        };
+        /**
+         * BonLieReponse
+         * @description Un bon cité par une action de synthèse — mêmes attributs
+         *     qu'`ingest.ia_synthese.BonLie`.
+         */
+        BonLieReponse: {
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /** Numero */
+            numero: string | null;
         };
         /**
          * ChampReponse
@@ -2293,6 +2385,48 @@ export interface components {
             nb_alias: number;
             /** Nb Anomalies */
             nb_anomalies: number;
+        };
+        /**
+         * SyntheseAccueilReponse
+         * @description Réponse de `GET /api/ia/synthese` — mêmes attributs
+         *     qu'`ingest.ia_synthese.SyntheseAccueil`.
+         */
+        SyntheseAccueilReponse: {
+            /** Ia Active */
+            ia_active: boolean;
+            derniere: components["schemas"]["SyntheseReponse"] | null;
+            /** Encore A Faire */
+            encore_a_faire: components["schemas"]["ActionSyntheseReponse"][];
+        };
+        /**
+         * SyntheseReponse
+         * @description La dernière synthèse (`SyntheseAccueilReponse.derniere`) — mêmes
+         *     attributs qu'`ingest.ia_synthese.SyntheseVue`.
+         */
+        SyntheseReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Semaine Debut
+             * Format: date
+             */
+            semaine_debut: string;
+            /**
+             * Semaine Fin
+             * Format: date
+             */
+            semaine_fin: string;
+            /** Statut */
+            statut: string;
+            /** Resume */
+            resume: string;
+            /** Nb Commentaires */
+            nb_commentaires: number;
+            /** Actions */
+            actions: components["schemas"]["ActionSyntheseReponse"][];
         };
         /**
          * TableauDeBordReponse
@@ -4156,6 +4290,88 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CommentaireReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    synthese_accueil_endpoint_api_ia_synthese_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyntheseAccueilReponse"];
+                };
+            };
+        };
+    };
+    marquer_action_faite_endpoint_api_ia_synthese_actions__action_id__faite_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionSyntheseReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    marquer_action_a_faire_endpoint_api_ia_synthese_actions__action_id__a_faire_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionSyntheseReponse"];
                 };
             };
             /** @description Validation Error */

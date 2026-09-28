@@ -2879,6 +2879,104 @@
     }
    }
   },
+  "/api/ia/synthese": {
+   "get": {
+    "summary": "Synthese Accueil Endpoint",
+    "operationId": "synthese_accueil_endpoint_api_ia_synthese_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SyntheseAccueilReponse"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/synthese/actions/{action_id}/faite": {
+   "post": {
+    "summary": "Marquer Action Faite Endpoint",
+    "operationId": "marquer_action_faite_endpoint_api_ia_synthese_actions__action_id__faite_post",
+    "parameters": [
+     {
+      "name": "action_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Action Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ActionSyntheseReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/synthese/actions/{action_id}/a-faire": {
+   "post": {
+    "summary": "Marquer Action A Faire Endpoint",
+    "operationId": "marquer_action_a_faire_endpoint_api_ia_synthese_actions__action_id__a_faire_post",
+    "parameters": [
+     {
+      "name": "action_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Action Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ActionSyntheseReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/health": {
    "get": {
     "summary": "Health",
@@ -2947,6 +3045,65 @@
     ],
     "title": "ATraiterReponse",
     "description": "`GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18),\ncomplété par `anomalies_hautes` (anomalies ouvertes de gravité haute,\nL4-D18) et `chantiers_a_completer` (Task 6, avenant du 27/09/2026)."
+   },
+   "ActionSyntheseReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "texte": {
+      "type": "string",
+      "title": "Texte"
+     },
+     "semaine_debut": {
+      "type": "string",
+      "format": "date",
+      "title": "Semaine Debut"
+     },
+     "faite_le": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Faite Le"
+     },
+     "faite_par": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Faite Par"
+     },
+     "bons": {
+      "items": {
+       "$ref": "#/components/schemas/BonLieReponse"
+      },
+      "type": "array",
+      "title": "Bons"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "texte",
+     "semaine_debut",
+     "faite_le",
+     "faite_par",
+     "bons"
+    ],
+    "title": "ActionSyntheseReponse",
+    "description": "Une action de synthèse, dans `SyntheseReponse.actions` ou\n`SyntheseAccueilReponse.encore_a_faire` — mêmes attributs\nqu'`ingest.ia_synthese.ActionVue` ; réponse aussi de `POST /api/ia\n/synthese/actions/{id}/faite` et `.../a-faire`."
    },
    "AgenceFournisseurReponse": {
     "properties": {
@@ -3559,6 +3716,33 @@
      "password"
     ],
     "title": "Body_se_connecter_api_auth_login_post"
+   },
+   "BonLieReponse": {
+    "properties": {
+     "document_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Document Id"
+     },
+     "numero": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero"
+     }
+    },
+    "type": "object",
+    "required": [
+     "document_id",
+     "numero"
+    ],
+    "title": "BonLieReponse",
+    "description": "Un bon cité par une action de synthèse — mêmes attributs\nqu'`ingest.ia_synthese.BonLie`."
    },
    "ChampReponse": {
     "properties": {
@@ -6594,6 +6778,89 @@
     ],
     "title": "ResultatFusionReponse",
     "description": "Réponse de `POST /api/chantiers/{id}/fusionner` — mêmes attributs\nqu'`ingest.fusion_chantier.ResultatFusion`."
+   },
+   "SyntheseAccueilReponse": {
+    "properties": {
+     "ia_active": {
+      "type": "boolean",
+      "title": "Ia Active"
+     },
+     "derniere": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/SyntheseReponse"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "encore_a_faire": {
+      "items": {
+       "$ref": "#/components/schemas/ActionSyntheseReponse"
+      },
+      "type": "array",
+      "title": "Encore A Faire"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ia_active",
+     "derniere",
+     "encore_a_faire"
+    ],
+    "title": "SyntheseAccueilReponse",
+    "description": "Réponse de `GET /api/ia/synthese` — mêmes attributs\nqu'`ingest.ia_synthese.SyntheseAccueil`."
+   },
+   "SyntheseReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "semaine_debut": {
+      "type": "string",
+      "format": "date",
+      "title": "Semaine Debut"
+     },
+     "semaine_fin": {
+      "type": "string",
+      "format": "date",
+      "title": "Semaine Fin"
+     },
+     "statut": {
+      "type": "string",
+      "title": "Statut"
+     },
+     "resume": {
+      "type": "string",
+      "title": "Resume"
+     },
+     "nb_commentaires": {
+      "type": "integer",
+      "title": "Nb Commentaires"
+     },
+     "actions": {
+      "items": {
+       "$ref": "#/components/schemas/ActionSyntheseReponse"
+      },
+      "type": "array",
+      "title": "Actions"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "semaine_debut",
+     "semaine_fin",
+     "statut",
+     "resume",
+     "nb_commentaires",
+     "actions"
+    ],
+    "title": "SyntheseReponse",
+    "description": "La dernière synthèse (`SyntheseAccueilReponse.derniere`) — mêmes\nattributs qu'`ingest.ia_synthese.SyntheseVue`."
    },
    "TableauDeBordReponse": {
     "properties": {

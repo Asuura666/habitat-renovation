@@ -76,6 +76,18 @@
   (cron, hors périmètre de cette tâche). Toujours code 0 (un échec individuel
   est absorbé et journalisé par `ingest.rangement.ranger_document`, jamais
   remonté ici).
+- `python -m app.cli synthese-commentaires [--semaine AAAA-MM-JJ]` (T4,
+  phase 4 IA, spec §4.5) : génère la synthèse hebdomadaire des commentaires
+  de lignes — toute la logique (période, plafond, appel à l'IA, écriture)
+  est déjà dans `ingest.ia_synthese.generer_synthese` (idempotente) ; cette
+  CLI ne fait que construire ses dépendances (moteur DB, client HTTP) et les
+  brancher, comme les autres commandes de ce fichier. Sans `--semaine`,
+  prend la dernière semaine complète (`derniere_semaine_complete`, heure de
+  Paris) ; `--semaine` doit être un lundi lisible (`AAAA-MM-JJ`), sinon
+  `argparse` refuse avec le code 2 avant tout accès à la configuration ou à
+  la base (même mécanique que `--seuil` de `rapport-ocr`). Code 1 sur
+  `statut="echec"` (le timer d'exploitation alerte alors sur Telegram et
+  réessaie le lendemain), 0 dans tous les autres cas.
 
 N'importe comme couches applicatives que `app.core`, `app.modules.ingest` et
 `app.modules.jobs` ; l'import de `messaging.telegram` reste différé au seul
@@ -92,7 +104,8 @@ que construire ses dépendances (client HTTP, moteur DB) et les brancher vers
 T7/L2-T1b/L3-T5/L3-T11/L4-T11/L5-T11). L5-T11 ajoute le paquet `jobs`
 et un import différé de `messaging.telegram` pour le seul signalement.
 `rattachement_chantier.py` depuis Task 8 (avenant du 27/09/2026),
-`rangement.py` depuis Task 9 (même avenant).
+`rangement.py` depuis Task 9 (même avenant), `ia_synthese.py` depuis T4
+(phase 4 IA, 27/09/2026).
 
 Import différé de `app.core.auth` (dans le corps de `_utilisateur_creer`/
 `_utilisateur_desactiver`, pas en tête de fichier) : ce module appelle
@@ -112,7 +125,7 @@ import asyncio
 import getpass
 import sys
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from functools import partial
 from pathlib import Path
@@ -133,6 +146,7 @@ from app.modules.ingest.factures import (
     formater_blocs,
     lire_facture,
 )
+from app.modules.ingest.ia_synthese import derniere_semaine_complete, generer_synthese
 from app.modules.ingest.mistral import ErreurOCR, ocr_document
 from app.modules.ingest.rangement import ranger_tout
 from app.modules.ingest.rapport_ocr import (
@@ -659,6 +673,74 @@ async def _ranger_photos() -> int:
     return 0
 
 
+def _semaine_lundi(valeur: str) -> date:
+    """Type argparse de `--semaine` (T4, même mécanique que `--seuil` de
+    `rapport-ocr`, ruling R13) : une date lisible (`AAAA-MM-JJ`) tombant un
+    lundi, sinon `argparse.ArgumentTypeError` — argparse affiche alors un
+    message d'erreur clair et quitte avec le code 2, avant tout accès à la
+    configuration ou à la base."""
+    try:
+        jour = date.fromisoformat(valeur)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"date illisible (format attendu AAAA-MM-JJ) : {valeur!r}"
+        ) from None
+    if jour.weekday() != 0:
+        raise argparse.ArgumentTypeError(
+            f"--semaine doit être un lundi (reçu {jour.isoformat()})"
+        )
+    return jour
+
+
+async def _synthese_commentaires(*, semaine_debut: date | None) -> int:
+    """Implémentation de `synthese-commentaires` (T4, spec §4.5). Toute la
+    logique (période, plafond, appel à l'IA, écriture) est déjà dans
+    `ingest.ia_synthese.generer_synthese` (idempotente) : cette CLI ne fait
+    que construire ses dépendances (moteur DB, client HTTP) et les brancher,
+    comme les autres commandes de ce fichier. Sans `--semaine`, prend la
+    dernière semaine complète (`derniere_semaine_complete`, heure de Paris) —
+    `--semaine` est déjà garanti être un lundi lisible par `_semaine_lundi`
+    (argparse), donc `generer_synthese` ne peut jamais y lever `ValueError`.
+
+    Sortie sur une ligne (brief T4) selon `ResultatSynthese.statut` ; code 1
+    seulement sur `"echec"` (le timer d'exploitation alerte alors sur
+    Telegram et réessaie le lendemain), 0 dans tous les autres cas."""
+    debut = semaine_debut or derniere_semaine_complete(datetime.now(UTC))
+    fin = debut + timedelta(days=6)
+    periode = f"du {debut.strftime('%d/%m/%Y')} au {fin.strftime('%d/%m/%Y')}"
+
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session, httpx.AsyncClient() as http:
+            resultat = await generer_synthese(session, http, semaine_debut=debut)
+    finally:
+        await engine.dispose()
+
+    if resultat.statut == "creee":
+        print(
+            f"Synthèse {periode} créée "
+            f"({resultat.nb_commentaires} commentaires, {resultat.nb_actions} actions)"
+        )
+        return 0
+    if resultat.statut == "deja_faite":
+        print(f"Synthèse {periode} déjà faite")
+        return 0
+    if resultat.statut == "vide":
+        print(f"Synthèse {periode} : aucun commentaire")
+        return 0
+    if resultat.statut == "ia_eteinte":
+        print("IA éteinte : rien à faire")
+        return 0
+
+    print(
+        f"Échec de la synthèse du {debut.strftime('%d/%m/%Y')} : {resultat.erreur}",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def _construire_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="app.cli")
     sous_parsers = parser.add_subparsers(dest="commande", required=True)
@@ -798,6 +880,23 @@ def _construire_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    parser_synthese_commentaires = sous_parsers.add_parser(
+        "synthese-commentaires",
+        help=(
+            "Génère la synthèse hebdomadaire des commentaires de lignes "
+            "(T4, phase 4 IA) -- idempotente"
+        ),
+    )
+    parser_synthese_commentaires.add_argument(
+        "--semaine",
+        type=_semaine_lundi,
+        default=None,
+        help=(
+            "lundi de la semaine à synthétiser (AAAA-MM-JJ) -- défaut : la "
+            "dernière semaine complète"
+        ),
+    )
+
     return parser
 
 
@@ -848,6 +947,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_rattacher_chantiers())
     if args.commande == "ranger-photos":
         return asyncio.run(_ranger_photos())
+    if args.commande == "synthese-commentaires":
+        return asyncio.run(_synthese_commentaires(semaine_debut=args.semaine))
     raise AssertionError(f"commande inconnue : {args.commande}")  # pragma: no cover
 
 

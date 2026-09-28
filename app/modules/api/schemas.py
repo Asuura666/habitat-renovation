@@ -1037,3 +1037,62 @@ class CommentaireRequete(BaseModel):
     `CommentaireInvalide`, 422)."""
 
     texte: str = Field(min_length=1, max_length=1000)
+
+
+# --------------------------------------------------------------------------
+# Synthèse hebdomadaire des commentaires (T4, phase 4 IA) : schémas
+# construits à partir des dataclasses d'`ingest.ia_synthese` (`BonLie`,
+# `ActionVue`, `SyntheseVue`, `SyntheseAccueil`), consommés par `api/ia.py`.
+# --------------------------------------------------------------------------
+
+
+class BonLieReponse(BaseModel):
+    """Un bon cité par une action de synthèse — mêmes attributs
+    qu'`ingest.ia_synthese.BonLie`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    document_id: uuid.UUID
+    numero: str | None
+
+
+class ActionSyntheseReponse(BaseModel):
+    """Une action de synthèse, dans `SyntheseReponse.actions` ou
+    `SyntheseAccueilReponse.encore_a_faire` — mêmes attributs
+    qu'`ingest.ia_synthese.ActionVue` ; réponse aussi de `POST /api/ia
+    /synthese/actions/{id}/faite` et `.../a-faire`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    texte: str
+    semaine_debut: date
+    faite_le: datetime | None
+    faite_par: str | None
+    bons: list[BonLieReponse]
+
+
+class SyntheseReponse(BaseModel):
+    """La dernière synthèse (`SyntheseAccueilReponse.derniere`) — mêmes
+    attributs qu'`ingest.ia_synthese.SyntheseVue`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    semaine_debut: date
+    semaine_fin: date
+    statut: str
+    resume: str
+    nb_commentaires: int
+    actions: list[ActionSyntheseReponse]
+
+
+class SyntheseAccueilReponse(BaseModel):
+    """Réponse de `GET /api/ia/synthese` — mêmes attributs
+    qu'`ingest.ia_synthese.SyntheseAccueil`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    ia_active: bool
+    derniere: SyntheseReponse | None
+    encore_a_faire: list[ActionSyntheseReponse]

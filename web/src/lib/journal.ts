@@ -42,6 +42,14 @@
  * technique brut en minuscule (« commentaire ») sans lien vers le document
  * commenté, alors que son `apres` porte justement `document_id`. Complété
  * ci-dessous, même principe que `chantier_alias`.
+ *
+ * Tâche T4 (phase 4 IA, 27/09/2026) : `synthese_generee` (littéral,
+ * `ingest/ia_synthese.py`, une synthèse hebdomadaire des commentaires créée
+ * ou constatée vide) et `synthese_action_faite`/`synthese_action_a_faire`
+ * (choisies dynamiquement selon la case cochée ou décochée, même principe
+ * que `anomalie_traitee`/`anomalie_ignoree` -- invisibles à la regex du
+ * test de complétude, ajoutées ici par prudence). L'écran dédié (T5) reste
+ * à construire ; ces libellés ne servent ici qu'à l'écran Journal existant.
  */
 
 import { formaterDate, formaterDateHeure, formaterMontant, formaterQuantite, TIRET } from "./formats";
@@ -103,6 +111,16 @@ const LIBELLES_ACTION: Record<string, string> = {
   // (spec §4 de `docs/superpowers/specs/2026-09-27-commentaires-lignes-
   // design.md`).
   commentaire_ajoute: "Commentaire ajouté",
+  // Synthèse hebdomadaire des commentaires (T4, phase 4 IA,
+  // `ingest/ia_synthese.py`) : une par semaine, créée par
+  // `generer_synthese` (`statut` dans `apres` distingue « ok » de « vide »).
+  synthese_generee: "Synthèse des commentaires générée",
+  // Cochage/décochage d'une action de synthèse (`marquer_action`) --
+  // choisies dynamiquement (comme `anomalie_traitee`/`anomalie_ignoree`),
+  // ajoutées ici par prudence bien que non recensées par la regex du test
+  // de complétude ci-dessus.
+  synthese_action_faite: "Action de synthèse cochée",
+  synthese_action_a_faire: "Action de synthèse remise à faire",
 };
 
 export function libelleAction(action: string): string {

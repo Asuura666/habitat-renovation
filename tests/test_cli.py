@@ -56,6 +56,16 @@ Tests transverses (le fichier vit à la racine `app/`, pas dans un module) :
   invalide) rejetées par `argparse` lui-même (`SystemExit(2)`, sans jamais
   toucher la base) ; `controles-differes` sur un BL non confirmé (code 0,
   compte affiché) et rejeu sans doublon.
+- `synthese-commentaires` (T4, phase 4 IA) : la logique métier (période,
+  plafond, appel à l'IA, écriture) est déjà testée en profondeur côté
+  `ingest` (`test_ia_synthese.py`) — les tests ici ne vérifient que le
+  câblage CLI (`generer_synthese` monkeypatchée, jamais de vrai appel IA ni
+  de vraie base touchée par le service) : une ligne par statut
+  (`ResultatSynthese.statut`), code 1 seulement sur `"echec"` ; sans
+  `--semaine`, `derniere_semaine_complete` monkeypatchée pour vérifier la
+  date transmise sans dépendre de la date du jour ; `--semaine` illisible ou
+  qui n'est pas un lundi rejeté par `argparse` lui-même (`SystemExit(2)`,
+  sans jamais toucher la base ni la configuration).
 """
 
 from __future__ import annotations
@@ -69,8 +79,8 @@ import stat
 import subprocess
 import sys
 import uuid
-from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from collections.abc import Callable, Iterator
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -86,6 +96,7 @@ from app.core.db import creer_sessionmaker
 from app.modules.extract.bl import OPTIONS_OCR_BL
 from app.modules.extract.facture import Facture, FactureIllisible
 from app.modules.extract.verification import SEUIL_CONFIANCE_DEFAUT
+from app.modules.ingest.ia_synthese import ResultatSynthese
 from app.modules.ingest.mistral import ErreurOCR
 from app.modules.ingest.models import (
     AgenceFournisseur,
@@ -1498,5 +1509,193 @@ def test_ranger_photos_sans_argument_supplementaire() -> None:
     rejeté par `argparse` lui-même, avant tout accès à la base."""
     with pytest.raises(SystemExit) as exc_info:
         cli.main(["ranger-photos", "--inconnu"])
+
+    assert exc_info.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# `synthese-commentaires` (T4, phase 4 IA) — câblage CLI seulement, la
+# logique métier (`ingest.ia_synthese.generer_synthese`) est déjà testée dans
+# `app/modules/ingest/tests/test_ia_synthese.py`.
+# ---------------------------------------------------------------------------
+
+
+def _generer_synthese_factice(
+    resultat: ResultatSynthese, *, semaine_attendue: date | None = None
+) -> Callable[..., Any]:
+    """Substitut de `generer_synthese` (jamais de vraie base ni de vrai
+    appel IA touchés par ces tests) : vérifie, si fourni, la semaine reçue,
+    puis renvoie `resultat` tel quel."""
+
+    async def _factice(
+        session: Any, http: Any, *, semaine_debut: date
+    ) -> ResultatSynthese:
+        if semaine_attendue is not None:
+            assert semaine_debut == semaine_attendue
+        return resultat
+
+    return _factice
+
+
+def test_synthese_commentaires_creee_code_0(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "generer_synthese",
+        _generer_synthese_factice(
+            ResultatSynthese(
+                statut="creee",
+                semaine_debut=date(2026, 9, 21),
+                nb_commentaires=12,
+                nb_actions=4,
+            ),
+            semaine_attendue=date(2026, 9, 21),
+        ),
+    )
+
+    code = cli.main(["synthese-commentaires", "--semaine", "2026-09-21"])
+    sortie = capsys.readouterr().out
+
+    assert code == 0
+    assert sortie.strip() == (
+        "Synthèse du 21/09/2026 au 27/09/2026 créée (12 commentaires, 4 actions)"
+    )
+
+
+def test_synthese_commentaires_deja_faite_code_0(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "generer_synthese",
+        _generer_synthese_factice(
+            ResultatSynthese(statut="deja_faite", semaine_debut=date(2026, 9, 21))
+        ),
+    )
+
+    code = cli.main(["synthese-commentaires", "--semaine", "2026-09-21"])
+    sortie = capsys.readouterr().out
+
+    assert code == 0
+    assert sortie.strip() == "Synthèse du 21/09/2026 au 27/09/2026 déjà faite"
+
+
+def test_synthese_commentaires_vide_code_0(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "generer_synthese",
+        _generer_synthese_factice(
+            ResultatSynthese(
+                statut="vide", semaine_debut=date(2026, 9, 21), nb_commentaires=0
+            )
+        ),
+    )
+
+    code = cli.main(["synthese-commentaires", "--semaine", "2026-09-21"])
+    sortie = capsys.readouterr().out
+
+    assert code == 0
+    assert sortie.strip() == "Synthèse du 21/09/2026 au 27/09/2026 : aucun commentaire"
+
+
+def test_synthese_commentaires_ia_eteinte_code_0(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "generer_synthese",
+        _generer_synthese_factice(
+            ResultatSynthese(statut="ia_eteinte", semaine_debut=date(2026, 9, 21))
+        ),
+    )
+
+    code = cli.main(["synthese-commentaires", "--semaine", "2026-09-21"])
+    sortie = capsys.readouterr().out
+
+    assert code == 0
+    assert sortie.strip() == "IA éteinte : rien à faire"
+
+
+def test_synthese_commentaires_echec_code_1_stderr(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Code 1 (le timer d'exploitation alerte alors sur Telegram et réessaie
+    le lendemain) : la ligne part sur stderr, jamais stdout, comme les autres
+    échecs de ce fichier."""
+    monkeypatch.setattr(
+        cli,
+        "generer_synthese",
+        _generer_synthese_factice(
+            ResultatSynthese(
+                statut="echec",
+                semaine_debut=date(2026, 9, 21),
+                erreur="ProviderAuthError",
+            )
+        ),
+    )
+
+    code = cli.main(["synthese-commentaires", "--semaine", "2026-09-21"])
+    sortie = capsys.readouterr()
+
+    assert code == 1
+    assert sortie.out == ""
+    assert (
+        sortie.err.strip() == "Échec de la synthèse du 21/09/2026 : ProviderAuthError"
+    )
+
+
+def test_synthese_commentaires_sans_semaine_utilise_derniere_semaine_complete(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Sans `--semaine`, la CLI passe `derniere_semaine_complete(datetime.now
+    (UTC))` -- monkeypatchée ici pour vérifier le câblage sans dépendre de la
+    date du jour."""
+    monkeypatch.setattr(
+        cli, "derniere_semaine_complete", lambda maintenant: date(2026, 9, 14)
+    )
+    monkeypatch.setattr(
+        cli,
+        "generer_synthese",
+        _generer_synthese_factice(
+            ResultatSynthese(
+                statut="vide", semaine_debut=date(2026, 9, 14), nb_commentaires=0
+            ),
+            semaine_attendue=date(2026, 9, 14),
+        ),
+    )
+
+    code = cli.main(["synthese-commentaires"])
+    sortie = capsys.readouterr().out
+
+    assert code == 0
+    assert sortie.strip() == "Synthèse du 14/09/2026 au 20/09/2026 : aucun commentaire"
+
+
+def test_synthese_commentaires_semaine_illisible_systemexit_2() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["synthese-commentaires", "--semaine", "pas-une-date"])
+
+    assert exc_info.value.code == 2
+
+
+def test_synthese_commentaires_semaine_pas_lundi_systemexit_2() -> None:
+    """22/09/2026 est un mardi (inventé pour ce test)."""
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["synthese-commentaires", "--semaine", "2026-09-22"])
 
     assert exc_info.value.code == 2
