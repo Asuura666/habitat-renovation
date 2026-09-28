@@ -62,7 +62,11 @@ export function SyntheseCommentaires(): ReactElement | null {
     <Carte
       titre="Commentaires de la semaine"
       action={
-        derniere !== null ? (
+        // Jamais pour un statut « vide » (fix round 1) : ce message est
+        // produit sans le moindre appel à l'IA (`ia_synthese.py::
+        // _enregistrer_synthese_vide`) — l'afficher aurait fait croire à
+        // une lecture par l'IA qui n'a jamais eu lieu.
+        derniere !== null && derniere.statut !== "vide" ? (
           <span className="text-right text-xs text-encre-2">Rédigé par l'IA — à vérifier</span>
         ) : undefined
       }
@@ -140,10 +144,18 @@ function TexteResume({ texte }: { texte: string }): ReactElement {
  * Mutation propre à chaque ligne (même principe que
  * `CommentairesLignes.tsx::FormulaireAjoutCommentaire`) : deux actions
  * cochées en même temps ne se marchent pas dessus, chacune garde son propre
- * état d'envoi et son propre message d'erreur. La case n'est jamais imbriquée
- * dans le `<label>` avec les liens « Bon … » (associée par `htmlFor`
- * seulement) : un lien dans un `<label>` transfère aussi un clic à la case
- * (comportement natif du navigateur, jamais voulu ici). */
+ * état d'envoi et son propre message d'erreur.
+ *
+ * Cible tactile 44 px (fix round 1) : le `<label>` lui-même porte
+ * `min-h-[44px]` et enveloppe la case (même convention que
+ * `FicheChantier.tsx::FormulaireEdition`, case « Chantier actif ») -- un
+ * conteneur `min-h-[44px]` autour d'éléments plus petits ne suffit pas, la
+ * zone cliquable réelle reste la taille de ces éléments, pas celle du
+ * conteneur. Les liens « Bon … » restent hors du `<label>` (un `<li>`
+ * frère, après) : un lien imbriqué dans un `<label>` transfère aussi un
+ * clic à la case associée (comportement natif du navigateur), jamais voulu
+ * ici -- imbriquer la case elle-même ne pose pas ce problème (elle est le
+ * contrôle associé, pas un élément tiers). */
 function ActionLigne({
   action,
   afficherSemaine = false,
@@ -163,24 +175,27 @@ function ActionLigne({
 
   return (
     <li className="py-2.5">
-      <div className="flex min-h-[44px] items-start gap-3">
+      <label
+        htmlFor={idCase}
+        className="flex min-h-[44px] cursor-pointer items-center gap-3 text-sm text-encre"
+      >
         <input
           id={idCase}
           type="checkbox"
           checked={cochee}
           disabled={mutation.isPending}
           onChange={() => mutation.mutate(!cochee)}
-          className="mt-1 h-5 w-5 shrink-0 rounded border-bordure text-accent outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
+          className="h-5 w-5 shrink-0 rounded border-bordure text-accent outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
         />
-        <label htmlFor={idCase} className="flex-1 cursor-pointer py-1 text-sm text-encre">
+        <span className="flex-1">
           {afficherSemaine && (
             <span className="block text-xs text-encre-2">
               semaine du {formaterJourMois(action.semaine_debut)}
             </span>
           )}
           {action.texte}
-        </label>
-      </div>
+        </span>
+      </label>
       {cochee && (
         <p className="ml-8 text-xs text-encre-2">
           faite par {action.faite_par ?? TIRET} le {formaterJourMois(action.faite_le)}

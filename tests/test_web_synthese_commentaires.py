@@ -106,6 +106,20 @@ def test_synthese_commentaires_statut_vide() -> None:
     assert "derniere.resume" in composant
 
 
+def test_synthese_commentaires_mention_ia_absente_si_statut_vide() -> None:
+    """Fix round 1 : « Rédigé par l'IA — à vérifier » ne doit jamais
+    apparaître pour un statut `vide` -- ce message est écrit sans le moindre
+    appel à l'IA (`ia_synthese.py::_enregistrer_synthese_vide`), l'afficher
+    laisserait croire à tort que l'IA a lu quelque chose cette semaine-là."""
+    composant = (SRC / "components" / "SyntheseCommentaires.tsx").read_text(
+        encoding="utf-8"
+    )
+
+    bloc_action = composant.split("action={", 1)[1].split("      }", 1)[0]
+    assert 'derniere.statut !== "vide"' in bloc_action
+    assert "Rédigé par l'IA" in bloc_action
+
+
 def test_synthese_commentaires_ia_eteinte_ne_rend_rien() -> None:
     composant = (SRC / "components" / "SyntheseCommentaires.tsx").read_text(
         encoding="utf-8"
@@ -135,17 +149,36 @@ def test_synthese_commentaires_case_a_cocher_accessible() -> None:
     )
 
     assert 'type="checkbox"' in composant
-    # Cible tactile 44 px (brief T5, même convention que le reste du
-    # dépôt, ex. `CommentairesLignes.tsx`).
-    assert "min-h-[44px]" in composant
-    # Case associée à son `<label>` par `htmlFor`/`id` (jamais un lien
-    # imbriqué dans ce `<label>` : un clic sur un lien à l'intérieur d'un
-    # `<label>` coche aussi la case, comportement natif non voulu ici).
+    # Case associée à son `<label>` par `htmlFor`/`id`.
     assert "htmlFor={idCase}" in composant
     assert "id={idCase}" in composant
-    bloc_label = composant.split("<label htmlFor={idCase}", 1)[1].split("</label>", 1)[
-        0
-    ]
+
+    # Cible tactile 44 px (fix round 1) : c'est l'élément cliquable
+    # lui-même (le `<label>` qui porte `htmlFor`) qui doit atteindre
+    # 44 px, pas seulement un conteneur englobant plus grand que les
+    # éléments qu'il contient (`min-h-[44px]` sur un `<div>` autour d'une
+    # case de 20 px et d'un texte plus court ne rend pas l'espace vide
+    # cliquable) — même convention que `FicheChantier.tsx::
+    # FormulaireEdition`, case « Chantier actif ». Le motif exige
+    # `htmlFor={idCase}` juste après `<label` pour ne jamais matcher une
+    # mention `` `<label>` `` en commentaire (docstring de la fonction).
+    ouverture_label = re.search(r"<label\s+htmlFor=\{idCase\}[^>]*>", composant, re.S)
+    assert ouverture_label is not None, "aucun <label htmlFor={idCase}> trouvé"
+    assert "min-h-[44px]" in ouverture_label.group(0), (
+        "le <label> qui porte htmlFor doit lui-même avoir min-h-[44px]"
+    )
+
+    # La case est désormais à l'intérieur du `<label>` (aucun problème :
+    # c'est le contrôle associé) ; les liens « Bon … » en restent hors,
+    # comme sibling après le `<label>` -- un lien imbriqué dans un
+    # `<label>` transfère aussi un clic à la case, comportement natif non
+    # voulu ici. Bornes trouvées à partir de la vraie balise repérée
+    # ci-dessus (jamais une simple recherche de sous-chaîne « <label », qui
+    # matcherait d'abord la mention `` `<label>` `` du commentaire de
+    # fonction, situé avant le code dans le fichier).
+    fin_label = composant.index("</label>", ouverture_label.end())
+    bloc_label = composant[ouverture_label.end() : fin_label]
+    assert 'type="checkbox"' in bloc_label
     assert "<Link" not in bloc_label
     assert "disabled={mutation.isPending}" in composant
 
