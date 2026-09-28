@@ -25,6 +25,10 @@ justification chiffrée. Un seul client, une seule instance, un VPS OVH.
   `/openapi.json`. Build copié dans l'image API, servi en StaticFiles. Même
   origine, pas de CORS, pas de JWT.
 - Docker + Compose, Traefik, restic. ruff, mypy strict, pytest.
+- IA (phase 4, décision d'Ilane du 27/09/2026, avenant §15 à confirmer) :
+  OpenCode (`opencode serve`, conteneur interne) et l'abonnement ChatGPT
+  d'Ilane ; un seul point d'appel, `ingest/opencode.py` ; l'IA ne décide
+  jamais.
 
 Interdit : n8n, Redis, Celery/RQ, MinIO/S3, Neo4j, Keycloak, LangChain, tout
 ORM autre que SQLAlchemy, tout state manager front autre que TanStack Query,
@@ -36,8 +40,10 @@ localStorage pour l'auth.
 app/
   core/        config (fail-fast : variable manquante = refus de démarrer), db, auth, middleware
   modules/
-    ingest/    router, orchestration (commun, depot_telegram, factures, lecture), mistral, models, tests
-    extract/   facture.py, ocr.py, unikalo.py (un parseur par fournisseur), tests   ← PUR
+    ingest/    router, orchestration (commun, depot_telegram, factures, lecture), mistral,
+               opencode.py, ia_synthese.py, ia_prix.py (phase 4, IA), models, tests
+    extract/   facture.py, ocr.py, unikalo.py (un parseur par fournisseur),
+               reponses_ia.py (schémas IA, phase 4), tests   ← PUR
     normalize/ fournisseur, chantier, article, unites, tests   ← PUR
     rules/     engine.py, rules/R01.py … R17.py, tests           ← PUR
     api/       routers JSON consommés par le front
@@ -47,7 +53,8 @@ app/
   main.py
 web/           front React (lot 2)
 migrations/    alembic
-deploy/        docker-compose.yml, traefik, backup.sh, restore.sh, deploy.sh
+deploy/        docker-compose.yml, traefik, backup.sh, restore.sh, deploy.sh,
+               opencode/ (conteneur IA, phase 4)
 docs/
 infra/         README.md : documentation technique d'ensemble (demande client, architecture, infra et ses choix)
 ```
@@ -148,6 +155,17 @@ Points à retenir :
   tests accélérée. Reporté et contexte : `docs/dette.md` (« Optimisations du
   25/09/2026 »). Le serveur actuel est un serveur perso/de dev provisoire ;
   la cible est un serveur dédié au client (seul Ilane y aura un compte).
+- **Phase 4 IA construite sur `feature/phase-4-ia`, IA éteinte** (T1 à T9,
+  27-28/09/2026) : synthèse hebdomadaire des commentaires, explication des
+  alertes prix et prix trouvé sur internet, conteneur OpenCode (client
+  `ingest/opencode.py`) connecté à l'abonnement ChatGPT personnel d'Ilane —
+  tout est construit et testé sans lui, `IA_ACTIVE=false` par défaut.
+  Explication et prix internet restent sans objet tant que le lot Prix
+  n'est pas fusionné (R07-R09 masquées, R22 pas encore fusionnée dans `dev`
+  — elle existe sur la branche du lot Prix) ; la 3ᵉ colonne « Internet » de
+  `/prix` attend cette fusion (T10). Avenant CDC §15 à confirmer par Ilane.
+  Guide d'exploitation, connexion de l'abonnement, essai avant de se fier
+  au prix internet : `docs/phase-4-ia.md`.
 - **Phase 3 (session B) : commentaires sur les lignes de bons et lot Prix
   (grilles, contrôle au bon R19-R25, page Prix) sur
   `feature/phase-3-prix`** ; contrôle éteint par défaut (réglage

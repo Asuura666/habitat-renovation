@@ -3423,6 +3423,144 @@
     }
    }
   },
+  "/api/ia/synthese": {
+   "get": {
+    "summary": "Synthese Accueil Endpoint",
+    "operationId": "synthese_accueil_endpoint_api_ia_synthese_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SyntheseAccueilReponse"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/synthese/actions/{action_id}/faite": {
+   "post": {
+    "summary": "Marquer Action Faite Endpoint",
+    "operationId": "marquer_action_faite_endpoint_api_ia_synthese_actions__action_id__faite_post",
+    "parameters": [
+     {
+      "name": "action_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Action Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ActionSyntheseReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/synthese/actions/{action_id}/a-faire": {
+   "post": {
+    "summary": "Marquer Action A Faire Endpoint",
+    "operationId": "marquer_action_a_faire_endpoint_api_ia_synthese_actions__action_id__a_faire_post",
+    "parameters": [
+     {
+      "name": "action_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Action Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ActionSyntheseReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/anomalies/{anomalie_id}": {
+   "get": {
+    "summary": "Avis Ia Anomalie Endpoint",
+    "operationId": "avis_ia_anomalie_endpoint_api_ia_anomalies__anomalie_id__get",
+    "parameters": [
+     {
+      "name": "anomalie_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Anomalie Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AvisIAReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/health": {
    "get": {
     "summary": "Health",
@@ -3491,6 +3629,65 @@
     ],
     "title": "ATraiterReponse",
     "description": "`GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18),\ncomplété par `anomalies_hautes` (anomalies ouvertes de gravité haute,\nL4-D18) et `chantiers_a_completer` (Task 6, avenant du 27/09/2026)."
+   },
+   "ActionSyntheseReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "texte": {
+      "type": "string",
+      "title": "Texte"
+     },
+     "semaine_debut": {
+      "type": "string",
+      "format": "date",
+      "title": "Semaine Debut"
+     },
+     "faite_le": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Faite Le"
+     },
+     "faite_par": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Faite Par"
+     },
+     "bons": {
+      "items": {
+       "$ref": "#/components/schemas/BonLieReponse"
+      },
+      "type": "array",
+      "title": "Bons"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "texte",
+     "semaine_debut",
+     "faite_le",
+     "faite_par",
+     "bons"
+    ],
+    "title": "ActionSyntheseReponse",
+    "description": "Une action de synthèse, dans `SyntheseReponse.actions` ou\n`SyntheseAccueilReponse.encore_a_faire` — mêmes attributs\nqu'`ingest.ia_synthese.ActionVue` ; réponse aussi de `POST /api/ia\n/synthese/actions/{id}/faite` et `.../a-faire`."
    },
    "AgenceFournisseurReponse": {
     "properties": {
@@ -4221,6 +4418,42 @@
     "title": "ArticleAValiderReponse",
     "description": "Un article à valider, dans `GET /api/a-traiter` — mêmes attributs\nqu'`ingest.a_traiter.ArticleAValider`."
    },
+   "AvisIAReponse": {
+    "properties": {
+     "ia_active": {
+      "type": "boolean",
+      "title": "Ia Active"
+     },
+     "explication": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ExplicationAlerteReponse"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "prix_internet": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PrixInternetReponse"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "type": "object",
+    "required": [
+     "ia_active",
+     "explication",
+     "prix_internet"
+    ],
+    "title": "AvisIAReponse",
+    "description": "Réponse de `GET /api/ia/anomalies/{id}` — mêmes attributs\nqu'`ingest.ia_prix.AvisIA`."
+   },
    "BlocFactureReponse": {
     "properties": {
      "id": {
@@ -4466,6 +4699,33 @@
      "password"
     ],
     "title": "Body_se_connecter_api_auth_login_post"
+   },
+   "BonLieReponse": {
+    "properties": {
+     "document_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Document Id"
+     },
+     "numero": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero"
+     }
+    },
+    "type": "object",
+    "required": [
+     "document_id",
+     "numero"
+    ],
+    "title": "BonLieReponse",
+    "description": "Un bon cité par une action de synthèse — mêmes attributs\nqu'`ingest.ia_synthese.BonLie`."
    },
    "ChampReponse": {
     "properties": {
@@ -6019,6 +6279,26 @@
     ],
     "title": "ErreurImportReponse",
     "description": "Une ligne du fichier non retenue -- mêmes attributs\nqu'`ingest.grilles.ErreurImport`."
+   },
+   "ExplicationAlerteReponse": {
+    "properties": {
+     "texte": {
+      "type": "string",
+      "title": "Texte"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "texte",
+     "cree_le"
+    ],
+    "title": "ExplicationAlerteReponse",
+    "description": "Explication d'une alerte prix — mêmes attributs\nqu'`ingest.ia_prix.ExplicationVue`."
    },
    "FactureDeposeeReponse": {
     "properties": {
@@ -7870,6 +8150,135 @@
     "title": "ParametreReponse",
     "description": "Un seuil administrable avec ses métadonnées de présentation.\n\n`interrupteur` et `groupe` (phase 3, §3.4 de la conception des prix) :\najoutés à la fin, présents pour tous les réglages (défauts `False`/``\"\"``\npour ceux d'avant cette phase)."
    },
+   "PrixInternetReponse": {
+    "properties": {
+     "statut": {
+      "type": "string",
+      "title": "Statut"
+     },
+     "prix": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Prix"
+     },
+     "devise": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Devise"
+     },
+     "taxes": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Taxes"
+     },
+     "unite": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite"
+     },
+     "conditionnement": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Conditionnement"
+     },
+     "produit_trouve": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Produit Trouve"
+     },
+     "source_url": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Url"
+     },
+     "confiance": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confiance"
+     },
+     "raison": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Raison"
+     },
+     "consulte_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Consulte Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "statut",
+     "prix",
+     "devise",
+     "taxes",
+     "unite",
+     "conditionnement",
+     "produit_trouve",
+     "source_url",
+     "confiance",
+     "raison",
+     "consulte_le"
+    ],
+    "title": "PrixInternetReponse",
+    "description": "Dernier prix trouvé sur internet pour le produit d'une anomalie —\nmêmes attributs qu'`ingest.ia_prix.PrixInternetVue`."
+   },
    "ProblemePrioritaireReponse": {
     "properties": {
      "anomalie": {
@@ -8210,6 +8619,89 @@
     ],
     "title": "SaisiePrixRequete",
     "description": "Corps de `POST /api/grilles/fournisseurs/{id}/prix` (spec §7.4) :\n`date_effet` absente -> aujourd'hui, résolu par le routeur (le service\nne connaît que des dates déjà choisies, comme `ingest.grilles.SaisiePrix`\nl'exige)."
+   },
+   "SyntheseAccueilReponse": {
+    "properties": {
+     "ia_active": {
+      "type": "boolean",
+      "title": "Ia Active"
+     },
+     "derniere": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/SyntheseReponse"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "encore_a_faire": {
+      "items": {
+       "$ref": "#/components/schemas/ActionSyntheseReponse"
+      },
+      "type": "array",
+      "title": "Encore A Faire"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ia_active",
+     "derniere",
+     "encore_a_faire"
+    ],
+    "title": "SyntheseAccueilReponse",
+    "description": "Réponse de `GET /api/ia/synthese` — mêmes attributs\nqu'`ingest.ia_synthese.SyntheseAccueil`."
+   },
+   "SyntheseReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "semaine_debut": {
+      "type": "string",
+      "format": "date",
+      "title": "Semaine Debut"
+     },
+     "semaine_fin": {
+      "type": "string",
+      "format": "date",
+      "title": "Semaine Fin"
+     },
+     "statut": {
+      "type": "string",
+      "title": "Statut"
+     },
+     "resume": {
+      "type": "string",
+      "title": "Resume"
+     },
+     "nb_commentaires": {
+      "type": "integer",
+      "title": "Nb Commentaires"
+     },
+     "actions": {
+      "items": {
+       "$ref": "#/components/schemas/ActionSyntheseReponse"
+      },
+      "type": "array",
+      "title": "Actions"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "semaine_debut",
+     "semaine_fin",
+     "statut",
+     "resume",
+     "nb_commentaires",
+     "actions"
+    ],
+    "title": "SyntheseReponse",
+    "description": "La dernière synthèse (`SyntheseAccueilReponse.derniere`) — mêmes\nattributs qu'`ingest.ia_synthese.SyntheseVue`."
    },
    "TableauDeBordReponse": {
     "properties": {

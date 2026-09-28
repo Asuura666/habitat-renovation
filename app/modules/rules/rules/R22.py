@@ -10,7 +10,11 @@ désignations à égalité rendues par `trouver_produit` faute de départage
 Exclut toutes les autres règles de grille (R19, R21, R23, R25 : elles
 exigent toutes `ligne.grille is not None`) -- seule R24 (unités
 différentes) et R20 (dernière facture, indépendante de la grille) peuvent
-encore se déclencher sur la même ligne."""
+encore se déclencher sur la même ligne.
+
+`dernier_prix`/`date_dernier_prix` : dernier prix facturé du produit s'il
+existe (« — » sinon) -- la recherche d'un prix sur internet (phase 4,
+`ingest/ia_prix.py`) n'est lancée que pour un produit jamais facturé."""
 
 from __future__ import annotations
 
@@ -23,6 +27,7 @@ def R22(ligne: LignePrixBl) -> Anomalie | None:
     if ligne.grille is not None:
         return None
 
+    dernier_prix = ligne.dernier_prix
     return Anomalie(
         regle="R22",
         gravite=Gravite.BASSE,
@@ -33,6 +38,10 @@ def R22(ligne: LignePrixBl) -> Anomalie | None:
             "unite_bon": ligne.unite_bon or TIRET,
             "date_bon": ligne.date_bon.isoformat(),
             "candidats": candidats_ou_tiret(ligne.candidats),
+            "dernier_prix": str(dernier_prix.prix) if dernier_prix else TIRET,
+            "date_dernier_prix": (
+                dernier_prix.date.isoformat() if dernier_prix else TIRET
+            ),
         },
         document_id=ligne.document_id,
         ligne_id=ligne.ligne_id,

@@ -45,6 +45,8 @@ def test_R22_positif_detail_complet() -> None:
         "unite_bon": "u",
         "date_bon": "2026-08-01",
         "candidats": "Cloison 48 / Cloison 90",
+        "dernier_prix": "—",
+        "date_dernier_prix": "—",
     }
 
 
@@ -66,3 +68,24 @@ def test_R22_sans_candidats_tiret() -> None:
     anomalie = R22(_ligne())
     assert anomalie is not None
     assert anomalie.detail["candidats"] == "—"
+
+
+def test_R22_porte_le_dernier_prix_facture_quand_il_existe() -> None:
+    """Le dernier prix facturé figure dans la justification : l'IA (phase 4,
+    `ingest/ia_prix.py`) ne cherche un prix sur internet que s'il manque."""
+    facture = ReferencePrix(
+        prix=Decimal("7.20"),
+        unite="u",
+        date=date(2026, 7, 12),
+        comparable=True,
+        methode="reference",
+        ressemblance=100,
+        designation="Cloison std 70",
+        source="facture",
+        numero_facture="F-0001",
+    )
+    anomalie = R22(_ligne(dernier_prix=facture))
+
+    assert anomalie is not None
+    assert anomalie.detail["dernier_prix"] == "7.20"
+    assert anomalie.detail["date_dernier_prix"] == "2026-07-12"

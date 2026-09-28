@@ -16,7 +16,7 @@ CDC (`docs/cahier-des-charges.md`, avenant §14).
 | **1** | Mise en production du 1er octobre : points 1 et 2, comptes, photos rangées | Session A | 27/09 → 30/09 | ≈ 10 h |
 | **2** | Socle d'exploitation : sauvegardes, tâches planifiées, clés | Session A | semaine du 5/10 | ≈ 4 h |
 | **3** | Commentaires (point 6) et lot Prix (points 3, 4, 5, sans internet) | **Session B** (autre worktree) | dès le socle commun fusionné dans `dev` | ≈ 18 h |
-| **4** | Contrôle des prix à la facture, IA (prix sur internet, synthèse des commentaires) | à décider | novembre | ≈ 12 h |
+| **4** | Contrôle des prix à la facture, IA (prix sur internet, synthèse des commentaires) — IA faite sur `feature/phase-4-ia`, éteinte ; contrôle à la facture non commencé | à décider | novembre | ≈ 12 h |
 
 Session A = la session Claude Code principale (`/home/debian/habitat_reno`).
 Session B = une seconde session Claude Code lancée par Ilane dans un autre
@@ -140,12 +140,13 @@ Premier message à donner à la session B :
 
 | Élément | Session A (phases 1-2) | Session B (phase 3) | Phase 4 |
 | --- | --- | --- | --- |
-| Migrations Alembic | `0011` (socle commun), aucune autre prévue | à partir de `0012` | après |
+| Migrations Alembic | `0011` (socle commun), aucune autre prévue | à partir de `0012` | `0014` (`down_revision = "0012"` ; la branche qui fusionne dans `dev` en second remet la chaîne en ligne) |
 | Règles du moteur | `R18` « Chantier à confirmer » (socle commun) | `R19` à `R29` | `R30`+ |
 | Clés de réglage (`parametre`) | `seuil_ressemblance_chantier_pct` | préfixe `prix_` (ex. `prix_seuil_ecart_bl_pct`) | — |
-| Actions de journal | `chantier_*`, `alias_*`, `compte_*`, `acces_*`, `mot_de_passe_change` | `grille_*`, `prix_*`, `commentaire_*` | — |
-| Routes API | `/api/comptes`, `/api/chantiers/…`, `/api/documents/{id}/chantier`, `/api/bilan/livraisons` | `/api/grilles/…`, `/api/prix/…`, `/api/commentaires/…` | — |
+| Actions de journal | `chantier_*`, `alias_*`, `compte_*`, `acces_*`, `mot_de_passe_change` | `grille_*`, `prix_*`, `commentaire_*` | `synthese_*` |
+| Routes API | `/api/comptes`, `/api/chantiers/…`, `/api/documents/{id}/chantier`, `/api/bilan/livraisons` | `/api/grilles/…`, `/api/prix/…`, `/api/commentaires/…` | `/api/ia/…` |
 | Pages du front | `/comptes`, `/livraisons` | `/prix`, `/fournisseurs/:id/prix` | — |
+| Commandes CLI et tâches planifiées | — | — | `synthese-commentaires`, `ia-prix`, `essai-prix-internet` ; timers `synthese` (quotidien) et `ia-prix` (horaire) |
 
 Si une session a besoin d'une migration hors de sa plage : celle qui fusionne dans `dev` **en second** met à jour le `down_revision` de sa migration pour garder une chaîne linéaire (`tests/test_migrations.py` le vérifie).
 
@@ -300,10 +301,21 @@ production attend les sauvegardes de la phase 2.
 | Tâche | Contenu | Durée |
 | --- | --- | --- |
 | Contrôle des prix à la facture | Même logique qu'au bon, sur le prix réellement payé ; remplace R07-R09 (désactivées) en s'appuyant sur la grille et l'historique | 2 h 30 |
-| Prix trouvé sur internet | Une IA (Mistral, déjà dans la stack) cherche le prix d'un produit absent des factures et des grilles, **à titre indicatif**, avec source et date ; 3e colonne de la page Prix | 4 h |
+| Prix trouvé sur internet | Une IA (OpenCode + abonnement ChatGPT personnel d'Ilane, pas Mistral, décision D2 de la spec) cherche le prix d'un produit absent des factures et des grilles, **à titre indicatif**, avec source et date (recherche web par le service public gratuit d'Exa) ; 3e colonne de la page Prix, à construire quand le lot Prix sera fusionné (T10) | 4 h |
 | Commentaire de l'IA sur les alertes prix | Explique l'écart ; ne décide rien | 1 h 30 |
 | Synthèse hebdomadaire des commentaires | Tâche planifiée chaque semaine ; synthèse et actions à mener affichées sur la page d'accueil ; ne modifie rien | 3 h |
 | Relecture et déploiement | | 1 h |
+
+**Fait** (27-28/09/2026, `feature/phase-4-ia`, IA éteinte,
+`docs/superpowers/specs/2026-09-27-phase-4-ia-design.md`) : synthèse
+hebdomadaire des commentaires, commentaire de l'IA sur les alertes prix,
+prix trouvé sur internet — moteur OpenCode connecté à l'abonnement ChatGPT
+d'Ilane. **Attend le lot Prix** (fusion dans `dev`) : l'explication et le
+prix internet n'ont aucune alerte/anomalie R22 à traiter tant qu'il n'est
+pas fusionné ; la 3ᵉ colonne « Internet » de la page `/prix` (T10 du plan).
+**Attend l'abonnement d'Ilane** : aucun essai de bout en bout n'est possible
+avant sa connexion (les modèles gratuits d'OpenCode refusent le mode
+serveur). Contrôle des prix à la facture (non IA) : non commencé.
 
 ---
 
@@ -336,6 +348,6 @@ deux mois, formation, procès-verbal). Voir `memory.md` et `docs/dette.md`.
 - [ ] Phase 1 : PR vers `dev`
 - [ ] Phase 1 : déployée (`dev` → `main`, démo puis production)
 - [~] Phase 2 : restauration corrigée et testée, tâches planifiées et alerte, sauvegardes locales posées (27/09) — restent OVH, clés, contrôles/photos après le déploiement de la phase 1 (`docs/phase-2-exploitation-recette.md`)
-- [x] Phase 3 : commentaires
+- [x] Phase 3 : commentaires (session B ; fusionnés dans `feature/phase-4-ia` pour la synthèse IA)
 - [x] Phase 3 : lot Prix (P0 → P6), PR vers `dev`
-- [ ] Phase 4
+- [~] Phase 4 : IA (synthèse, explication, prix internet) faite sur `feature/phase-4-ia`, éteinte (`IA_ACTIVE=false`) — contrôle des prix à la facture non commencé

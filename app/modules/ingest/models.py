@@ -719,6 +719,181 @@ class JetonSession(Base):
     created_at: Mapped[datetime] = _created_at()
 
 
+class AppelIA(Base):
+    """Journal technique de chaque requête à l'IA (migration 0014, §8 de
+    `docs/superpowers/specs/2026-09-27-phase-4-ia-design.md`), sert au
+    plafond quotidien (D5 : « déclenchement automatique, plafond d'appels
+    par jour »). Ne contient jamais le texte envoyé ni la réponse -- juste
+    l'usage, le résultat et la durée."""
+
+    __tablename__ = "appel_ia"
+    __table_args__ = (
+        CheckConstraint(
+            "usage IN ('synthese', 'explication', 'prix')", name="usage_valide"
+        ),
+        CheckConstraint("statut IN ('ok', 'erreur')", name="statut_valide"),
+        CheckConstraint("duree_ms >= 0", name="duree_ms_positif"),
+    )
+
+    id: Mapped[uuid.UUID] = _id()
+    usage: Mapped[str] = mapped_column(Text, nullable=False)
+    statut: Mapped[str] = mapped_column(Text, nullable=False)
+    erreur: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duree_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    # `index=True` inline (comme `Commentaire.document_id`) plutôt que
+    # `_created_at()` : seule cette table indexe `created_at` (calcul du
+    # plafond quotidien sur une fenêtre glissante).
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+
+
+class SyntheseCommentaires(Base):
+    """Synthèse hebdomadaire des commentaires de lignes, une par semaine
+    (migration 0014, §4.4). `statut = 'vide'` : semaine sans commentaire,
+    enregistrée sans appel à l'IA."""
+
+    __tablename__ = "synthese_commentaires"
+    __table_args__ = (
+        CheckConstraint("statut IN ('ok', 'vide')", name="statut_valide"),
+        CheckConstraint("nb_commentaires >= 0", name="nb_commentaires_positif"),
+        CheckConstraint("semaine_fin >= semaine_debut", name="periode_valide"),
+    )
+
+    id: Mapped[uuid.UUID] = _id()
+    semaine_debut: Mapped[date] = mapped_column(Date, nullable=False, unique=True)
+    semaine_fin: Mapped[date] = mapped_column(Date, nullable=False)
+    statut: Mapped[str] = mapped_column(Text, nullable=False)
+    resume: Mapped[str] = mapped_column(Text, nullable=False)
+    nb_commentaires: Mapped[int] = mapped_column(Integer, nullable=False)
+    modele: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = _created_at()
+
+
+class SyntheseAction(Base):
+    """Action à mener issue d'une synthèse hebdomadaire, à cocher « faite »
+    ou remise « à faire » (migration 0014, §4.4, décision D4 d'Ilane).
+    `commentaire_ids`/`document_ids` : listes d'UUID en texte (JSONB),
+    jamais de relation ORM -- les commentaires et bons cités peuvent
+    disparaître (recréés à chaque lecture) sans invalider l'action."""
+
+    __tablename__ = "synthese_action"
+    __table_args__ = (
+        CheckConstraint("char_length(texte) BETWEEN 1 AND 300", name="texte_longueur"),
+    )
+
+    id: Mapped[uuid.UUID] = _id()
+    synthese_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("synthese_commentaires.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    ordre: Mapped[int] = mapped_column(Integer, nullable=False)
+    texte: Mapped[str] = mapped_column(Text, nullable=False)
+    commentaire_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    document_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    faite_le: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # FK `utilisateur` sans cascade (comme `Commentaire.auteur_id`) : une
+    # action cochée par un compte ensuite supprimé garde `faite_le` --
+    # `(faite_le IS NULL) = (faite_par IS NULL)` n'est volontairement pas
+    # contraint (brief T1).
+    faite_par: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("utilisateur.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = _created_at()
+
+
+class ExplicationAlerte(Base):
+    """Explication d'une alerte prix par l'IA, une par anomalie (migration
+    0014, §5.3). `empreinte_detail` (SHA-256 du `detail` JSON canonique de
+    l'anomalie) : un détail modifié invalide l'explication précédente et
+    remet `echecs` à zéro (§5.1). Après 3 échecs sur le même détail,
+    l'alerte n'est plus retentée (§5.3)."""
+
+    __tablename__ = "explication_alerte"
+    __table_args__ = (
+        CheckConstraint("statut IN ('ok', 'echec')", name="statut_valide"),
+        CheckConstraint("echecs >= 0", name="echecs_positif"),
+        CheckConstraint("statut <> 'ok' OR texte IS NOT NULL", name="ok_avec_texte"),
+    )
+
+    id: Mapped[uuid.UUID] = _id()
+    anomalie_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("anomalie.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    empreinte_detail: Mapped[str] = mapped_column(Text, nullable=False)
+    statut: Mapped[str] = mapped_column(Text, nullable=False)
+    texte: Mapped[str | None] = mapped_column(Text, nullable=True)
+    echecs: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    modele: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+
+class PrixInternet(Base):
+    """Historique des recherches de prix sur internet, une ligne par
+    recherche, jamais modifiée -- la plus récente fait foi (migration 0014,
+    §6.3). `taxes` (amendement du contrôleur, 27/09/2026) : un prix public
+    trouvé sur internet est le plus souvent TTC, quand les prix de grille et
+    des bons sont HT (CDC) -- l'écran doit pouvoir dire lequel. Index
+    `(fournisseur_id, cle, consulte_le DESC)` : cache (réutilisation d'un
+    résultat récent, §6.1)."""
+
+    __tablename__ = "prix_internet"
+    __table_args__ = (
+        CheckConstraint(
+            "statut IN ('trouve', 'non_verifiable', 'echec')", name="statut_valide"
+        ),
+        CheckConstraint("prix IS NULL OR prix > 0", name="prix_positif"),
+        CheckConstraint("taxes IS NULL OR taxes IN ('HT', 'TTC')", name="taxes_valide"),
+        CheckConstraint(
+            "confiance IS NULL OR confiance IN ('faible', 'moyenne', 'elevee')",
+            name="confiance_valide",
+        ),
+        CheckConstraint(
+            "statut <> 'trouve' OR (prix IS NOT NULL AND source_url IS NOT NULL)",
+            name="trouve_avec_prix_et_source",
+        ),
+        Index(
+            "ix_prix_internet_fournisseur_id_cle_consulte_le",
+            "fournisseur_id",
+            "cle",
+            text("consulte_le DESC"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _id()
+    fournisseur_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fournisseur.id"), nullable=True
+    )
+    cle: Mapped[str] = mapped_column(Text, nullable=False)
+    designation: Mapped[str] = mapped_column(Text, nullable=False)
+    code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    statut: Mapped[str] = mapped_column(Text, nullable=False)
+    prix: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    devise: Mapped[str | None] = mapped_column(Text, nullable=True)
+    taxes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    unite: Mapped[str | None] = mapped_column(Text, nullable=True)
+    conditionnement: Mapped[str | None] = mapped_column(Text, nullable=True)
+    produit_trouve: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confiance: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raison: Mapped[str | None] = mapped_column(Text, nullable=True)
+    modele: Mapped[str | None] = mapped_column(Text, nullable=True)
+    consulte_le: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    created_at: Mapped[datetime] = _created_at()
+
+
 class GrilleImport(Base):
     """Import confirmé d'un fichier Excel de grille de prix (une ligne par
     import confirmé, jamais pour un aperçu) -- migration 0013, §3.1 de

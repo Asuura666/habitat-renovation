@@ -1196,6 +1196,149 @@ CommentairesLignes.tsx`). Limites connues, prévues dès la conception
   spec, « possible plus tard si utile ») ; ajouterait une colonne calculée
   (comptage par document) au routeur de la liste si demandé.
 
+## Phase 4 — IA (27/09/2026)
+
+Conception complète : `docs/superpowers/specs/2026-09-27-phase-4-ia-design.md`.
+Guide d'exploitation, avec le détail de la décision `read_only` du
+conteneur OpenCode : `docs/phase-4-ia.md` et la section « Phase 4 — IA,
+exploitation (T8, 28/09/2026) » ci-dessous. Ce qui suit est propre à la
+conception et au code métier (T1 à T7), pas à l'exploitation du conteneur.
+
+- **Moteur choisi contre la recommandation.** Ilane a choisi OpenCode
+  connecté à son abonnement personnel ChatGPT Plus/Pro (décision D2 de la
+  spec, 27/09/2026) plutôt que l'API Mistral déjà dans la stack, payante à
+  l'usage et hébergée en UE — recommandation écartée en connaissance de
+  cause (risques consignés à l'avenant CDC §15 et dans `docs/phase-4-ia.md`
+  §9). Un seul module, `ingest/opencode.py`, parle au moteur d'IA : changer
+  de fournisseur (revenir à Mistral ou une autre API) revient à réécrire ce
+  seul module, sans toucher `extract/reponses_ia.py` ni les services
+  `ingest/ia_synthese.py`/`ingest/ia_prix.py`.
+- **Version d'OpenCode figée (`opencode-ai@1.18.32`), aucune mise à jour
+  automatique.** `deploy/opencode/Dockerfile` épingle cette version : une
+  montée de version est un geste volontaire (reconstruction de l'image),
+  jamais un effet de bord d'un autre changement. Une version plus récente
+  pourrait changer le comportement des outils `websearch`/`webfetch` ou la
+  prise en charge de Firecrawl (D3 de la spec), à revérifier avant toute
+  montée de version.
+- **Recherche web par le service public d'Exa, limites inconnues.**
+  `OPENCODE_ENABLE_EXA=1` passe par le service public d'Exa, sans clé,
+  plutôt que par Firecrawl (demandé par Ilane, non pris en charge par la
+  version stable d'OpenCode, D3). Aucune limite de débit ni de volume n'est
+  documentée par Exa pour ce service public ; une clé gratuite
+  (`EXA_API_KEY`, 10 $ de crédit par mois) peut être ajoutée dans
+  `deploy/opencode/.env` si le service public s'avère limitant en usage réel.
+- **Aucun essai de bout en bout possible avant l'abonnement.** Les modèles
+  gratuits pris en charge par OpenCode refusent le mode serveur (`opencode
+  serve`) : aucun des trois usages (synthèse, explication, prix internet)
+  n'a pu être exercé contre une vraie réponse de modèle, seulement contre
+  des doubles (`httpx.MockTransport`) et des données inventées. L'essai réel
+  (document d'Ilane §16, `python -m app.cli essai-prix-internet`) n'est
+  possible qu'après la connexion de l'abonnement (`docs/phase-4-ia.md` §5).
+- **Explication et prix internet sans objet tant que le lot Prix n'est pas
+  fusionné.** Les alertes de catégorie « prix » que l'explication cible
+  (R07-R09) restent masquées côté serveur (`CONTROLE_PRIX_ACTIF=false`,
+  décision du 24/09/2026) et R22 (« Produit absent de la grille », seule
+  règle qui déclenche une recherche de prix internet) n'est pas encore
+  fusionnée dans `dev` (elle existe sur la branche du lot Prix) : le code
+  de `ingest/ia_prix.py` est écrit et testé sur des anomalies inventées,
+  mais n'a aujourd'hui aucune anomalie réelle à traiter.
+- **R22 (lot Prix) ne porte pas encore `dernier_prix`.** Vérifié contre le
+  vrai code de la branche du lot Prix à la relecture finale du 28/09/2026
+  (`git show origin/feature/phase-3-prix:app/modules/rules/rules/R22.py`) :
+  le `detail` de R22 ne porte que `produit`, `code` (tiret cadratin si
+  absent), `prix_bon`, `unite_bon` (tiret cadratin si absent), `date_bon`
+  et `candidats` — jamais de clé `dernier_prix` (celle-ci n'existe que sur
+  R20). Tant que le lot Prix n'ajoute pas cette clé, `chercher_prix_internet`
+  (`ingest/ia_prix.py::_dernier_prix_utile`) ne peut jamais la trouver utile
+  et lancera donc aussi la recherche de prix internet pour un produit déjà
+  facturé mais simplement absent de la grille — contrairement à l'intention
+  du §6.1 de la spec (« ni grille ni facture »). Action précise à la fusion :
+  item dédié de T10, `docs/superpowers/plans/2026-09-27-phase-4-ia.md`.
+- **3ᵉ colonne « Internet » de la page `/prix` à construire (T10).** Elle
+  lira le même service (`ingest/ia_prix.py`) une fois le lot Prix fusionné
+  dans `dev` — hors périmètre de la phase 4 IA elle-même (spec §6.4, §11).
+- **`appel_ia` jamais purgé.** Chaque appel à l'IA (réussi ou non) écrit une
+  ligne dans cette table technique, jamais supprimée. Volume attendu faible
+  (quelques lignes par jour, plafonné par `IA_APPELS_MAX_JOUR`) : à
+  surveiller si l'usage grandit, purge par une tâche planifiée à ajouter si
+  besoin.
+- **Un seul conteneur OpenCode pour la production et la démonstration**
+  (mémoire du VPS, `docs/phase-4-ia.md` §3) : un abonnement déconnecté ou un
+  plafond atteint affecte les deux instances à la fois, sans isolation entre
+  elles pour cet usage.
+- **Incident : une ligne du `.env` de développement affichée par un
+  sous-agent (T3, 27/09/2026).** En recherchant l'URL de la base de test
+  avant d'écrire le code, l'implémenteur a lancé par erreur un `grep` sur le
+  `.env` du worktree, ce qui a affiché la ligne `TEST_DATABASE_URL` (URL de
+  la base de test locale, avec son mot de passe de développement — pas un
+  secret de production). Transgression réelle de la consigne « ne jamais
+  lire ni afficher `.env` », signalée dans le suivi de la tâche plutôt que
+  passée sous silence ; aucune valeur n'est reproduite ici. Ilane peut faire
+  tourner ce mot de passe de base de test locale s'il le juge utile ; aucune
+  valeur de production n'est concernée.
+- **Limites mineures relevées en relecture, sans conséquence sur le
+  comportement observable :**
+  - pas de test négatif dédié du `CHECK` sur `prix_internet.taxes` (valeur
+    hors `HT`/`TTC`) ni de la borne de 300 caractères de
+    `synthese_action.texte` (T1) — le `CHECK` est bien posé et vérifié
+    structurellement (`alembic check`), seul un test positif dédié à son
+    comportement à l'exécution manque ;
+  - commentaire périmé dans `app/core/db.py` (« aucun index composite »)
+    depuis que `PrixInternet` en ajoute un premier (T1) ;
+  - la garde des chiffres de l'explication (T2) refuse « prudemment » un
+    nombre valide quand un chiffre isolé le précède sans séparateur net dans
+    le texte (ex. « Page 2 45,00 ») : faux négatif seulement (une
+    explication légitime parfois refusée), jamais de faux positif (aucun
+    chiffre inventé ne passe) ;
+  - `ingest/opencode.py::_journaliser_appel` (T3) prend une deuxième
+    connexion du pool de base pendant que l'appelant garde la sienne, pour
+    écrire la ligne `appel_ia` dans sa propre transaction (§3.4 de la
+    spec) — acceptable au volume attendu (quelques appels par jour), à
+    revoir si le pool de connexions devenait un point de contention ;
+  - un `SystemExit`/`KeyboardInterrupt` pendant un appel à l'IA (T3) saute
+    quand même la ligne `appel_ia` (jamais avalé, propagé normalement) ;
+    une annulation pendant la suppression de la session côté OpenCode
+    remplace le code d'erreur d'origine par « interrompu » dans cette ligne
+    technique ;
+  - pas de test de la synthèse traversant un changement d'heure (été/hiver)
+    (T4) — le chemin `IntegrityError`/`rollback` d'une course entre deux
+    générations de synthèse simultanées est, lui, désormais couvert
+    (`test_generer_synthese_vide_course_concurrente_deja_faite`, relecture
+    finale du 28/09/2026) ;
+  - l'essai (`essai-prix-internet`) reconnaît l'en-tête de son CSV par une
+    heuristique sur la première colonne : un fournisseur réellement nommé
+    « Fournisseur… » en première ligne serait pris à tort pour un en-tête
+    (T6) ;
+  - l'encart « Avis de l'IA » affiche le conditionnement du prix trouvé sur
+    internet s'il existe, sinon l'unité, jamais les deux à la fois (T7) —
+    affichage à confirmer par Ilane.
+
+## Phase 4 — IA, exploitation (T8, 28/09/2026)
+
+Conteneur OpenCode, rattachement de l'API et tâches planifiées
+(`deploy/opencode/`, `deploy/docker-compose.ia.yml`), détail et procédures
+dans `docs/phase-4-ia.md`.
+
+- **`read_only: true` non activé sur le conteneur OpenCode, par choix
+  délibéré** (`deploy/opencode/docker-compose.yml`) : confirmé en direct
+  (fix round 1, essai sur l'image construite) — OpenCode écrit un
+  `.gitignore` dans `~/.config/opencode` à chaque création de session
+  (`POST /session`) ; avec une racine en lecture seule (même avec un
+  `tmpfs` sur `/tmp`, `~/.cache`, `~/.local/share/opencode` et
+  `~/.local/state`), cette écriture échoue en `EROFS` et la création de
+  session échoue avec elle. Dans ce conteneur (sans `read_only`), le même
+  répertoire est déjà fermé à `opencode` (`root:root`, 0555, immuabilité
+  voulue de la configuration des agents) : l'écriture échoue aussi, mais
+  sans conséquence (ignorée par OpenCode). Rendre la racine en lecture
+  seule transformerait cet échec aujourd'hui sans gravité en échec bloquant
+  — le conteneur reste durci par ailleurs (`no-new-privileges`, `cap_drop:
+  ALL`, `pids_limit`, `mem_limit`, aucun port publié, utilisateur non root
+  dédié, réseau interne dédié). Détail : `docs/phase-4-ia.md` §9.
+- **Pas de route ni d'écran pour surveiller `appel_ia`** (plafond, échecs
+  par usage) : la surveillance se fait pour l'instant en base ou par les
+  logs (`docs/phase-4-ia.md` §6). Un écran dédié n'a pas été demandé par
+  Ilane à ce stade.
+
 ## Phase 3 — prix (session B, 28/09/2026)
 
 Lot Prix de la phase 3 (`docs/roadmap-octobre-2026.md` §6.2, §10) : grilles
