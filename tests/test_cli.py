@@ -71,7 +71,9 @@ Tests transverses (le fichier vit à la racine `app/`, pas dans un module) :
 from __future__ import annotations
 
 import asyncio
+import csv
 import getpass
+import io
 import json
 import os
 import re
@@ -1784,6 +1786,30 @@ def test_ia_prix_arret_plafond_pendant_explications_saute_recherche_prix(
     )
 
 
+def test_ia_prix_arret_eteinte_en_cours_de_route_mention_dediee(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Fix round 1 : `arret == "eteinte"` (IA coupée pendant que la commande
+    tournait) porte sa propre mention, distincte de « plafond du jour
+    atteint »."""
+    monkeypatch.setattr(cli, "ia_active", lambda: True)
+    monkeypatch.setattr(
+        cli, "expliquer_alertes", _bilan_factice(BilanIA(arret="eteinte"))
+    )
+    monkeypatch.setattr(cli, "chercher_prix_internet", _jamais_appelee_bilan)
+
+    code = cli.main(["ia-prix"])
+    sortie = capsys.readouterr().out
+
+    assert code == 0
+    assert sortie.strip() == (
+        "0 explication, 0 prix trouvé, 0 non vérifiable, 0 échec"
+        " — IA éteinte en cours de route"
+    )
+
+
 def test_ia_prix_toutes_tentatives_injoignables_code_1(
     _env_bl_test: None,
     monkeypatch: pytest.MonkeyPatch,
@@ -1911,6 +1937,113 @@ def test_lire_produits_essai_lignes_vides_ignorees(tmp_path: Path) -> None:
     produits = cli._lire_produits_essai(chemin)
 
     assert len(produits) == 1
+
+
+def test_lire_produits_essai_champ_avec_point_virgule_entre_guillemets(
+    tmp_path: Path,
+) -> None:
+    """Fix round 1 : une désignation réelle peut porter un `;` -- entre
+    guillemets dans le CSV, elle doit rester un seul champ, jamais découpée
+    en deux colonnes par un `split(";")` naïf."""
+    chemin = tmp_path / "produits.csv"
+    chemin.write_text(
+        "fournisseur;designation;code;unite\n"
+        'Fournisseur Un;"Plaque 60x60; blanche";COD1;u\n',
+        encoding="utf-8",
+    )
+
+    produits = cli._lire_produits_essai(chemin)
+
+    assert produits == [
+        ProduitEssai(
+            fournisseur="Fournisseur Un",
+            designation="Plaque 60x60; blanche",
+            code="COD1",
+            unite="u",
+        ),
+    ]
+
+
+def test_lire_produits_essai_bom_excel_accepte(tmp_path: Path) -> None:
+    """Fix round 1 : un fichier enregistré depuis Excel porte souvent un BOM
+    UTF-8 en tête -- il doit être retiré, jamais gardé dans le premier
+    champ (« ﻿ournisseur » ne doit jamais apparaître)."""
+    chemin = tmp_path / "produits.csv"
+    chemin.write_bytes(
+        (
+            "﻿fournisseur;designation;code;unite\nFournisseur Un;Produit Un;COD1;u\n"
+        ).encode()
+    )
+
+    produits = cli._lire_produits_essai(chemin)
+
+    assert produits == [
+        ProduitEssai(
+            fournisseur="Fournisseur Un",
+            designation="Produit Un",
+            code="COD1",
+            unite="u",
+        ),
+    ]
+
+
+def test_essai_prix_internet_champ_ia_echappe_dans_la_sortie(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Fix round 1 : un champ libre venu de l'IA (`raison`) portant un `;`
+    et un guillemet doit rester UNE seule colonne dans le CSV de sortie,
+    correctement échappée par `csv.writer` -- vérifié en reparsant la sortie
+    avec `csv.reader` et en comptant les colonnes (jamais un décalage)."""
+    monkeypatch.setattr(cli, "ia_active", lambda: True)
+    chemin = tmp_path / "produits.csv"
+    chemin.write_text("Fournisseur Un;Produit Un;COD1;u\n", encoding="utf-8")
+    produit = ProduitEssai(
+        fournisseur="Fournisseur Un",
+        designation="Produit Un",
+        code="COD1",
+        unite="u",
+    )
+    raison_piegee = 'Prix "spécial" non garanti; à vérifier à la source'
+    ligne_essai = LigneEssai(
+        produit=produit,
+        resultat=PrixInternetLu(
+            statut="non_verifiable",
+            prix=None,
+            devise=None,
+            taxes=None,
+            unite=None,
+            conditionnement=None,
+            produit_trouve=None,
+            source_url=None,
+            confiance="faible",
+            raison=raison_piegee,
+        ),
+        erreur=None,
+        duree_s=0.3,
+    )
+
+    async def _essayer_prix_internet_factice(
+        session: Any, http: Any, produits: Any
+    ) -> list[LigneEssai]:
+        return [ligne_essai]
+
+    monkeypatch.setattr(cli, "essayer_prix_internet", _essayer_prix_internet_factice)
+
+    code = cli.main(["essai-prix-internet", "--fichier", str(chemin)])
+    sortie = capsys.readouterr().out
+
+    assert code == 0
+    lignes = list(csv.reader(io.StringIO(sortie), delimiter=";"))
+    assert len(lignes) == 2  # en-tête + une ligne de données
+    assert len(lignes[0]) == 11
+    ligne_donnees = lignes[1]
+    assert len(ligne_donnees) == 11  # jamais décalée par le `;`/`"` du champ
+    assert ligne_donnees[0] == "Produit Un"
+    assert ligne_donnees[1] == "non_verifiable"
+    assert ligne_donnees[9] == raison_piegee  # colonne "raison", intacte
 
 
 def test_essai_prix_internet_ia_eteinte_code_1(

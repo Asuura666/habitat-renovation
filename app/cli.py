@@ -106,11 +106,15 @@
   internet sur une vingtaine de produits réels, avant de se fier au
   mécanisme automatique — délègue à `ingest.ia_prix.essayer_prix_internet`
   (sans cache ni enregistrement, seul `appel_ia` est écrit). CSV `;` UTF-8
-  en entrée (`fournisseur;designation;code;unite`, en-tête facultative) ;
-  CSV `;` en sortie sur la console. IA éteinte -> message, code **1**
-  (contrairement à `ia-prix` : ici un humain attend un résultat, « rien à
-  faire » est un échec). Le fichier n'est jamais recopié ni journalisé
-  (produits réels d'un fournisseur, hors dépôt comme `tests/fixtures/`).
+  en entrée (`fournisseur;designation;code;unite`, en-tête facultative,
+  BOM Excel accepté) et en sortie sur la console -- lu et écrit avec le
+  module `csv` de la bibliothèque standard (fix round 1, jamais un
+  `split`/`join` naïf) : un champ IA ou une désignation portant un `;` ou un
+  guillemet reste un seul champ, correctement échappé, sans jamais décaler
+  les colonnes suivantes. IA éteinte -> message, code **1** (contrairement
+  à `ia-prix` : ici un humain attend un résultat, « rien à faire » est un
+  échec). Le fichier n'est jamais recopié ni journalisé (produits réels
+  d'un fournisseur, hors dépôt comme `tests/fixtures/`).
 
 N'importe comme couches applicatives que `app.core`, `app.modules.ingest` et
 `app.modules.jobs` ; l'import de `messaging.telegram` reste différé au seul
@@ -145,6 +149,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
 import getpass
 import sys
 import uuid
@@ -802,7 +807,13 @@ async def _ia_prix() -> int:
     `non_verifiables` + `echecs`, toutes tâches confondues) et que toutes ont
     échoué faute d'IA joignable (`echecs_injoignable` égal au total des
     tentatives) : un plafond atteint sans aucune tentative, ou un mélange de
-    succès et d'échecs, reste code 0 (rien d'urgent à signaler)."""
+    succès et d'échecs, reste code 0 (rien d'urgent à signaler).
+
+    Arrêt en cours de route (fix round 1) : la mention affichée dépend de
+    `IAIndisponible.raison` -- « — plafond du jour atteint » ou « — IA
+    éteinte en cours de route » (IA coupée par Ilane pendant que la commande
+    tournait, cas rare mais distinct du plafond, jamais confondu dans le
+    message)."""
     if not ia_active():
         print("IA éteinte : rien à faire")
         return 0
@@ -839,6 +850,8 @@ async def _ia_prix() -> int:
     arret = bilan_explications.arret or bilan_prix.arret
     if arret == "plafond":
         message += " — plafond du jour atteint"
+    elif arret == "eteinte":
+        message += " — IA éteinte en cours de route"
     print(message)
 
     if tentatives > 0 and injoignables == tentatives:
@@ -847,44 +860,67 @@ async def _ia_prix() -> int:
 
 
 def _lire_produits_essai(chemin: Path) -> list[ProduitEssai]:
-    """Lit le CSV `;` UTF-8 de `--fichier` (T6, spec §7) : colonnes
+    """Lit le CSV `;` UTF-8 de `--fichier` (T6, spec §7 ; fix round 1 :
+    module `csv` de la bibliothèque standard, jamais un `split(";")` naïf --
+    une désignation réelle peut porter un `;`, un guillemet ou même un saut
+    de ligne, ce qu'un simple découpage par ligne puis par `;` décale
+    silencieusement sur les colonnes suivantes). Colonnes
     `fournisseur;designation;code;unite`, ligne d'en-tête facultative
-    (reconnue si elle commence par `fournisseur`, insensible à la casse).
-    Champ vide ou absent (ligne plus courte que 4 colonnes) -> `None`, sauf
-    `designation` (obligatoire, gardée telle quelle même vide -- un produit
-    sans désignation sera simplement rejeté plus loin par l'appel à l'IA,
-    jamais silencieusement ici)."""
+    (reconnue si le premier champ commence par `fournisseur`, insensible à
+    la casse). `encoding="utf-8-sig"` : accepte aussi bien un fichier UTF-8
+    sans BOM qu'un fichier UTF-8 avec BOM (Excel en ajoute un à
+    l'enregistrement) -- le BOM est retiré avant toute lecture, jamais gardé
+    dans le premier champ. Champ vide ou absent (ligne plus courte que 4
+    colonnes) -> `None`, sauf `designation` (obligatoire, gardée telle
+    quelle même vide -- un produit sans désignation sera simplement rejeté
+    plus loin par l'appel à l'IA, jamais silencieusement ici). `newline=""`
+    à l'ouverture : requis par le module `csv` pour reconnaître lui-même les
+    fins de ligne, y compris à l'intérieur d'un champ entre guillemets."""
     produits: list[ProduitEssai] = []
-    for indice, ligne in enumerate(chemin.read_text(encoding="utf-8").splitlines()):
-        if not ligne.strip():
-            continue
-        champs = ligne.split(";")
-        if indice == 0 and champs[0].strip().lower().startswith("fournisseur"):
-            continue
-        champs = champs[:4] + [""] * (4 - len(champs))
-        fournisseur, designation, code, unite = (champ.strip() for champ in champs)
-        produits.append(
-            ProduitEssai(
-                fournisseur=fournisseur or None,
-                designation=designation,
-                code=code or None,
-                unite=unite or None,
+    with chemin.open("r", encoding="utf-8-sig", newline="") as fichier_csv:
+        for indice, champs in enumerate(csv.reader(fichier_csv, delimiter=";")):
+            if not any(champ.strip() for champ in champs):
+                continue
+            if indice == 0 and champs[0].strip().lower().startswith("fournisseur"):
+                continue
+            champs = champs[:4] + [""] * (4 - len(champs))
+            fournisseur, designation, code, unite = (champ.strip() for champ in champs)
+            produits.append(
+                ProduitEssai(
+                    fournisseur=fournisseur or None,
+                    designation=designation,
+                    code=code or None,
+                    unite=unite or None,
+                )
             )
-        )
     return produits
 
 
 _ENTETE_CSV_ESSAI = (
-    "designation;statut;prix;taxes;unite;conditionnement;produit_trouve;"
-    "source_url;confiance;raison;duree_s"
+    "designation",
+    "statut",
+    "prix",
+    "taxes",
+    "unite",
+    "conditionnement",
+    "produit_trouve",
+    "source_url",
+    "confiance",
+    "raison",
+    "duree_s",
 )
 
 
-def _ligne_csv_essai(ligne: LigneEssai) -> str:
-    """Une ligne du CSV `;` de sortie de `essai-prix-internet` (brief T6,
-    colonnes de `_ENTETE_CSV_ESSAI`) : `statut="echec"` et `raison` = code de
-    l'erreur quand `ligne.resultat` est absent (aucun champ de résultat
-    n'est alors rempli)."""
+def _champs_csv_essai(ligne: LigneEssai) -> list[str]:
+    """Champs d'une ligne du CSV de sortie de `essai-prix-internet` (brief
+    T6, colonnes de `_ENTETE_CSV_ESSAI`) -- écrits par `csv.writer` (fix
+    round 1), jamais assemblés à la main : `raison`, `produit_trouve` et
+    `conditionnement` viennent de l'IA (texte libre) et peuvent porter un
+    `;`, un guillemet ou un saut de ligne, que `csv.writer` échappe alors
+    correctement (guillemets doublés, champ entre guillemets) sans décaler
+    les colonnes suivantes. `statut="echec"` et `raison` = code de l'erreur
+    quand `ligne.resultat` est absent (aucun champ de résultat n'est alors
+    rempli)."""
     resultat = ligne.resultat
     if resultat is None:
         champs = ["echec", "", "", "", "", "", "", "", ligne.erreur or ""]
@@ -900,7 +936,7 @@ def _ligne_csv_essai(ligne: LigneEssai) -> str:
             resultat.confiance or "",
             resultat.raison or "",
         ]
-    return ";".join([ligne.produit.designation, *champs, f"{ligne.duree_s:.1f}"])
+    return [ligne.produit.designation, *champs, f"{ligne.duree_s:.1f}"]
 
 
 async def _essai_prix_internet(fichier: Path) -> int:
@@ -922,7 +958,7 @@ async def _essai_prix_internet(fichier: Path) -> int:
 
     try:
         produits = await asyncio.to_thread(_lire_produits_essai, fichier)
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError, csv.Error):
         print(f"lecture du fichier impossible : {fichier}", file=sys.stderr)
         return 2
 
@@ -935,9 +971,16 @@ async def _essai_prix_internet(fichier: Path) -> int:
     finally:
         await engine.dispose()
 
-    print(_ENTETE_CSV_ESSAI)
+    # `csv.writer` (fix round 1, jamais un `";".join` à la main) : échappe
+    # correctement un champ IA (`raison`, `produit_trouve`,
+    # `conditionnement`) qui porterait un `;` ou un guillemet, sans jamais
+    # décaler les colonnes suivantes. `lineterminator="\n"` : sortie console
+    # Unix habituelle, jamais le `\r\n` par défaut du module (pensé pour un
+    # fichier `.csv` relu sous Windows).
+    ecrivain = csv.writer(sys.stdout, delimiter=";", lineterminator="\n")
+    ecrivain.writerow(_ENTETE_CSV_ESSAI)
     for ligne in lignes:
-        print(_ligne_csv_essai(ligne))
+        ecrivain.writerow(_champs_csv_essai(ligne))
     return 0
 
 

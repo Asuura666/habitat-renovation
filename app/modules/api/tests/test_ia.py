@@ -30,6 +30,7 @@ from app.core.auth import NOM_COOKIE
 from app.core.auth import router as auth_router
 from app.core.config import get_settings
 from app.modules.api import router as api_router
+from app.modules.ingest import commun
 from app.modules.ingest.ia_prix import cle_produit_internet, empreinte_detail
 from app.modules.ingest.models import (
     Anomalie,
@@ -178,6 +179,21 @@ async def _creer_anomalie_prix(
     db_session.add(anomalie)
     await db_session.commit()
     return anomalie, fournisseur, document
+
+
+def _regler_controle_prix(monkeypatch: pytest.MonkeyPatch, *, actif: bool) -> None:
+    """Force `ingest.commun.controle_prix_actif` pour le test courant (fix
+    round 1, même idiome que `ingest.tests.test_controle_prix
+    ._regler_controle_prix`/`api.tests.test_a_traiter._regler_drapeaux`) :
+    monkeypatcher `commun.get_settings` rend l'assertion déterministe,
+    plutôt que de dépendre de la valeur réelle de `CONTROLE_PRIX_ACTIF` dans
+    le `.env` de test."""
+
+    class _SettingsInventee:
+        controle_prix_actif = actif
+        controle_livre_non_facture_actif = True
+
+    monkeypatch.setattr(commun, "get_settings", lambda: _SettingsInventee())
 
 
 # --------------------------------------------------------------------------
@@ -490,5 +506,45 @@ async def test_get_avis_ia_anomalie_introuvable_404(
         cookies={NOM_COOKIE: cookie},
     ) as client:
         reponse = await client.get(f"/api/ia/anomalies/{uuid.uuid4()}")
+
+    assert reponse.status_code == 404
+
+
+async def test_get_avis_ia_anomalie_regle_masquee_404(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fix round 1 : une anomalie d'une règle désactivée côté serveur (R07
+    avec `CONTROLE_PRIX_ACTIF` faux, décision d'Ilane du 24/09/2026) est
+    masquée de tout le reste de l'application -- traitée comme introuvable
+    par cette route aussi, même principe qu'`ingest.anomalies
+    .traiter_anomalie`."""
+    _regler_controle_prix(monkeypatch, actif=False)
+    admin = await _creer_utilisateur(
+        db_session, email="admin.ia.avis.masquee@example.invalid", role="admin"
+    )
+    anomalie, _fournisseur, _document = await _creer_anomalie_prix(
+        db_session,
+        regle="R07",
+        detail={
+            "article": "Sable 0/4",
+            "code": "SAB04",
+            "pu_facture": "12.50",
+            "mediane": "10.00",
+            "occurrences": "6",
+            "ecart_pct": "25.00",
+        },
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app_test),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        reponse = await client.get(f"/api/ia/anomalies/{anomalie.id}")
 
     assert reponse.status_code == 404
