@@ -153,7 +153,14 @@ Categorie = Literal["bl", "prix", "quantites", "rattacher", "autre"]
 # ligne »). R18 (chantier à confirmer, avenant du 27/09/2026) rejoint R14
 # dans « rattacher » -- même famille de problème (un chantier pas encore
 # identifié avec certitude), bien qu'`evaluer_chantier` ne soit pas encore
-# appelée par `ingest`.
+# appelée par `ingest`. R19 à R25 (phase 3, prix des bons, spec `docs/
+# superpowers/specs/2026-09-27-prix-design.md` §6.5) rejoignent R07-R09
+# dans « prix » -- même famille de problème (un écart de prix), bien
+# qu'`evaluer_prix_bl` ne soit pas encore appelée par `ingest` : elles
+# élargissent mécaniquement `REGLES_QUANTITE_OU_PRIX` (`ingest.bilan`), sans
+# effet sur `en_ecart` en pratique -- ces règles ne posent jamais
+# `bloc_id` (elles portent sur un bon, pas sur un bloc de facture) et la
+# requête du bilan ne retient que les anomalies avec `bloc_id` non nul.
 CATEGORIES_REGLE: dict[str, Categorie] = {
     "R01": "bl",
     "R02": "bl",
@@ -166,6 +173,13 @@ CATEGORIES_REGLE: dict[str, Categorie] = {
     "R09": "prix",
     "R14": "rattacher",
     "R18": "rattacher",
+    "R19": "prix",
+    "R20": "prix",
+    "R21": "prix",
+    "R22": "prix",
+    "R23": "prix",
+    "R24": "prix",
+    "R25": "prix",
 }
 
 

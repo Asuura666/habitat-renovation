@@ -46,7 +46,17 @@ droit d'importer `rules` (garde `tests/test_frontieres.py`), donc
 `RegleAnomalie` est une liste écrite ici ; `test_anomalies.py` (le seul
 fichier autorisé à importer les deux) vérifie qu'elle couvre exactement
 `REGLES_FACTURE | REGLES_SUIVI` (`rules.engine`), pour ne jamais se
-désynchroniser en silence à la première règle ajoutée.
+désynchroniser en silence à la première règle ajoutée. Le verrou complet
+(`REGLES_FACTURE | REGLES_SUIVI | REGLES_CHANTIER | REGLES_PRIX_BL`) vit
+dans `tests/test_regle_anomalie_couverture.py` (hors de `app/modules/`,
+seul endroit autorisé à importer `api` et `rules` ensemble).
+
+R19 à R25 (phase 3, prix des bons, spec `docs/superpowers/specs/2026-09-27-
+prix-design.md` §5.2) rejoignent la liste bien qu'`evaluer_prix_bl` ne soit
+pas encore appelée par `ingest` (câblage prévu à une tâche ultérieure) --
+même principe que R18 (avenant du 27/09/2026) : `RegleAnomalie` accepte
+déjà ces valeurs de filtre (200 + liste vide tant qu'aucune anomalie de
+prix n'est persistée), pour ne pas retarder ce verrou au câblage.
 """
 
 from __future__ import annotations
@@ -75,13 +85,14 @@ router = APIRouter()
 _LIMITE_MIN = 1
 _LIMITE_MAX = 500
 
-# Catalogue des règles de `REGLES_FACTURE`/`REGLES_SUIVI` (CDC §5, Ruling
-# R22, R18 ajoutée par l'avenant du 27/09/2026 même si `evaluer_chantier`
-# n'est pas encore câblée dans `ingest` -- une valeur de filtre acceptée
-# sans jamais renvoyer d'anomalie tant qu'elle n'est pas persistée) :
-# couverture verrouillée par `tests/test_regle_anomalie_couverture.py`, seul
-# endroit autorisé à importer à la fois `api` et `rules` pour comparer les
-# deux ensembles.
+# Catalogue des règles de `REGLES_FACTURE`/`REGLES_SUIVI`/`REGLES_CHANTIER`/
+# `REGLES_PRIX_BL` (CDC §5, Ruling R22 ; R18 ajoutée par l'avenant du
+# 27/09/2026, R19-R25 par la phase 3 -- spec §5.2 -- même si `evaluer_
+# chantier`/`evaluer_prix_bl` ne sont pas encore câblées dans `ingest` --
+# une valeur de filtre acceptée sans jamais renvoyer d'anomalie tant
+# qu'elle n'est pas persistée) : couverture verrouillée par `tests/
+# test_regle_anomalie_couverture.py`, seul endroit autorisé à importer à la
+# fois `api` et `rules` pour comparer les deux ensembles.
 RegleAnomalie = Literal[
     "R01",
     "R02",
@@ -101,6 +112,13 @@ RegleAnomalie = Literal[
     "R16",
     "R17",
     "R18",
+    "R19",
+    "R20",
+    "R21",
+    "R22",
+    "R23",
+    "R24",
+    "R25",
 ]
 
 

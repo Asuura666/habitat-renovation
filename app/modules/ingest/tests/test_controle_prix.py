@@ -57,7 +57,7 @@ from app.modules.ingest.models import (
 )
 from app.modules.ingest.rapprochement import rapprocher_facture
 from app.modules.ingest.tableau_de_bord import tableau_de_bord
-from app.modules.rules.engine import REGLES_FACTURE
+from app.modules.rules.engine import REGLES_FACTURE, REGLES_PRIX_BL
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
 
@@ -98,13 +98,25 @@ def test_regles_desactivees_prix_quand_inactif(monkeypatch: pytest.MonkeyPatch) 
 
 def test_regles_prix_egale_regles_de_categorie_prix() -> None:
     """Constat mineur 4 de la revue des contrôles de prix : `REGLES_PRIX`
-    (`ingest.commun`, ce que `regles_desactivees` masque) et
-    `regles_de_categorie("prix")` (`ingest.anomalies.CATEGORIES_REGLE`, ce
-    que le filtre « Prix » de l'écran « À régler » affiche) sont deux listes
-    écrites à la main dans deux modules différents -- ce test échoue dès
-    qu'elles divergent, plutôt que de laisser un filtre montrer une règle
-    que le masquage ne masque plus, ou l'inverse."""
-    assert regles_de_categorie("prix") == commun.REGLES_PRIX
+    (`ingest.commun`, ce que `regles_desactivees` masque -- R07/R08/R09,
+    contrôle de prix **à la facture**) et `regles_de_categorie("prix")`
+    (`ingest.anomalies.CATEGORIES_REGLE`, ce que le filtre « Prix » de
+    l'écran « À régler » affiche) n'étaient, avant la phase 3, qu'une seule
+    et même liste écrite deux fois -- ce test empêchait toute divergence
+    silencieuse.
+
+    Phase 3 (prix des bons, spec `docs/superpowers/specs/2026-09-27-prix-
+    design.md` §6.5) élargit délibérément la catégorie « prix » à R19-R25
+    (contrôle de prix **au bon**, un mécanisme de masquage entièrement
+    séparé -- interrupteur général et sept interrupteurs par alerte,
+    `ingest/prix_bl.py`, câblage prévu à une tâche ultérieure) : l'égalité
+    stricte n'a donc plus lieu d'être, mais l'invariant qu'elle protégeait
+    reste vrai pour les deux masquages pris séparément -- `REGLES_PRIX` (R07-
+    R09) est un sous-ensemble strict de la catégorie, et l'écart est
+    exactement `REGLES_PRIX_BL` (R19-R25), jamais une autre règle oubliée
+    dans l'un des deux masquages."""
+    assert regles_de_categorie("prix") >= commun.REGLES_PRIX
+    assert regles_de_categorie("prix") - commun.REGLES_PRIX == REGLES_PRIX_BL
 
 
 def test_regles_desactivees_ne_touche_aucune_autre_regle(

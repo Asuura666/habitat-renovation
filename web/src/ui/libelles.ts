@@ -61,6 +61,17 @@ const TITRES_REGLE: Record<string, string> = {
   R16: "Chantier sans bon déposé récemment",
   R17: "Quantité inhabituelle pour le conditionnement",
   R18: "Chantier à confirmer",
+  // Phase 3 (prix des bons, spec §5.2, §8.3) : R19-R25 ne sont pas encore
+  // produites par le serveur (`evaluer_prix_bl` n'est pas encore câblée),
+  // ajoutées ici en même temps que les règles pour ne pas retarder ce
+  // fichier à leur câblage (même principe que R18, avenant du 27/09/2026).
+  R19: "Prix plus cher que la grille",
+  R20: "Prix plus cher que la dernière fois",
+  R21: "Prix moins cher que la grille",
+  R22: "Produit absent de la grille",
+  R23: "Produit reconnu seulement par son nom",
+  R24: "Unités différentes",
+  R25: "Grille de prix ancienne",
 };
 
 /** Titre affiché pour un problème (« règle » en interne) — jamais le code
@@ -184,6 +195,16 @@ function articleAvecCode(detail: Record<string, string>): string {
   return code !== undefined && code !== TIRET ? `${article} (code ${code})` : article;
 }
 
+/** Même principe qu'`articleAvecCode`, pour les règles de prix des bons
+ * (phase 3, R19-R25) : leur `detail` porte la clé `produit`, pas `article`
+ * (spec §5.2) -- deux tables de règles distinctes, deux clés distinctes,
+ * jamais mélangées. */
+function produitAvecCode(detail: Record<string, string>): string {
+  const produit = texteOuTiret(detail, "produit");
+  const code = detail.code;
+  return code !== undefined && code !== TIRET ? `${produit} (code ${code})` : produit;
+}
+
 /** Phrase chiffrée justifiant un problème (jamais de code de règle ni de
  * jargon dans le texte — seulement des valeurs déjà calculées par le
  * serveur, mises en forme). */
@@ -276,6 +297,56 @@ export function phraseProbleme(anomalie: Anomalie): string {
         `Le nom lu sur le bon (« ${texteOuTiret(detail, "nom_lu")} ») et le nom indiqué par l'employé ` +
         `(« ${texteOuTiret(detail, "legende")} ») ne désignent pas un seul chantier. ` +
         `Chantiers possibles : ${texteOuTiret(detail, "candidats")}.`
+      );
+    // Phase 3 (prix des bons, spec §5.2, §8.3) : R19-R25 ne sont pas
+    // encore produites par le serveur, voir le commentaire de
+    // `TITRES_REGLE` ci-dessus.
+    case "R19":
+      return (
+        `${produitAvecCode(detail)} : ${montantOuTiret(detail, "prix_bon")} sur le bon au lieu de ` +
+        `${montantOuTiret(detail, "prix_grille")} dans la grille (du ${dateOuTiret(detail, "date_grille")}), ` +
+        `+${pointsOuTiret(detail, "ecart_pct")}.`
+      );
+    case "R20":
+      return (
+        `${produitAvecCode(detail)} : ${montantOuTiret(detail, "prix_bon")} sur le bon, ` +
+        `${montantOuTiret(detail, "dernier_prix")} sur la facture ${texteOuTiret(detail, "numero_facture")} du ` +
+        `${dateOuTiret(detail, "date_dernier_prix")}, +${pointsOuTiret(detail, "ecart_pct")}.`
+      );
+    case "R21":
+      return (
+        `${produitAvecCode(detail)} : ${montantOuTiret(detail, "prix_bon")} sur le bon au lieu de ` +
+        `${montantOuTiret(detail, "prix_grille")} dans la grille (du ${dateOuTiret(detail, "date_grille")}), ` +
+        `${pointsOuTiret(detail, "ecart_pct")}.`
+      );
+    case "R22":
+      return (
+        `${produitAvecCode(detail)} : produit absent de la grille, ` +
+        `${montantOuTiret(detail, "prix_bon")} sur le bon. ` +
+        `Produits proches : ${texteOuTiret(detail, "candidats")}.`
+      );
+    case "R23":
+      return (
+        `${produitAvecCode(detail)} : reconnu dans la grille comme « ${texteOuTiret(detail, "designation_grille")} » ` +
+        `par son nom (ressemblance ${texteOuTiret(detail, "ressemblance")} %).`
+      );
+    case "R24": {
+      const uniteGrille = texteOuTiret(detail, "unite_grille");
+      const uniteDernierPrix = texteOuTiret(detail, "unite_dernier_prix");
+      const reference =
+        uniteGrille !== TIRET
+          ? `la grille, unité ${uniteGrille}`
+          : `la dernière facture, unité ${uniteDernierPrix}`;
+      const uniteBon = texteOuTiret(detail, "unite_bon");
+      return (
+        `${produitAvecCode(detail)} : unité du bon, ${uniteBon}, différente de celle de ` +
+        `${reference}, comparaison impossible.`
+      );
+    }
+    case "R25":
+      return (
+        `${produitAvecCode(detail)} : prix de grille du ${dateOuTiret(detail, "date_grille")}, vieux de ` +
+        `${texteOuTiret(detail, "age_mois")} mois.`
       );
     default:
       // Revue finale (constat COUVERTURE-19) : plus de liste brute

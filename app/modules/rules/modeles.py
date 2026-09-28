@@ -255,3 +255,80 @@ class Parametres:
     delai_confirmation_bl_h: int = 24
     delai_chantier_silencieux_j: int = 7
     duree_ignorance_j: int = 90
+
+
+@dataclass(frozen=True)
+class ReferencePrix:
+    """Un prix auquel comparer celui d'une ligne de bon (matière de R19 à
+    R25, phase 3, spec §5.1) : soit une ligne de grille (`source="grille"`),
+    soit la dernière ligne de facture retrouvée pour ce produit
+    (`source="facture"`, `numero_facture` renseigné). `prix` est **déjà
+    ramené à l'unité du bon** par `ingest` (`normalize.prix.unites_comparables`,
+    spec §4.4) : ce module pur ne fait plus aucune conversion, il ne fait
+    que comparer deux montants. `comparable` est faux quand la conversion
+    d'unité était impossible (spec §4.4) : `prix` et `unite` restent alors
+    ceux de la référence, tels quels, pour l'affichage du détail -- aucune
+    règle de prix (R19-R21, R23, R25) ne doit se fier à un prix non
+    comparable, seule R24 (unités différentes) en tient compte.
+
+    `methode`/`ressemblance` reprennent `Correspondance` de
+    `normalize.prix` (« reference » = 100, ou « nom » -- matière de R23) ;
+    `designation` est celle du produit retrouvé (grille ou facture), pour
+    l'afficher à côté de celle lue sur le bon. `grille_posterieure_au_bon`
+    (spec §3.2) : vrai quand aucune ligne de grille n'avait de date d'effet
+    antérieure ou égale à la date du bon et qu'`ingest` a pris la première
+    ligne postérieure faute de mieux -- une règle de prix ne juge jamais ce
+    cas différemment (spec §5.2), le détail le signale seulement, à
+    l'humain de juger."""
+
+    prix: Decimal
+    unite: str | None
+    date: date
+    comparable: bool
+    methode: str  # "reference" ou "nom"
+    ressemblance: int
+    designation: str
+    source: str  # "grille" ou "facture"
+    numero_facture: str | None = None
+    grille_posterieure_au_bon: bool = False
+
+
+@dataclass(frozen=True)
+class LignePrixBl:
+    """Une ligne de bon (BL ou enlèvement) soumise au contrôle des prix
+    (matière de R19 à R25, phase 3, spec §5.1) : `grille` est `None` quand
+    aucun produit de la grille du fournisseur n'a été retrouvé pour cette
+    ligne (matière de R22) ; `candidats` porte alors, le cas échéant, les
+    désignations à égalité rendues par `normalize.prix.trouver_produit`
+    (3 au plus, vide sinon). `dernier_prix` est `None` si aucune facture
+    antérieure n'a été retrouvée pour ce produit chez ce fournisseur (spec
+    §6.3) -- `grille` et `dernier_prix` sont indépendants, une ligne peut
+    n'avoir ni l'un ni l'autre, l'un sans l'autre, ou les deux."""
+
+    document_id: uuid.UUID
+    ligne_id: uuid.UUID
+    designation: str
+    code: str | None
+    prix_bon: Decimal  # pu_ht lu sur le bon, > 0
+    unite_bon: str | None
+    date_bon: date
+    grille: ReferencePrix | None
+    candidats: tuple[str, ...]
+    dernier_prix: ReferencePrix | None
+
+
+@dataclass(frozen=True)
+class ParametresPrixBl:
+    """Seuils et réglages du contrôle des prix des bons (R19 à R25, phase 3,
+    spec §3.4, §5.1), séparés de `Parametres` (celui-ci reste dédié aux
+    règles de facture et de suivi -- décision du contrôleur, même principe
+    de séparation que `ContexteSuivi` vis-à-vis de `FactureControlee`).
+    `aujourdhui` (matière de R25 seulement) est fourni par `ingest`, `None`
+    par défaut -- une grille ne peut alors jamais être jugée « ancienne »
+    (R25 ne se déclenche pas sans date de référence, plutôt que de lever ou
+    de deviner)."""
+
+    seuil_hausse_pct: Decimal = Decimal("0")
+    seuil_baisse_pct: Decimal = Decimal("5")
+    age_grille_mois: int = 12
+    aujourdhui: date | None = None
