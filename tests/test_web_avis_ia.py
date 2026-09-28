@@ -169,7 +169,14 @@ def test_avis_ia_rien_pendant_le_chargement_ou_en_cas_derreur() -> None:
 def test_avis_ia_lien_source_securise_et_domaine_seul() -> None:
     """Auto-revue T7 : `target="_blank"` toujours accompagné de `rel=
     "noopener noreferrer"`, adresse affichée seulement par son nom de
-    domaine (jamais l'URL complète en clair dans le texte affiché)."""
+    domaine (jamais l'URL complète en clair dans le texte affiché).
+
+    Depuis T10b (colonne « Internet » de la page Prix, brief T10b), le
+    calcul du domaine vit dans `lib/prixInternet.ts`, partagé avec
+    `PrixInternetCellule.tsx` -- ce composant ne fait qu'appeler la fonction
+    partagée, jamais la réimplémenter (voir
+    `test_avis_ia_lien_source_https_seulement` ci-dessous, qui vérifie la
+    garde https-only à l'endroit où elle vit désormais)."""
     composant = _lire("components", "AvisIA.tsx")
 
     assert 'target="_blank"' in composant
@@ -177,8 +184,8 @@ def test_avis_ia_lien_source_securise_et_domaine_seul() -> None:
     bloc_lien = composant.split('target="_blank"', 1)[1].split("</a>", 1)[0]
     assert 'rel="noopener noreferrer"' in bloc_lien
 
-    assert "function domaine" in composant
-    assert "new URL(url)" in composant
+    assert 'from "../lib/prixInternet"' in composant
+    assert "domaineSource(prixInternet.source_url)" in composant
     # Le texte affiché du lien montre le domaine calculé, jamais
     # `prixInternet.source_url` recopié tel quel comme texte -- seul `href`
     # (l'attribut, jamais lu par un utilisateur) porte l'adresse complète.
@@ -190,25 +197,37 @@ def test_avis_ia_lien_source_securise_et_domaine_seul() -> None:
 def test_avis_ia_lien_source_https_seulement() -> None:
     """Fix round 1 (revue T7) : `new URL("javascript:...")` ou `new
     URL("data:...")` ne lève pas -- elles donnent seulement un `hostname`
-    vide -- donc `domaine()` doit refuser un protocole autre que `https:`,
-    pas seulement une adresse qui lève une exception. Le lien ne doit se
-    rendre que sous cette même garde (`sourceDomaine !== null`), jamais un
-    second calcul du domaine ailleurs qui contournerait cette défense."""
-    composant = _lire("components", "AvisIA.tsx")
+    vide -- donc `domaineSource()` doit refuser un protocole autre que
+    `https:`, pas seulement une adresse qui lève une exception. Le lien ne
+    doit se rendre que sous cette même garde (`sourceDomaine !== null`),
+    jamais un second calcul du domaine ailleurs qui contournerait cette
+    défense.
 
-    fonction_domaine = composant.split("function domaine", 1)[1].split(
+    Depuis T10b, cette fonction vit dans `lib/prixInternet.ts` (partagée
+    avec la colonne « Internet » de la page Prix, brief T10b : « en
+    l'extrayant dans une petite fonction/composant partagé plutôt qu'en la
+    recopiant ») -- vérifiée ici une seule fois pour les deux appelants,
+    `AvisIA.tsx` ne faisant que l'appeler."""
+    partage = _lire("lib", "prixInternet.ts")
+
+    fonction_domaine = partage.split("function domaineSource", 1)[1].split(
         "\nfunction ", 1
     )[0]
     assert 'analysee.protocol !== "https:"' in fonction_domaine
     assert 'analysee.hostname === ""' in fonction_domaine
     assert "return null;" in fonction_domaine
 
-    # Un seul point de calcul du domaine, appelé une seule fois.
-    assert composant.count("function domaine(") == 1
-    assert composant.count("domaine(prixInternet.source_url)") == 1
+    # Un seul point de calcul du domaine dans tout le dépôt front.
+    assert partage.count("function domaineSource(") == 1
+
+    composant = _lire("components", "AvisIA.tsx")
+    # AvisIA.tsx ne réimplémente jamais cette garde localement.
+    assert "function domaine(" not in composant
+    assert "new URL(" not in composant
+    assert composant.count("domaineSource(prixInternet.source_url)") == 1
 
     # `href` n'est rendu que dans le bloc gardé par `sourceDomaine !==
-    # null` -- qui dépend entièrement de `domaine()` ci-dessus.
+    # null` -- qui dépend entièrement de `domaineSource()` ci-dessus.
     garde_lien = "sourceDomaine !== null && prixInternet.source_url !== null && ("
     assert garde_lien in composant
     bloc_lien = composant.split(garde_lien, 1)[1].split(")}", 1)[0]
