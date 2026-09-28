@@ -43,6 +43,26 @@ que R06 ne soit ni évaluée ni considérée comme « recalculée » par le
 balayage de suppression (`synchroniser_anomalies`, Ruling R8) quand elle est
 désactivée — ses anomalies déjà ouvertes restent en base (masquées, jamais
 fermées ni supprimées) jusqu'à réactivation.
+
+`regles_masquees` (phase 3, contrôle des prix des bons, spec `docs/
+superpowers/specs/2026-09-27-prix-design.md` §6.5) : union de
+`regles_desactivees()` (drapeaux d'environnement ci-dessus) et des règles
+R19-R25 masquées par les réglages `prix_…` (base, table `parametre`,
+tâche P1) -- interrupteur général `prix_controle_bl_actif` (toutes
+masquées s'il vaut 0) puis, s'il vaut 1, chacune des sept alertes dont
+l'interrupteur propre vaut 0. Point unique, comme `regles_desactivees` :
+`ingest.anomalies` (`_requete_anomalies`, `compter_anomalies_ouvertes`,
+`compter_anomalies_hautes_ouvertes`, `lister_anomalies`, `traiter_anomalie`),
+`ingest.bilan`, `ingest.comparaison_bl` et `ingest.a_traiter` l'appellent
+tous, jamais un second calcul de ce masquage. Une seule requête (les huit
+clés `prix_…` concernées) plutôt que huit lectures de `Parametre` — cette
+fonction est appelée à chaque lecture d'anomalies. Les valeurs par défaut
+(0 pour l'interrupteur général, 1 pour chacune des sept alertes) sont
+recopiées ici en dur plutôt qu'importées d'`ingest.parametres`
+(`DEFINITIONS_PAR_CLE`) : `parametres.py` importe déjà `controle_prix_actif`/
+`controle_livre_non_facture_actif` d'ici, un import en sens inverse
+créerait un cycle. Cohérentes avec `DEFINITIONS_PARAMETRES` (spec §3.4),
+vérifié par `test_commun.py`.
 """
 
 from __future__ import annotations
@@ -51,9 +71,15 @@ import logging
 import os
 import uuid
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import get_settings
+from app.modules.ingest.models import Parametre
+from app.modules.rules.engine import REGLES_PRIX_BL
 
 logger = logging.getLogger("app.modules.ingest.service")
 
@@ -66,6 +92,23 @@ REGLES_PRIX: frozenset[str] = frozenset({"R07", "R08", "R09"})
 # pas facturé », contrôle différé de `ingest.suivi`), jamais une autre règle
 # de suivi (R14/R15/R16 restent actives).
 REGLES_LIVRE_NON_FACTURE: frozenset[str] = frozenset({"R06"})
+
+# Interrupteur général du contrôle des prix des bons (spec §3.4, §6.5).
+CLE_PRIX_CONTROLE_BL_ACTIF = "prix_controle_bl_actif"
+
+# Règle de prix (R19-R25) -> clé de son interrupteur propre (spec §3.4,
+# tableau) -- seul point de correspondance entre les deux, jamais recopié
+# ailleurs (`ingest.prix_bl` importe `_CLE_ALERTE_PAR_REGLE` d'ici pour ses
+# propres lectures de `ParametresPrixBl`/`regles_actives`).
+CLE_ALERTE_PAR_REGLE: dict[str, str] = {
+    "R19": "prix_alerte_plus_cher_grille",
+    "R20": "prix_alerte_plus_cher_dernier_prix",
+    "R21": "prix_alerte_moins_cher_grille",
+    "R22": "prix_alerte_absent_grille",
+    "R23": "prix_alerte_reconnu_par_nom",
+    "R24": "prix_alerte_unites_differentes",
+    "R25": "prix_alerte_grille_ancienne",
+}
 
 
 def controle_prix_actif() -> bool:
@@ -107,6 +150,43 @@ def regles_desactivees() -> frozenset[str]:
     if not controle_livre_non_facture_actif():
         desactivees |= REGLES_LIVRE_NON_FACTURE
     return desactivees
+
+
+def _valeur_bool(brut: str | None, defaut: bool) -> bool:
+    """Un interrupteur `parametre` (0 ou 1, colonne texte) en booléen --
+    `defaut` si la clé est absente ou illisible, même prudence que
+    `referentiels.lire_parametre_decimal`."""
+    if brut is None:
+        return defaut
+    try:
+        return Decimal(brut) != 0
+    except InvalidOperation:
+        return defaut
+
+
+async def regles_masquees(session: AsyncSession) -> frozenset[str]:
+    """Union de `regles_desactivees()` et des règles de prix des bons
+    (R19-R25) masquées par les réglages `prix_…` (voir docstring de
+    module) : toutes si l'interrupteur général (`prix_controle_bl_actif`,
+    défaut 0) est éteint, sinon seulement celles dont l'interrupteur propre
+    (`CLE_ALERTE_PAR_REGLE`, défaut 1 chacun) est éteint."""
+    desactivees = regles_desactivees()
+
+    cles = (CLE_PRIX_CONTROLE_BL_ACTIF, *CLE_ALERTE_PAR_REGLE.values())
+    lignes = await session.execute(
+        select(Parametre.cle, Parametre.valeur).where(Parametre.cle.in_(cles))
+    )
+    valeurs: dict[str, str] = {cle: valeur for cle, valeur in lignes.all()}
+
+    if not _valeur_bool(valeurs.get(CLE_PRIX_CONTROLE_BL_ACTIF), False):
+        return desactivees | REGLES_PRIX_BL
+
+    masquees_prix = frozenset(
+        regle
+        for regle, cle in CLE_ALERTE_PAR_REGLE.items()
+        if not _valeur_bool(valeurs.get(cle), True)
+    )
+    return desactivees | masquees_prix
 
 
 def _journaliser_echec(etape: str, update_id: int, exc: Exception) -> None:

@@ -34,9 +34,8 @@ fait que valider, appeler et sérialiser (CLAUDE.md).
   client), toujours relisible par `extract.grille_excel.lire_grille_excel`
   sans erreur (spec §7.3).
 - `apres_changement_grille` : point d'accroche du recontrôle des bons
-  après un changement de grille (spec §6.4) -- ne fait rien tant que la
-  tâche P7 (`ingest/prix_bl.py`) n'existe pas : elle remplacera ce corps
-  par l'appel réel, sans changer sa signature ni les appels ci-dessous.
+  après un changement de grille (spec §6.4, câblé par la tâche P7 sur
+  `ingest.prix_bl.recontroler_bons`, import différé pour éviter un cycle).
 """
 
 from __future__ import annotations
@@ -1100,10 +1099,23 @@ async def apres_changement_grille(
     date_effet: date,
     cle_produit_modifiee: str | None = None,
 ) -> None:
-    """Point d'accroche du recontrôle des bons après un import, une saisie
-    ou une validation de prix (spec §6.4). Ne fait rien tant que la tâche
-    P7 (`ingest/prix_bl.py`) n'existe pas -- appelée après chaque commit
-    depuis `enregistrer_prix`/`importer_grille`, elle ne doit jamais faire
-    échouer l'appelant (P7 l'enveloppera dans sa propre gestion d'échec,
-    comme `controler_prix_bl_sans_echec`)."""
-    del session, fournisseur_id, date_effet, cle_produit_modifiee
+    """Point d'accroche du recontrôle des bons après un import ou une
+    saisie de prix (spec §6.4, tâche P7) : recontrôle les bons non
+    archivés de `fournisseur_id` datés à partir de `date_effet`
+    (`ingest.prix_bl.recontroler_bons`, chaque bon dans sa propre
+    transaction -- un échec est journalisé et n'annule ni les autres bons
+    ni l'écriture de la grille déjà commitée par l'appelant).
+
+    Import différé (comme les autres imports différés de cette base de
+    code, ex. `app.cli`) : `ingest.prix_bl` importe `prix_en_vigueur` d'ici,
+    un import en tête de fichier créerait un cycle.
+
+    `cle_produit_modifiee` (recontrôle des bons portant une alerte de prix
+    ouverte sur ce produit précis, après une validation de prix -- spec
+    §6.4) n'est pas encore câblé : la page Prix qui appelle « Valider ce
+    prix » avec ce paramètre est la tâche P8, pas encore construite."""
+    del cle_produit_modifiee
+
+    from app.modules.ingest.prix_bl import recontroler_bons
+
+    await recontroler_bons(session, fournisseur_id=fournisseur_id, depuis=date_effet)

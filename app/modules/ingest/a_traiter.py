@@ -28,13 +28,17 @@ mois, problèmes du mois, liste complète) se contredisaient sur le même
 écran.
 
 `CompteProblemes.controle_prix_actif` (décision d'Ilane du 24/09/2026,
-`docs/dette.md`) : reflet de `ingest.commun.controle_prix_actif()`, exposé
-ici -- un seul endroit -- car `GET /api/a-regler/compte` est déjà rechargé
-par toutes les pages (barre de navigation, vue d'ensemble, écran « À
-régler », `CLE_COMPTE_A_REGLER` côté front) : aucun autre point d'API n'a
-besoin de porter ce même drapeau. Aucun calcul métier n'en découle ici, le
-front ne fait qu'adapter des libellés (« Écart prix ou quantité » ->
-« Écart de quantité », filtre « Prix » masqué) à partir de ce booléen.
+`docs/dette.md`, étendu par la spec §6.5 du 27/09/2026) : vrai si le
+contrôle des prix des **factures** (`ingest.commun.controle_prix_actif()`)
+**ou** celui des **bons** (réglage `prix_controle_bl_actif`, base) est
+allumé -- exposé ici, un seul endroit, car `GET /api/a-regler/compte` est
+déjà rechargé par toutes les pages (barre de navigation, vue d'ensemble,
+écran « À régler », `CLE_COMPTE_A_REGLER` côté front) : aucun autre point
+d'API n'a besoin de porter ce même drapeau. Aucun calcul métier n'en
+découle ici, le front ne fait qu'adapter des libellés (« Écart prix ou
+quantité » -> « Écart de quantité », filtre « Prix » masqué) à partir de ce
+booléen -- le filtre reste donc affiché dès que l'un des deux contrôles
+est actif, même si l'autre est encore éteint.
 
 `controle_livre_non_facture_actif` n'est plus exposé ici : depuis que
 `ingest.parametres._cle_masquee` masque `delai_ligne_bl_non_facturee_j`
@@ -59,7 +63,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.modules.ingest.anomalies import compter_anomalies_ouvertes
-from app.modules.ingest.commun import controle_prix_actif
+from app.modules.ingest.commun import CLE_PRIX_CONTROLE_BL_ACTIF, controle_prix_actif
 from app.modules.ingest.lecture import _CONFIRMATION_PAR_ACTION, MotifLu, motifs_lus
 from app.modules.ingest.models import (
     Article,
@@ -73,6 +77,7 @@ from app.modules.ingest.models import (
 from app.modules.ingest.referentiels import (
     candidats_bruts_fournisseur,
     filtrer_candidats_par_libelle,
+    lire_parametre_decimal,
 )
 
 
@@ -319,13 +324,16 @@ async def compter_problemes_a_regler(session: AsyncSession) -> CompteProblemes:
     sections de `lister_a_traiter`, jamais une seconde sélection."""
     nb_anomalies, nb_urgents = await compter_anomalies_ouvertes(session)
     a_traiter = await lister_a_traiter(session)
+    controle_bl_actif = await lire_parametre_decimal(
+        session, CLE_PRIX_CONTROLE_BL_ACTIF, Decimal("0")
+    ) != Decimal("0")
     return CompteProblemes(
         nb_problemes=nb_anomalies
         + len(a_traiter.documents)
         + len(a_traiter.alias)
         + len(a_traiter.articles),
         nb_urgents=nb_urgents,
-        controle_prix_actif=controle_prix_actif(),
+        controle_prix_actif=controle_prix_actif() or controle_bl_actif,
     )
 
 

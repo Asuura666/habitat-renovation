@@ -70,7 +70,7 @@ import subprocess
 import sys
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -161,6 +161,48 @@ def test_drive_sync_refuse_configuration_google_absente(
 
     assert code == 2
     assert "configuration Google Drive absente" in capsys.readouterr().err
+
+
+def test_controler_prix_dispatch_avec_depuis(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Phase 3, tâche P7 (spec §6.2) : `--depuis` est bien parsé en `date`
+    et transmis à `_controler_prix`, sans toucher la base (dispatch seul,
+    même principe que `test_drive_sync_dispatch_avec_limite`)."""
+    recu: list[date | None] = []
+
+    async def _controler_prix_factice(depuis: date | None) -> int:
+        recu.append(depuis)
+        return 0
+
+    monkeypatch.setattr(cli, "_controler_prix", _controler_prix_factice, raising=False)
+
+    assert cli.main(["controler-prix", "--depuis", "2026-01-15"]) == 0
+    assert recu == [date(2026, 1, 15)]
+
+
+def test_controler_prix_sans_depuis_transmet_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recu: list[date | None] = []
+
+    async def _controler_prix_factice(depuis: date | None) -> int:
+        recu.append(depuis)
+        return 0
+
+    monkeypatch.setattr(cli, "_controler_prix", _controler_prix_factice, raising=False)
+
+    assert cli.main(["controler-prix"]) == 0
+    assert recu == [None]
+
+
+def test_controler_prix_date_invalide_systemexit_2() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["controler-prix", "--depuis", "pas-une-date"])
+    assert exc_info.value.code == 2
+
+
+def test_premier_jour_mois_precedent() -> None:
+    assert cli._premier_jour_mois_precedent(date(2026, 3, 15)) == date(2026, 2, 1)
+    assert cli._premier_jour_mois_precedent(date(2026, 1, 5)) == date(2025, 12, 1)
 
 
 def test_bl_non_recus_fichier_non_pdf_code_2(tmp_path: Path) -> None:

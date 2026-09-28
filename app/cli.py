@@ -58,6 +58,14 @@
 - `python -m app.cli drive-sync` (L5-T11) : synchronise par lot les originaux
   vers le dossier Google Drive configuré. Refuse de démarrer sans les deux
   variables Drive ; réessaie les échecs et signale après 24 h sur Telegram.
+- `python -m app.cli controler-prix [--depuis AAAA-MM-JJ]` (phase 3, tâche
+  P7, spec `docs/superpowers/specs/2026-09-27-prix-design.md` §6.2) :
+  recontrôle les prix de tous les bons (BL/enlèvement) non archivés datés à
+  partir de `--depuis`, ou du 1ᵉʳ jour du mois précédent par défaut
+  (`ingest.prix_bl.recontroler_bons`, une transaction par bon). Idempotente,
+  toujours code 0 si l'interrupteur général `prix_controle_bl_actif` est
+  éteint (rien n'est recalculé, même principe que `controler_prix_bl`) ;
+  code 1 si au moins un bon a échoué (journalisé, jamais remonté), 0 sinon.
 
 N'importe comme couches applicatives que `app.core`, `app.modules.ingest` et
 `app.modules.jobs` ; l'import de `messaging.telegram` reste différé au seul
@@ -92,7 +100,7 @@ import asyncio
 import getpass
 import sys
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from functools import partial
 from pathlib import Path
@@ -102,6 +110,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.db import creer_engine, creer_sessionmaker
+from app.core.fuseau import FUSEAU_PARIS
 from app.modules.extract.bl import OPTIONS_OCR_BL
 from app.modules.extract.facture import FactureIllisible
 from app.modules.extract.verification import (
@@ -114,6 +123,7 @@ from app.modules.ingest.factures import (
     lire_facture,
 )
 from app.modules.ingest.mistral import ErreurOCR, ocr_document
+from app.modules.ingest.prix_bl import recontroler_bons
 from app.modules.ingest.rapport_ocr import (
     ecrire_rapport,
     mesurer_dossier,
@@ -538,6 +548,45 @@ async def _controles_differes() -> int:
     return 0
 
 
+def _premier_jour_mois_precedent(aujourdhui: date) -> date:
+    if aujourdhui.month == 1:
+        return date(aujourdhui.year - 1, 12, 1)
+    return date(aujourdhui.year, aujourdhui.month - 1, 1)
+
+
+def _date_iso(valeur: str) -> date:
+    try:
+        return date.fromisoformat(valeur)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            "date invalide, format attendu AAAA-MM-JJ"
+        ) from None
+
+
+async def _controler_prix(depuis: date | None) -> int:
+    """Implémentation de `controler-prix` (phase 3, tâche P7) : recontrôle
+    tous les bons (BL/enlèvement) non archivés datés à partir de `depuis`,
+    ou du 1ᵉʳ jour du mois précédent si absent (spec §6.2). Toujours code 0
+    si l'interrupteur général est éteint (rien n'est recalculé, même
+    principe que `controler_prix_bl`) ; sinon code 1 s'il y a eu au moins un
+    échec de bon (journalisé, jamais remonté), 0 sinon."""
+    settings = get_settings()
+    borne = depuis or _premier_jour_mois_precedent(datetime.now(FUSEAU_PARIS).date())
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            resultat = await recontroler_bons(session, depuis=borne)
+    finally:
+        await engine.dispose()
+
+    print(
+        f"{resultat.nb_bons} bons recontrôlés, {resultat.nb_echecs} échecs, "
+        f"{resultat.nb_alertes_ouvertes} alertes de prix ouvertes au total"
+    )
+    return 1 if resultat.nb_echecs > 0 else 0
+
+
 async def _drive_sync(*, limite: int) -> int:
     """Synchronise un lot borné ; refuse de démarrer sans secret Drive."""
     settings = get_settings()
@@ -695,6 +744,23 @@ def _construire_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    parser_controler_prix = sous_parsers.add_parser(
+        "controler-prix",
+        help=(
+            "Recontrôle les prix de tous les bons non archivés depuis une date "
+            "(1er du mois précédent par défaut)"
+        ),
+    )
+    parser_controler_prix.add_argument(
+        "--depuis",
+        type=_date_iso,
+        default=None,
+        help=(
+            "date à partir de laquelle recontrôler (AAAA-MM-JJ, défaut : "
+            "1er du mois précédent)"
+        ),
+    )
+
     parser_drive_sync = sous_parsers.add_parser(
         "drive-sync",
         help="Synchronise vers Google Drive les documents encore en attente",
@@ -752,6 +818,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_rapprocher_facture(facture_id=args.facture))
     if args.commande == "controles-differes":
         return asyncio.run(_controles_differes())
+    if args.commande == "controler-prix":
+        return asyncio.run(_controler_prix(args.depuis))
     if args.commande == "drive-sync":
         return asyncio.run(_drive_sync(limite=args.limite))
     raise AssertionError(f"commande inconnue : {args.commande}")  # pragma: no cover
