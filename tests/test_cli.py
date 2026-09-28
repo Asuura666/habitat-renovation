@@ -95,7 +95,9 @@ from app.core.config import get_settings
 from app.core.db import creer_sessionmaker
 from app.modules.extract.bl import OPTIONS_OCR_BL
 from app.modules.extract.facture import Facture, FactureIllisible
+from app.modules.extract.reponses_ia import PrixInternetLu
 from app.modules.extract.verification import SEUIL_CONFIANCE_DEFAUT
+from app.modules.ingest.ia_prix import BilanIA, LigneEssai, ProduitEssai
 from app.modules.ingest.ia_synthese import ResultatSynthese
 from app.modules.ingest.mistral import ErreurOCR
 from app.modules.ingest.models import (
@@ -1697,5 +1699,359 @@ def test_synthese_commentaires_semaine_pas_lundi_systemexit_2() -> None:
     """22/09/2026 est un mardi (inventé pour ce test)."""
     with pytest.raises(SystemExit) as exc_info:
         cli.main(["synthese-commentaires", "--semaine", "2026-09-22"])
+
+    assert exc_info.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# `ia-prix` (T6, phase 4 IA) -- câblage CLI seulement, la logique métier
+# (sélection, cache, échecs, plafond) est déjà testée en profondeur côté
+# `ingest` (`app/modules/ingest/tests/test_ia_prix.py`) : les tests ici ne
+# vérifient que le message affiché et le code de sortie, `expliquer_alertes`/
+# `chercher_prix_internet` étant monkeypatchées (jamais de vrai appel IA ni
+# de vraie base touchée par le service).
+# ---------------------------------------------------------------------------
+
+
+def _bilan_factice(bilan: BilanIA) -> Callable[..., Any]:
+    async def _factice(session: Any, http: Any) -> BilanIA:
+        return bilan
+
+    return _factice
+
+
+async def _jamais_appelee_bilan(session: Any, http: Any) -> BilanIA:
+    raise AssertionError("ne doit jamais être appelée")
+
+
+def test_ia_prix_ia_eteinte_code_0(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(cli, "ia_active", lambda: False)
+    monkeypatch.setattr(cli, "expliquer_alertes", _jamais_appelee_bilan)
+    monkeypatch.setattr(cli, "chercher_prix_internet", _jamais_appelee_bilan)
+
+    code = cli.main(["ia-prix"])
+    sortie = capsys.readouterr().out
+
+    assert code == 0
+    assert sortie.strip() == "IA éteinte : rien à faire"
+
+
+def test_ia_prix_nominal_message_et_code_0(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(cli, "ia_active", lambda: True)
+    monkeypatch.setattr(cli, "expliquer_alertes", _bilan_factice(BilanIA(ok=3)))
+    monkeypatch.setattr(
+        cli,
+        "chercher_prix_internet",
+        _bilan_factice(BilanIA(ok=1, non_verifiables=1)),
+    )
+
+    code = cli.main(["ia-prix"])
+    sortie = capsys.readouterr().out
+
+    assert code == 0
+    assert sortie.strip() == "3 explications, 1 prix trouvé, 1 non vérifiable, 0 échec"
+
+
+def test_ia_prix_arret_plafond_pendant_explications_saute_recherche_prix(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`chercher_prix_internet` ne doit jamais être appelée si les
+    explications se sont déjà arrêtées faute d'IA joignable (brief : « puis,
+    si pas d'arrêt »)."""
+    monkeypatch.setattr(cli, "ia_active", lambda: True)
+    monkeypatch.setattr(
+        cli, "expliquer_alertes", _bilan_factice(BilanIA(arret="plafond"))
+    )
+    monkeypatch.setattr(cli, "chercher_prix_internet", _jamais_appelee_bilan)
+
+    code = cli.main(["ia-prix"])
+    sortie = capsys.readouterr().out
+
+    assert code == 0
+    assert sortie.strip() == (
+        "0 explication, 0 prix trouvé, 0 non vérifiable, 0 échec"
+        " — plafond du jour atteint"
+    )
+
+
+def test_ia_prix_toutes_tentatives_injoignables_code_1(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(cli, "ia_active", lambda: True)
+    monkeypatch.setattr(
+        cli,
+        "expliquer_alertes",
+        _bilan_factice(BilanIA(echecs=2, echecs_injoignable=2)),
+    )
+    monkeypatch.setattr(
+        cli,
+        "chercher_prix_internet",
+        _bilan_factice(BilanIA(echecs=1, echecs_injoignable=1)),
+    )
+
+    code = cli.main(["ia-prix"])
+    sortie = capsys.readouterr().out
+
+    assert code == 1
+    assert sortie.strip() == "0 explication, 0 prix trouvé, 0 non vérifiable, 3 échecs"
+
+
+def test_ia_prix_melange_succes_et_echec_injoignable_reste_code_0(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un échec « injoignable » mêlé à un succès reste code 0 -- seul le cas
+    « toutes les tentatives ont échoué faute d'IA joignable » déclenche
+    l'alerte (code 1)."""
+    monkeypatch.setattr(cli, "ia_active", lambda: True)
+    monkeypatch.setattr(cli, "expliquer_alertes", _bilan_factice(BilanIA(ok=1)))
+    monkeypatch.setattr(
+        cli,
+        "chercher_prix_internet",
+        _bilan_factice(BilanIA(echecs=1, echecs_injoignable=1)),
+    )
+
+    code = cli.main(["ia-prix"])
+
+    assert code == 0
+
+
+def test_ia_prix_sans_argument_supplementaire() -> None:
+    """`ia-prix` ne prend aucun argument : un argument superflu est rejeté
+    par `argparse` lui-même, avant tout accès à la configuration ou à la
+    base."""
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["ia-prix", "--inconnu"])
+
+    assert exc_info.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# `essai-prix-internet` (T6, phase 4 IA, document d'Ilane §16) -- lecture du
+# CSV testée en propre (pure, sans base) ; câblage CLI vérifié avec
+# `essayer_prix_internet` monkeypatchée.
+# ---------------------------------------------------------------------------
+
+
+def test_lire_produits_essai_entete_reconnue_et_ignoree(tmp_path: Path) -> None:
+    chemin = tmp_path / "produits.csv"
+    chemin.write_text(
+        "fournisseur;designation;code;unite\n"
+        "Fournisseur Un;Produit Un;COD1;u\n"
+        ";Produit Deux;;\n",
+        encoding="utf-8",
+    )
+
+    produits = cli._lire_produits_essai(chemin)
+
+    assert produits == [
+        ProduitEssai(
+            fournisseur="Fournisseur Un",
+            designation="Produit Un",
+            code="COD1",
+            unite="u",
+        ),
+        ProduitEssai(
+            fournisseur=None, designation="Produit Deux", code=None, unite=None
+        ),
+    ]
+
+
+def test_lire_produits_essai_entete_insensible_a_la_casse(tmp_path: Path) -> None:
+    chemin = tmp_path / "produits.csv"
+    chemin.write_text(
+        "FOURNISSEUR;designation;code;unite\nFournisseur Un;Produit Un;COD1;u\n",
+        encoding="utf-8",
+    )
+
+    produits = cli._lire_produits_essai(chemin)
+
+    assert len(produits) == 1
+    assert produits[0].designation == "Produit Un"
+
+
+def test_lire_produits_essai_sans_entete_premiere_ligne_gardee(tmp_path: Path) -> None:
+    """Une ligne de données dont le premier champ ne commence pas par
+    « fournisseur » (brief T6 : reconnaissance sur ce seul critère) n'est
+    jamais prise pour une en-tête, même en premier."""
+    chemin = tmp_path / "produits.csv"
+    chemin.write_text("Point P Invente;Produit Un;COD1;u\n", encoding="utf-8")
+
+    produits = cli._lire_produits_essai(chemin)
+
+    assert produits == [
+        ProduitEssai(
+            fournisseur="Point P Invente",
+            designation="Produit Un",
+            code="COD1",
+            unite="u",
+        ),
+    ]
+
+
+def test_lire_produits_essai_lignes_vides_ignorees(tmp_path: Path) -> None:
+    chemin = tmp_path / "produits.csv"
+    chemin.write_text(
+        "fournisseur;designation;code;unite\n\nFournisseur Un;Produit Un;COD1;u\n\n",
+        encoding="utf-8",
+    )
+
+    produits = cli._lire_produits_essai(chemin)
+
+    assert len(produits) == 1
+
+
+def test_essai_prix_internet_ia_eteinte_code_1(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """IA éteinte -> code 1 (contrairement à `ia-prix`) et le fichier n'est
+    jamais lu (vérifié en pointant un chemin qui n'existe pas)."""
+    monkeypatch.setattr(cli, "ia_active", lambda: False)
+
+    code = cli.main(
+        ["essai-prix-internet", "--fichier", str(tmp_path / "inexistant.csv")]
+    )
+    sortie = capsys.readouterr().out
+
+    assert code == 1
+    assert sortie.strip() == "IA éteinte : rien à faire"
+
+
+def test_essai_prix_internet_fichier_introuvable_code_2(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(cli, "ia_active", lambda: True)
+    chemin = tmp_path / "inexistant.csv"
+
+    code = cli.main(["essai-prix-internet", "--fichier", str(chemin)])
+    sortie = capsys.readouterr()
+
+    assert code == 2
+    assert sortie.out == ""
+    assert sortie.err.strip() == f"lecture du fichier impossible : {chemin}"
+
+
+def test_essai_prix_internet_nominal_csv_sortie(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(cli, "ia_active", lambda: True)
+    chemin = tmp_path / "produits.csv"
+    chemin.write_text(
+        "fournisseur;designation;code;unite\n"
+        "Fournisseur Un;Produit Un;COD1;u\n"
+        ";Produit Deux;;\n",
+        encoding="utf-8",
+    )
+    produits_attendus = [
+        ProduitEssai(
+            fournisseur="Fournisseur Un",
+            designation="Produit Un",
+            code="COD1",
+            unite="u",
+        ),
+        ProduitEssai(
+            fournisseur=None, designation="Produit Deux", code=None, unite=None
+        ),
+    ]
+    lignes_essai = [
+        LigneEssai(
+            produit=produits_attendus[0],
+            resultat=PrixInternetLu(
+                statut="trouve",
+                prix=Decimal("12.3400"),
+                devise="EUR",
+                taxes="HT",
+                unite="u",
+                conditionnement="boîte",
+                produit_trouve="Produit Un Trouvé",
+                source_url="https://exemple.invalid/produit-un",
+                confiance="elevee",
+                raison=None,
+            ),
+            erreur=None,
+            duree_s=1.234,
+        ),
+        LigneEssai(
+            produit=produits_attendus[1],
+            resultat=None,
+            erreur="ProviderAuthError",
+            duree_s=0.5,
+        ),
+    ]
+    produits_captures: list[ProduitEssai] = []
+
+    async def _essayer_prix_internet_factice(
+        session: Any, http: Any, produits: Any
+    ) -> list[LigneEssai]:
+        produits_captures.extend(produits)
+        return lignes_essai
+
+    monkeypatch.setattr(cli, "essayer_prix_internet", _essayer_prix_internet_factice)
+
+    code = cli.main(["essai-prix-internet", "--fichier", str(chemin)])
+    sortie = capsys.readouterr().out.splitlines()
+
+    assert code == 0
+    assert produits_captures == produits_attendus
+    assert sortie[0] == (
+        "designation;statut;prix;taxes;unite;conditionnement;produit_trouve;"
+        "source_url;confiance;raison;duree_s"
+    )
+    assert sortie[1] == ";".join(
+        [
+            "Produit Un",
+            "trouve",
+            "12.3400",
+            "HT",
+            "u",
+            "boîte",
+            "Produit Un Trouvé",
+            "https://exemple.invalid/produit-un",
+            "elevee",
+            "",
+            "1.2",
+        ]
+    )
+    assert sortie[2] == ";".join(
+        [
+            "Produit Deux",
+            "echec",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "ProviderAuthError",
+            "0.5",
+        ]
+    )
+
+
+def test_essai_prix_internet_sans_fichier_systemexit_2() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["essai-prix-internet"])
 
     assert exc_info.value.code == 2

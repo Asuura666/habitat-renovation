@@ -979,6 +979,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ia/anomalies/{anomalie_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Avis Ia Anomalie Endpoint */
+        get: operations["avis_ia_anomalie_endpoint_api_ia_anomalies__anomalie_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1191,6 +1208,17 @@ export interface components {
              * Format: date-time
              */
             cree_le: string;
+        };
+        /**
+         * AvisIAReponse
+         * @description Réponse de `GET /api/ia/anomalies/{id}` — mêmes attributs
+         *     qu'`ingest.ia_prix.AvisIA`.
+         */
+        AvisIAReponse: {
+            /** Ia Active */
+            ia_active: boolean;
+            explication: components["schemas"]["ExplicationAlerteReponse"] | null;
+            prix_internet: components["schemas"]["PrixInternetReponse"] | null;
         };
         /**
          * BlocFactureReponse
@@ -1854,6 +1882,20 @@ export interface components {
             /** Chantier Id */
             chantier_id: string | null;
         };
+        /**
+         * ExplicationAlerteReponse
+         * @description Explication d'une alerte prix — mêmes attributs
+         *     qu'`ingest.ia_prix.ExplicationVue`.
+         */
+        ExplicationAlerteReponse: {
+            /** Texte */
+            texte: string;
+            /**
+             * Cree Le
+             * Format: date-time
+             */
+            cree_le: string;
+        };
         /** FactureDeposeeReponse */
         FactureDeposeeReponse: {
             /**
@@ -2353,6 +2395,38 @@ export interface components {
             maximum: string;
             /** Entier */
             entier: boolean;
+        };
+        /**
+         * PrixInternetReponse
+         * @description Dernier prix trouvé sur internet pour le produit d'une anomalie —
+         *     mêmes attributs qu'`ingest.ia_prix.PrixInternetVue`.
+         */
+        PrixInternetReponse: {
+            /** Statut */
+            statut: string;
+            /** Prix */
+            prix: string | null;
+            /** Devise */
+            devise: string | null;
+            /** Taxes */
+            taxes: string | null;
+            /** Unite */
+            unite: string | null;
+            /** Conditionnement */
+            conditionnement: string | null;
+            /** Produit Trouve */
+            produit_trouve: string | null;
+            /** Source Url */
+            source_url: string | null;
+            /** Confiance */
+            confiance: string | null;
+            /** Raison */
+            raison: string | null;
+            /**
+             * Consulte Le
+             * Format: date-time
+             */
+            consulte_le: string;
         };
         /**
          * ProblemePrioritaireReponse
@@ -4372,6 +4446,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ActionSyntheseReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    avis_ia_anomalie_endpoint_api_ia_anomalies__anomalie_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                anomalie_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvisIAReponse"];
                 };
             };
             /** @description Validation Error */

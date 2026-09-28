@@ -2977,6 +2977,46 @@
     }
    }
   },
+  "/api/ia/anomalies/{anomalie_id}": {
+   "get": {
+    "summary": "Avis Ia Anomalie Endpoint",
+    "operationId": "avis_ia_anomalie_endpoint_api_ia_anomalies__anomalie_id__get",
+    "parameters": [
+     {
+      "name": "anomalie_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Anomalie Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AvisIAReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/health": {
    "get": {
     "summary": "Health",
@@ -3510,6 +3550,42 @@
     ],
     "title": "ArticleAValiderReponse",
     "description": "Un article à valider, dans `GET /api/a-traiter` — mêmes attributs\nqu'`ingest.a_traiter.ArticleAValider`."
+   },
+   "AvisIAReponse": {
+    "properties": {
+     "ia_active": {
+      "type": "boolean",
+      "title": "Ia Active"
+     },
+     "explication": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ExplicationAlerteReponse"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "prix_internet": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PrixInternetReponse"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "type": "object",
+    "required": [
+     "ia_active",
+     "explication",
+     "prix_internet"
+    ],
+    "title": "AvisIAReponse",
+    "description": "Réponse de `GET /api/ia/anomalies/{id}` — mêmes attributs\nqu'`ingest.ia_prix.AvisIA`."
    },
    "BlocFactureReponse": {
     "properties": {
@@ -5247,6 +5323,26 @@
     "title": "DocumentReponse",
     "description": "Une ligne de `GET /api/documents` (`confirmation` ajouté au Ruling\nL2-R8, correction de revue L2-T7 : le front ne doit plus dériver\nvérifié/écart à partir de `statut`, qui suit une tout autre logique —\nvoir `ingest/service.py::lister_documents` ; `fournisseur`/\n`chantier_brut` ajoutés en L3-T8a pour un aperçu utile dans la liste ;\n`chantier_id` ajouté au tour de correction 1 de Task 8 — le filtre\n`?chantier=` de la liste « Documents » ne peut comparer un identifiant\nde chantier connu (`?chantier=<id>`, résolu par `GET /api/chantiers`)\nqu'à un identifiant, jamais à un préfixe de texte brut non normalisé\n(`chantier_brut`) ; `date_doc` ajouté au tour de correction 2 — pour un\nBL/enlèvement, la date du bon telle qu'imprimée (sa date de livraison),\npas sa date de dépôt (`cree_le`) : le filtre `?mois=` de la liste\n« Documents » comparait tout document sur `cree_le`, ce qui excluait un\nBL de son mois de livraison réel quand il est déposé un autre mois."
    },
+   "ExplicationAlerteReponse": {
+    "properties": {
+     "texte": {
+      "type": "string",
+      "title": "Texte"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "texte",
+     "cree_le"
+    ],
+    "title": "ExplicationAlerteReponse",
+    "description": "Explication d'une alerte prix — mêmes attributs\nqu'`ingest.ia_prix.ExplicationVue`."
+   },
    "FactureDeposeeReponse": {
     "properties": {
      "id": {
@@ -6717,6 +6813,135 @@
     ],
     "title": "ParametreReponse",
     "description": "Un seuil administrable avec ses métadonnées de présentation."
+   },
+   "PrixInternetReponse": {
+    "properties": {
+     "statut": {
+      "type": "string",
+      "title": "Statut"
+     },
+     "prix": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Prix"
+     },
+     "devise": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Devise"
+     },
+     "taxes": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Taxes"
+     },
+     "unite": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite"
+     },
+     "conditionnement": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Conditionnement"
+     },
+     "produit_trouve": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Produit Trouve"
+     },
+     "source_url": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Url"
+     },
+     "confiance": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confiance"
+     },
+     "raison": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Raison"
+     },
+     "consulte_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Consulte Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "statut",
+     "prix",
+     "devise",
+     "taxes",
+     "unite",
+     "conditionnement",
+     "produit_trouve",
+     "source_url",
+     "confiance",
+     "raison",
+     "consulte_le"
+    ],
+    "title": "PrixInternetReponse",
+    "description": "Dernier prix trouvé sur internet pour le produit d'une anomalie —\nmêmes attributs qu'`ingest.ia_prix.PrixInternetVue`."
    },
    "ProblemePrioritaireReponse": {
     "properties": {

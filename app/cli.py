@@ -88,6 +88,29 @@
   la base (même mécanique que `--seuil` de `rapport-ocr`). Code 1 sur
   `statut="echec"` (le timer d'exploitation alerte alors sur Telegram et
   réessaie le lendemain), 0 dans tous les autres cas.
+- `python -m app.cli ia-prix` (T6, phase 4 IA, spec §6.4) : explique les
+  alertes prix ouvertes (`ingest.ia_prix.expliquer_alertes`) puis, si cette
+  première étape ne s'est pas arrêtée faute d'IA joignable, cherche un prix
+  internet pour les produits absents de la grille
+  (`ingest.ia_prix.chercher_prix_internet`) — toute la logique (sélection,
+  cache, échecs, plafond) est déjà dans ces deux fonctions, idempotentes ;
+  cette CLI ne fait que les enchaîner et afficher leur bilan combiné. IA
+  éteinte -> « IA éteinte : rien à faire », code 0 (tâche planifiée : rien à
+  faire n'est pas un échec). Code 1 seulement si au moins une tentative a eu
+  lieu et qu'elles ont **toutes** échoué faute d'IA joignable (réseau, délai,
+  statut HTTP, abonnement déconnecté) — le timer d'exploitation alerte alors
+  sur Telegram ; un simple mélange de succès/échecs, ou un plafond atteint
+  sans aucune tentative en échec « injoignable », reste code 0.
+- `python -m app.cli essai-prix-internet --fichier <csv>` (T6, phase 4 IA,
+  spec §7, document d'Ilane §16) : essai manuel de la recherche de prix
+  internet sur une vingtaine de produits réels, avant de se fier au
+  mécanisme automatique — délègue à `ingest.ia_prix.essayer_prix_internet`
+  (sans cache ni enregistrement, seul `appel_ia` est écrit). CSV `;` UTF-8
+  en entrée (`fournisseur;designation;code;unite`, en-tête facultative) ;
+  CSV `;` en sortie sur la console. IA éteinte -> message, code **1**
+  (contrairement à `ia-prix` : ici un humain attend un résultat, « rien à
+  faire » est un échec). Le fichier n'est jamais recopié ni journalisé
+  (produits réels d'un fournisseur, hors dépôt comme `tests/fixtures/`).
 
 N'importe comme couches applicatives que `app.core`, `app.modules.ingest` et
 `app.modules.jobs` ; l'import de `messaging.telegram` reste différé au seul
@@ -105,7 +128,7 @@ T7/L2-T1b/L3-T5/L3-T11/L4-T11/L5-T11). L5-T11 ajoute le paquet `jobs`
 et un import différé de `messaging.telegram` pour le seul signalement.
 `rattachement_chantier.py` depuis Task 8 (avenant du 27/09/2026),
 `rangement.py` depuis Task 9 (même avenant), `ia_synthese.py` depuis T4
-(phase 4 IA, 27/09/2026).
+(phase 4 IA, 27/09/2026), `ia_prix.py` depuis T6 (même phase).
 
 Import différé de `app.core.auth` (dans le corps de `_utilisateur_creer`/
 `_utilisateur_desactiver`, pas en tête de fichier) : ce module appelle
@@ -146,8 +169,17 @@ from app.modules.ingest.factures import (
     formater_blocs,
     lire_facture,
 )
+from app.modules.ingest.ia_prix import (
+    BilanIA,
+    LigneEssai,
+    ProduitEssai,
+    chercher_prix_internet,
+    essayer_prix_internet,
+    expliquer_alertes,
+)
 from app.modules.ingest.ia_synthese import derniere_semaine_complete, generer_synthese
 from app.modules.ingest.mistral import ErreurOCR, ocr_document
+from app.modules.ingest.opencode import ia_active
 from app.modules.ingest.rangement import ranger_tout
 from app.modules.ingest.rapport_ocr import (
     ecrire_rapport,
@@ -741,6 +773,174 @@ async def _synthese_commentaires(*, semaine_debut: date | None) -> int:
     return 1
 
 
+# ---------------------------------------------------------------------------
+# `ia-prix` / `essai-prix-internet` (T6, phase 4 IA)
+# ---------------------------------------------------------------------------
+
+
+def _accord(nombre: int, singulier: str, pluriel: str) -> str:
+    """Accord français simplifié (0 et 1 -> singulier, 2 et plus ->
+    pluriel), utilisé par le message de `ia-prix` (brief T6 : « 3
+    explications, 1 prix trouvé, 1 non vérifiable, 0 échec »)."""
+    return f"{nombre} {singulier if nombre <= 1 else pluriel}"
+
+
+async def _ia_prix() -> int:
+    """Implémentation de `ia-prix` (T6, spec §6.4). Toute la logique
+    (sélection, texte envoyé, cache, échecs, plafond) est déjà dans
+    `ingest.ia_prix.expliquer_alertes`/`chercher_prix_internet`
+    (idempotentes) : cette CLI ne fait que les enchaîner, construire ses
+    dépendances (moteur DB, client HTTP) et afficher leur bilan combiné,
+    comme les autres commandes de ce fichier.
+
+    La recherche de prix internet n'est tentée que si les explications ne se
+    sont pas arrêtées faute d'IA joignable (brief : « puis, si pas
+    d'arrêt ») -- un plafond déjà atteint pendant les explications ne sert
+    à rien de retenter aussitôt après.
+
+    Code 1 seulement si au moins une tentative a eu lieu (`ok` +
+    `non_verifiables` + `echecs`, toutes tâches confondues) et que toutes ont
+    échoué faute d'IA joignable (`echecs_injoignable` égal au total des
+    tentatives) : un plafond atteint sans aucune tentative, ou un mélange de
+    succès et d'échecs, reste code 0 (rien d'urgent à signaler)."""
+    if not ia_active():
+        print("IA éteinte : rien à faire")
+        return 0
+
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session, httpx.AsyncClient() as http:
+            bilan_explications = await expliquer_alertes(session, http)
+            if bilan_explications.arret is not None:
+                bilan_prix = BilanIA()
+            else:
+                bilan_prix = await chercher_prix_internet(session, http)
+    finally:
+        await engine.dispose()
+
+    echecs_total = bilan_explications.echecs + bilan_prix.echecs
+    tentatives = (
+        bilan_explications.ok
+        + bilan_explications.echecs
+        + bilan_prix.ok
+        + bilan_prix.non_verifiables
+        + bilan_prix.echecs
+    )
+    injoignables = bilan_explications.echecs_injoignable + bilan_prix.echecs_injoignable
+
+    message = (
+        f"{_accord(bilan_explications.ok, 'explication', 'explications')}, "
+        f"{_accord(bilan_prix.ok, 'prix trouvé', 'prix trouvés')}, "
+        f"{_accord(bilan_prix.non_verifiables, 'non vérifiable', 'non vérifiables')}, "
+        f"{_accord(echecs_total, 'échec', 'échecs')}"
+    )
+    arret = bilan_explications.arret or bilan_prix.arret
+    if arret == "plafond":
+        message += " — plafond du jour atteint"
+    print(message)
+
+    if tentatives > 0 and injoignables == tentatives:
+        return 1
+    return 0
+
+
+def _lire_produits_essai(chemin: Path) -> list[ProduitEssai]:
+    """Lit le CSV `;` UTF-8 de `--fichier` (T6, spec §7) : colonnes
+    `fournisseur;designation;code;unite`, ligne d'en-tête facultative
+    (reconnue si elle commence par `fournisseur`, insensible à la casse).
+    Champ vide ou absent (ligne plus courte que 4 colonnes) -> `None`, sauf
+    `designation` (obligatoire, gardée telle quelle même vide -- un produit
+    sans désignation sera simplement rejeté plus loin par l'appel à l'IA,
+    jamais silencieusement ici)."""
+    produits: list[ProduitEssai] = []
+    for indice, ligne in enumerate(chemin.read_text(encoding="utf-8").splitlines()):
+        if not ligne.strip():
+            continue
+        champs = ligne.split(";")
+        if indice == 0 and champs[0].strip().lower().startswith("fournisseur"):
+            continue
+        champs = champs[:4] + [""] * (4 - len(champs))
+        fournisseur, designation, code, unite = (champ.strip() for champ in champs)
+        produits.append(
+            ProduitEssai(
+                fournisseur=fournisseur or None,
+                designation=designation,
+                code=code or None,
+                unite=unite or None,
+            )
+        )
+    return produits
+
+
+_ENTETE_CSV_ESSAI = (
+    "designation;statut;prix;taxes;unite;conditionnement;produit_trouve;"
+    "source_url;confiance;raison;duree_s"
+)
+
+
+def _ligne_csv_essai(ligne: LigneEssai) -> str:
+    """Une ligne du CSV `;` de sortie de `essai-prix-internet` (brief T6,
+    colonnes de `_ENTETE_CSV_ESSAI`) : `statut="echec"` et `raison` = code de
+    l'erreur quand `ligne.resultat` est absent (aucun champ de résultat
+    n'est alors rempli)."""
+    resultat = ligne.resultat
+    if resultat is None:
+        champs = ["echec", "", "", "", "", "", "", "", ligne.erreur or ""]
+    else:
+        champs = [
+            resultat.statut,
+            str(resultat.prix) if resultat.prix is not None else "",
+            resultat.taxes or "",
+            resultat.unite or "",
+            resultat.conditionnement or "",
+            resultat.produit_trouve or "",
+            resultat.source_url or "",
+            resultat.confiance or "",
+            resultat.raison or "",
+        ]
+    return ";".join([ligne.produit.designation, *champs, f"{ligne.duree_s:.1f}"])
+
+
+async def _essai_prix_internet(fichier: Path) -> int:
+    """Implémentation de `essai-prix-internet --fichier <csv>` (T6, spec §7,
+    document d'Ilane §16) : essai manuel sur des produits réels avant de se
+    fier à la recherche automatique de prix internet. IA éteinte -> code
+    **1** (contrairement à `ia-prix` : ici un humain attend un résultat,
+    « rien à faire » est un échec) -- vérifié avant toute lecture du fichier,
+    qui peut porter des désignations de produits réels d'un fournisseur.
+
+    `essayer_prix_internet` ne touche ni le cache ni `prix_internet` (seul
+    `appel_ia` est écrit, par le client OpenCode) : rien à nettoyer après
+    l'essai. Toujours code 0 une fois l'essai lancé (des échecs individuels
+    sont attendus et affichés tels quels, l'humain juge le résultat
+    d'ensemble)."""
+    if not ia_active():
+        print("IA éteinte : rien à faire")
+        return 1
+
+    try:
+        produits = await asyncio.to_thread(_lire_produits_essai, fichier)
+    except (OSError, UnicodeDecodeError):
+        print(f"lecture du fichier impossible : {fichier}", file=sys.stderr)
+        return 2
+
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session, httpx.AsyncClient() as http:
+            lignes = await essayer_prix_internet(session, http, produits)
+    finally:
+        await engine.dispose()
+
+    print(_ENTETE_CSV_ESSAI)
+    for ligne in lignes:
+        print(_ligne_csv_essai(ligne))
+    return 0
+
+
 def _construire_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="app.cli")
     sous_parsers = parser.add_subparsers(dest="commande", required=True)
@@ -897,6 +1097,33 @@ def _construire_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    sous_parsers.add_parser(
+        "ia-prix",
+        help=(
+            "Explique les alertes prix ouvertes puis cherche un prix "
+            "internet pour les produits absents de la grille (T6, phase 4 "
+            "IA) -- idempotente"
+        ),
+    )
+
+    parser_essai_prix_internet = sous_parsers.add_parser(
+        "essai-prix-internet",
+        help=(
+            "Essaie la recherche de prix internet sur un lot de produits "
+            "réels, sans rien enregistrer (T6, phase 4 IA, document "
+            "d'Ilane §16)"
+        ),
+    )
+    parser_essai_prix_internet.add_argument(
+        "--fichier",
+        type=Path,
+        required=True,
+        help=(
+            "CSV `;` UTF-8 : fournisseur;designation;code;unite (une ligne "
+            "par produit, en-tête facultative)"
+        ),
+    )
+
     return parser
 
 
@@ -949,6 +1176,10 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_ranger_photos())
     if args.commande == "synthese-commentaires":
         return asyncio.run(_synthese_commentaires(semaine_debut=args.semaine))
+    if args.commande == "ia-prix":
+        return asyncio.run(_ia_prix())
+    if args.commande == "essai-prix-internet":
+        return asyncio.run(_essai_prix_internet(args.fichier))
     raise AssertionError(f"commande inconnue : {args.commande}")  # pragma: no cover
 
 

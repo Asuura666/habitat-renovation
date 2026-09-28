@@ -5,13 +5,19 @@ construira l'écran) — toute la logique métier (sélection, cochage,
 journal) vit dans `ingest.ia_synthese` ; ce routeur valide, appelle le
 service, sérialise.
 
+`GET /api/ia/anomalies/{anomalie_id}` (T6, phase 4 IA, spec §6.4) : avis de
+l'IA (explication de l'alerte, prix trouvé sur internet) pour l'encart
+`AvisIA.tsx` du détail d'un problème (T7 construira l'écran) — même
+principe, toute la logique vit dans `ingest.ia_prix.avis_ia_anomalie`.
+
 Couche d'entrée (L2-D3) : ce routeur n'importe que `app.core` et
 `app.modules.ingest` (jamais `extract` directement — garde vérifiée par
-`tests/test_frontieres.py`). Les trois routes sont réservées à l'admin
+`tests/test_frontieres.py`). Les quatre routes sont réservées à l'admin
 (`admin_requis`, même principe qu'`api/comptes.py`) : la synthèse résume des
-commentaires (donc, indirectement, des chantiers) qu'un simple agent ne voit
-normalement qu'au compte-goutte (`ingest.commentaires`, un bon à la fois) —
-jamais agrégés comme ici."""
+commentaires (donc, indirectement, des chantiers) et l'avis IA porte sur une
+anomalie de prix, deux données qu'un simple agent ne voit normalement qu'au
+compte-goutte (`ingest.commentaires`, un bon à la fois ; l'écran « À
+régler ») — jamais agrégées ou expliquées par l'IA comme ici."""
 
 from __future__ import annotations
 
@@ -23,7 +29,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import Utilisateur, admin_requis
 from app.core.db import get_session
-from app.modules.api.schemas import ActionSyntheseReponse, SyntheseAccueilReponse
+from app.modules.api.schemas import (
+    ActionSyntheseReponse,
+    AvisIAReponse,
+    SyntheseAccueilReponse,
+)
+from app.modules.ingest.anomalies import AnomalieIntrouvable
+from app.modules.ingest.ia_prix import avis_ia_anomalie
 from app.modules.ingest.ia_synthese import (
     ActionIntrouvable,
     marquer_action,
@@ -87,3 +99,19 @@ async def marquer_action_a_faire_endpoint(
     return await _marquer_action_endpoint(
         session, action_id, faite=False, utilisateur=utilisateur
     )
+
+
+@router.get("/ia/anomalies/{anomalie_id}", response_model=AvisIAReponse)
+async def avis_ia_anomalie_endpoint(
+    anomalie_id: uuid.UUID,
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> AvisIAReponse:
+    del utilisateur
+    try:
+        avis = await avis_ia_anomalie(session, anomalie_id)
+    except AnomalieIntrouvable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="anomalie introuvable"
+        ) from exc
+    return AvisIAReponse.model_validate(avis)
