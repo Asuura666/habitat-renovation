@@ -159,17 +159,20 @@ Points à retenir :
   27-28/09/2026) : synthèse hebdomadaire des commentaires, explication des
   alertes prix et prix trouvé sur internet, conteneur OpenCode (client
   `ingest/opencode.py`) connecté à l'abonnement ChatGPT personnel d'Ilane —
-  tout est construit et testé sans lui, `IA_ACTIVE=false` par défaut.
-  Explication et prix internet restent sans objet tant que le lot Prix
-  n'est pas fusionné (R07-R09 masquées, R22 pas encore fusionnée dans `dev`
-  — elle existe sur la branche du lot Prix) ; la 3ᵉ colonne « Internet » de
-  `/prix` attend cette fusion (T10). Avenant CDC §15 à confirmer par Ilane.
-  Guide d'exploitation, connexion de l'abonnement, essai avant de se fier
-  au prix internet : `docs/phase-4-ia.md`.
+  tout est construit et testé sans lui, `IA_ACTIVE=false` par défaut. Le lot
+  Prix est fusionné dans `dev` (PR #5) et R22 (« Produit absent de la
+  grille ») porte désormais `dernier_prix` : explication et prix internet
+  traitent maintenant de vraies anomalies. **T10a fait**, sur la branche
+  `feature/phase-4-t10` : service groupé
+  `ingest.ia_prix.prix_internet_des_anomalies`, route `GET
+  /api/ia/prix-internet`, essai de bout en bout sur une vraie anomalie R22.
+  Reste T10b (3ᵉ colonne « Internet » de l'écran `/prix`). Avenant CDC §15 à
+  confirmer par Ilane. Guide d'exploitation, connexion de l'abonnement,
+  essai avant de se fier au prix internet : `docs/phase-4-ia.md`.
 - **Phase 3 (session B) : commentaires sur les lignes de bons et lot Prix
-  (grilles, contrôle au bon R19-R25, page Prix) sur
-  `feature/phase-3-prix`** ; contrôle éteint par défaut (réglage
-  `prix_controle_bl_actif`) ; migrations `0012`-`0013` ; détail
+  (grilles, contrôle au bon R19-R25, page Prix), fusionné dans `dev`
+  (PR #5)** ; contrôle éteint par défaut (réglage `prix_controle_bl_actif`) ;
+  migrations `0012`-`0013` ; détail
   `docs/superpowers/specs/2026-09-27-prix-design.md` et `docs/dette.md`
   (28/09/2026).
 

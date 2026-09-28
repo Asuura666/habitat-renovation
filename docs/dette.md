@@ -1242,6 +1242,12 @@ conception et au code métier (T1 à T7), pas à l'exploitation du conteneur.
   fusionnée dans `dev` (elle existe sur la branche du lot Prix) : le code
   de `ingest/ia_prix.py` est écrit et testé sur des anomalies inventées,
   mais n'a aujourd'hui aucune anomalie réelle à traiter.
+  **Résolu (T10a, 28/09/2026) :** le lot Prix est fusionné dans `dev` (PR
+  #5) — `expliquer_alertes` et `chercher_prix_internet` traitent désormais
+  de vraies anomalies R19-R25/R22, prouvé par un essai de bout en bout sur
+  une vraie anomalie R22 (`ingest/tests/test_ia_prix_bout_en_bout.py`,
+  vrais services `controler_prix_bl`/`chercher_prix_internet`, faux
+  transport OpenCode).
 - **R22 (lot Prix) ne porte pas encore `dernier_prix`.** Vérifié contre le
   vrai code de la branche du lot Prix à la relecture finale du 28/09/2026
   (`git show origin/feature/phase-3-prix:app/modules/rules/rules/R22.py`) :
@@ -1254,9 +1260,18 @@ conception et au code métier (T1 à T7), pas à l'exploitation du conteneur.
   facturé mais simplement absent de la grille — contrairement à l'intention
   du §6.1 de la spec (« ni grille ni facture »). Action précise à la fusion :
   item dédié de T10, `docs/superpowers/plans/2026-09-27-phase-4-ia.md`.
+  **Résolu (T10a, 28/09/2026) :** `rules/rules/R22.py`, tel que fusionné dans
+  `dev`, porte bien `dernier_prix`/`date_dernier_prix` (« — » si aucun) —
+  `ingest/ia_prix.py` lit exactement ces clés, sans modification nécessaire ;
+  vérifié par l'essai de bout en bout (variante avec une facture antérieure :
+  `dernier_prix` utile, aucune recherche internet lancée).
 - **3ᵉ colonne « Internet » de la page `/prix` à construire (T10).** Elle
   lira le même service (`ingest/ia_prix.py`) une fois le lot Prix fusionné
   dans `dev` — hors périmètre de la phase 4 IA elle-même (spec §6.4, §11).
+  **Précision (T10a, 28/09/2026) :** le lot Prix est fusionné ; le service
+  serveur est fait (`ingest.ia_prix.prix_internet_des_anomalies`, route `GET
+  /api/ia/prix-internet`, T10a). Reste seulement l'écran (T10b) : la colonne
+  elle-même, consommant cette route.
 - **`appel_ia` jamais purgé.** Chaque appel à l'IA (réussi ou non) écrit une
   ligne dans cette table technique, jamais supprimée. Volume attendu faible
   (quelques lignes par jour, plafonné par `IA_APPELS_MAX_JOUR`) : à

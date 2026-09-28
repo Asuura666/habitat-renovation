@@ -1,5 +1,6 @@
 """Explication des alertes prix et prix trouvé sur internet
-(`ingest/ia_prix.py`, T6, phase 4 IA — spec §5, §6, §7).
+(`ingest/ia_prix.py`, T6, phase 4 IA — spec §5, §6, §7 ; route groupée pour
+la page Prix, T10a — spec §6.4, brief `task-10a-brief.md`).
 
 Orchestrateur (comme le reste d'`ingest`) : ce module lit les anomalies de
 catégorie *prix* (`ingest.anomalies.CATEGORIES_REGLE`), construit le texte
@@ -7,17 +8,20 @@ envoyé à l'IA, l'interroge via `ingest.opencode.interroger` (seul point
 d'entrée réseau vers l'IA du dépôt), garde la réponse via
 `extract.reponses_ia.lire_explication`/`lire_prix_internet` (module pur),
 puis écrit `ExplicationAlerte`/`PrixInternet`. Il expose aussi la lecture
-pour l'écran (`avis_ia_anomalie`, consommé par `api/ia.py`, T6) et l'essai
-en ligne de commande (`essayer_prix_internet`, T7 du document d'Ilane).
+pour l'écran (`avis_ia_anomalie`, une anomalie à la fois, et
+`prix_internet_des_anomalies`, en lot -- T10a, toutes deux consommées par
+`api/ia.py`) et l'essai en ligne de commande (`essayer_prix_internet`, T7 du
+document d'Ilane).
 
-Contexte (rappel du brief) : les règles de prix au bon (R19-R25, dont R22
-« Produit absent de la grille ») sont construites en parallèle par une autre
-session (lot Prix) et n'existent pas encore sur cette branche. Ce module ne
-dépend donc d'aucune liste écrite à la main : la catégorie « prix » se lit
-dans `ingest.anomalies.CATEGORIES_REGLE` à l'exécution
+Contexte (T10a) : les règles de prix au bon (R19-R25, dont R22 « Produit
+absent de la grille ») sont depuis fusionnées dans `dev` (lot Prix, PR #5) --
+`rules/rules/R22.py` produit exactement le `detail` que ce module attend
+(`produit`, `code`, `unite_bon`, `dernier_prix`), vérifié par l'essai de bout
+en bout (`ingest/tests/test_ia_prix_bout_en_bout.py`). Ce module ne dépend
+toujours d'aucune liste écrite à la main : la catégorie « prix » se lit dans
+`ingest.anomalies.CATEGORIES_REGLE` à l'exécution
 (`regles_de_categorie("prix")`), et `REGLES_PRIX_INTERNET` n'est qu'une
-constante (`{"R22"}`) — dès la fusion du lot Prix, tout fonctionne sans
-modification de ce fichier.
+constante (`{"R22"}`).
 
 Minimisation des données envoyées à l'IA (CDC « l'IA extrait et normalise,
 elle ne décide jamais ») : l'explication ne reçoit que le titre de la règle,
@@ -88,6 +92,12 @@ ECHECS_MAX = 3
 # `DUREE_CACHE_PRIX` (30 jours pour un résultat exploitable), un échec ne
 # bloque une nouvelle tentative que 7 jours.
 _FENETRE_ECHECS_PRIX = timedelta(days=7)
+
+# Plafond de `GET /api/ia/prix-internet` (brief T10a) : au-delà, la route
+# refuse (422) plutôt que de charger un nombre arbitraire d'anomalies --
+# largement au-dessus de ce qu'une page « Prix à vérifier » affiche en une
+# fois (regroupée par produit, spec §8.1).
+MAX_ANOMALIES_PRIX_INTERNET = 200
 
 # Titres courts, en mots, des règles de prix -- `ui`/`libelles` n'étant pas
 # côté serveur (§5.2). Reprend R07-R09 (actives sur cette branche) et R19-R25
@@ -809,6 +819,70 @@ class AvisIA:
     prix_internet: PrixInternetVue | None
 
 
+def _cle_produit_pour_anomalie(
+    detail: Mapping[str, Any], fournisseur_id: uuid.UUID | None
+) -> str | None:
+    """Clé de cache produit (`cle_produit_internet`) d'une anomalie R22, ou
+    `None` si son `detail` ne porte pas de désignation exploitable (cas
+    défensif, jamais atteint en pratique -- `rules/R22.py` renseigne
+    toujours `produit`) -- factorise le calcul partagé par
+    `avis_ia_anomalie` et `prix_internet_des_anomalies` (brief T10a, « aucune
+    duplication avec avis_ia_anomalie »)."""
+    designation = _valeur_utile(detail.get("produit"))
+    if designation is None:
+        return None
+    code = _valeur_utile(detail.get("code"))
+    return cle_produit_internet(fournisseur_id, designation, code)
+
+
+def _vue_prix_internet(ligne: PrixInternet) -> PrixInternetVue:
+    """`PrixInternet` (ligne de base) -> `PrixInternetVue` (dataclass
+    affichée) -- factorise la construction partagée par `avis_ia_anomalie`
+    et `prix_internet_des_anomalies` (brief T10a)."""
+    return PrixInternetVue(
+        statut=ligne.statut,
+        prix=ligne.prix,
+        devise=ligne.devise,
+        taxes=ligne.taxes,
+        unite=ligne.unite,
+        conditionnement=ligne.conditionnement,
+        produit_trouve=ligne.produit_trouve,
+        source_url=ligne.source_url,
+        confiance=ligne.confiance,
+        raison=ligne.raison,
+        consulte_le=ligne.consulte_le,
+    )
+
+
+async def _dernieres_vues_prix_internet(
+    session: AsyncSession, cles: Sequence[str]
+) -> dict[str, PrixInternetVue]:
+    """Dernière ligne `trouve`/`non_verifiable` (jamais `echec`, §5.3/§6.4)
+    de chacune de `cles`, en une seule requête (triée par `consulte_le`
+    décroissant : la première ligne rencontrée pour une clé est la plus
+    récente) -- factorise la lecture du cache de prix internet, partagée par
+    `avis_ia_anomalie` (une seule clé) et `prix_internet_des_anomalies`
+    (potentiellement des dizaines, brief T10a : « une requête ... pour les
+    PrixInternet de toutes les clés concernées »)."""
+    cles_uniques = tuple(dict.fromkeys(cles))
+    if not cles_uniques:
+        return {}
+    lignes = (
+        await session.execute(
+            select(PrixInternet)
+            .where(
+                PrixInternet.cle.in_(cles_uniques),
+                PrixInternet.statut.in_(("trouve", "non_verifiable")),
+            )
+            .order_by(PrixInternet.consulte_le.desc())
+        )
+    ).scalars()
+    vues: dict[str, PrixInternetVue] = {}
+    for ligne in lignes:
+        vues.setdefault(ligne.cle, _vue_prix_internet(ligne))
+    return vues
+
+
 async def avis_ia_anomalie(session: AsyncSession, anomalie_id: uuid.UUID) -> AvisIA:
     """Avis de l'IA sur une anomalie (§6.4) : `AnomalieIntrouvable` si
     l'anomalie n'existe pas ou si sa règle est désactivée côté serveur
@@ -849,45 +923,103 @@ async def avis_ia_anomalie(session: AsyncSession, anomalie_id: uuid.UUID) -> Avi
 
     prix_vue: PrixInternetVue | None = None
     if anomalie.regle in REGLES_PRIX_INTERNET:
-        designation = _valeur_utile(anomalie.detail.get("produit"))
-        if designation is not None:
-            code = _valeur_utile(anomalie.detail.get("code"))
-            fournisseur_id: uuid.UUID | None = None
-            if anomalie.document_id is not None:
-                fournisseur_id = (
-                    await session.execute(
-                        select(Document.fournisseur_id).where(
-                            Document.id == anomalie.document_id
-                        )
-                    )
-                ).scalar_one_or_none()
-            cle = cle_produit_internet(fournisseur_id, designation, code)
-            derniere = (
+        fournisseur_id: uuid.UUID | None = None
+        if anomalie.document_id is not None:
+            fournisseur_id = (
                 await session.execute(
-                    select(PrixInternet)
-                    .where(
-                        PrixInternet.cle == cle,
-                        PrixInternet.statut.in_(("trouve", "non_verifiable")),
+                    select(Document.fournisseur_id).where(
+                        Document.id == anomalie.document_id
                     )
-                    .order_by(PrixInternet.consulte_le.desc())
-                    .limit(1)
                 )
             ).scalar_one_or_none()
-            if derniere is not None:
-                prix_vue = PrixInternetVue(
-                    statut=derniere.statut,
-                    prix=derniere.prix,
-                    devise=derniere.devise,
-                    taxes=derniere.taxes,
-                    unite=derniere.unite,
-                    conditionnement=derniere.conditionnement,
-                    produit_trouve=derniere.produit_trouve,
-                    source_url=derniere.source_url,
-                    confiance=derniere.confiance,
-                    raison=derniere.raison,
-                    consulte_le=derniere.consulte_le,
-                )
+        cle = _cle_produit_pour_anomalie(anomalie.detail, fournisseur_id)
+        if cle is not None:
+            vues = await _dernieres_vues_prix_internet(session, (cle,))
+            prix_vue = vues.get(cle)
 
     return AvisIA(
         ia_active=ia_active(), explication=explication_vue, prix_internet=prix_vue
     )
+
+
+# --------------------------------------------------------------------------
+# Prix internet de plusieurs anomalies (brief T10a) -- route groupée de la
+# page « Prix à vérifier » (`GET /api/ia/prix-internet`, lot Prix session B) :
+# le contrôleur a tranché pour une route dédiée plutôt que d'enrichir
+# `GET /api/prix/alertes`, afin de ne jamais faire dépendre le service du lot
+# Prix (`ingest.prix_bl`) de l'IA.
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PrixInternetLot:
+    """Réponse de `prix_internet_des_anomalies` (`GET /api/ia/prix-internet`)
+    : le prix internet de plusieurs anomalies en un seul appel, pour la 3ᵉ
+    colonne « Internet » de la page « Prix à vérifier ». `par_anomalie` ne
+    porte une clé que pour les identifiants qui désignent une anomalie R22
+    (`REGLES_PRIX_INTERNET`) ouverte et non masquée -- toute autre entrée de
+    `anomalie_ids` (inconnue, masquée, fermée, autre règle) est simplement
+    absente du dictionnaire, jamais une erreur (la page peut envoyer les
+    identifiants de rangées qui n'ont pas d'alerte R22)."""
+
+    ia_active: bool
+    par_anomalie: dict[uuid.UUID, PrixInternetVue | None]
+
+
+async def prix_internet_des_anomalies(
+    session: AsyncSession, anomalie_ids: Sequence[uuid.UUID]
+) -> PrixInternetLot:
+    """Prix internet de plusieurs anomalies en une seule fois (brief T10a) :
+    même sélection qu'`avis_ia_anomalie` (anomalie ouverte, non masquée --
+    `condition_regles_actives`, sans le paramètre `exclues` : exactement le
+    même filtre que le `anomalie.regle in regles_desactivees()` de
+    `avis_ia_anomalie` --, règle ∈ `REGLES_PRIX_INTERNET`) et même lecture du
+    cache (`_cle_produit_pour_anomalie`/`_dernieres_vues_prix_internet`,
+    aucune duplication de calcul entre les deux fonctions -- le comportement
+    d'`avis_ia_anomalie` ne change pas), mais en lot : une seule requête pour
+    les anomalies (jointes à leur document pour le fournisseur), une seule
+    pour les `PrixInternet` de toutes les clés concernées -- jamais une
+    requête par anomalie.
+
+    Doublons de `anomalie_ids` ignorés (`dict.fromkeys`, même idiome que
+    `ingest.prix_bl._charger_groupe`). `ValueError` si, une fois dédupliqués,
+    il en reste plus de `MAX_ANOMALIES_PRIX_INTERNET` (200) -- l'API traduit
+    en 422 (message en français)."""
+    ids_uniques = tuple(dict.fromkeys(anomalie_ids))
+    if len(ids_uniques) > MAX_ANOMALIES_PRIX_INTERNET:
+        raise ValueError(
+            f"{MAX_ANOMALIES_PRIX_INTERNET} identifiants d'anomalies au plus"
+        )
+    if not ids_uniques:
+        return PrixInternetLot(ia_active=ia_active(), par_anomalie={})
+
+    lignes = (
+        await session.execute(
+            select(Anomalie, Document.fournisseur_id)
+            .outerjoin(Document, Document.id == Anomalie.document_id)
+            .where(
+                Anomalie.id.in_(ids_uniques),
+                Anomalie.statut == "ouverte",
+                condition_regles_actives(),
+                Anomalie.regle.in_(tuple(REGLES_PRIX_INTERNET)),
+            )
+        )
+    ).all()
+
+    par_anomalie: dict[uuid.UUID, PrixInternetVue | None] = {}
+    cle_par_anomalie: dict[uuid.UUID, str] = {}
+    for anomalie, fournisseur_id in lignes:
+        par_anomalie[anomalie.id] = None
+        cle = _cle_produit_pour_anomalie(anomalie.detail, fournisseur_id)
+        if cle is not None:
+            cle_par_anomalie[anomalie.id] = cle
+
+    vues_par_cle = await _dernieres_vues_prix_internet(
+        session, tuple(cle_par_anomalie.values())
+    )
+    for anomalie_id, cle in cle_par_anomalie.items():
+        vue = vues_par_cle.get(cle)
+        if vue is not None:
+            par_anomalie[anomalie_id] = vue
+
+    return PrixInternetLot(ia_active=ia_active(), par_anomalie=par_anomalie)

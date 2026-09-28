@@ -32,13 +32,15 @@ from typing import Any
 import httpx
 import pytest
 from pydantic import SecretStr
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import event, select
+from sqlalchemy.engine import Engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.modules.ingest import anomalies, commun, opencode
 from app.modules.ingest.anomalies import AnomalieIntrouvable
 from app.modules.ingest.ia_prix import (
     ECHECS_MAX,
+    MAX_ANOMALIES_PRIX_INTERNET,
     REGLES_PRIX_INTERNET,
     TITRES_REGLES_PRIX,
     BilanIA,
@@ -49,6 +51,7 @@ from app.modules.ingest.ia_prix import (
     empreinte_detail,
     essayer_prix_internet,
     expliquer_alertes,
+    prix_internet_des_anomalies,
 )
 from app.modules.ingest.models import (
     Anomalie,
@@ -1361,3 +1364,216 @@ async def test_avis_ia_anomalie_masquee_introuvable(
 
 def test_regles_prix_internet_contient_r22() -> None:
     assert frozenset({"R22"}) == REGLES_PRIX_INTERNET
+
+
+# --------------------------------------------------------------------------
+# prix_internet_des_anomalies (T10a) -- route groupée `GET
+# /api/ia/prix-internet`, voir `api/tests/test_ia.py` pour le routeur.
+# --------------------------------------------------------------------------
+
+
+async def test_prix_internet_des_anomalies_trouve_et_en_attente(
+    db_session: AsyncSession,
+) -> None:
+    """Une anomalie R22 dont le produit a déjà un résultat en cache -- la
+    vue correspondante ; une autre, sans résultat encore -- présente dans le
+    dictionnaire mais à `None` (« ou None si aucune encore », brief T10a).
+
+    Deux documents distincts (même idiome que `test_chercher_prix_internet
+    _une_seule_recherche_meme_produit`) : l'identité d'une anomalie inclut
+    `document_id` (index unique `regle, document_id, bloc_id, ligne_id,
+    chantier_id, alias_id`, `NULLS NOT DISTINCT`) -- deux R22 sans ligne du
+    même document se confondraient en une seule anomalie."""
+    fournisseur = await _creer_fournisseur(db_session)
+    facture_1 = await _creer_facture(db_session, fournisseur=fournisseur, numero="FA-1")
+    facture_2 = await _creer_facture(db_session, fournisseur=fournisseur, numero="FA-2")
+    detail_trouve = _detail_r22(produit="Produit Lot Trouve")
+    anomalie_trouve = await _creer_anomalie(
+        db_session, regle="R22", detail=detail_trouve, document=facture_1
+    )
+    cle = cle_produit_internet(
+        fournisseur.id, detail_trouve["produit"], detail_trouve["code"]
+    )
+    await _creer_prix_internet(
+        db_session,
+        cle=cle,
+        statut="trouve",
+        consulte_le=datetime.now(UTC),
+        fournisseur_id=fournisseur.id,
+    )
+    # `code` différent (sinon même clé de cache que `detail_trouve` --
+    # `cle_produit_internet` ignore la désignation dès qu'un code est
+    # présent, cf. son docstring).
+    anomalie_sans_cache = await _creer_anomalie(
+        db_session,
+        regle="R22",
+        detail=_detail_r22(produit="Produit Lot Sans Cache", code="AUTRE-CODE"),
+        document=facture_2,
+    )
+    await db_session.commit()
+
+    lot = await prix_internet_des_anomalies(
+        db_session, [anomalie_trouve.id, anomalie_sans_cache.id]
+    )
+
+    assert lot.par_anomalie[anomalie_trouve.id] is not None
+    vue = lot.par_anomalie[anomalie_trouve.id]
+    assert vue is not None
+    assert vue.statut == "trouve"
+    assert anomalie_sans_cache.id in lot.par_anomalie
+    assert lot.par_anomalie[anomalie_sans_cache.id] is None
+
+
+async def test_prix_internet_des_anomalies_absentes_du_dictionnaire(
+    db_session: AsyncSession,
+) -> None:
+    """Anomalie inconnue, fermée ou d'une autre règle que R22 : absente du
+    dictionnaire, jamais une erreur ni une clé à `None` (« pas d'erreur : la
+    page peut envoyer des identifiants de rangées sans R22 », brief T10a)."""
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    anomalie_fermee = await _creer_anomalie(
+        db_session,
+        regle="R22",
+        detail=_detail_r22(),
+        document=facture,
+        statut="traitee",
+    )
+    anomalie_autre_regle = await _creer_anomalie(
+        db_session, regle="R07", detail=_detail_r07(), document=facture
+    )
+    inconnue = uuid.uuid4()
+    await db_session.commit()
+
+    lot = await prix_internet_des_anomalies(
+        db_session, [anomalie_fermee.id, anomalie_autre_regle.id, inconnue]
+    )
+
+    assert lot.par_anomalie == {}
+
+
+async def test_prix_internet_des_anomalies_doublons_ignores_hors_limite(
+    db_session: AsyncSession,
+) -> None:
+    """Doublons ignorés (une seule clé au résultat) et jamais comptés dans
+    la limite de `MAX_ANOMALIES_PRIX_INTERNET` : 300 fois le même
+    identifiant reste un seul identifiant après déduplication."""
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    anomalie = await _creer_anomalie(
+        db_session, regle="R22", detail=_detail_r22(), document=facture
+    )
+    await db_session.commit()
+
+    lot = await prix_internet_des_anomalies(db_session, [anomalie.id] * 300)
+
+    assert list(lot.par_anomalie.keys()) == [anomalie.id]
+
+
+async def test_prix_internet_des_anomalies_plus_de_200_uniques_leve(
+    db_session: AsyncSession,
+) -> None:
+    ids = [uuid.uuid4() for _ in range(MAX_ANOMALIES_PRIX_INTERNET + 1)]
+
+    with pytest.raises(ValueError):
+        await prix_internet_des_anomalies(db_session, ids)
+
+
+async def test_prix_internet_des_anomalies_aucun_identifiant(
+    db_session: AsyncSession,
+) -> None:
+    lot = await prix_internet_des_anomalies(db_session, [])
+
+    assert lot.par_anomalie == {}
+
+
+async def test_prix_internet_des_anomalies_sans_n_plus_1(
+    db_session: AsyncSession, db_engine: AsyncEngine
+) -> None:
+    """Le nombre de requêtes SQL ne dépend pas du nombre d'anomalies
+    demandées (brief T10a : « en lot ... jamais une requête par
+    anomalie »), même idiome que `test_a_traiter
+    .test_alias_en_attente_sans_n_plus_1`."""
+    fournisseur = await _creer_fournisseur(db_session)
+
+    async def _creer_n_anomalies_r22(n: int, *, prefixe: str) -> list[Anomalie]:
+        # Un document distinct par anomalie (même idiome que
+        # `test_chercher_prix_internet_une_seule_recherche_meme_produit`) :
+        # l'identité d'une anomalie inclut `document_id` -- deux R22 sans
+        # ligne du même document se confondraient en une seule anomalie.
+        resultat = []
+        for i in range(n):
+            document = await _creer_facture(
+                db_session, fournisseur=fournisseur, numero=f"{prefixe}-{i}"
+            )
+            resultat.append(
+                await _creer_anomalie(
+                    db_session,
+                    regle="R22",
+                    detail=_detail_r22(produit=f"Produit {prefixe} {i}"),
+                    document=document,
+                )
+            )
+        return resultat
+
+    anomalies_deux = await _creer_n_anomalies_r22(2, prefixe="FA-N1-DEUX")
+    await db_session.commit()
+
+    sync_engine: Engine = db_engine.sync_engine
+    compteur_deux = {"n": 0}
+
+    def _compter_deux(*args: object, **kwargs: object) -> None:
+        compteur_deux["n"] += 1
+
+    event.listen(sync_engine, "before_cursor_execute", _compter_deux)
+    try:
+        await prix_internet_des_anomalies(db_session, [a.id for a in anomalies_deux])
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _compter_deux)
+
+    anomalies_cinq = await _creer_n_anomalies_r22(5, prefixe="FA-N1-CINQ")
+    await db_session.commit()
+
+    compteur_cinq = {"n": 0}
+
+    def _compter_cinq(*args: object, **kwargs: object) -> None:
+        compteur_cinq["n"] += 1
+
+    event.listen(sync_engine, "before_cursor_execute", _compter_cinq)
+    try:
+        await prix_internet_des_anomalies(db_session, [a.id for a in anomalies_cinq])
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _compter_cinq)
+
+    assert compteur_deux["n"] == compteur_cinq["n"]
+
+
+async def test_prix_internet_des_anomalies_meme_calcul_qu_avis_ia_anomalie(
+    db_session: AsyncSession,
+) -> None:
+    """Non-duplication (brief T10a) : les deux fonctions rendent la même
+    vue pour la même anomalie, preuve qu'elles partagent le même calcul de
+    clé et la même lecture du cache."""
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    detail = _detail_r22(produit="Produit Lot Coherence")
+    anomalie = await _creer_anomalie(
+        db_session, regle="R22", detail=detail, document=facture
+    )
+    cle = cle_produit_internet(fournisseur.id, detail["produit"], detail["code"])
+    await _creer_prix_internet(
+        db_session,
+        cle=cle,
+        statut="trouve",
+        consulte_le=datetime.now(UTC),
+        fournisseur_id=fournisseur.id,
+    )
+    await db_session.commit()
+
+    avis = await avis_ia_anomalie(db_session, anomalie.id)
+    lot = await prix_internet_des_anomalies(db_session, [anomalie.id])
+
+    assert avis.prix_internet is not None
+    vue_lot = lot.par_anomalie[anomalie.id]
+    assert vue_lot is not None
+    assert avis.prix_internet == vue_lot

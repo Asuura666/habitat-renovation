@@ -3561,6 +3561,56 @@
     }
    }
   },
+  "/api/ia/prix-internet": {
+   "get": {
+    "summary": "Prix Internet Lot Endpoint",
+    "operationId": "prix_internet_lot_endpoint_api_ia_prix_internet_get",
+    "parameters": [
+     {
+      "name": "anomalie_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "array",
+         "items": {
+          "type": "string",
+          "format": "uuid"
+         }
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Anomalie Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PrixInternetLotReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/health": {
    "get": {
     "summary": "Health",
@@ -8149,6 +8199,35 @@
     ],
     "title": "ParametreReponse",
     "description": "Un seuil administrable avec ses métadonnées de présentation.\n\n`interrupteur` et `groupe` (phase 3, §3.4 de la conception des prix) :\najoutés à la fin, présents pour tous les réglages (défauts `False`/``\"\"``\npour ceux d'avant cette phase)."
+   },
+   "PrixInternetLotReponse": {
+    "properties": {
+     "ia_active": {
+      "type": "boolean",
+      "title": "Ia Active"
+     },
+     "prix": {
+      "additionalProperties": {
+       "anyOf": [
+        {
+         "$ref": "#/components/schemas/PrixInternetReponse"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "type": "object",
+      "title": "Prix"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ia_active",
+     "prix"
+    ],
+    "title": "PrixInternetLotReponse",
+    "description": "Réponse de `GET /api/ia/prix-internet` (T10a) — mêmes attributs\nqu'`ingest.ia_prix.PrixInternetLot`, à ceci près que les identifiants\nd'anomalie sont des clés texte (JSON n'admet pas l'UUID comme clé\nd'objet) : réutilise `PrixInternetReponse`, déjà exposé par `GET\n/api/ia/anomalies/{id}`. Construite à la main par le routeur (jamais\n`model_validate` : la conversion UUID -> texte des clés n'est pas un\nchangement de forme que `from_attributes` sait faire)."
    },
    "PrixInternetReponse": {
     "properties": {

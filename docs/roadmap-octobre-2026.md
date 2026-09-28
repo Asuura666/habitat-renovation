@@ -310,12 +310,25 @@ production attend les sauvegardes de la phase 2.
 `docs/superpowers/specs/2026-09-27-phase-4-ia-design.md`) : synthèse
 hebdomadaire des commentaires, commentaire de l'IA sur les alertes prix,
 prix trouvé sur internet — moteur OpenCode connecté à l'abonnement ChatGPT
-d'Ilane. **Attend le lot Prix** (fusion dans `dev`) : l'explication et le
-prix internet n'ont aucune alerte/anomalie R22 à traiter tant qu'il n'est
-pas fusionné ; la 3ᵉ colonne « Internet » de la page `/prix` (T10 du plan).
-**Attend l'abonnement d'Ilane** : aucun essai de bout en bout n'est possible
-avant sa connexion (les modèles gratuits d'OpenCode refusent le mode
-serveur). Contrôle des prix à la facture (non IA) : non commencé.
+d'Ilane.
+
+**Lot Prix fusionné dans `dev`** (PR #5) : R22 (« Produit absent de la
+grille ») porte désormais `dernier_prix` (écart signalé au §6.1 de la spec,
+résolu — détail `docs/dette.md`). **T10a fait** (`feature/phase-4-t10`) :
+service groupé `ingest.ia_prix.prix_internet_des_anomalies` et route `GET
+/api/ia/prix-internet` (le contrôleur a choisi une route dédiée plutôt que
+d'enrichir `GET /api/prix/alertes`) ; essai de bout en bout sur une vraie
+anomalie R22 (vrais services `controler_prix_bl`/`chercher_prix_internet`,
+faux transport OpenCode -- pas besoin de l'abonnement réel pour prouver le
+branchement, seulement pour une vraie recherche en production). Reste : T10b
+(3ᵉ colonne « Internet » de l'écran `/prix`, lecture seule de la nouvelle
+route).
+
+**Attend toujours l'abonnement d'Ilane** pour toute recherche *réelle* sur
+internet (les modèles gratuits d'OpenCode refusent le mode serveur) : l'essai
+avant de s'y fier (§7 de la spec, document d'Ilane §16) ne peut se faire
+qu'une fois connecté. Contrôle des prix à la facture (non IA) : non
+commencé.
 
 ---
 
@@ -349,5 +362,5 @@ deux mois, formation, procès-verbal). Voir `memory.md` et `docs/dette.md`.
 - [ ] Phase 1 : déployée (`dev` → `main`, démo puis production)
 - [~] Phase 2 : restauration corrigée et testée, tâches planifiées et alerte, sauvegardes locales posées (27/09) — restent OVH, clés, contrôles/photos après le déploiement de la phase 1 (`docs/phase-2-exploitation-recette.md`)
 - [x] Phase 3 : commentaires (session B ; fusionnés dans `feature/phase-4-ia` pour la synthèse IA)
-- [x] Phase 3 : lot Prix (P0 → P6), PR vers `dev`
-- [~] Phase 4 : IA (synthèse, explication, prix internet) faite sur `feature/phase-4-ia`, éteinte (`IA_ACTIVE=false`) — contrôle des prix à la facture non commencé
+- [x] Phase 3 : lot Prix (P0 → P6), fusionné dans `dev` (PR #5)
+- [~] Phase 4 : IA (synthèse, explication, prix internet) faite sur `feature/phase-4-ia`, éteinte (`IA_ACTIVE=false`) ; T10a (service groupé, route `/api/ia/prix-internet`, essai de bout en bout sur R22) fait sur `feature/phase-4-t10` — reste T10b (écran) et le contrôle des prix à la facture (non IA), non commencé
