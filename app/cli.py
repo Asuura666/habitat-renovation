@@ -76,6 +76,45 @@
   (cron, hors périmètre de cette tâche). Toujours code 0 (un échec individuel
   est absorbé et journalisé par `ingest.rangement.ranger_document`, jamais
   remonté ici).
+- `python -m app.cli synthese-commentaires [--semaine AAAA-MM-JJ]` (T4,
+  phase 4 IA, spec §4.5) : génère la synthèse hebdomadaire des commentaires
+  de lignes — toute la logique (période, plafond, appel à l'IA, écriture)
+  est déjà dans `ingest.ia_synthese.generer_synthese` (idempotente) ; cette
+  CLI ne fait que construire ses dépendances (moteur DB, client HTTP) et les
+  brancher, comme les autres commandes de ce fichier. Sans `--semaine`,
+  prend la dernière semaine complète (`derniere_semaine_complete`, heure de
+  Paris) ; `--semaine` doit être un lundi lisible (`AAAA-MM-JJ`), sinon
+  `argparse` refuse avec le code 2 avant tout accès à la configuration ou à
+  la base (même mécanique que `--seuil` de `rapport-ocr`). Code 1 sur
+  `statut="echec"` (le timer d'exploitation alerte alors sur Telegram et
+  réessaie le lendemain), 0 dans tous les autres cas.
+- `python -m app.cli ia-prix` (T6, phase 4 IA, spec §6.4) : explique les
+  alertes prix ouvertes (`ingest.ia_prix.expliquer_alertes`) puis, si cette
+  première étape ne s'est pas arrêtée faute d'IA joignable, cherche un prix
+  internet pour les produits absents de la grille
+  (`ingest.ia_prix.chercher_prix_internet`) — toute la logique (sélection,
+  cache, échecs, plafond) est déjà dans ces deux fonctions, idempotentes ;
+  cette CLI ne fait que les enchaîner et afficher leur bilan combiné. IA
+  éteinte -> « IA éteinte : rien à faire », code 0 (tâche planifiée : rien à
+  faire n'est pas un échec). Code 1 seulement si au moins une tentative a eu
+  lieu et qu'elles ont **toutes** échoué faute d'IA joignable (réseau, délai,
+  statut HTTP, abonnement déconnecté) — le timer d'exploitation alerte alors
+  sur Telegram ; un simple mélange de succès/échecs, ou un plafond atteint
+  sans aucune tentative en échec « injoignable », reste code 0.
+- `python -m app.cli essai-prix-internet --fichier <csv>` (T6, phase 4 IA,
+  spec §7, document d'Ilane §16) : essai manuel de la recherche de prix
+  internet sur une vingtaine de produits réels, avant de se fier au
+  mécanisme automatique — délègue à `ingest.ia_prix.essayer_prix_internet`
+  (sans cache ni enregistrement, seul `appel_ia` est écrit). CSV `;` UTF-8
+  en entrée (`fournisseur;designation;code;unite`, en-tête facultative,
+  BOM Excel accepté) et en sortie sur la console -- lu et écrit avec le
+  module `csv` de la bibliothèque standard (fix round 1, jamais un
+  `split`/`join` naïf) : un champ IA ou une désignation portant un `;` ou un
+  guillemet reste un seul champ, correctement échappé, sans jamais décaler
+  les colonnes suivantes. IA éteinte -> message, code **1** (contrairement
+  à `ia-prix` : ici un humain attend un résultat, « rien à faire » est un
+  échec). Le fichier n'est jamais recopié ni journalisé (produits réels
+  d'un fournisseur, hors dépôt comme `tests/fixtures/`).
 
 N'importe comme couches applicatives que `app.core`, `app.modules.ingest` et
 `app.modules.jobs` ; l'import de `messaging.telegram` reste différé au seul
@@ -92,7 +131,8 @@ que construire ses dépendances (client HTTP, moteur DB) et les brancher vers
 T7/L2-T1b/L3-T5/L3-T11/L4-T11/L5-T11). L5-T11 ajoute le paquet `jobs`
 et un import différé de `messaging.telegram` pour le seul signalement.
 `rattachement_chantier.py` depuis Task 8 (avenant du 27/09/2026),
-`rangement.py` depuis Task 9 (même avenant).
+`rangement.py` depuis Task 9 (même avenant), `ia_synthese.py` depuis T4
+(phase 4 IA, 27/09/2026), `ia_prix.py` depuis T6 (même phase).
 
 Import différé de `app.core.auth` (dans le corps de `_utilisateur_creer`/
 `_utilisateur_desactiver`, pas en tête de fichier) : ce module appelle
@@ -109,10 +149,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
 import getpass
 import sys
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from functools import partial
 from pathlib import Path
@@ -133,7 +174,17 @@ from app.modules.ingest.factures import (
     formater_blocs,
     lire_facture,
 )
+from app.modules.ingest.ia_prix import (
+    BilanIA,
+    LigneEssai,
+    ProduitEssai,
+    chercher_prix_internet,
+    essayer_prix_internet,
+    expliquer_alertes,
+)
+from app.modules.ingest.ia_synthese import derniere_semaine_complete, generer_synthese
 from app.modules.ingest.mistral import ErreurOCR, ocr_document
+from app.modules.ingest.opencode import ia_active
 from app.modules.ingest.rangement import ranger_tout
 from app.modules.ingest.rapport_ocr import (
     ecrire_rapport,
@@ -659,6 +710,326 @@ async def _ranger_photos() -> int:
     return 0
 
 
+def _semaine_lundi(valeur: str) -> date:
+    """Type argparse de `--semaine` (T4, même mécanique que `--seuil` de
+    `rapport-ocr`, ruling R13) : une date lisible (`AAAA-MM-JJ`) tombant un
+    lundi, sinon `argparse.ArgumentTypeError` — argparse affiche alors un
+    message d'erreur clair et quitte avec le code 2, avant tout accès à la
+    configuration ou à la base."""
+    try:
+        jour = date.fromisoformat(valeur)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"date illisible (format attendu AAAA-MM-JJ) : {valeur!r}"
+        ) from None
+    if jour.weekday() != 0:
+        raise argparse.ArgumentTypeError(
+            f"--semaine doit être un lundi (reçu {jour.isoformat()})"
+        )
+    return jour
+
+
+async def _synthese_commentaires(*, semaine_debut: date | None) -> int:
+    """Implémentation de `synthese-commentaires` (T4, spec §4.5). Toute la
+    logique (période, plafond, appel à l'IA, écriture) est déjà dans
+    `ingest.ia_synthese.generer_synthese` (idempotente) : cette CLI ne fait
+    que construire ses dépendances (moteur DB, client HTTP) et les brancher,
+    comme les autres commandes de ce fichier. Sans `--semaine`, prend la
+    dernière semaine complète (`derniere_semaine_complete`, heure de Paris) —
+    `--semaine` est déjà garanti être un lundi lisible par `_semaine_lundi`
+    (argparse), donc `generer_synthese` ne peut jamais y lever `ValueError`.
+
+    Sortie sur une ligne (brief T4) selon `ResultatSynthese.statut` ; code 1
+    seulement sur `"echec"` (le timer d'exploitation alerte alors sur
+    Telegram et réessaie le lendemain), 0 dans tous les autres cas."""
+    debut = semaine_debut or derniere_semaine_complete(datetime.now(UTC))
+    fin = debut + timedelta(days=6)
+    periode = f"du {debut.strftime('%d/%m/%Y')} au {fin.strftime('%d/%m/%Y')}"
+
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session, httpx.AsyncClient() as http:
+            resultat = await generer_synthese(session, http, semaine_debut=debut)
+    finally:
+        await engine.dispose()
+
+    if resultat.statut == "creee":
+        print(
+            f"Synthèse {periode} créée "
+            f"({resultat.nb_commentaires} commentaires, {resultat.nb_actions} actions)"
+        )
+        return 0
+    if resultat.statut == "deja_faite":
+        print(f"Synthèse {periode} déjà faite")
+        return 0
+    if resultat.statut == "vide":
+        print(f"Synthèse {periode} : aucun commentaire")
+        return 0
+    if resultat.statut == "ia_eteinte":
+        print("IA éteinte : rien à faire")
+        return 0
+
+    print(
+        f"Échec de la synthèse du {debut.strftime('%d/%m/%Y')} : {resultat.erreur}",
+        file=sys.stderr,
+    )
+    return 1
+
+
+# ---------------------------------------------------------------------------
+# `ia-prix` / `essai-prix-internet` (T6, phase 4 IA)
+# ---------------------------------------------------------------------------
+
+
+def _accord(nombre: int, singulier: str, pluriel: str) -> str:
+    """Accord français simplifié (0 et 1 -> singulier, 2 et plus ->
+    pluriel), utilisé par le message de `ia-prix` (brief T6 : « 3
+    explications, 1 prix trouvé, 1 non vérifiable, 0 échec »)."""
+    return f"{nombre} {singulier if nombre <= 1 else pluriel}"
+
+
+async def _ia_prix() -> int:
+    """Implémentation de `ia-prix` (T6, spec §6.4). Toute la logique
+    (sélection, texte envoyé, cache, échecs, plafond) est déjà dans
+    `ingest.ia_prix.expliquer_alertes`/`chercher_prix_internet`
+    (idempotentes) : cette CLI ne fait que les enchaîner, construire ses
+    dépendances (moteur DB, client HTTP) et afficher leur bilan combiné,
+    comme les autres commandes de ce fichier.
+
+    La recherche de prix internet n'est tentée que si les explications ne se
+    sont pas arrêtées faute d'IA joignable (brief : « puis, si pas
+    d'arrêt ») -- un plafond déjà atteint pendant les explications ne sert
+    à rien de retenter aussitôt après.
+
+    Code 1 seulement si au moins une tentative a eu lieu (`ok` +
+    `non_verifiables` + `echecs`, toutes tâches confondues) et que toutes ont
+    échoué faute d'IA joignable (`echecs_injoignable` égal au total des
+    tentatives) : un plafond atteint sans aucune tentative, ou un mélange de
+    succès et d'échecs, reste code 0 (rien d'urgent à signaler).
+
+    Arrêt en cours de route (fix round 1) : la mention affichée dépend de
+    `IAIndisponible.raison` -- « — plafond du jour atteint » ou « — IA
+    éteinte en cours de route » (IA coupée par Ilane pendant que la commande
+    tournait, cas rare mais distinct du plafond, jamais confondu dans le
+    message)."""
+    if not ia_active():
+        print("IA éteinte : rien à faire")
+        return 0
+
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session, httpx.AsyncClient() as http:
+            bilan_explications = await expliquer_alertes(session, http)
+            if bilan_explications.arret is not None:
+                bilan_prix = BilanIA()
+            else:
+                bilan_prix = await chercher_prix_internet(session, http)
+    finally:
+        await engine.dispose()
+
+    echecs_total = bilan_explications.echecs + bilan_prix.echecs
+    tentatives = (
+        bilan_explications.ok
+        + bilan_explications.echecs
+        + bilan_prix.ok
+        + bilan_prix.non_verifiables
+        + bilan_prix.echecs
+    )
+    injoignables = bilan_explications.echecs_injoignable + bilan_prix.echecs_injoignable
+
+    message = (
+        f"{_accord(bilan_explications.ok, 'explication', 'explications')}, "
+        f"{_accord(bilan_prix.ok, 'prix trouvé', 'prix trouvés')}, "
+        f"{_accord(bilan_prix.non_verifiables, 'non vérifiable', 'non vérifiables')}, "
+        f"{_accord(echecs_total, 'échec', 'échecs')}"
+    )
+    arret = bilan_explications.arret or bilan_prix.arret
+    if arret == "plafond":
+        message += " — plafond du jour atteint"
+    elif arret == "eteinte":
+        message += " — IA éteinte en cours de route"
+    print(message)
+
+    if tentatives > 0 and injoignables == tentatives:
+        return 1
+    return 0
+
+
+def _lire_produits_essai(chemin: Path) -> list[ProduitEssai]:
+    """Lit le CSV `;` UTF-8 de `--fichier` (T6, spec §7 ; fix round 1 :
+    module `csv` de la bibliothèque standard, jamais un `split(";")` naïf --
+    une désignation réelle peut porter un `;`, un guillemet ou même un saut
+    de ligne, ce qu'un simple découpage par ligne puis par `;` décale
+    silencieusement sur les colonnes suivantes). Colonnes
+    `fournisseur;designation;code;unite`, ligne d'en-tête facultative
+    (reconnue si le premier champ commence par `fournisseur`, insensible à
+    la casse). `encoding="utf-8-sig"` : accepte aussi bien un fichier UTF-8
+    sans BOM qu'un fichier UTF-8 avec BOM (Excel en ajoute un à
+    l'enregistrement) -- le BOM est retiré avant toute lecture, jamais gardé
+    dans le premier champ. Champ vide ou absent (ligne plus courte que 4
+    colonnes) -> `None`, sauf `designation` (obligatoire, gardée telle
+    quelle même vide -- un produit sans désignation sera simplement rejeté
+    plus loin par l'appel à l'IA, jamais silencieusement ici). `newline=""`
+    à l'ouverture : requis par le module `csv` pour reconnaître lui-même les
+    fins de ligne, y compris à l'intérieur d'un champ entre guillemets."""
+    produits: list[ProduitEssai] = []
+    with chemin.open("r", encoding="utf-8-sig", newline="") as fichier_csv:
+        for indice, champs in enumerate(csv.reader(fichier_csv, delimiter=";")):
+            if not any(champ.strip() for champ in champs):
+                continue
+            if indice == 0 and champs[0].strip().lower().startswith("fournisseur"):
+                continue
+            champs = champs[:4] + [""] * (4 - len(champs))
+            fournisseur, designation, code, unite = (champ.strip() for champ in champs)
+            produits.append(
+                ProduitEssai(
+                    fournisseur=fournisseur or None,
+                    designation=designation,
+                    code=code or None,
+                    unite=unite or None,
+                )
+            )
+    return produits
+
+
+_ENTETE_CSV_ESSAI = (
+    "designation",
+    "statut",
+    "prix",
+    "taxes",
+    "unite",
+    "conditionnement",
+    "produit_trouve",
+    "source_url",
+    "confiance",
+    "raison",
+    "duree_s",
+)
+
+
+# Fix round 2 (relecture finale) : injection de formule CSV. Un champ texte
+# venu de l'IA ou du fichier d'entrée d'Ilane (`designation`) qui commencerait
+# par l'un de ces caractères devient une formule vivante à l'ouverture du
+# fichier dans Excel/Sheets (`=HYPERLINK(...)`, `+1+1`, `-2+3`, `@SUM(...)`,
+# une tabulation ou un retour chariot pouvant aussi amorcer une formule selon
+# le logiciel) -- mitigation standard de l'injection de formule CSV (OWASP) :
+# aucun de ces caractères n'a de sens en tête d'un texte métier légitime ici.
+_PREFIXES_FORMULE_CSV: tuple[str, ...] = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _champ_texte_csv(valeur: str) -> str:
+    """Neutralise une cellule CSV texte qui commencerait par un déclencheur
+    de formule (fix round 2) : un guillemet simple `'` ajouté en tête
+    empêche Excel/Sheets d'interpréter la cellule comme une formule, sans
+    changer le texte affiché (les deux masquent ce guillemet de tête à
+    l'affichage). Jamais appliqué à `prix`/`duree_s` (écrits ailleurs,
+    directement en nombre) : un nombre négatif écrit par ce programme (cas
+    non attendu pour ces deux champs) doit rester un nombre, jamais une
+    cellule neutralisée."""
+    if valeur.startswith(_PREFIXES_FORMULE_CSV):
+        return f"'{valeur}"
+    return valeur
+
+
+def _champs_csv_essai(ligne: LigneEssai) -> list[str]:
+    """Champs d'une ligne du CSV de sortie de `essai-prix-internet` (brief
+    T6, colonnes de `_ENTETE_CSV_ESSAI`) -- écrits par `csv.writer` (fix
+    round 1), jamais assemblés à la main : `raison`, `produit_trouve` et
+    `conditionnement` viennent de l'IA (texte libre) et peuvent porter un
+    `;`, un guillemet ou un saut de ligne, que `csv.writer` échappe alors
+    correctement (guillemets doublés, champ entre guillemets) sans décaler
+    les colonnes suivantes. `statut="echec"` et `raison` = code de l'erreur
+    quand `ligne.resultat` est absent (aucun champ de résultat n'est alors
+    rempli).
+
+    Fix round 2 (relecture finale) : `designation` (fichier d'entrée
+    d'Ilane) et chaque champ texte libre de l'IA (`unite`, `conditionnement`,
+    `produit_trouve`, `source_url`, `raison`, ou le code d'erreur d'OpenCode)
+    passent par `_champ_texte_csv` avant l'écriture -- `statut`, `taxes` et
+    `confiance` viennent d'un vocabulaire fermé écrit par ce dépôt
+    (`extract.reponses_ia`, jamais un texte libre) et n'en ont pas besoin,
+    et `prix`/`duree_s` restent des nombres bruts, jamais neutralisés."""
+    resultat = ligne.resultat
+    if resultat is None:
+        champs = [
+            "echec",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            _champ_texte_csv(ligne.erreur or ""),
+        ]
+    else:
+        champs = [
+            resultat.statut,
+            str(resultat.prix) if resultat.prix is not None else "",
+            resultat.taxes or "",
+            _champ_texte_csv(resultat.unite or ""),
+            _champ_texte_csv(resultat.conditionnement or ""),
+            _champ_texte_csv(resultat.produit_trouve or ""),
+            _champ_texte_csv(resultat.source_url or ""),
+            resultat.confiance or "",
+            _champ_texte_csv(resultat.raison or ""),
+        ]
+    return [
+        _champ_texte_csv(ligne.produit.designation),
+        *champs,
+        f"{ligne.duree_s:.1f}",
+    ]
+
+
+async def _essai_prix_internet(fichier: Path) -> int:
+    """Implémentation de `essai-prix-internet --fichier <csv>` (T6, spec §7,
+    document d'Ilane §16) : essai manuel sur des produits réels avant de se
+    fier à la recherche automatique de prix internet. IA éteinte -> code
+    **1** (contrairement à `ia-prix` : ici un humain attend un résultat,
+    « rien à faire » est un échec) -- vérifié avant toute lecture du fichier,
+    qui peut porter des désignations de produits réels d'un fournisseur.
+
+    `essayer_prix_internet` ne touche ni le cache ni `prix_internet` (seul
+    `appel_ia` est écrit, par le client OpenCode) : rien à nettoyer après
+    l'essai. Toujours code 0 une fois l'essai lancé (des échecs individuels
+    sont attendus et affichés tels quels, l'humain juge le résultat
+    d'ensemble)."""
+    if not ia_active():
+        print("IA éteinte : rien à faire")
+        return 1
+
+    try:
+        produits = await asyncio.to_thread(_lire_produits_essai, fichier)
+    except (OSError, UnicodeDecodeError, csv.Error):
+        print(f"lecture du fichier impossible : {fichier}", file=sys.stderr)
+        return 2
+
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session, httpx.AsyncClient() as http:
+            lignes = await essayer_prix_internet(session, http, produits)
+    finally:
+        await engine.dispose()
+
+    # `csv.writer` (fix round 1, jamais un `";".join` à la main) : échappe
+    # correctement un champ IA (`raison`, `produit_trouve`,
+    # `conditionnement`) qui porterait un `;` ou un guillemet, sans jamais
+    # décaler les colonnes suivantes. `lineterminator="\n"` : sortie console
+    # Unix habituelle, jamais le `\r\n` par défaut du module (pensé pour un
+    # fichier `.csv` relu sous Windows).
+    ecrivain = csv.writer(sys.stdout, delimiter=";", lineterminator="\n")
+    ecrivain.writerow(_ENTETE_CSV_ESSAI)
+    for ligne in lignes:
+        ecrivain.writerow(_champs_csv_essai(ligne))
+    return 0
+
+
 def _construire_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="app.cli")
     sous_parsers = parser.add_subparsers(dest="commande", required=True)
@@ -798,6 +1169,50 @@ def _construire_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    parser_synthese_commentaires = sous_parsers.add_parser(
+        "synthese-commentaires",
+        help=(
+            "Génère la synthèse hebdomadaire des commentaires de lignes "
+            "(T4, phase 4 IA) -- idempotente"
+        ),
+    )
+    parser_synthese_commentaires.add_argument(
+        "--semaine",
+        type=_semaine_lundi,
+        default=None,
+        help=(
+            "lundi de la semaine à synthétiser (AAAA-MM-JJ) -- défaut : la "
+            "dernière semaine complète"
+        ),
+    )
+
+    sous_parsers.add_parser(
+        "ia-prix",
+        help=(
+            "Explique les alertes prix ouvertes puis cherche un prix "
+            "internet pour les produits absents de la grille (T6, phase 4 "
+            "IA) -- idempotente"
+        ),
+    )
+
+    parser_essai_prix_internet = sous_parsers.add_parser(
+        "essai-prix-internet",
+        help=(
+            "Essaie la recherche de prix internet sur un lot de produits "
+            "réels, sans rien enregistrer (T6, phase 4 IA, document "
+            "d'Ilane §16)"
+        ),
+    )
+    parser_essai_prix_internet.add_argument(
+        "--fichier",
+        type=Path,
+        required=True,
+        help=(
+            "CSV `;` UTF-8 : fournisseur;designation;code;unite (une ligne "
+            "par produit, en-tête facultative)"
+        ),
+    )
+
     return parser
 
 
@@ -848,6 +1263,12 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_rattacher_chantiers())
     if args.commande == "ranger-photos":
         return asyncio.run(_ranger_photos())
+    if args.commande == "synthese-commentaires":
+        return asyncio.run(_synthese_commentaires(semaine_debut=args.semaine))
+    if args.commande == "ia-prix":
+        return asyncio.run(_ia_prix())
+    if args.commande == "essai-prix-internet":
+        return asyncio.run(_essai_prix_internet(args.fichier))
     raise AssertionError(f"commande inconnue : {args.commande}")  # pragma: no cover
 
 

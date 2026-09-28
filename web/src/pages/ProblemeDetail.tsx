@@ -20,6 +20,7 @@ import {
   validerArticle,
 } from "../api/referentiels";
 import { AliasCarte } from "../components/AliasCarte";
+import { AvisIA } from "../components/AvisIA";
 import { formaterDateHeure, TIRET } from "../lib/formats";
 import { CHANTIER_A_RATTACHER, lienBon, lienFacture } from "../lib/liens";
 import { libelleMotif } from "../lib/motifs";
@@ -655,6 +656,17 @@ function DetailAnomalie({
           ))}
         </dl>
       </div>
+
+      {/* Avis de l'IA (T7, phase 4 IA, spec §6.4) : seulement pour un
+          problème de catégorie « prix » -- même critère que celui déjà
+          utilisé par `Kicker` pour la catégorie affichée, sous la phrase
+          du problème ci-dessus. `AvisIA` reste `null` de lui-même tant que
+          l'IA n'a rien produit ou en cas d'erreur (bonus, jamais un
+          blocage) : rien ne distingue donc cette ligne d'un composant qui
+          ne se serait pas monté pour les autres catégories. */}
+      {categorieFiltreProbleme({ kind: "anomalie", id: "", anomalie }) === "prix" && (
+        <AvisIA anomalieId={anomalie.id} />
+      )}
 
       {/* Lien facture : seulement pour une anomalie dont le document résolu
           par `document_id` est bien une facture (`type === "facture"`) —

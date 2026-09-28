@@ -34,6 +34,33 @@
  * actuel. `formaterLignes` affiche maintenant le détail de chaque ligne
  * (mêmes libellés et formateurs que `pages/DocumentDetail.tsx`) à la suite
  * du résumé, jamais l'identifiant technique de la ligne.
+ *
+ * Tour 1 de la relecture qualité de la Task C3 (27/09/2026) : la nouvelle
+ * cible `commentaire` (`commentaire_ajoute`, `ingest/commentaires.py::
+ * ajouter_commentaire`) n'avait pas été ajoutée à `CIBLES_CONNUES` ni à
+ * `LIBELLES_CIBLE` -- chaque entrée « Commentaire ajouté » affichait le mot
+ * technique brut en minuscule (« commentaire ») sans lien vers le document
+ * commenté, alors que son `apres` porte justement `document_id`. Complété
+ * ci-dessous, même principe que `chantier_alias`.
+ *
+ * Tâche T4 (phase 4 IA, 27/09/2026) : `synthese_generee` (littéral,
+ * `ingest/ia_synthese.py`, une synthèse hebdomadaire des commentaires créée
+ * ou constatée vide) et `synthese_action_faite`/`synthese_action_a_faire`
+ * (choisies dynamiquement selon la case cochée ou décochée, même principe
+ * que `anomalie_traitee`/`anomalie_ignoree` -- invisibles à la regex du
+ * test de complétude, ajoutées ici par prudence). L'écran dédié (T5) reste
+ * à construire ; ces libellés ne servent ici qu'à l'écran Journal existant.
+ *
+ * Tâche T5 (phase 4 IA, 27/09/2026) : l'écran dédié est construit
+ * (`components/SyntheseCommentaires.tsx`, monté par la Vue d'ensemble) --
+ * les trois libellés d'action ci-dessus restent ceux posés par T4, non
+ * dupliqués ici. Complété : deux cibles (`synthese_commentaires`,
+ * `synthese_action`, `Journal(cible_table=...)` d'`ingest/ia_synthese.py`)
+ * dans `CIBLES_CONNUES`/`LIBELLES_CIBLE`/`lienCible` (aucune fiche dédiée à
+ * une synthèse ou une action de synthèse : le lien renvoie à l'accueil, où
+ * la carte les affiche) ; quatre clés de détail dans `LIBELLES_CLE_DETAIL`
+ * (`semaine_debut`, `semaine_fin`, `nb_commentaires`, `nb_actions` --
+ * `statut` et `texte` avaient déjà un libellé générique, inchangés).
  */
 
 import { formaterDate, formaterDateHeure, formaterMontant, formaterQuantite, TIRET } from "./formats";
@@ -90,6 +117,21 @@ const LIBELLES_ACTION: Record<string, string> = {
   mot_de_passe_change: "Mot de passe changé",
   acces_retire: "Accès retiré",
   acces_retabli: "Accès rétabli",
+  // Commentaire ajouté sur une ligne de BL/enlèvement (tâche C, phase 3,
+  // `ingest/commentaires.py::ajouter_commentaire`) — jamais sur une facture
+  // (spec §4 de `docs/superpowers/specs/2026-09-27-commentaires-lignes-
+  // design.md`).
+  commentaire_ajoute: "Commentaire ajouté",
+  // Synthèse hebdomadaire des commentaires (T4, phase 4 IA,
+  // `ingest/ia_synthese.py`) : une par semaine, créée par
+  // `generer_synthese` (`statut` dans `apres` distingue « ok » de « vide »).
+  synthese_generee: "Synthèse des commentaires générée",
+  // Cochage/décochage d'une action de synthèse (`marquer_action`) --
+  // choisies dynamiquement (comme `anomalie_traitee`/`anomalie_ignoree`),
+  // ajoutées ici par prudence bien que non recensées par la regex du test
+  // de complétude ci-dessus.
+  synthese_action_faite: "Action de synthèse cochée",
+  synthese_action_a_faire: "Action de synthèse remise à faire",
 };
 
 export function libelleAction(action: string): string {
@@ -115,6 +157,9 @@ export const CIBLES_CONNUES = [
   "article",
   "utilisateur",
   "parametre",
+  "commentaire",
+  "synthese_commentaires",
+  "synthese_action",
 ] as const;
 
 const LIBELLES_CIBLE: Record<string, string> = {
@@ -126,6 +171,18 @@ const LIBELLES_CIBLE: Record<string, string> = {
   article: "Article",
   utilisateur: "Compte utilisateur",
   parametre: "Réglage",
+  // `commentaire_ajoute` (`ingest/commentaires.py::ajouter_commentaire`) —
+  // sans cette entrée, `libelleCible` retombait sur le mot technique brut
+  // en minuscule (« commentaire ») au lieu d'un libellé capitalisé comme
+  // les autres cibles (constat de relecture, tour 1 de la Task C3,
+  // 27/09/2026).
+  commentaire: "Commentaire",
+  // `synthese_generee` (`ingest/ia_synthese.py`, T4/T5, phase 4 IA) : la
+  // synthèse hebdomadaire des commentaires elle-même.
+  synthese_commentaires: "Synthèse des commentaires",
+  // `synthese_action_faite`/`synthese_action_a_faire` (même module) : une
+  // action à cocher de la synthèse.
+  synthese_action: "Action de la synthèse",
 };
 
 /** Libellé français de l'élément concerné par une entrée (`cible_table`) —
@@ -220,7 +277,19 @@ export function libelleCibleId(cibleTable: string | null, cibleId: string): stri
  * avant ce constat. Aucun outil de test front dans la stack (L2-D17) :
  * cette fonction et son appel (`pages/Journal.tsx`) sont gardés par
  * `tests/test_web_socle.py::test_journal_lien_direct_vers_chaque_
- * element_consultable`, qui lit ce fichier comme du texte. */
+ * element_consultable`, qui lit ce fichier comme du texte.
+ *
+ * Cas `commentaire` (constat de relecture, tour 1 de la Task C3,
+ * 27/09/2026) : la seule entrée journalisée sur cette cible est
+ * `commentaire_ajoute` (`ingest/commentaires.py::ajouter_commentaire`), au
+ * moment même où le commentaire est ajouté -- son `apres` porte alors
+ * `document_id` (chaîne), jamais affiché tel quel (`CLES_JAMAIS_AFFICHEES`
+ * plus bas) mais déjà présent pour retrouver le bon commenté. Même principe
+ * que `chantier_alias` ci-dessus : le lien pointe vers ce document plutôt
+ * que vers une liste (aucune liste des commentaires n'existe) ;
+ * `document_id` absent ou non-chaîne (jamais le cas aujourd'hui, repli
+ * défensif, même principe que le reste de ce fichier) : aucun lien plutôt
+ * qu'un lien mort. */
 export function lienCible(
   cibleTable: string | null,
   cibleId: string | null,
@@ -253,6 +322,19 @@ export function lienCible(
     }
     case "article":
       return { href: "/a-regler", libelle: "Voir les articles à valider" };
+    case "commentaire": {
+      const documentId = apres?.document_id;
+      if (typeof documentId === "string") {
+        return { href: `/documents/${documentId}`, libelle: "Voir le document" };
+      }
+      return null;
+    }
+    // Aucune fiche dédiée à une synthèse ou à une action de synthèse (T5,
+    // phase 4 IA) : la carte « Commentaires de la semaine » qui les affiche
+    // vit sur l'accueil.
+    case "synthese_commentaires":
+    case "synthese_action":
+      return { href: "/", libelle: "Voir l'accueil" };
     default:
       return null;
   }
@@ -405,6 +487,20 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   // Nombre de bons/enlèvements déplacés du chantier fusionné vers le
   // chantier conservé (`fusion_chantier.py`).
   nb_documents: "Documents déplacés",
+  // `commentaire_ajoute` (`ingest/commentaires.py::ajouter_commentaire`,
+  // apres={document_id, numero, ligne, texte}) : `numero` est déjà listé
+  // ci-dessus, `document_id` n'a pas de libellé ici — jamais affiché (voir
+  // `CLES_JAMAIS_AFFICHEES` plus bas).
+  ligne: "Ligne",
+  texte: "Commentaire",
+  // `synthese_generee`/`synthese_action_faite`/`synthese_action_a_faire`
+  // (`ingest/ia_synthese.py`, T5, phase 4 IA) : `statut` (déjà listé
+  // ci-dessus) et `texte` (déjà listé ci-dessus, inchangé) sont partagés
+  // avec d'autres actions.
+  semaine_debut: "Semaine du",
+  semaine_fin: "Jusqu'au",
+  nb_commentaires: "Commentaires",
+  nb_actions: "Actions",
 };
 
 /** Un identifiant (`chantier_id`, `fournisseur_id`…) désigne l'élément
@@ -717,6 +813,14 @@ function valeurDetail(cle: string, contexte: Record<string, unknown>, noms: Reco
   return libelleValeurDetail(cle, typeof brute === "string" ? brute : String(brute));
 }
 
+/** Clés jamais affichées, quelle que soit l'action : identifiant technique
+ * sans intérêt pour le lecteur, déjà porté ailleurs quand il en a un
+ * (`commentaire_ajoute` porte `cible_id` = l'identifiant du commentaire,
+ * jamais celui du document — spec §6 de
+ * `docs/superpowers/specs/2026-09-27-commentaires-lignes-design.md` :
+ * « ne jamais afficher document_id »). */
+const CLES_JAMAIS_AFFICHEES = new Set(["document_id"]);
+
 /** Reconstruit, clé par clé, la comparaison `avant`/`apres` d'une entrée de
  * journal — deux instantanés JSON indépendants (`ingest/journal.py`) :
  * une clé présente d'un côté et absente de l'autre est un fait à afficher
@@ -738,10 +842,13 @@ export function lignesAvantApres(
     ...(avant !== null ? Object.keys(avant) : []),
     ...(apres !== null ? Object.keys(apres) : []),
   ]);
-  return [...cles].sort().map((cle) => ({
-    cle,
-    libelle: libelleCleDetail(cle),
-    avant: avant !== null && cle in avant ? valeurDetail(cle, avant, noms) : ABSENT,
-    apres: apres !== null && cle in apres ? valeurDetail(cle, apres, noms) : ABSENT,
-  }));
+  return [...cles]
+    .filter((cle) => !CLES_JAMAIS_AFFICHEES.has(cle))
+    .sort()
+    .map((cle) => ({
+      cle,
+      libelle: libelleCleDetail(cle),
+      avant: avant !== null && cle in avant ? valeurDetail(cle, avant, noms) : ABSENT,
+      apres: apres !== null && cle in apres ? valeurDetail(cle, apres, noms) : ABSENT,
+    }));
 }

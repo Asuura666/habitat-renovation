@@ -202,3 +202,55 @@ export function formaterDateHeure(valeur: string | null): string {
   }
   return FORMATEUR_DATE_HEURE.format(new Date(valeur));
 }
+
+const FORMATEUR_JOUR_MOIS_COURT = new Intl.DateTimeFormat("fr-FR", {
+  timeZone: "Europe/Paris",
+  day: "2-digit",
+  month: "2-digit",
+});
+
+/** Jour et mois seuls, sans année (« 28/09 ») — carte « Commentaires de la
+ * semaine » (T5, phase 4 IA, `components/SyntheseCommentaires.tsx`) :
+ * semaine d'une action « encore à faire » (« semaine du 14/09 ») et date à
+ * laquelle une action a été cochée (« faite par Léa le 28/09 »), jamais
+ * l'année complète (`formaterDate`) qui alourdirait ces mentions courtes.
+ * Accepte une date seule (`AAAA-MM-JJ`, `ActionSyntheseReponse.
+ * semaine_debut`) ou un horodatage complet (`faite_le`) : `new Date` lit les
+ * deux formats ; `null` affiche un tiret. */
+export function formaterJourMois(valeur: string | null): string {
+  if (valeur === null) {
+    return TIRET;
+  }
+  return FORMATEUR_JOUR_MOIS_COURT.format(new Date(valeur));
+}
+
+const FORMATEUR_JOUR_SEUL = new Intl.DateTimeFormat("fr-FR", {
+  timeZone: "Europe/Paris",
+  day: "numeric",
+});
+
+const FORMATEUR_JOUR_MOIS_LONG = new Intl.DateTimeFormat("fr-FR", {
+  timeZone: "Europe/Paris",
+  day: "numeric",
+  month: "long",
+});
+
+/** Période d'une synthèse hebdomadaire des commentaires (T5, phase 4 IA) :
+ * « du 21 au 27 septembre » quand les deux dates sont du même mois, « du 28
+ * septembre au 4 octobre » quand la semaine civile est à cheval sur deux
+ * mois (le mois n'est alors précisé qu'une fois de trop, jamais une fois de
+ * trop peu). `semaineDebut`/`semaineFin` : dates seules `AAAA-MM-JJ`
+ * (`SyntheseReponse`) ; `getUTCMonth`/`getUTCFullYear` comparent les
+ * composants de la date telle qu'écrite (minuit UTC pour une chaîne
+ * `AAAA-MM-JJ`), jamais convertis vers un fuseau -- une comparaison de
+ * calendrier, pas d'affichage. */
+export function periodeSemaine(semaineDebut: string, semaineFin: string): string {
+  const debut = new Date(semaineDebut);
+  const fin = new Date(semaineFin);
+  const memeMois =
+    debut.getUTCFullYear() === fin.getUTCFullYear() && debut.getUTCMonth() === fin.getUTCMonth();
+  const debutFormate = memeMois
+    ? FORMATEUR_JOUR_SEUL.format(debut)
+    : FORMATEUR_JOUR_MOIS_LONG.format(debut);
+  return `du ${debutFormate} au ${FORMATEUR_JOUR_MOIS_LONG.format(fin)}`;
+}

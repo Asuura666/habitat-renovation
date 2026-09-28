@@ -894,6 +894,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/commentaires/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Commentaires Du Bon Endpoint */
+        get: operations["commentaires_du_bon_endpoint_api_commentaires_documents__document_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/commentaires/lignes/{ligne_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ajouter Commentaire Endpoint */
+        post: operations["ajouter_commentaire_endpoint_api_commentaires_lignes__ligne_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ia/synthese": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Synthese Accueil Endpoint */
+        get: operations["synthese_accueil_endpoint_api_ia_synthese_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ia/synthese/actions/{action_id}/faite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Marquer Action Faite Endpoint */
+        post: operations["marquer_action_faite_endpoint_api_ia_synthese_actions__action_id__faite_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ia/synthese/actions/{action_id}/a-faire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Marquer Action A Faire Endpoint */
+        post: operations["marquer_action_a_faire_endpoint_api_ia_synthese_actions__action_id__a_faire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ia/anomalies/{anomalie_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Avis Ia Anomalie Endpoint */
+        get: operations["avis_ia_anomalie_endpoint_api_ia_anomalies__anomalie_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -936,6 +1038,33 @@ export interface components {
             anomalies_hautes: components["schemas"]["AnomalieReponse"][];
             /** Chantiers A Completer */
             chantiers_a_completer: components["schemas"]["ChantierACompleterReponse"][];
+        };
+        /**
+         * ActionSyntheseReponse
+         * @description Une action de synthèse, dans `SyntheseReponse.actions` ou
+         *     `SyntheseAccueilReponse.encore_a_faire` — mêmes attributs
+         *     qu'`ingest.ia_synthese.ActionVue` ; réponse aussi de `POST /api/ia
+         *     /synthese/actions/{id}/faite` et `.../a-faire`.
+         */
+        ActionSyntheseReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Texte */
+            texte: string;
+            /**
+             * Semaine Debut
+             * Format: date
+             */
+            semaine_debut: string;
+            /** Faite Le */
+            faite_le: string | null;
+            /** Faite Par */
+            faite_par: string | null;
+            /** Bons */
+            bons: components["schemas"]["BonLieReponse"][];
         };
         /**
          * AgenceFournisseurReponse
@@ -1081,6 +1210,17 @@ export interface components {
             cree_le: string;
         };
         /**
+         * AvisIAReponse
+         * @description Réponse de `GET /api/ia/anomalies/{id}` — mêmes attributs
+         *     qu'`ingest.ia_prix.AvisIA`.
+         */
+        AvisIAReponse: {
+            /** Ia Active */
+            ia_active: boolean;
+            explication: components["schemas"]["ExplicationAlerteReponse"] | null;
+            prix_internet: components["schemas"]["PrixInternetReponse"] | null;
+        };
+        /**
          * BlocFactureReponse
          * @description Un bloc « Concerne le B.L. », dans `GET /api/factures/{id}`
          *     (`chantier_id`, L3-T7).
@@ -1142,6 +1282,20 @@ export interface components {
              * Format: password
              */
             client_secret?: string | null;
+        };
+        /**
+         * BonLieReponse
+         * @description Un bon cité par une action de synthèse — mêmes attributs
+         *     qu'`ingest.ia_synthese.BonLie`.
+         */
+        BonLieReponse: {
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /** Numero */
+            numero: string | null;
         };
         /**
          * ChampReponse
@@ -1347,6 +1501,57 @@ export interface components {
              * Format: uuid
              */
             chantier_id: string;
+        };
+        /**
+         * CommentaireReponse
+         * @description Un commentaire, sous sa ligne, dans `sans_ligne`, ou seul (retour de
+         *     `POST /api/commentaires/lignes/{id}`) — mêmes attributs
+         *     qu'`ingest.commentaires.CommentaireLu`.
+         */
+        CommentaireReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Ligne Libelle */
+            ligne_libelle: string;
+            /** Auteur */
+            auteur: string | null;
+            /** Texte */
+            texte: string;
+            /**
+             * Cree Le
+             * Format: date-time
+             */
+            cree_le: string;
+        };
+        /**
+         * CommentaireRequete
+         * @description Corps de `POST /api/commentaires/lignes/{id}` : borne de taille dès
+         *     la validation Pydantic (comme `ArchivageRequete`), pour rejeter un corps
+         *     trop volumineux avant même de le charger entièrement en mémoire. Un
+         *     texte blanc une fois nettoyé (espaces seuls) passe encore cette borne
+         *     (`min_length` compte les espaces) : il reste refusé par le service
+         *     (`ingest.commentaires.ajouter_commentaire`, `str.strip()`,
+         *     `CommentaireInvalide`, 422).
+         */
+        CommentaireRequete: {
+            /** Texte */
+            texte: string;
+        };
+        /**
+         * CommentairesBonReponse
+         * @description Réponse de `GET /api/commentaires/documents/{id}` — mêmes attributs
+         *     qu'`ingest.commentaires.CommentairesBon`.
+         */
+        CommentairesBonReponse: {
+            /** Nb Commentaires */
+            nb_commentaires: number;
+            /** Lignes */
+            lignes: components["schemas"]["LigneCommenteeReponse"][];
+            /** Sans Ligne */
+            sans_ligne: components["schemas"]["CommentaireReponse"][];
         };
         /**
          * ComparaisonBlReponse
@@ -1677,6 +1882,20 @@ export interface components {
             /** Chantier Id */
             chantier_id: string | null;
         };
+        /**
+         * ExplicationAlerteReponse
+         * @description Explication d'une alerte prix — mêmes attributs
+         *     qu'`ingest.ia_prix.ExplicationVue`.
+         */
+        ExplicationAlerteReponse: {
+            /** Texte */
+            texte: string;
+            /**
+             * Cree Le
+             * Format: date-time
+             */
+            cree_le: string;
+        };
         /** FactureDeposeeReponse */
         FactureDeposeeReponse: {
             /**
@@ -1907,6 +2126,29 @@ export interface components {
             /** Nom */
             nom: string | null;
             montants: components["schemas"]["MontantsBilanReponse"];
+        };
+        /**
+         * LigneCommenteeReponse
+         * @description Une ligne du bon avec ses commentaires, dans `GET
+         *     /api/commentaires/documents/{id}` — mêmes attributs
+         *     qu'`ingest.commentaires.LigneCommentee`.
+         */
+        LigneCommenteeReponse: {
+            /**
+             * Ligne Id
+             * Format: uuid
+             */
+            ligne_id: string;
+            /** Code */
+            code: string | null;
+            /** Article */
+            article: string | null;
+            /** Quantite */
+            quantite: string | null;
+            /** Unite */
+            unite: string | null;
+            /** Commentaires */
+            commentaires: components["schemas"]["CommentaireReponse"][];
         };
         /**
          * LigneCompareeReponse
@@ -2155,6 +2397,38 @@ export interface components {
             entier: boolean;
         };
         /**
+         * PrixInternetReponse
+         * @description Dernier prix trouvé sur internet pour le produit d'une anomalie —
+         *     mêmes attributs qu'`ingest.ia_prix.PrixInternetVue`.
+         */
+        PrixInternetReponse: {
+            /** Statut */
+            statut: string;
+            /** Prix */
+            prix: string | null;
+            /** Devise */
+            devise: string | null;
+            /** Taxes */
+            taxes: string | null;
+            /** Unite */
+            unite: string | null;
+            /** Conditionnement */
+            conditionnement: string | null;
+            /** Produit Trouve */
+            produit_trouve: string | null;
+            /** Source Url */
+            source_url: string | null;
+            /** Confiance */
+            confiance: string | null;
+            /** Raison */
+            raison: string | null;
+            /**
+             * Consulte Le
+             * Format: date-time
+             */
+            consulte_le: string;
+        };
+        /**
          * ProblemePrioritaireReponse
          * @description Une ligne de `priorites` dans `GET /api/tableau-de-bord` — mêmes
          *     attributs qu'`ingest.tableau_de_bord.ProblemePrioritaire`.
@@ -2185,6 +2459,48 @@ export interface components {
             nb_alias: number;
             /** Nb Anomalies */
             nb_anomalies: number;
+        };
+        /**
+         * SyntheseAccueilReponse
+         * @description Réponse de `GET /api/ia/synthese` — mêmes attributs
+         *     qu'`ingest.ia_synthese.SyntheseAccueil`.
+         */
+        SyntheseAccueilReponse: {
+            /** Ia Active */
+            ia_active: boolean;
+            derniere: components["schemas"]["SyntheseReponse"] | null;
+            /** Encore A Faire */
+            encore_a_faire: components["schemas"]["ActionSyntheseReponse"][];
+        };
+        /**
+         * SyntheseReponse
+         * @description La dernière synthèse (`SyntheseAccueilReponse.derniere`) — mêmes
+         *     attributs qu'`ingest.ia_synthese.SyntheseVue`.
+         */
+        SyntheseReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Semaine Debut
+             * Format: date
+             */
+            semaine_debut: string;
+            /**
+             * Semaine Fin
+             * Format: date
+             */
+            semaine_fin: string;
+            /** Statut */
+            statut: string;
+            /** Resume */
+            resume: string;
+            /** Nb Commentaires */
+            nb_commentaires: number;
+            /** Actions */
+            actions: components["schemas"]["ActionSyntheseReponse"][];
         };
         /**
          * TableauDeBordReponse
@@ -3982,6 +4298,185 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TableauDeBordReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    commentaires_du_bon_endpoint_api_commentaires_documents__document_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentairesBonReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ajouter_commentaire_endpoint_api_commentaires_lignes__ligne_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ligne_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommentaireRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentaireReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    synthese_accueil_endpoint_api_ia_synthese_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyntheseAccueilReponse"];
+                };
+            };
+        };
+    };
+    marquer_action_faite_endpoint_api_ia_synthese_actions__action_id__faite_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionSyntheseReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    marquer_action_a_faire_endpoint_api_ia_synthese_actions__action_id__a_faire_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionSyntheseReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    avis_ia_anomalie_endpoint_api_ia_anomalies__anomalie_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                anomalie_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvisIAReponse"];
                 };
             };
             /** @description Validation Error */

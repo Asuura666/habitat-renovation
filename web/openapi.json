@@ -2789,6 +2789,234 @@
     }
    }
   },
+  "/api/commentaires/documents/{document_id}": {
+   "get": {
+    "summary": "Commentaires Du Bon Endpoint",
+    "operationId": "commentaires_du_bon_endpoint_api_commentaires_documents__document_id__get",
+    "parameters": [
+     {
+      "name": "document_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Document Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CommentairesBonReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/commentaires/lignes/{ligne_id}": {
+   "post": {
+    "summary": "Ajouter Commentaire Endpoint",
+    "operationId": "ajouter_commentaire_endpoint_api_commentaires_lignes__ligne_id__post",
+    "parameters": [
+     {
+      "name": "ligne_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Ligne Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CommentaireRequete"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CommentaireReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/synthese": {
+   "get": {
+    "summary": "Synthese Accueil Endpoint",
+    "operationId": "synthese_accueil_endpoint_api_ia_synthese_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SyntheseAccueilReponse"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/synthese/actions/{action_id}/faite": {
+   "post": {
+    "summary": "Marquer Action Faite Endpoint",
+    "operationId": "marquer_action_faite_endpoint_api_ia_synthese_actions__action_id__faite_post",
+    "parameters": [
+     {
+      "name": "action_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Action Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ActionSyntheseReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/synthese/actions/{action_id}/a-faire": {
+   "post": {
+    "summary": "Marquer Action A Faire Endpoint",
+    "operationId": "marquer_action_a_faire_endpoint_api_ia_synthese_actions__action_id__a_faire_post",
+    "parameters": [
+     {
+      "name": "action_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Action Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ActionSyntheseReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/anomalies/{anomalie_id}": {
+   "get": {
+    "summary": "Avis Ia Anomalie Endpoint",
+    "operationId": "avis_ia_anomalie_endpoint_api_ia_anomalies__anomalie_id__get",
+    "parameters": [
+     {
+      "name": "anomalie_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Anomalie Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AvisIAReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/health": {
    "get": {
     "summary": "Health",
@@ -2857,6 +3085,65 @@
     ],
     "title": "ATraiterReponse",
     "description": "`GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18),\ncomplété par `anomalies_hautes` (anomalies ouvertes de gravité haute,\nL4-D18) et `chantiers_a_completer` (Task 6, avenant du 27/09/2026)."
+   },
+   "ActionSyntheseReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "texte": {
+      "type": "string",
+      "title": "Texte"
+     },
+     "semaine_debut": {
+      "type": "string",
+      "format": "date",
+      "title": "Semaine Debut"
+     },
+     "faite_le": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Faite Le"
+     },
+     "faite_par": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Faite Par"
+     },
+     "bons": {
+      "items": {
+       "$ref": "#/components/schemas/BonLieReponse"
+      },
+      "type": "array",
+      "title": "Bons"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "texte",
+     "semaine_debut",
+     "faite_le",
+     "faite_par",
+     "bons"
+    ],
+    "title": "ActionSyntheseReponse",
+    "description": "Une action de synthèse, dans `SyntheseReponse.actions` ou\n`SyntheseAccueilReponse.encore_a_faire` — mêmes attributs\nqu'`ingest.ia_synthese.ActionVue` ; réponse aussi de `POST /api/ia\n/synthese/actions/{id}/faite` et `.../a-faire`."
    },
    "AgenceFournisseurReponse": {
     "properties": {
@@ -3264,6 +3551,42 @@
     "title": "ArticleAValiderReponse",
     "description": "Un article à valider, dans `GET /api/a-traiter` — mêmes attributs\nqu'`ingest.a_traiter.ArticleAValider`."
    },
+   "AvisIAReponse": {
+    "properties": {
+     "ia_active": {
+      "type": "boolean",
+      "title": "Ia Active"
+     },
+     "explication": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ExplicationAlerteReponse"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "prix_internet": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PrixInternetReponse"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "type": "object",
+    "required": [
+     "ia_active",
+     "explication",
+     "prix_internet"
+    ],
+    "title": "AvisIAReponse",
+    "description": "Réponse de `GET /api/ia/anomalies/{id}` — mêmes attributs\nqu'`ingest.ia_prix.AvisIA`."
+   },
    "BlocFactureReponse": {
     "properties": {
      "id": {
@@ -3469,6 +3792,33 @@
      "password"
     ],
     "title": "Body_se_connecter_api_auth_login_post"
+   },
+   "BonLieReponse": {
+    "properties": {
+     "document_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Document Id"
+     },
+     "numero": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero"
+     }
+    },
+    "type": "object",
+    "required": [
+     "document_id",
+     "numero"
+    ],
+    "title": "BonLieReponse",
+    "description": "Un bon cité par une action de synthèse — mêmes attributs\nqu'`ingest.ia_synthese.BonLie`."
    },
    "ChampReponse": {
     "properties": {
@@ -3955,6 +4305,95 @@
     ],
     "title": "ChoixChantierDocumentRequete",
     "description": "Corps de `PUT /api/documents/{id}/chantier` (Task 6, avenant du\n27/09/2026, spec §2.4/§2.6) : le chantier choisi par un humain, pour\nrégler une alerte « Chantier à confirmer » (R18) ou corriger le\nchantier d'un bon depuis sa fiche."
+   },
+   "CommentaireReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "ligne_libelle": {
+      "type": "string",
+      "title": "Ligne Libelle"
+     },
+     "auteur": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Auteur"
+     },
+     "texte": {
+      "type": "string",
+      "title": "Texte"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "ligne_libelle",
+     "auteur",
+     "texte",
+     "cree_le"
+    ],
+    "title": "CommentaireReponse",
+    "description": "Un commentaire, sous sa ligne, dans `sans_ligne`, ou seul (retour de\n`POST /api/commentaires/lignes/{id}`) — mêmes attributs\nqu'`ingest.commentaires.CommentaireLu`."
+   },
+   "CommentaireRequete": {
+    "properties": {
+     "texte": {
+      "type": "string",
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Texte"
+     }
+    },
+    "type": "object",
+    "required": [
+     "texte"
+    ],
+    "title": "CommentaireRequete",
+    "description": "Corps de `POST /api/commentaires/lignes/{id}` : borne de taille dès\nla validation Pydantic (comme `ArchivageRequete`), pour rejeter un corps\ntrop volumineux avant même de le charger entièrement en mémoire. Un\ntexte blanc une fois nettoyé (espaces seuls) passe encore cette borne\n(`min_length` compte les espaces) : il reste refusé par le service\n(`ingest.commentaires.ajouter_commentaire`, `str.strip()`,\n`CommentaireInvalide`, 422)."
+   },
+   "CommentairesBonReponse": {
+    "properties": {
+     "nb_commentaires": {
+      "type": "integer",
+      "title": "Nb Commentaires"
+     },
+     "lignes": {
+      "items": {
+       "$ref": "#/components/schemas/LigneCommenteeReponse"
+      },
+      "type": "array",
+      "title": "Lignes"
+     },
+     "sans_ligne": {
+      "items": {
+       "$ref": "#/components/schemas/CommentaireReponse"
+      },
+      "type": "array",
+      "title": "Sans Ligne"
+     }
+    },
+    "type": "object",
+    "required": [
+     "nb_commentaires",
+     "lignes",
+     "sans_ligne"
+    ],
+    "title": "CommentairesBonReponse",
+    "description": "Réponse de `GET /api/commentaires/documents/{id}` — mêmes attributs\nqu'`ingest.commentaires.CommentairesBon`."
    },
    "ComparaisonBlReponse": {
     "properties": {
@@ -4884,6 +5323,26 @@
     "title": "DocumentReponse",
     "description": "Une ligne de `GET /api/documents` (`confirmation` ajouté au Ruling\nL2-R8, correction de revue L2-T7 : le front ne doit plus dériver\nvérifié/écart à partir de `statut`, qui suit une tout autre logique —\nvoir `ingest/service.py::lister_documents` ; `fournisseur`/\n`chantier_brut` ajoutés en L3-T8a pour un aperçu utile dans la liste ;\n`chantier_id` ajouté au tour de correction 1 de Task 8 — le filtre\n`?chantier=` de la liste « Documents » ne peut comparer un identifiant\nde chantier connu (`?chantier=<id>`, résolu par `GET /api/chantiers`)\nqu'à un identifiant, jamais à un préfixe de texte brut non normalisé\n(`chantier_brut`) ; `date_doc` ajouté au tour de correction 2 — pour un\nBL/enlèvement, la date du bon telle qu'imprimée (sa date de livraison),\npas sa date de dépôt (`cree_le`) : le filtre `?mois=` de la liste\n« Documents » comparait tout document sur `cree_le`, ce qui excluait un\nBL de son mois de livraison réel quand il est déposé un autre mois."
    },
+   "ExplicationAlerteReponse": {
+    "properties": {
+     "texte": {
+      "type": "string",
+      "title": "Texte"
+     },
+     "cree_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Cree Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "texte",
+     "cree_le"
+    ],
+    "title": "ExplicationAlerteReponse",
+    "description": "Explication d'une alerte prix — mêmes attributs\nqu'`ingest.ia_prix.ExplicationVue`."
+   },
    "FactureDeposeeReponse": {
     "properties": {
      "id": {
@@ -5453,6 +5912,78 @@
     ],
     "title": "LigneBilanFournisseurReponse",
     "description": "Une ligne de `GET /api/bilan/chantiers/{id}/fournisseurs` et de sa\nvue inverse `GET /api/bilan/fournisseurs` — mêmes attributs\nqu'`ingest.bilan.LigneBilanFournisseur`. `fournisseur_id`/`nom` valent\n`None` pour les blocs dont le fournisseur n'a pas pu être résolu, même\nprincipe que `LigneBilanChantierReponse.chantier_id`."
+   },
+   "LigneCommenteeReponse": {
+    "properties": {
+     "ligne_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Ligne Id"
+     },
+     "code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Code"
+     },
+     "article": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Article"
+     },
+     "quantite": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Quantite"
+     },
+     "unite": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite"
+     },
+     "commentaires": {
+      "items": {
+       "$ref": "#/components/schemas/CommentaireReponse"
+      },
+      "type": "array",
+      "title": "Commentaires"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ligne_id",
+     "code",
+     "article",
+     "quantite",
+     "unite",
+     "commentaires"
+    ],
+    "title": "LigneCommenteeReponse",
+    "description": "Une ligne du bon avec ses commentaires, dans `GET\n/api/commentaires/documents/{id}` — mêmes attributs\nqu'`ingest.commentaires.LigneCommentee`."
    },
    "LigneCompareeReponse": {
     "properties": {
@@ -6283,6 +6814,135 @@
     "title": "ParametreReponse",
     "description": "Un seuil administrable avec ses métadonnées de présentation."
    },
+   "PrixInternetReponse": {
+    "properties": {
+     "statut": {
+      "type": "string",
+      "title": "Statut"
+     },
+     "prix": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Prix"
+     },
+     "devise": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Devise"
+     },
+     "taxes": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Taxes"
+     },
+     "unite": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite"
+     },
+     "conditionnement": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Conditionnement"
+     },
+     "produit_trouve": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Produit Trouve"
+     },
+     "source_url": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Url"
+     },
+     "confiance": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confiance"
+     },
+     "raison": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Raison"
+     },
+     "consulte_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Consulte Le"
+     }
+    },
+    "type": "object",
+    "required": [
+     "statut",
+     "prix",
+     "devise",
+     "taxes",
+     "unite",
+     "conditionnement",
+     "produit_trouve",
+     "source_url",
+     "confiance",
+     "raison",
+     "consulte_le"
+    ],
+    "title": "PrixInternetReponse",
+    "description": "Dernier prix trouvé sur internet pour le produit d'une anomalie —\nmêmes attributs qu'`ingest.ia_prix.PrixInternetVue`."
+   },
    "ProblemePrioritaireReponse": {
     "properties": {
      "anomalie": {
@@ -6343,6 +7003,89 @@
     ],
     "title": "ResultatFusionReponse",
     "description": "Réponse de `POST /api/chantiers/{id}/fusionner` — mêmes attributs\nqu'`ingest.fusion_chantier.ResultatFusion`."
+   },
+   "SyntheseAccueilReponse": {
+    "properties": {
+     "ia_active": {
+      "type": "boolean",
+      "title": "Ia Active"
+     },
+     "derniere": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/SyntheseReponse"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "encore_a_faire": {
+      "items": {
+       "$ref": "#/components/schemas/ActionSyntheseReponse"
+      },
+      "type": "array",
+      "title": "Encore A Faire"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ia_active",
+     "derniere",
+     "encore_a_faire"
+    ],
+    "title": "SyntheseAccueilReponse",
+    "description": "Réponse de `GET /api/ia/synthese` — mêmes attributs\nqu'`ingest.ia_synthese.SyntheseAccueil`."
+   },
+   "SyntheseReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "semaine_debut": {
+      "type": "string",
+      "format": "date",
+      "title": "Semaine Debut"
+     },
+     "semaine_fin": {
+      "type": "string",
+      "format": "date",
+      "title": "Semaine Fin"
+     },
+     "statut": {
+      "type": "string",
+      "title": "Statut"
+     },
+     "resume": {
+      "type": "string",
+      "title": "Resume"
+     },
+     "nb_commentaires": {
+      "type": "integer",
+      "title": "Nb Commentaires"
+     },
+     "actions": {
+      "items": {
+       "$ref": "#/components/schemas/ActionSyntheseReponse"
+      },
+      "type": "array",
+      "title": "Actions"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "semaine_debut",
+     "semaine_fin",
+     "statut",
+     "resume",
+     "nb_commentaires",
+     "actions"
+    ],
+    "title": "SyntheseReponse",
+    "description": "La dernière synthèse (`SyntheseAccueilReponse.derniere`) — mêmes\nattributs qu'`ingest.ia_synthese.SyntheseVue`."
    },
    "TableauDeBordReponse": {
     "properties": {

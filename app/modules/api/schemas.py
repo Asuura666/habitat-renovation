@@ -978,3 +978,169 @@ class ChangementMotDePasseRequete(BaseModel):
     ci-dessus)."""
 
     mot_de_passe: str = Field(min_length=1)
+
+
+# --------------------------------------------------------------------------
+# Commentaires sur les lignes d'un bon (tâche C2, phase 3) : schémas
+# construits à partir des dataclasses d'`ingest.commentaires`
+# (`CommentaireLu`, `LigneCommentee`, `CommentairesBon`).
+# --------------------------------------------------------------------------
+
+
+class CommentaireReponse(BaseModel):
+    """Un commentaire, sous sa ligne, dans `sans_ligne`, ou seul (retour de
+    `POST /api/commentaires/lignes/{id}`) — mêmes attributs
+    qu'`ingest.commentaires.CommentaireLu`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    ligne_libelle: str
+    auteur: str | None
+    texte: str
+    cree_le: datetime
+
+
+class LigneCommenteeReponse(BaseModel):
+    """Une ligne du bon avec ses commentaires, dans `GET
+    /api/commentaires/documents/{id}` — mêmes attributs
+    qu'`ingest.commentaires.LigneCommentee`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    ligne_id: uuid.UUID
+    code: str | None
+    article: str | None
+    quantite: Decimal | None
+    unite: str | None
+    commentaires: list[CommentaireReponse]
+
+
+class CommentairesBonReponse(BaseModel):
+    """Réponse de `GET /api/commentaires/documents/{id}` — mêmes attributs
+    qu'`ingest.commentaires.CommentairesBon`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    nb_commentaires: int
+    lignes: list[LigneCommenteeReponse]
+    sans_ligne: list[CommentaireReponse]
+
+
+class CommentaireRequete(BaseModel):
+    """Corps de `POST /api/commentaires/lignes/{id}` : borne de taille dès
+    la validation Pydantic (comme `ArchivageRequete`), pour rejeter un corps
+    trop volumineux avant même de le charger entièrement en mémoire. Un
+    texte blanc une fois nettoyé (espaces seuls) passe encore cette borne
+    (`min_length` compte les espaces) : il reste refusé par le service
+    (`ingest.commentaires.ajouter_commentaire`, `str.strip()`,
+    `CommentaireInvalide`, 422)."""
+
+    texte: str = Field(min_length=1, max_length=1000)
+
+
+# --------------------------------------------------------------------------
+# Synthèse hebdomadaire des commentaires (T4, phase 4 IA) : schémas
+# construits à partir des dataclasses d'`ingest.ia_synthese` (`BonLie`,
+# `ActionVue`, `SyntheseVue`, `SyntheseAccueil`), consommés par `api/ia.py`.
+# --------------------------------------------------------------------------
+
+
+class BonLieReponse(BaseModel):
+    """Un bon cité par une action de synthèse — mêmes attributs
+    qu'`ingest.ia_synthese.BonLie`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    document_id: uuid.UUID
+    numero: str | None
+
+
+class ActionSyntheseReponse(BaseModel):
+    """Une action de synthèse, dans `SyntheseReponse.actions` ou
+    `SyntheseAccueilReponse.encore_a_faire` — mêmes attributs
+    qu'`ingest.ia_synthese.ActionVue` ; réponse aussi de `POST /api/ia
+    /synthese/actions/{id}/faite` et `.../a-faire`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    texte: str
+    semaine_debut: date
+    faite_le: datetime | None
+    faite_par: str | None
+    bons: list[BonLieReponse]
+
+
+class SyntheseReponse(BaseModel):
+    """La dernière synthèse (`SyntheseAccueilReponse.derniere`) — mêmes
+    attributs qu'`ingest.ia_synthese.SyntheseVue`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    semaine_debut: date
+    semaine_fin: date
+    statut: str
+    resume: str
+    nb_commentaires: int
+    actions: list[ActionSyntheseReponse]
+
+
+class SyntheseAccueilReponse(BaseModel):
+    """Réponse de `GET /api/ia/synthese` — mêmes attributs
+    qu'`ingest.ia_synthese.SyntheseAccueil`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    ia_active: bool
+    derniere: SyntheseReponse | None
+    encore_a_faire: list[ActionSyntheseReponse]
+
+
+# --------------------------------------------------------------------------
+# Avis de l'IA sur une anomalie de prix (T6, phase 4 IA) : schémas construits
+# à partir des dataclasses d'`ingest.ia_prix` (`ExplicationVue`,
+# `PrixInternetVue`, `AvisIA`), consommés par `GET /api/ia/anomalies/{id}`
+# (`api/ia.py`).
+# --------------------------------------------------------------------------
+
+
+class ExplicationAlerteReponse(BaseModel):
+    """Explication d'une alerte prix — mêmes attributs
+    qu'`ingest.ia_prix.ExplicationVue`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    texte: str
+    cree_le: datetime
+
+
+class PrixInternetReponse(BaseModel):
+    """Dernier prix trouvé sur internet pour le produit d'une anomalie —
+    mêmes attributs qu'`ingest.ia_prix.PrixInternetVue`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    statut: str
+    prix: Decimal | None
+    devise: str | None
+    taxes: str | None
+    unite: str | None
+    conditionnement: str | None
+    produit_trouve: str | None
+    source_url: str | None
+    confiance: str | None
+    raison: str | None
+    consulte_le: datetime
+
+
+class AvisIAReponse(BaseModel):
+    """Réponse de `GET /api/ia/anomalies/{id}` — mêmes attributs
+    qu'`ingest.ia_prix.AvisIA`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    ia_active: bool
+    explication: ExplicationAlerteReponse | None
+    prix_internet: PrixInternetReponse | None
