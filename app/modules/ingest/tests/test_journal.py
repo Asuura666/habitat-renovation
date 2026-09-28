@@ -371,6 +371,41 @@ async def test_journal_resout_confirme_par_en_nom(
     assert ok
 
 
+async def test_journal_resout_le_compte_cible_en_nom(
+    db_session: AsyncSession,
+) -> None:
+    """Recette du 28/09/2026 : les entrées de l'écran Comptes
+    (`compte_cree`, `mot_de_passe_change`, `acces_retire`…) ont
+    `cible_table="utilisateur"` et `cible_id` = l'identifiant du compte
+    visé ; la colonne « Cible » affichait cet identifiant brut. `noms` doit
+    porter le nom du compte (`coalesce(nom, email)`), et l'e-mail quand le
+    compte n'a pas de nom."""
+    compte = await _creer_utilisateur(db_session, nom="Paul Employé")
+    sans_nom = await _creer_utilisateur(db_session, nom=None)
+    await _creer_entree(
+        db_session,
+        action="mot_de_passe_change",
+        cible_table="utilisateur",
+        cible_id=str(compte.id),
+    )
+    await _creer_entree(
+        db_session,
+        action="acces_retire",
+        cible_table="utilisateur",
+        cible_id=str(sans_nom.id),
+        avant={"actif": True},
+        apres={"actif": False},
+    )
+
+    par_action = {e.action: e for e in await lister_journal(db_session)}
+
+    ok = (
+        par_action["mot_de_passe_change"].noms[str(compte.id)] == "Paul Employé"
+        and par_action["acces_retire"].noms[str(sans_nom.id)] == sans_nom.email
+    )
+    assert ok
+
+
 async def test_journal_resout_chantier_et_fournisseur(
     db_session: AsyncSession,
 ) -> None:

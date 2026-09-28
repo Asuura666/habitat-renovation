@@ -677,6 +677,11 @@ autres échecs, ce qui n'apporte rien tant qu'il n'a jamais été rencontré.
   n'existe pour peupler un sélecteur de comptes. Corriger proprement
   demande cette route et un composant de sélection, hors périmètre de
   cette tâche (habillage uniquement, contenu inchangé).
+  **Résolu le 28/09/2026** (recette de la démo) : le filtre « Auteur » est
+  une liste des comptes par nom (`GET /api/comptes`, écran Comptes de la
+  phase 1), et la colonne « Cible » d'une action sur un compte affiche son
+  nom (`ingest/journal.py` résout `cible_id` quand `cible_table` vaut
+  `utilisateur`) : plus aucun identifiant de compte à l'écran.
 
 ### Task 10, tour 2 (23/09/2026) — web (libellés des réglages dans le Journal)
 

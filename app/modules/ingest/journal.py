@@ -124,10 +124,20 @@ def _ids_references(
     cette entrée vaut `"chantier"` (seul cas réel aujourd'hui,
     `fusion_chantier.py::fusionner_chantiers`) — un `cible_id` de
     `"parametre"` ou d'un autre type n'est jamais un identifiant de
-    chantier."""
+    chantier.
+
+    `cible_id` lui-même (la colonne, pas une clé d'`avant`/`apres`) est le
+    compte visé quand `cible_table` vaut `"utilisateur"` (actions de
+    l'écran Comptes, `app/core/auth.py`) : résolu en nom comme les autres
+    utilisateurs, pour que la colonne « Cible » n'affiche jamais un
+    identifiant (recette du 28/09/2026)."""
     utilisateurs: set[uuid.UUID] = set()
     chantiers: set[uuid.UUID] = set()
     fournisseurs: set[uuid.UUID] = set()
+    if entree.cible_table == "utilisateur":
+        compte_cible = _uuid_ou_none(entree.cible_id)
+        if compte_cible is not None:
+            utilisateurs.add(compte_cible)
     for contexte in (entree.avant, entree.apres):
         if contexte is None:
             continue
