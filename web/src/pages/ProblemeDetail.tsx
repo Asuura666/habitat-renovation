@@ -1,12 +1,24 @@
-import { type FormEvent, type ReactElement, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactElement, type ReactNode, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 
-import { type AliasEnAttente, type ArticleAValider, type DocumentATraiter } from "../api/aTraiter";
+import {
+  type AliasEnAttente,
+  type ArticleAValider,
+  type ChantierACompleter,
+  type DocumentATraiter,
+} from "../api/aTraiter";
 import { type Anomalie, traiterAnomalie } from "../api/anomalies";
 import { ErreurApi } from "../api/client";
+import { choisirChantierDocument } from "../api/documents";
 import { invaliderApresChangementAnomalies } from "../api/invalidations";
-import { type Chantier, CLE_CHANTIERS, validerArticle } from "../api/referentiels";
+import {
+  type Chantier,
+  ChantierEnDoubleErreur,
+  CLE_CHANTIERS,
+  creerChantier,
+  validerArticle,
+} from "../api/referentiels";
 import { AliasCarte } from "../components/AliasCarte";
 import { formaterDateHeure, TIRET } from "../lib/formats";
 import { CHANTIER_A_RATTACHER, lienBon, lienFacture } from "../lib/liens";
@@ -161,6 +173,11 @@ function chiffresProbleme(anomalie: Anomalie): ChiffreProbleme[] {
       return [
         { libelle: "Quantité", valeur: quantiteOuTiret(detail, "qte") },
         { libelle: "Conditionnement", valeur: texteOuTiret(detail, "conditionnement") },
+      ];
+    case "R18":
+      return [
+        { libelle: "Nom lu sur le bon", valeur: texteOuTiret(detail, "nom_lu") },
+        { libelle: "Nom indiqué par l'employé", valeur: texteOuTiret(detail, "legende") },
       ];
     // Phase 3, tâche P9 (spec §5.2) : les mêmes clés que `phraseProbleme`
     // (`ui/libelles.ts`), en chiffres nommés plutôt qu'en phrase.
@@ -330,11 +347,296 @@ function FormulaireTraitement({
   );
 }
 
-function DetailAnomalie({
+interface CandidatR18 {
+  id: string;
+  nom: string;
+}
+
+/** Candidats d'une alerte R18, dans l'ordre de la décision de chantier
+ * (`detail.candidats` séparés par « / », `detail.candidats_ids` par « , »
+ * -- `rules/rules/R18.py`) : un bouton « C'est <nom> » par candidat. Un
+ * candidat sans id correspondant (jamais censé arriver, `nom_pour_creation`
+ * garantit toujours autant de noms que d'ids) est ignoré, défensif. */
+function candidatsR18(anomalie: Anomalie): CandidatR18[] {
+  const { detail } = anomalie;
+  const noms = detail.candidats !== undefined && detail.candidats !== "" ? detail.candidats.split(" / ") : [];
+  const ids =
+    detail.candidats_ids !== undefined && detail.candidats_ids !== "" ? detail.candidats_ids.split(",") : [];
+  return noms.flatMap((nom, index) => {
+    const id = ids[index];
+    return id !== undefined && id !== "" ? [{ id, nom }] : [];
+  });
+}
+
+/** Levée par la mutation d'« Autre chantier… » (fix round 1 de la revue de
+ * cette tâche, même piège identifié par `AliasCarte::RattachementApres
+ * CreationErreur`) quand `creerChantier` a réussi mais que
+ * `choisirChantierDocument` échoue ensuite : le chantier existe déjà en
+ * base, ce n'est pas une erreur de création -- un réessai doit réutiliser
+ * ce chantier, jamais en recréer un second. */
+class ChoixApresCreationErreur extends Error {
+  constructor(cause: unknown) {
+    super("chantier créé, choix échoué", { cause });
+    this.name = "ChoixApresCreationErreur";
+  }
+}
+
+/** Action de l'alerte « Chantier à confirmer » (R18, spec §2.4) : un
+ * bouton « C'est <nom> » par candidat, plus « Autre chantier… » -- soit un
+ * chantier existant (`listerChantiers`, déjà chargée par `ARegler.tsx`),
+ * soit la création d'un nouveau chantier (nom, client, agence), même
+ * principe qu'`AliasCarte` (fix round 1 de la revue de cette tâche : la
+ * spec §2.4 exige explicitement « avec création possible », un simple
+ * `<select>` ne suffisait pas). Jamais le formulaire générique Contesté/
+ * Ignorer (`FormulaireTraitement`), qui n'a pas de sens ici : choisir le
+ * chantier ferme l'alerte de son côté (`choisir_chantier_document`,
+ * journal `chantier_choisi` + `anomalie_traitee` automatique). */
+function DetailR18({
   anomalie,
+  chantiers,
   onTraitementReussi,
 }: {
   anomalie: Anomalie;
+  chantiers: Chantier[];
+  onTraitementReussi: () => void;
+}): ReactElement {
+  const queryClient = useQueryClient();
+  const [autreOuvert, setAutreOuvert] = useState(false);
+  const [modeCreation, setModeCreation] = useState(false);
+  const [chantierChoisi, setChantierChoisi] = useState("");
+  const [nom, setNom] = useState("");
+  const [client, setClient] = useState("");
+  const [agence, setAgence] = useState("");
+  // Id du chantier créé par un essai précédent de cette même carte, quand
+  // `choisirChantierDocument` a ensuite échoué (même idiome qu'`AliasCarte
+  // ::chantierCreeIdRef`) : un réessai réutilise cet id au lieu d'appeler
+  // `creerChantier` une seconde fois (qui échouerait, le nom existant
+  // déjà). Remis à `null` dès qu'un choix réussit.
+  const chantierCreeIdRef = useRef<string | null>(null);
+  const candidats = candidatsR18(anomalie);
+  const documentId = anomalie.document_id;
+
+  async function apresChoixReussi(): Promise<void> {
+    // Ferme l'alerte côté serveur (`choisir_chantier_document`) : mêmes
+    // invalidations que tout traitement de problème
+    // (`invaliderApresChangementAnomalies`), plus le référentiel chantier
+    // (`document.chantier_id`, et un chantier a pu être créé, comme
+    // `AliasCarte`).
+    await Promise.all([
+      invaliderApresChangementAnomalies(queryClient),
+      queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS }),
+    ]);
+    onTraitementReussi();
+  }
+
+  const choix = useMutation({
+    mutationFn: (chantierId: string) => choisirChantierDocument(documentId ?? "", chantierId),
+    onSuccess: apresChoixReussi,
+  });
+
+  const validationAutre = useMutation({
+    mutationFn: async () => {
+      let chantierId: string;
+      if (modeCreation) {
+        if (chantierCreeIdRef.current !== null) {
+          chantierId = chantierCreeIdRef.current;
+        } else {
+          const cree = await creerChantier(
+            nom,
+            agence.trim() === "" ? null : agence.trim(),
+            client.trim() === "" ? null : client.trim(),
+          );
+          chantierCreeIdRef.current = cree.id;
+          chantierId = cree.id;
+        }
+      } else {
+        chantierId = chantierChoisi;
+      }
+
+      try {
+        const resultat = await choisirChantierDocument(documentId ?? "", chantierId);
+        chantierCreeIdRef.current = null;
+        return resultat;
+      } catch (erreur) {
+        // `chantierId` existe déjà en base à ce stade (créé à cet essai ou
+        // à un essai précédent) : le signaler distinctement de l'erreur
+        // brute de `choisirChantierDocument`.
+        if (modeCreation) {
+          throw new ChoixApresCreationErreur(erreur);
+        }
+        throw erreur;
+      }
+    },
+    // Que le choix réussisse ou échoue après une création de chantier, le
+    // référentiel a pu changer (chantier créé) : jamais servir une liste
+    // de chantiers périmée depuis le cache (même raison qu'`AliasCarte`).
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: CLE_CHANTIERS });
+    },
+    onSuccess: apresChoixReussi,
+  });
+
+  if (documentId === null) {
+    return (
+      <p role="alert" className="text-sm text-alerte">
+        Bon introuvable pour ce problème.
+      </p>
+    );
+  }
+
+  function soumettreAutre(evenement: FormEvent<HTMLFormElement>): void {
+    evenement.preventDefault();
+    validationAutre.mutate();
+  }
+
+  function messageErreurAutre(erreur: unknown): string {
+    if (erreur instanceof ChoixApresCreationErreur) {
+      return "Le chantier a été créé, son choix pour ce bon a échoué : réessayez.";
+    }
+    if (erreur instanceof ChantierEnDoubleErreur) {
+      const existant = chantiers.find((chantier) => chantier.id === erreur.originalId);
+      return existant ? `Le chantier « ${existant.nom_canonique} » existe déjà.` : "Ce chantier existe déjà.";
+    }
+    if (erreur instanceof ErreurApi) {
+      return erreur.detail;
+    }
+    return "Une erreur est survenue, réessayez.";
+  }
+
+  const soumissionAutreValide = modeCreation ? nom.trim() !== "" : chantierChoisi !== "";
+  const classesChamp =
+    "min-h-[44px] w-full rounded-lg border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent";
+  const classesLabel = "mb-1 block text-sm font-semibold text-encre";
+
+  return (
+    <div className="mt-auto flex flex-col gap-3">
+      <div className="flex flex-col gap-2">
+        {candidats.map((candidat) => (
+          <Bouton
+            key={candidat.id}
+            type="button"
+            onClick={() => choix.mutate(candidat.id)}
+            disabled={choix.isPending}
+            className="w-full"
+          >
+            {`C'est ${candidat.nom}`}
+          </Bouton>
+        ))}
+      </div>
+      <Bouton
+        type="button"
+        variante="secondaire"
+        onClick={() => setAutreOuvert((valeur) => !valeur)}
+        className="w-full"
+      >
+        Autre chantier…
+      </Bouton>
+      {autreOuvert && (
+        <form onSubmit={soumettreAutre} className="flex flex-col gap-3">
+          {!modeCreation && (
+            <div>
+              <label htmlFor={`chantier-r18-${anomalie.id}`} className={classesLabel}>
+                Chantier existant
+              </label>
+              <select
+                id={`chantier-r18-${anomalie.id}`}
+                value={chantierChoisi}
+                onChange={(evenement) => setChantierChoisi(evenement.target.value)}
+                className={classesChamp}
+              >
+                <option value="">— Choisir un chantier —</option>
+                {chantiers.map((chantier) => (
+                  <option key={chantier.id} value={chantier.id}>
+                    {chantier.nom_canonique}
+                    {chantier.agence !== null ? ` (${chantier.agence})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {modeCreation && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <label htmlFor={`chantier-r18-nom-${anomalie.id}`} className={classesLabel}>
+                  Nom du chantier
+                </label>
+                <input
+                  id={`chantier-r18-nom-${anomalie.id}`}
+                  type="text"
+                  value={nom}
+                  onChange={(evenement) => setNom(evenement.target.value)}
+                  className={classesChamp}
+                />
+              </div>
+              <div>
+                <label htmlFor={`chantier-r18-client-${anomalie.id}`} className={classesLabel}>
+                  Client
+                </label>
+                <input
+                  id={`chantier-r18-client-${anomalie.id}`}
+                  type="text"
+                  value={client}
+                  onChange={(evenement) => setClient(evenement.target.value)}
+                  className={classesChamp}
+                />
+              </div>
+              <div>
+                <label htmlFor={`chantier-r18-agence-${anomalie.id}`} className={classesLabel}>
+                  Agence
+                </label>
+                <input
+                  id={`chantier-r18-agence-${anomalie.id}`}
+                  type="text"
+                  value={agence}
+                  onChange={(evenement) => setAgence(evenement.target.value)}
+                  className={classesChamp}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Bouton
+              type="submit"
+              disabled={!soumissionAutreValide || validationAutre.isPending}
+              className="sm:flex-1"
+            >
+              {modeCreation ? "Créer et choisir" : "Choisir ce chantier"}
+            </Bouton>
+            <Bouton
+              type="button"
+              variante="secondaire"
+              onClick={() => setModeCreation((valeur) => !valeur)}
+              className="sm:flex-1"
+            >
+              {modeCreation ? "Choisir un chantier existant" : "Créer un chantier"}
+            </Bouton>
+          </div>
+
+          {validationAutre.isError && (
+            <p role="alert" className="text-sm text-alerte">
+              {messageErreurAutre(validationAutre.error)}
+            </p>
+          )}
+        </form>
+      )}
+      {choix.isError && (
+        <p role="alert" className="text-sm text-alerte">
+          {choix.error instanceof ErreurApi ? choix.error.detail : "Une erreur est survenue, réessayez."}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function DetailAnomalie({
+  anomalie,
+  chantiers,
+  onTraitementReussi,
+}: {
+  anomalie: Anomalie;
+  chantiers: Chantier[];
   onTraitementReussi: () => void;
 }): ReactElement {
   // Fix round 2, finding 1 : régression du fix round 1 (finding 6,
@@ -431,7 +733,11 @@ function DetailAnomalie({
         )}
       </div>
 
-      <FormulaireTraitement anomalie={anomalie} onTraitementReussi={onTraitementReussi} />
+      {anomalie.regle === "R18" ? (
+        <DetailR18 anomalie={anomalie} chantiers={chantiers} onTraitementReussi={onTraitementReussi} />
+      ) : (
+        <FormulaireTraitement anomalie={anomalie} onTraitementReussi={onTraitementReussi} />
+      )}
     </>
   );
 }
@@ -644,6 +950,33 @@ function DetailArticle({
   );
 }
 
+/** Section « Nouveaux chantiers à compléter » (spec §2.6) : le panneau ne
+ * propose ici qu'un lien vers la fiche du chantier (`LienPrincipal`, même
+ * navigation réelle que « Corriger le bon ») -- compléter la fiche
+ * (agence, client) et sortir de cette liste se fait sur l'écran
+ * « Chantiers », jamais ici (aucune règle métier dans ce panneau). */
+function DetailChantierACompleter({ chantier }: { chantier: ChantierACompleter }): ReactElement {
+  return (
+    <>
+      <div className="flex flex-col gap-1">
+        <Kicker probleme={{ kind: "chantier", id: "", chantier }} />
+        <h2 className="font-titre text-2xl font-medium text-encre">{chantier.nom}</h2>
+        <p className="text-sm text-encre-2">
+          Créé automatiquement le {formaterDateHeure(chantier.cree_le)} · {chantier.nb_bons} bon
+          {chantier.nb_bons > 1 ? "s" : ""}
+        </p>
+      </div>
+
+      <p className="text-sm text-encre-2">
+        Ce chantier a été créé automatiquement à partir d'un nom lu sur un bon, sans agence ni client renseignés.
+        Complétez sa fiche pour qu'il ne soit plus « à compléter ».
+      </p>
+
+      <LienPrincipal to={`/chantiers/${chantier.id}`}>Compléter</LienPrincipal>
+    </>
+  );
+}
+
 export function ProblemeDetail({
   probleme,
   chantiers,
@@ -667,9 +1000,10 @@ export function ProblemeDetail({
         ← Retour à la liste
       </Link>
       {probleme.kind === "anomalie" && (
-        <DetailAnomalie anomalie={probleme.anomalie} onTraitementReussi={onTraitementReussi} />
+        <DetailAnomalie anomalie={probleme.anomalie} chantiers={chantiers} onTraitementReussi={onTraitementReussi} />
       )}
       {probleme.kind === "document" && <DetailDocument document={probleme.document} />}
+      {probleme.kind === "chantier" && <DetailChantierACompleter chantier={probleme.chantier} />}
       {probleme.kind === "alias" && (
         <DetailAlias alias={probleme.alias} chantiers={chantiers} onTraitementReussi={onTraitementReussi} />
       )}

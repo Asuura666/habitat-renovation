@@ -337,6 +337,11 @@ export function Gabarit(): ReactElement {
           {estAdmin && (
             <ul className="mt-auto flex flex-col gap-1 text-sm text-encre-2">
               <li>
+                <NavLink to="/comptes" className={classesLienDiscret}>
+                  Comptes
+                </NavLink>
+              </li>
+              <li>
                 <NavLink to="/reglages" className={classesLienDiscret}>
                   Réglages
                 </NavLink>
@@ -390,6 +395,9 @@ export function Gabarit(): ReactElement {
             </div>
             {estAdmin && (
               <div className="flex items-center gap-4 border-t border-bordure px-4 text-sm text-encre-2">
+                <NavLink to="/comptes" className={classesLienEnTete}>
+                  Comptes
+                </NavLink>
                 <NavLink to="/reglages" className={classesLienEnTete}>
                   Réglages
                 </NavLink>

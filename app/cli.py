@@ -58,6 +58,24 @@
 - `python -m app.cli drive-sync` (L5-T11) : synchronise par lot les originaux
   vers le dossier Google Drive configuré. Refuse de démarrer sans les deux
   variables Drive ; réessaie les échecs et signale après 24 h sur Telegram.
+- `python -m app.cli rattacher-chantiers` (Task 8, spec §2.8) : reprise, au
+  déploiement, des noms de chantier en attente de l'ancien flux (alias
+  `chantier_id IS NULL`) et des bons non archivés encore sans chantier —
+  rejoue `ingest.rattachement_chantier.reprendre_chantiers` (déjà commité,
+  idempotente). Sans argument, à lancer une fois après la mise en
+  production. Toujours code 0 (les deux fonctions rattachées absorbent déjà
+  tous les cas, comme `controles-differes`).
+- `python -m app.cli ranger-photos` (Task 9, spec §5) : (re)construit le
+  rangement des photos de bon sous `<DOCS_DIR>/bl/<AAAA>/<MM>/...` — un lien
+  physique par bon `bl`/`enlevement` non archivé, jamais une copie. Rejoue
+  `ingest.rangement.ranger_tout` (idempotente) : pose les liens manquants,
+  laisse inchangés ceux déjà corrects. Rattrape en particulier les bons dont
+  le chantier a changé par propagation d'alias (jamais renommés à la volée,
+  décision du contrôleur, Task 9) et ceux de la reprise
+  (`rattacher-chantiers`). À lancer une fois au déploiement puis chaque nuit
+  (cron, hors périmètre de cette tâche). Toujours code 0 (un échec individuel
+  est absorbé et journalisé par `ingest.rangement.ranger_document`, jamais
+  remonté ici).
 - `python -m app.cli controler-prix [--depuis AAAA-MM-JJ]` (phase 3, tâche
   P7, spec `docs/superpowers/specs/2026-09-27-prix-design.md` §6.2) :
   recontrôle les prix de tous les bons (BL/enlèvement) non archivés datés à
@@ -81,6 +99,8 @@ que construire ses dépendances (client HTTP, moteur DB) et les brancher vers
 `ingest` ou `jobs` (décisions du contrôleur
 T7/L2-T1b/L3-T5/L3-T11/L4-T11/L5-T11). L5-T11 ajoute le paquet `jobs`
 et un import différé de `messaging.telegram` pour le seul signalement.
+`rattachement_chantier.py` depuis Task 8 (avenant du 27/09/2026),
+`rangement.py` depuis Task 9 (même avenant).
 
 Import différé de `app.core.auth` (dans le corps de `_utilisateur_creer`/
 `_utilisateur_desactiver`, pas en tête de fichier) : ce module appelle
@@ -124,6 +144,7 @@ from app.modules.ingest.factures import (
 )
 from app.modules.ingest.mistral import ErreurOCR, ocr_document
 from app.modules.ingest.prix_bl import recontroler_bons
+from app.modules.ingest.rangement import ranger_tout
 from app.modules.ingest.rapport_ocr import (
     ecrire_rapport,
     mesurer_dossier,
@@ -136,6 +157,7 @@ from app.modules.ingest.rapprochement import (
     rapprocher_facture,
     rapprocher_facture_sans_echec,
 )
+from app.modules.ingest.rattachement_chantier import reprendre_chantiers
 from app.modules.ingest.referentiels import definir_fournisseur
 from app.modules.ingest.router import DELAI_OCR_BL
 from app.modules.ingest.suivi import controles_differes
@@ -636,6 +658,56 @@ async def _drive_sync(*, limite: int) -> int:
     return 1 if resultat.echecs else 0
 
 
+async def _rattacher_chantiers() -> int:
+    """Implémentation de `rattacher-chantiers` (Task 8, spec §2.8). Toute la
+    logique (deux passes -- alias en attente puis bons sans chantier,
+    ruling du contrôleur sur le nom d'un chantier créé à cette occasion) est
+    déjà dans `ingest.rattachement_chantier.reprendre_chantiers` (idempotente,
+    commite elle-même) : cette CLI ne fait que construire ses dépendances
+    (moteur DB) et les brancher, comme les autres commandes de ce fichier.
+    Toujours code 0 (aucune validation ne peut échouer ici, comme
+    `controles-differes`)."""
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            bilan = await reprendre_chantiers(session)
+    finally:
+        await engine.dispose()
+
+    print(
+        f"Noms rattachés : {bilan.alias_rattaches} · "
+        f"chantiers créés : {bilan.chantiers_crees} · "
+        f"noms ambigus : {bilan.alias_ambigus} · "
+        f"bons rattachés : {bilan.bons_rattaches} · "
+        f"bons en alerte : {bilan.bons_en_alerte}"
+    )
+    return 0
+
+
+async def _ranger_photos() -> int:
+    """Implémentation de `ranger-photos` (Task 9, spec §5). Toute la
+    logique (chemin cible, lien physique, dossiers en 0750, idempotence) est
+    déjà dans `ingest.rangement.ranger_tout` : cette CLI ne fait que
+    construire ses dépendances (moteur DB, `DOCS_DIR`) et les brancher,
+    comme les autres commandes de ce fichier. Toujours code 0 (un échec
+    individuel de rangement est absorbé et journalisé par
+    `ingest.rangement.ranger_document`, jamais remonté ici, comme
+    `rattacher-chantiers`)."""
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            nb_ranges = await ranger_tout(session, settings.docs_dir)
+    finally:
+        await engine.dispose()
+
+    print(f"{nb_ranges} bon(s) rangé(s)")
+    return 0
+
+
 def _construire_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="app.cli")
     sous_parsers = parser.add_subparsers(dest="commande", required=True)
@@ -774,6 +846,24 @@ def _construire_parser() -> argparse.ArgumentParser:
         help="nombre maximal de documents à traiter (défaut : 100)",
     )
 
+    sous_parsers.add_parser(
+        "rattacher-chantiers",
+        help=(
+            "Reprise des noms de chantier en attente (ancien flux) et des "
+            "bons non archivés encore sans chantier -- à lancer une fois au "
+            "déploiement, idempotente"
+        ),
+    )
+
+    sous_parsers.add_parser(
+        "ranger-photos",
+        help=(
+            "(Re)construit le rangement des photos de bon sous "
+            "<DOCS_DIR>/bl/<AAAA>/<MM>/... (lien physique, jamais une copie) "
+            "-- idempotente, à lancer au déploiement puis chaque nuit"
+        ),
+    )
+
     return parser
 
 
@@ -822,6 +912,10 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_controler_prix(args.depuis))
     if args.commande == "drive-sync":
         return asyncio.run(_drive_sync(limite=args.limite))
+    if args.commande == "rattacher-chantiers":
+        return asyncio.run(_rattacher_chantiers())
+    if args.commande == "ranger-photos":
+        return asyncio.run(_ranger_photos())
     raise AssertionError(f"commande inconnue : {args.commande}")  # pragma: no cover
 
 

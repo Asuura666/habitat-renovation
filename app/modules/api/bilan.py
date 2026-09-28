@@ -80,6 +80,7 @@ from app.modules.api.schemas import (
     LigneBilanBlReponse,
     LigneBilanChantierReponse,
     LigneBilanFournisseurReponse,
+    LigneLivraisonReponse,
 )
 from app.modules.ingest.bilan import (
     bilan_chantiers_du_fournisseur,
@@ -88,6 +89,7 @@ from app.modules.ingest.bilan import (
     bilan_par_chantier,
     bilan_par_fournisseur,
     bilan_par_fournisseur_global,
+    lister_livraisons,
 )
 from app.modules.ingest.export import (
     csv_bilan_bl,
@@ -208,6 +210,31 @@ async def bilan_chantiers_du_fournisseur_endpoint(
         session, fournisseur_id=fournisseur_id, mois=mois, agence=agence
     )
     return [LigneBilanChantierReponse.model_validate(ligne) for ligne in lignes]
+
+
+@router.get("/bilan/livraisons", response_model=list[LigneLivraisonReponse])
+async def bilan_livraisons_endpoint(
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    mois: Annotated[date | None, Query()] = None,
+    agence: Annotated[str | None, Query()] = None,
+    chantier: Annotated[uuid.UUID | None, Query()] = None,
+    fournisseur: Annotated[uuid.UUID | None, Query()] = None,
+) -> list[LigneLivraisonReponse]:
+    """Liste des livraisons (Task 13, mise en production du 1er octobre,
+    spec §4.3) : bons conformes cliquables (accueil, fiche chantier, fiche
+    fournisseur) et écran `/livraisons`. `chantier`/`fournisseur` absents ->
+    aucun filtre sur ce côté (voir `ingest.bilan.lister_livraisons`, dont le
+    docstring explique pourquoi `None` n'y sélectionne pas le côté non
+    résolu comme les autres routes de ce module)."""
+    lignes = await lister_livraisons(
+        session,
+        mois=mois,
+        agence=agence,
+        chantier_id=chantier,
+        fournisseur_id=fournisseur,
+    )
+    return [LigneLivraisonReponse.model_validate(ligne) for ligne in lignes]
 
 
 # --------------------------------------------------------------------------

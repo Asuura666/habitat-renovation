@@ -189,6 +189,101 @@ def test_update_sans_message_renvoie_none() -> None:
 
 
 # --------------------------------------------------------------------------
+# Légende (`message.caption`, avenant du 27/09/2026) : nom de chantier tapé
+# par l'employé au moment d'envoyer la photo, nettoyée avant stockage
+# (`strip()`, vide -> `None`, tronquée à 200 caractères).
+# --------------------------------------------------------------------------
+
+
+def test_photo_avec_legende() -> None:
+    update = {
+        "update_id": 1,
+        "message": {
+            "message_id": 5,
+            "chat": {"id": -100},
+            "from": {"id": 42, "first_name": "Léa"},
+            "photo": [
+                {"file_id": "p1", "file_size": 10},
+                {"file_id": "p2", "file_size": 20},
+            ],
+            "caption": "  Villa Test  ",
+        },
+    }
+
+    entrant = lire_update(update)
+
+    assert isinstance(entrant, FichierEntrant) and entrant.legende == "Villa Test"
+
+
+def test_document_avec_legende_longue_tronquee() -> None:
+    update = {
+        "update_id": 220,
+        "message": {
+            "message_id": 40,
+            "chat": {"id": 555},
+            "document": {"file_id": "doc-invente", "mime_type": "image/jpeg"},
+            "caption": "x" * 300,
+        },
+    }
+
+    entrant = lire_update(update)
+
+    assert isinstance(entrant, FichierEntrant)
+    assert entrant.legende is not None
+    assert len(entrant.legende) == 200
+
+
+def test_legende_vide_devient_none() -> None:
+    update = {
+        "update_id": 221,
+        "message": {
+            "message_id": 41,
+            "chat": {"id": 555},
+            "document": {"file_id": "doc-invente", "mime_type": "image/jpeg"},
+            "caption": "   ",
+        },
+    }
+
+    entrant = lire_update(update)
+
+    assert isinstance(entrant, FichierEntrant)
+    assert entrant.legende is None
+
+
+def test_legende_absente_renvoie_none() -> None:
+    update = {
+        "update_id": 222,
+        "message": {
+            "message_id": 42,
+            "chat": {"id": 555},
+            "document": {"file_id": "doc-invente", "mime_type": "image/jpeg"},
+        },
+    }
+
+    entrant = lire_update(update)
+
+    assert isinstance(entrant, FichierEntrant)
+    assert entrant.legende is None
+
+
+def test_legende_non_str_renvoie_none() -> None:
+    update = {
+        "update_id": 223,
+        "message": {
+            "message_id": 43,
+            "chat": {"id": 555},
+            "document": {"file_id": "doc-invente", "mime_type": "image/jpeg"},
+            "caption": 12345,
+        },
+    }
+
+    entrant = lire_update(update)
+
+    assert isinstance(entrant, FichierEntrant)
+    assert entrant.legende is None
+
+
+# --------------------------------------------------------------------------
 # `callback_query` (L2-T3, L2-D9/L2-D10) : clic sur un des deux boutons de
 # confirmation. `callback_data` attendu : `"v:<numero_interne>"` ou
 # `"e:<numero_interne>"`. Chaque test construit son propre update, en dict

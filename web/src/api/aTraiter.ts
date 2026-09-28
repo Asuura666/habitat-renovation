@@ -5,6 +5,7 @@ export type ATraiter = components["schemas"]["ATraiterReponse"];
 export type DocumentATraiter = components["schemas"]["DocumentATraiterReponse"];
 export type AliasEnAttente = components["schemas"]["AliasEnAttenteReponse"];
 export type ArticleAValider = components["schemas"]["ArticleAValiderReponse"];
+export type ChantierACompleter = components["schemas"]["ChantierACompleterReponse"];
 export type CompteARegler = components["schemas"]["CompteProblemesReponse"];
 
 export const CLE_A_TRAITER = ["a-traiter"] as const;

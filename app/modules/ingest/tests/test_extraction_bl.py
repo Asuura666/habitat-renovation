@@ -191,13 +191,22 @@ async def test_enregistrer_extraction_bl_complet_fournisseur_connu_statut_recu(
     assert len(articles) == 3
     assert all(article.valide is False for article in articles)
 
+    # Avenant du 27/09/2026 (décision d'Ilane, spec §2.3) : aucun chantier
+    # connu ne ressemble à « MAISON TEST » -> un chantier « à compléter » est
+    # créé automatiquement (remplace l'ancien alias en attente, L3-D7).
+    assert document.chantier_id is not None
+    chantier = await db_session.get(Chantier, document.chantier_id)
+    assert chantier is not None
+    assert chantier.nom_canonique == "MAISON TEST"
+    assert chantier.a_completer is True
+
     alias = (
         await db_session.execute(
             select(ChantierAlias).where(ChantierAlias.fournisseur_id == fournisseur.id)
         )
     ).scalar_one()
     assert alias.libelle_brut == "maison test"
-    assert alias.chantier_id is None
+    assert alias.chantier_id == chantier.id
 
     journal = await _journal_extraction(db_session, document.id)
     assert journal.utilisateur_id is None
@@ -208,7 +217,8 @@ async def test_enregistrer_extraction_bl_complet_fournisseur_connu_statut_recu(
     assert journal.apres["fournisseur_id"] == str(fournisseur.id)
     assert journal.apres["methode_fournisseur"] == "nom"
     assert journal.apres["chantier_libelle"] == "maison test"
-    assert journal.apres["methode_chantier"] == "alias"
+    assert journal.apres["chantier_id"] == str(chantier.id)
+    assert journal.apres["methode_chantier"] == "création"
 
 
 # --------------------------------------------------------------------------
@@ -522,6 +532,50 @@ async def test_enregistrer_extraction_bl_alias_deja_valide_chantier_id_renseigne
     assert resultat.statut == "recu"
     await db_session.refresh(document)
     assert document.chantier_id == chantier.id
+
+
+# --------------------------------------------------------------------------
+# Avenant du 27/09/2026 (décision d'Ilane, spec §2.3) : rattachement
+# automatique du chantier par ressemblance de nom (`ingest
+# .rattachement_chantier.rattacher_chantier_document`, bout en bout).
+# --------------------------------------------------------------------------
+
+
+async def test_extraction_rattache_le_chantier_par_ressemblance(
+    db_session: AsyncSession,
+) -> None:
+    """Bout en bout : le chantier « Maison Test » (casse différente du nom
+    lu « MAISON TEST », donnée synthétique inchangée -- confiance OCR
+    intacte, `statut` reste `recu`) est rattaché par ressemblance, jamais
+    via un alias exact (aucun `ChantierAlias` pré-existant ici)."""
+    fournisseur = await _creer_fournisseur_peintures_exemple(db_session)
+    maison_test = Chantier(nom_canonique="Maison Test")
+    db_session.add(maison_test)
+    await db_session.commit()
+
+    document = await _creer_document(db_session)
+
+    resultat = await enregistrer_extraction_bl(
+        db_session, document.id, _reponse_synthetique()
+    )
+
+    assert resultat.statut == "recu"
+    await db_session.refresh(document)
+    assert document.chantier_id == maison_test.id
+    assert document.chantier_brut == "MAISON TEST (9900000001)"
+
+    journal = await _journal_extraction(db_session, document.id)
+    assert journal.apres is not None
+    assert journal.apres["chantier_id"] == str(maison_test.id)
+    assert journal.apres["methode_chantier"] == "ressemblance"
+
+    alias = (
+        await db_session.execute(
+            select(ChantierAlias).where(ChantierAlias.fournisseur_id == fournisseur.id)
+        )
+    ).scalar_one()
+    assert alias.libelle_brut == "maison test"
+    assert alias.chantier_id == maison_test.id
 
 
 # --------------------------------------------------------------------------

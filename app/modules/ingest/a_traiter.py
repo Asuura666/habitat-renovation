@@ -20,12 +20,13 @@ alias).
 LIENS-2, ECRAN-6, TELEPHONE-2, COUVERTURE-2) : **la** définition du nombre
 de problèmes « à régler », tous mois confondus -- exactement les éléments
 de la liste de l'écran « À régler » : anomalies ouvertes, documents « à
-vérifier », chantiers à rattacher (alias en attente) et articles à valider.
-La pastille de navigation, la tuile de la vue d'ensemble (« … en tout ») et
-l'en-tête de l'écran « À régler » affichent ce même nombre ; avant ce
-correctif, trois compteurs de périmètres différents (urgents de tous les
-mois, problèmes du mois, liste complète) se contredisaient sur le même
-écran.
+vérifier », chantiers à rattacher (alias en attente), articles à valider et,
+depuis l'avenant du 27/09/2026, chantiers créés automatiquement encore à
+compléter (`chantiers_a_completer`, spec §2.6). La pastille de navigation,
+la tuile de la vue d'ensemble (« … en tout ») et l'en-tête de l'écran « À
+régler » affichent ce même nombre ; avant ce correctif, trois compteurs de
+périmètres différents (urgents de tous les mois, problèmes du mois, liste
+complète) se contredisaient sur le même écran.
 
 `CompteProblemes.controle_prix_actif` (décision d'Ilane du 24/09/2026,
 `docs/dette.md`, étendu par la spec §6.5 du 27/09/2026) : vrai si le
@@ -68,6 +69,7 @@ from app.modules.ingest.lecture import _CONFIRMATION_PAR_ACTION, MotifLu, motifs
 from app.modules.ingest.models import (
     Article,
     BlocFacture,
+    Chantier,
     ChantierAlias,
     Document,
     Fournisseur,
@@ -126,12 +128,27 @@ class ArticleAValider:
 
 
 @dataclass(frozen=True)
+class ChantierACompleter:
+    """Un chantier créé automatiquement (avenant du 27/09/2026, `ingest
+    .rattachement_chantier._creer_chantier_auto`, `Chantier.a_completer`),
+    encore sans agence ni client -- section « Nouveaux chantiers à
+    compléter » de l'écran « À régler » (spec §2.6). `nb_bons` compte les
+    BL/enlèvements rattachés à ce chantier, quel que soit leur statut."""
+
+    id: uuid.UUID
+    nom: str
+    nb_bons: int
+    cree_le: datetime
+
+
+@dataclass(frozen=True)
 class ATraiter:
     """Contenu complet de l'écran « À traiter » (L3-D18)."""
 
     documents: list[DocumentATraiter]
     alias: list[AliasEnAttente]
     articles: list[ArticleAValider]
+    chantiers_a_completer: list[ChantierACompleter]
 
 
 # --------------------------------------------------------------------------
@@ -302,6 +319,45 @@ async def _lister_articles_a_valider(session: AsyncSession) -> list[ArticleAVali
 
 
 # --------------------------------------------------------------------------
+# Chantiers à compléter (avenant du 27/09/2026, spec §2.6)
+# --------------------------------------------------------------------------
+
+
+async def _lister_chantiers_a_completer(
+    session: AsyncSession,
+) -> list[ChantierACompleter]:
+    """Chantiers `a_completer` (créés automatiquement, jamais encore
+    complétés ni fusionnés -- un chantier fusionné repasse `a_completer` à
+    faux, spec §2.7), du plus ancien au plus récent. `nb_bons` (BL/
+    enlèvements rattachés, jointure externe groupée) en une seule requête,
+    jamais une par chantier (même décision que le reste de ce fichier) --
+    un bon archivé ne compte pas (fix round 1, même exclusion que partout
+    ailleurs où un compte porte sur des documents, `ingest.bilan` et
+    `corrections.archiver_document`)."""
+    resultat = await session.execute(
+        select(
+            Chantier.id,
+            Chantier.nom_canonique,
+            Chantier.created_at,
+            func.count(Document.id),
+        )
+        .outerjoin(
+            Document,
+            (Document.chantier_id == Chantier.id)
+            & (Document.type.in_(("bl", "enlevement")))
+            & (Document.statut != "archive"),
+        )
+        .where(Chantier.a_completer.is_(True))
+        .group_by(Chantier.id)
+        .order_by(Chantier.created_at.asc())
+    )
+    return [
+        ChantierACompleter(id=chantier_id, nom=nom, nb_bons=nb_bons, cree_le=cree_le)
+        for chantier_id, nom, cree_le, nb_bons in resultat.all()
+    ]
+
+
+# --------------------------------------------------------------------------
 # lister_a_traiter
 # --------------------------------------------------------------------------
 
@@ -331,7 +387,8 @@ async def compter_problemes_a_regler(session: AsyncSession) -> CompteProblemes:
         nb_problemes=nb_anomalies
         + len(a_traiter.documents)
         + len(a_traiter.alias)
-        + len(a_traiter.articles),
+        + len(a_traiter.articles)
+        + len(a_traiter.chantiers_a_completer),
         nb_urgents=nb_urgents,
         controle_prix_actif=controle_prix_actif() or controle_bl_actif,
     )
@@ -339,9 +396,11 @@ async def compter_problemes_a_regler(session: AsyncSession) -> CompteProblemes:
 
 async def lister_a_traiter(session: AsyncSession) -> ATraiter:
     """Contenu complet de l'écran « À traiter » (L3-D18) : documents « à
-    vérifier », alias chantier en attente, articles à valider."""
+    vérifier », alias chantier en attente, articles à valider, chantiers
+    créés automatiquement encore à compléter (avenant du 27/09/2026)."""
     return ATraiter(
         documents=await _lister_documents_a_traiter(session),
         alias=await _lister_alias_en_attente(session),
         articles=await _lister_articles_a_valider(session),
+        chantiers_a_completer=await _lister_chantiers_a_completer(session),
     )

@@ -560,6 +560,9 @@ export function PageBl(): ReactElement {
             </span>
             <span>{donnees.champs.fournisseur.valeur ?? TIRET}</span>
             <span>{donnees.chantier ?? CHANTIER_A_RATTACHER}</span>
+            {donnees.legende !== null && (
+              <span>Indiqué par l'employé : « {donnees.legende} »</span>
+            )}
           </div>
         </div>
         <PastilleDocument

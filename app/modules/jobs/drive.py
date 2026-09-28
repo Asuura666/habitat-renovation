@@ -6,10 +6,8 @@ import asyncio
 import base64
 import json
 import mimetypes
-import re
 import secrets
 import time
-import unicodedata
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Protocol
@@ -20,8 +18,11 @@ from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-_CARACTERES_INTERDITS = re.compile(r"[^A-Za-z0-9._-]+")
-_SEPARATEURS = re.compile(r"[-_.]{2,}")
+# Task 9 (avenant du 27/09/2026, spec §5) : déplacée vers `app.core.segments`
+# (`ingest.rangement` en a besoin sans pouvoir importer `jobs`) -- réexportée
+# ici telle quelle pour ne rien casser côté `jobs.drive_sync`/tests existants
+# (`from app.modules.jobs.drive import normaliser_segment`).
+from app.core.segments import normaliser_segment as normaliser_segment
 
 
 def _base64url(contenu: bytes) -> str:
@@ -99,20 +100,6 @@ class JetonCompteServiceGoogle:
             self._jeton = jeton
             self._expire_le = maintenant + expiration
             return jeton
-
-
-_LONGUEUR_MAX = 100
-
-
-def normaliser_segment(valeur: str) -> str:
-    """Produit un segment stable, ASCII, sans espace ni caractère réservé."""
-
-    sans_accents = (
-        unicodedata.normalize("NFKD", valeur).encode("ascii", "ignore").decode("ascii")
-    )
-    nettoye = _CARACTERES_INTERDITS.sub("-", sans_accents.strip())
-    nettoye = _SEPARATEURS.sub("-", nettoye).strip("-._")
-    return nettoye[:_LONGUEUR_MAX] or "sans-nom"
 
 
 class ClientDrive(Protocol):

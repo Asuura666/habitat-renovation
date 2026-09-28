@@ -13,6 +13,7 @@ export type { ElementFilAriane } from "./FilAriane";
 export { Filtres } from "./Filtres";
 export type { OptionFiltre } from "./Filtres";
 export * from "./libelles";
+export { PastilleACompleter } from "./PastilleACompleter";
 export { ETATS, PastilleEtat } from "./PastilleEtat";
 export type { Etat } from "./PastilleEtat";
 export { PastilleUrgence } from "./PastilleUrgence";

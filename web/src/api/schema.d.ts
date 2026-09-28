@@ -273,6 +273,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{document_id}/chantier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Choisir Chantier Document Endpoint */
+        put: operations["choisir_chantier_document_endpoint_api_documents__document_id__chantier_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/a-traiter": {
         parameters: {
             query?: never;
@@ -332,10 +349,28 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Obtenir Chantier Endpoint */
+        get: operations["obtenir_chantier_endpoint_api_chantiers__chantier_id__get"];
         /** Modifier Chantier Endpoint */
         put: operations["modifier_chantier_endpoint_api_chantiers__chantier_id__put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chantiers/{chantier_id}/fusionner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Fusionner Chantiers Endpoint */
+        post: operations["fusionner_chantiers_endpoint_api_chantiers__chantier_id__fusionner_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -568,6 +603,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bilan/livraisons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bilan Livraisons Endpoint
+         * @description Liste des livraisons (Task 13, mise en production du 1er octobre,
+         *     spec §4.3) : bons conformes cliquables (accueil, fiche chantier, fiche
+         *     fournisseur) et écran `/livraisons`. `chantier`/`fournisseur` absents ->
+         *     aucun filtre sur ce côté (voir `ingest.bilan.lister_livraisons`, dont le
+         *     docstring explique pourquoi `None` n'y sélectionne pas le côté non
+         *     résolu comme les autres routes de ce module).
+         */
+        get: operations["bilan_livraisons_endpoint_api_bilan_livraisons_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/bilan/chantiers.csv": {
         parameters: {
             query?: never;
@@ -725,6 +785,92 @@ export interface paths {
         /** Modifier Parametre Endpoint */
         put: operations["modifier_parametre_endpoint_api_parametres__cle__put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/comptes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lister Comptes Endpoint */
+        get: operations["lister_comptes_endpoint_api_comptes_get"];
+        put?: never;
+        /** Creer Compte Endpoint */
+        post: operations["creer_compte_endpoint_api_comptes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/comptes/{compte_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Modifier Compte Endpoint */
+        put: operations["modifier_compte_endpoint_api_comptes__compte_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/comptes/{compte_id}/mot-de-passe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Changer Mot De Passe Endpoint */
+        put: operations["changer_mot_de_passe_endpoint_api_comptes__compte_id__mot_de_passe_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/comptes/{compte_id}/retirer-acces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retirer Acces Endpoint */
+        post: operations["retirer_acces_endpoint_api_comptes__compte_id__retirer_acces_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/comptes/{compte_id}/retablir-acces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retablir Acces Endpoint */
+        post: operations["retablir_acces_endpoint_api_comptes__compte_id__retablir_acces_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1015,7 +1161,7 @@ export interface components {
          * ATraiterReponse
          * @description `GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18),
          *     complété par `anomalies_hautes` (anomalies ouvertes de gravité haute,
-         *     L4-D18).
+         *     L4-D18) et `chantiers_a_completer` (Task 6, avenant du 27/09/2026).
          */
         ATraiterReponse: {
             /** Documents */
@@ -1026,6 +1172,8 @@ export interface components {
             articles: components["schemas"]["ArticleAValiderReponse"][];
             /** Anomalies Hautes */
             anomalies_hautes: components["schemas"]["AnomalieReponse"][];
+            /** Chantiers A Completer */
+            chantiers_a_completer: components["schemas"]["ChantierACompleterReponse"][];
         };
         /**
          * AgenceFournisseurReponse
@@ -1384,6 +1532,40 @@ export interface components {
             total_ttc: components["schemas"]["ChampReponse"];
         };
         /**
+         * ChangementMotDePasseRequete
+         * @description Corps de `PUT /api/comptes/{id}/mot-de-passe` (spec §3 : « Changer le
+         *     mot de passe ») : l'admin saisit lui-même le nouveau mot de passe, jamais
+         *     d'envoi d'e-mail -- longueur revérifiée par `app.core.auth
+         *     ._mot_de_passe_valide`, jamais ici (même raison que `mot_de_passe`
+         *     ci-dessus).
+         */
+        ChangementMotDePasseRequete: {
+            /** Mot De Passe */
+            mot_de_passe: string;
+        };
+        /**
+         * ChantierACompleterReponse
+         * @description Un chantier créé automatiquement encore à compléter, dans `GET /api
+         *     /a-traiter` — mêmes attributs qu'`ingest.a_traiter.ChantierACompleter`
+         *     (Task 6, avenant du 27/09/2026, spec §2.6).
+         */
+        ChantierACompleterReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Nom */
+            nom: string;
+            /** Nb Bons */
+            nb_bons: number;
+            /**
+             * Cree Le
+             * Format: date-time
+             */
+            cree_le: string;
+        };
+        /**
          * ChantierCreationRequete
          * @description Corps de `POST /api/chantiers` : nom obligatoire (1 à 200 caractères,
          *     blanc refusé), agence et client optionnels.
@@ -1413,9 +1595,18 @@ export interface components {
         };
         /**
          * ChantierReponse
-         * @description Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest
-         *     .referentiels.ChantierResume`. `client` : ajout hors CDC demandé le
-         *     23/09/2026 (`docs/dette.md`).
+         * @description Une ligne de `GET /api/chantiers`, et la fiche `GET /api
+         *     /chantiers/{id}` (Task 7) — mêmes attributs qu'`ingest.referentiels
+         *     .ChantierResume`. `client` : ajout hors CDC demandé le 23/09/2026
+         *     (`docs/dette.md`). `a_completer` (Task 6, avenant du 27/09/2026) :
+         *     chantier créé automatiquement, pas encore complété.
+         *
+         *     `fusionne_dans_id`/`fusionne_dans_nom` (Task 7, avenant du 27/09/2026,
+         *     spec §2.7) : chantier absorbé par un autre (« Fusionner avec… ») --
+         *     toujours `None` sur `GET /api/chantiers` (qui exclut déjà les chantiers
+         *     fusionnés, Task 6) ; non `None` seulement quand `GET /api/chantiers
+         *     /{id}` renvoie un chantier fusionné, pour son bandeau « Ce chantier a
+         *     été fusionné dans <cible> ».
          */
         ChantierReponse: {
             /**
@@ -1431,6 +1622,12 @@ export interface components {
             client: string | null;
             /** Actif */
             actif: boolean;
+            /** A Completer */
+            a_completer: boolean;
+            /** Fusionne Dans Id */
+            fusionne_dans_id: string | null;
+            /** Fusionne Dans Nom */
+            fusionne_dans_nom: string | null;
         };
         /**
          * ChantierSilencieuxReponse
@@ -1475,6 +1672,33 @@ export interface components {
             montants: components["schemas"]["MontantsBilanReponse"];
             /** A Verifier */
             a_verifier: string;
+        };
+        /**
+         * ChoixChantierDocumentReponse
+         * @description Réponse de `PUT /api/documents/{id}/chantier` : le chantier
+         *     réellement retenu (`ingest.rattachement_chantier.chantier_effectif` du
+         *     chantier choisi, Task 7).
+         */
+        ChoixChantierDocumentReponse: {
+            /**
+             * Chantier Id
+             * Format: uuid
+             */
+            chantier_id: string;
+        };
+        /**
+         * ChoixChantierDocumentRequete
+         * @description Corps de `PUT /api/documents/{id}/chantier` (Task 6, avenant du
+         *     27/09/2026, spec §2.4/§2.6) : le chantier choisi par un humain, pour
+         *     régler une alerte « Chantier à confirmer » (R18) ou corriger le
+         *     chantier d'un bon depuis sa fiche.
+         */
+        ChoixChantierDocumentRequete: {
+            /**
+             * Chantier Id
+             * Format: uuid
+             */
+            chantier_id: string;
         };
         /**
          * CommentaireReponse
@@ -1562,6 +1786,54 @@ export interface components {
             nb_problemes: number;
         };
         /**
+         * CompteCreationRequete
+         * @description Corps de `POST /api/comptes` (spec §3 : « Créer ») : e-mail et nom
+         *     obligatoires (blanc refusé, même convention que `ChantierCreationRequete`
+         *     ci-dessus), rôle restreint aux deux valeurs valides (`Literal`, un rôle
+         *     hors de cet ensemble est un 422 avant même d'atteindre le service),
+         *     agence et identifiant Telegram facultatifs, mot de passe provisoire
+         *     (longueur revérifiée par `app.core.auth._mot_de_passe_valide`, jamais
+         *     ici : une seule source de vérité pour ce seuil).
+         */
+        CompteCreationRequete: {
+            /** Email */
+            email: string;
+            /** Nom */
+            nom: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "admin" | "agent";
+            /** Agence */
+            agence?: string | null;
+            /** Telegram User Id */
+            telegram_user_id?: number | null;
+            /** Mot De Passe */
+            mot_de_passe: string;
+        };
+        /**
+         * CompteModificationRequete
+         * @description Corps de `PUT /api/comptes/{id}` (spec §3 : « Modifier ») -- jamais le
+         *     mot de passe (`ChangementMotDePasseRequete` ci-dessous), mêmes règles que
+         *     `CompteCreationRequete`.
+         */
+        CompteModificationRequete: {
+            /** Email */
+            email: string;
+            /** Nom */
+            nom: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "admin" | "agent";
+            /** Agence */
+            agence?: string | null;
+            /** Telegram User Id */
+            telegram_user_id?: number | null;
+        };
+        /**
          * CompteProblemesReponse
          * @description `GET /api/a-regler/compte` : nombre de problèmes « à régler », tous
          *     mois confondus -- mêmes attributs qu'`ingest.a_traiter.CompteProblemes`
@@ -1585,6 +1857,36 @@ export interface components {
             nb_urgents: number;
             /** Controle Prix Actif */
             controle_prix_actif: boolean;
+        };
+        /**
+         * CompteReponse
+         * @description Une ligne de `GET /api/comptes`, et la réponse de chaque route
+         *     d'écriture de l'écran « Comptes » -- mêmes attributs qu'`app.core.auth
+         *     .CompteLu`.
+         */
+        CompteReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Nom */
+            nom: string | null;
+            /** Email */
+            email: string;
+            /** Role */
+            role: string;
+            /** Agence */
+            agence: string | null;
+            /** Telegram User Id */
+            telegram_user_id: number | null;
+            /** Actif */
+            actif: boolean;
+            /**
+             * Cree Le
+             * Format: date-time
+             */
+            cree_le: string;
         };
         /**
          * ContesterPrixRequete
@@ -1723,6 +2025,8 @@ export interface components {
             chantier_id: string | null;
             /** Chantier */
             chantier: string | null;
+            /** Legende */
+            legende: string | null;
             champs: components["schemas"]["ChampsDocumentReponse"];
             /** Lignes */
             lignes: components["schemas"]["LigneDocumentReponse"][];
@@ -1913,6 +2217,18 @@ export interface components {
             agences: components["schemas"]["AgenceFournisseurReponse"][];
         };
         /**
+         * FusionChantierRequete
+         * @description Corps de `POST /api/chantiers/{id}/fusionner` (Task 7, avenant du
+         *     27/09/2026, spec §2.7) : `{id}` (source) est fusionné dans `cible_id`.
+         */
+        FusionChantierRequete: {
+            /**
+             * Cible Id
+             * Format: uuid
+             */
+            cible_id: string;
+        };
+        /**
          * GrilleFournisseurReponse
          * @description `GET /api/grilles/fournisseurs/{id}` -- mêmes attributs
          *     qu'`ingest.grilles.GrilleFournisseur`.
@@ -1980,6 +2296,12 @@ export interface components {
          *     décision du contrôleur) — aucune interprétation métier ici, la mise en
          *     forme lisible revient au front (`Journal.tsx`), même principe que
          *     `detail` sur `AnomalieReponse`.
+         *
+         *     `noms` (Task 12, spec §4.1) : identifiant (texte) -> nom, pour toute
+         *     valeur d'`avant`/`apres` que le serveur a su résoudre (compte, chantier,
+         *     fournisseur — voir `ingest.journal.JournalLue`) ; jamais l'UUID brut
+         *     côté client, ni un calcul côté front, qui n'a pas accès aux
+         *     référentiels.
          */
         JournalReponse: {
             /**
@@ -2010,6 +2332,10 @@ export interface components {
              * Format: date-time
              */
             horodatage: string;
+            /** Noms */
+            noms: {
+                [key: string]: string;
+            };
         };
         /**
          * LigneBilanBlReponse
@@ -2261,6 +2587,43 @@ export interface components {
             created_at: string;
         };
         /**
+         * LigneLivraisonReponse
+         * @description Une ligne de `GET /api/bilan/livraisons` (Task 13, mise en production
+         *     du 1er octobre) -- mêmes attributs qu'`ingest.bilan.LigneLivraison` :
+         *     ceux de `LigneBilanBlReponse`, plus le chantier et le fournisseur de
+         *     chaque ligne (cette liste n'est jamais imbriquée sous un chantier et un
+         *     fournisseur déjà fixés par l'URL, contrairement à `LigneBilanBlReponse`).
+         */
+        LigneLivraisonReponse: {
+            /**
+             * Bloc Id
+             * Format: uuid
+             */
+            bloc_id: string;
+            /** Numero Bl */
+            numero_bl: string | null;
+            /** Date Bl */
+            date_bl: string | null;
+            /** Statut Rapprochement */
+            statut_rapprochement: string | null;
+            /** Bl Document Id */
+            bl_document_id: string | null;
+            /**
+             * Facture Id
+             * Format: uuid
+             */
+            facture_id: string;
+            /** Chantier Id */
+            chantier_id: string | null;
+            /** Chantier */
+            chantier: string | null;
+            /** Fournisseur Id */
+            fournisseur_id: string | null;
+            /** Fournisseur */
+            fournisseur: string | null;
+            montants: components["schemas"]["MontantsBilanReponse"];
+        };
+        /**
          * LigneSaisieRequete
          * @description Une ligne de `PUT /api/documents/{id}/lignes` — `id` absent (`None`)
          *     -> insertion, sinon mise à jour de la ligne existante.
@@ -2460,6 +2823,26 @@ export interface components {
             nb_echecs: number;
             /** Nb Alertes Ouvertes */
             nb_alertes_ouvertes: number;
+        };
+        /**
+         * ResultatFusionReponse
+         * @description Réponse de `POST /api/chantiers/{id}/fusionner` — mêmes attributs
+         *     qu'`ingest.fusion_chantier.ResultatFusion`.
+         */
+        ResultatFusionReponse: {
+            /**
+             * Cible Id
+             * Format: uuid
+             */
+            cible_id: string;
+            /** Nb Documents */
+            nb_documents: number;
+            /** Nb Blocs */
+            nb_blocs: number;
+            /** Nb Alias */
+            nb_alias: number;
+            /** Nb Anomalies */
+            nb_anomalies: number;
         };
         /**
          * RetraitProduitRequete
@@ -3171,6 +3554,41 @@ export interface operations {
             };
         };
     };
+    choisir_chantier_document_endpoint_api_documents__document_id__chantier_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChoixChantierDocumentRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChoixChantierDocumentReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     obtenir_a_traiter_api_a_traiter_get: {
         parameters: {
             query?: never;
@@ -3264,6 +3682,37 @@ export interface operations {
             };
         };
     };
+    obtenir_chantier_endpoint_api_chantiers__chantier_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chantier_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChantierReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     modifier_chantier_endpoint_api_chantiers__chantier_id__put: {
         parameters: {
             query?: never;
@@ -3286,6 +3735,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChantierReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fusionner_chantiers_endpoint_api_chantiers__chantier_id__fusionner_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chantier_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FusionChantierRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultatFusionReponse"];
                 };
             };
             /** @description Validation Error */
@@ -3699,6 +4183,40 @@ export interface operations {
             };
         };
     };
+    bilan_livraisons_endpoint_api_bilan_livraisons_get: {
+        parameters: {
+            query?: {
+                mois?: string | null;
+                agence?: string | null;
+                chantier?: string | null;
+                fournisseur?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LigneLivraisonReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     bilan_chantiers_csv_endpoint_api_bilan_chantiers_csv_get: {
         parameters: {
             query?: {
@@ -3975,6 +4493,189 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ParametreReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lister_comptes_endpoint_api_comptes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompteReponse"][];
+                };
+            };
+        };
+    };
+    creer_compte_endpoint_api_comptes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompteCreationRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompteReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    modifier_compte_endpoint_api_comptes__compte_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                compte_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompteModificationRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompteReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    changer_mot_de_passe_endpoint_api_comptes__compte_id__mot_de_passe_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                compte_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangementMotDePasseRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retirer_acces_endpoint_api_comptes__compte_id__retirer_acces_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                compte_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompteReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retablir_acces_endpoint_api_comptes__compte_id__retablir_acces_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                compte_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompteReponse"];
                 };
             };
             /** @description Validation Error */

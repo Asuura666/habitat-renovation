@@ -1137,7 +1137,7 @@ tombent d'eux-mêmes sur le serveur dédié.
   test partagée entre tous les tests, incompatible avec une exécution
   parallèle sans base par worker).
 
-- **`restore.sh` refuse de restaurer quand l'API est arrêtée (bogue
+- **[Corrigé le 27/09/2026, phase 2 : `ps -a -q api`]** **`restore.sh` refuse de restaurer quand l'API est arrêtée (bogue
   antérieur aux optimisations, constaté le 25/09/2026).** Le garde-fou
   `docker compose … ps -q api` (`deploy/restore.sh`, vers la ligne 131)
   ne liste que les conteneurs **en marche** : après un `stop api` (fait
@@ -1147,6 +1147,29 @@ tombent d'eux-mêmes sur le serveur dédié.
   marche ou non), avec un test dans `tests/test_restore_script.py`. À
   traiter avec la mise en place des sauvegardes restic (priorité n° 1),
   en rejouant `deploy/test-restauration.sh` de bout en bout.
+
+## Mise en production du 1er octobre (27/09/2026) — reporté
+
+Relevé par les relectures (tâche par tâche et finale) et laissé de côté
+volontairement ; aucun ne met en jeu les montants, les règles ni la sécurité.
+Recette : `docs/mise-en-production-1er-octobre-recette.md`.
+
+- **Compteur `nb_demandes_alias`** (journal `facture_deposee`, `ingest/factures.py`) : compte aussi un bloc dont le chantier brut se réduit à un code entre parenthèses. Chiffre de journal seulement.
+- **Docstrings d'`ingest/anomalies.py`** : disent encore que `evaluer_chantier` n'est pas appelée par `ingest` (elle l'est depuis le rattachement automatique).
+- **Tests manquants** : bon d'un fournisseur inconnu rattaché ou créé sans apprentissage ; repli de `_exemple_brut_alias` quand aucun brut n'existe ; course `retirer_acces` × `retirer_acces` ; `..` explicite dans `normaliser_segment`. Comportements vérifiés à la lecture.
+- **Photos rangées** : si l'ancien lien est retiré et que le nouveau échoue, le bon n'a plus de lien jusqu'au prochain `ranger-photos` ; `corriger_entete` range la photo à chaque correction, même sans changement de chantier (idempotent). Les bons dont le chantier change par propagation d'un nom appris attendent `ranger-photos` (timer nocturne à poser en phase 2).
+- **Écran** : colonne « Fournisseur » redondante dans les livraisons de la fiche fournisseur ; classe du champ mois dupliquée entre deux pages ; petite duplication du formulaire de création de chantier entre l'alerte et « Noms à rattacher » ; si une création puis un choix échouent, un second essai réutilise le chantier déjà créé même si le nom a été modifié.
+- **Journal** : le libellé « Livraisons (total) » sert aussi au nombre de lignes de facture déplacées par une fusion ; le front traite `cible_id` comme un chantier sans connaître `cible_table` (sûr tant que seule la fusion l'écrit).
+- **Comptes** : pas de longueur maximale du mot de passe (coût argon2, administrateur de confiance seul) ; identifiant Telegram sans contrainte `> 0` ; unicité de l'identifiant Telegram garantie par verrou applicatif, pas par un index en base (à ajouter dans une migration planifiée).
+- **Reprise** : `rattacher-chantiers` garde le verrou des chantiers pendant toute sa durée (bloquerait les dépôts sur un gros arriéré).
+
+## Phase 2 — exploitation (27/09/2026)
+
+- **Sauvegardes dans un dépôt restic local** (`/home/debian/sauvegardes-habitat/restic-<instance>`, décision d'Ilane du 27/09) : protège d'une erreur ou d'une suppression, **pas de la perte du serveur** (même disque). Bascule vers OVH Object Storage (CDC §9) dès qu'Ilane a créé le conteneur et ses clés : changer `RESTIC_REPOSITORY` et ajouter `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` dans `.env.<instance>`, `restic init`, puis relancer une sauvegarde. Mots de passe restic dans `~/.secrets/restic-habitat.txt` : à recopier par Ilane dans son gestionnaire de mots de passe (sans eux, les sauvegardes sont illisibles).
+- **Tâches planifiées lancées depuis l'arbre de travail** `/home/debian/habitat_reno` (scripts `deploy/*.sh`) : un changement de branche qui retirerait ces scripts casserait les tâches. Sur le serveur dédié, installer depuis une copie propre de `main`.
+- **Contrôles différés et rangement des photos pas encore planifiés** : ils attendent le déploiement de la phase 1 (sinon ils tourneraient sur l'ancienne version et créeraient des rappels « chantier à rattacher » que la reprise résout).
+- **Unicité de l'identifiant Telegram** (rappel de la phase 1) : verrou applicatif ; index partiel en base à ajouter dans une migration planifiée.
+- **Alerte d'échec : angles morts** (relecture de la phase 2) : `controles-differes` et `ranger-photos` rendent toujours le code 0 (un échec sur un seul élément est journalisé mais ne fait pas échouer la tâche), donc seul un échec complet (base injoignable, conteneur arrêté) déclenche l'alerte Telegram ; la sauvegarde, elle, échoue au moindre problème. Si Telegram est injoignable, l'alerte elle-même échoue sans autre canal (journald seulement).
 
 ## Phase 3 — commentaires (session B, 27/09/2026)
 

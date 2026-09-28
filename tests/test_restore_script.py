@@ -89,5 +89,5 @@ def test_restore_refuse_un_conteneur_api_absent_avant_tout_effet(
     appels = appels_docker.read_text(encoding="utf-8").splitlines()
     assert len(appels) == 1
     assert appels[0].startswith("compose ")
-    assert appels[0].endswith(" ps -q api")
+    assert appels[0].endswith(" ps -a -q api")
     assert all(" run " not in appel and " stop api" not in appel for appel in appels)

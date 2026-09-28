@@ -1,9 +1,12 @@
 """`GET /api/chantiers`, `POST /api/chantiers`, `PUT /api/chantiers/{id}`
 (client du chantier et modification, ajout hors CDC du 23/09/2026,
-`docs/dette.md`), `GET /api/fournisseurs`, `POST /api/alias-chantier/{id}
-/validation` et `POST /api/articles/{id}/validation` (L3-T8b) : référentiels
-consommés par l'écran « À traiter » et ses formulaires de validation — voir
-`ingest/referentiels.py` pour toute la logique métier.
+`docs/dette.md`), `GET /api/chantiers/{id}` (fiche, y compris un chantier
+fusionné) et `POST /api/chantiers/{id}/fusionner` (« Fusionner avec… »,
+Task 7, avenant du 27/09/2026, spec §2.7), `GET /api/fournisseurs`, `POST
+/api/alias-chantier/{id}/validation` et `POST /api/articles/{id}/validation`
+(L3-T8b) : référentiels consommés par l'écran « À traiter » et ses
+formulaires de validation — voir `ingest/referentiels.py` (et `ingest
+/fusion_chantier.py` pour la fusion) pour toute la logique métier.
 
 `GET /api/referentiels/depots-par-agent`, `GET /api/referentiels
 /chantiers-silencieux` et `GET /api/referentiels/agences` (L5-T7) : vue des
@@ -16,6 +19,12 @@ Couche d'entrée (L2-D3) : ce routeur n'importe que `app.core` et
 `app.modules.ingest` (garde vérifiée par `tests/test_frontieres.py`). Toutes
 les routes sont réservées à l'admin (`admin_requis`) : un agent reçoit 403
 avant tout accès au service.
+
+Task 9 (avenant du 27/09/2026, spec §5) : `fusionner_chantiers_endpoint`
+renomme, après le commit de `fusionner_chantiers`, le lien physique de
+chaque bon déplacé (`ingest.rangement.ranger_document`, `docs_dir` lu via
+`get_settings().docs_dir`) — jamais une règle métier, seulement le point
+d'entrée qui peut lire `app.core`.
 """
 
 from __future__ import annotations
@@ -28,6 +37,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import Utilisateur, admin_requis
+from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.modules.api.schemas import (
     ChantierCreationRequete,
@@ -36,10 +46,14 @@ from app.modules.api.schemas import (
     ChantierSilencieuxReponse,
     DepotAgentReponse,
     FournisseurReponse,
+    FusionChantierRequete,
+    ResultatFusionReponse,
     ValidationAliasReponse,
     ValidationAliasRequete,
     ValidationArticleRequete,
 )
+from app.modules.ingest.fusion_chantier import FusionImpossible, fusionner_chantiers
+from app.modules.ingest.rangement import ranger_document
 from app.modules.ingest.referentiels import (
     AliasDejaValide,
     AliasIntrouvable,
@@ -50,6 +64,7 @@ from app.modules.ingest.referentiels import (
     lister_chantiers,
     lister_fournisseurs,
     modifier_chantier,
+    obtenir_chantier,
     valider_alias,
     valider_article,
 )
@@ -142,6 +157,56 @@ async def modifier_chantier_endpoint(
             },
         )
     return ChantierReponse.model_validate(chantier)
+
+
+@router.get("/chantiers/{chantier_id}", response_model=ChantierReponse)
+async def obtenir_chantier_endpoint(
+    chantier_id: uuid.UUID,
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ChantierReponse:
+    # Renvoie aussi un chantier fusionné (Task 7, spec §2.7) : seule route
+    # qui doit encore l'atteindre, pour le bandeau de sa fiche -- à la
+    # différence de `GET /api/chantiers`, qui les exclut (Task 6).
+    chantier = await obtenir_chantier(session, chantier_id)
+    if chantier is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="chantier introuvable"
+        )
+    return ChantierReponse.model_validate(chantier)
+
+
+@router.post("/chantiers/{chantier_id}/fusionner", response_model=ResultatFusionReponse)
+async def fusionner_chantiers_endpoint(
+    chantier_id: uuid.UUID,
+    requete: FusionChantierRequete,
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ResultatFusionReponse:
+    try:
+        resultat = await fusionner_chantiers(
+            session,
+            source_id=chantier_id,
+            cible_id=requete.cible_id,
+            auteur_id=utilisateur.id,
+        )
+    except ChantierIntrouvable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="chantier introuvable"
+        ) from exc
+    except FusionImpossible as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    # Task 9 (spec §5) : tous les bons déplacés changent de chantier -- lien
+    # physique renommé pour chacun après le commit de `fusionner_chantiers`
+    # (`ranger_document` est idempotent, sans effet pour un document qui
+    # n'était pas un `bl`/`enlevement` -- ex. une facture -- parmi les
+    # documents déplacés).
+    for document_id in resultat.documents_ids:
+        await ranger_document(session, settings.docs_dir, document_id)
+    return ResultatFusionReponse.model_validate(resultat)
 
 
 @router.get("/fournisseurs", response_model=list[FournisseurReponse])

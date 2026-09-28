@@ -128,7 +128,11 @@ if [[ -n "${COMPOSE_OVERRIDE_FILE:-}" ]]; then
   COMPOSE_ARGS+=(-f "$COMPOSE_OVERRIDE_FILE")
 fi
 
-if [[ -z "$(docker compose "${COMPOSE_ARGS[@]}" ps -q api)" ]]; then
+# `ps -a` : un conteneur api ARRÊTÉ compte aussi (la procédure arrête
+# l'API avant de restaurer) ; sans `-a`, compose ne listait que les
+# conteneurs en marche et la restauration était refusée à tort (bogue
+# consigné le 25/09/2026, corrigé en phase 2 le 27/09/2026).
+if [[ -z "$(docker compose "${COMPOSE_ARGS[@]}" ps -a -q api)" ]]; then
   echo "restore.sh : conteneur api introuvable pour le projet compose '$PROJECT_NAME'. Le créer avant la restauration. Rien n'a été modifié." >&2
   exit 1
 fi

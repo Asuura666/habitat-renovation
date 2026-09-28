@@ -453,6 +453,7 @@ export function VueEnsemble(): ReactElement {
               libelle="Conforme"
               valeur={formaterMontant(donnees.totaux.conforme)}
               ton="conforme"
+              vers={`/livraisons?mois=${moisPourApi}&etat=conforme`}
             />
             <Chiffre
               libelle="Montant des bons reçus"

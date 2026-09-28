@@ -83,6 +83,20 @@ from app.modules.rules.engine import REGLES_PRIX_BL
 
 logger = logging.getLogger("app.modules.ingest.service")
 
+# Clé de verrou consultatif (`pg_advisory_xact_lock`) qui sérialise toute
+# décision de chantier (lecture des noms connus, création, apprentissage
+# d'alias, fusion, création/modification manuelle) — valeur arbitraire mais
+# fixe, jamais réutilisée ailleurs dans le projet (voir `app.core.auth
+# .VERROU_ADMINS` pour le seul autre verrou de ce type, une valeur
+# distincte). Définie ici (plutôt que dans `rattachement_chantier.py`, son
+# unique lecteur jusqu'au Ruling 16 de la revue finale du 27/09/2026) pour
+# que `referentiels.creer_chantier`/`modifier_chantier` puissent le prendre
+# eux aussi sans provoquer de cycle d'import (`rattachement_chantier`
+# importe déjà `referentiels` ; `commun` n'importe ni l'un ni l'autre).
+# `rattachement_chantier.py` et `fusion_chantier.py` l'importent aussi
+# d'ici (import direct, jamais un réexport).
+VERROU_CHANTIERS = 727_000_018
+
 # Les seules règles que la décision d'Ilane du 24/09/2026 désactive
 # (`docs/dette.md`) : les trois règles de *prix* du moteur (`rules.engine
 # ._evaluer_prix`), jamais une autre catégorie.

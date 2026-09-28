@@ -46,6 +46,7 @@ from app.modules.ingest.models import (
     Anomalie,
     Article,
     BlocFacture,
+    Chantier,
     ChantierAlias,
     Document,
     Fournisseur,
@@ -126,6 +127,7 @@ async def _creer_document(
     fournisseur: Fournisseur | None = None,
     chantier_brut: str | None = None,
     chantier_id: uuid.UUID | None = None,
+    legende: str | None = None,
     total_ht: Decimal | None = None,
     total_tva: Decimal | None = None,
     total_ttc: Decimal | None = None,
@@ -145,6 +147,7 @@ async def _creer_document(
         fournisseur_id=fournisseur.id if fournisseur is not None else None,
         chantier_brut=chantier_brut,
         chantier_id=chantier_id,
+        legende=legende,
         total_ht=total_ht,
         total_tva=total_tva,
         total_ttc=total_ttc,
@@ -303,6 +306,32 @@ async def test_detail_document_agent_autre_document_leve_document_introuvable(
         await detail_document(
             db_session, document.id, utilisateur_id=agent_2.id, role="agent"
         )
+
+
+async def test_detail_document_expose_la_legende(
+    db_session: AsyncSession,
+) -> None:
+    """La légende Telegram (`message.caption`, avenant du 27/09/2026) est
+    reprise telle quelle dans le détail du document."""
+    document = await _creer_document(db_session, legende="Villa Test")
+
+    detail = await detail_document(
+        db_session, document.id, utilisateur_id=_ADMIN_ID, role="admin"
+    )
+
+    assert detail.legende == "Villa Test"
+
+
+async def test_detail_document_sans_legende_renvoie_none(
+    db_session: AsyncSession,
+) -> None:
+    document = await _creer_document(db_session, legende=None)
+
+    detail = await detail_document(
+        db_session, document.id, utilisateur_id=_ADMIN_ID, role="admin"
+    )
+
+    assert detail.legende is None
 
 
 async def test_detail_document_champs_valeur_ocr_et_confiance(
@@ -471,17 +500,21 @@ async def test_corriger_entete_fournisseur_resout_chantier_et_articles(
     )
 
     assert detail.fournisseur_id == fournisseur.id
-    # L3-D7 : un alias inconnu obtient une ligne « demande de validation »
-    # (`chantier_id NULL` tant qu'un admin ne l'a pas rattaché à un chantier
-    # existant) — jamais un motif de mise « à vérifier ».
-    assert detail.chantier_id is None
+    # Avenant du 27/09/2026 (décision d'Ilane, spec §2.3) : un nom lu
+    # inconnu ne crée plus un alias en attente (ancien L3-D7) mais un
+    # chantier « à compléter », rattaché directement au document.
+    assert detail.chantier_id is not None
+    chantier = await db_session.get(Chantier, detail.chantier_id)
+    assert chantier is not None
+    assert chantier.nom_canonique == "RATTACHE"
+    assert chantier.a_completer is True
     alias = (
         await db_session.execute(
             select(ChantierAlias).where(ChantierAlias.fournisseur_id == fournisseur.id)
         )
     ).scalar_one()
     assert alias.libelle_brut == "rattache"
-    assert alias.chantier_id is None
+    assert alias.chantier_id == chantier.id
 
     article = (
         await db_session.execute(
@@ -491,6 +524,32 @@ async def test_corriger_entete_fournisseur_resout_chantier_et_articles(
         )
     ).scalar_one()
     assert detail.lignes[0].article_id == article.id
+
+
+async def test_corriger_entete_chantier_brut_relance_le_rattachement(
+    db_session: AsyncSession,
+    admin: Utilisateur,
+) -> None:
+    """Avenant du 27/09/2026 (décision d'Ilane, spec §2.3) : corriger
+    `chantier_brut` relance le rattachement automatique (`ingest
+    .rattachement_chantier.rattacher_chantier_document`) -- un nom qui
+    ressemble maintenant à un chantier existant le rattache."""
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur Chantier")
+    chantier = Chantier(nom_canonique="Villa Corrigee")
+    db_session.add(chantier)
+    await db_session.flush()
+    document = await _creer_document(
+        db_session, fournisseur=fournisseur, chantier_brut="CHANTIER INCONNU"
+    )
+
+    detail = await corriger_entete(
+        db_session,
+        document.id,
+        CorrectionEntete(valeurs={"chantier_brut": "VILLA CORRIGEE"}),
+        auteur_id=admin.id,
+    )
+
+    assert detail.chantier_id == chantier.id
 
 
 async def test_corriger_entete_numero_deja_utilise(db_session: AsyncSession) -> None:

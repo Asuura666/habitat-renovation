@@ -29,7 +29,7 @@ import {
 import { CLE_PARAMETRES, listerParametres } from "../api/parametres";
 import { cleTableauDeBord, obtenirTableauDeBord, type TableauDeBord } from "../api/tableauDeBord";
 import { estMontantNul, formaterDateHeure, formaterMontant, lireMois, moisApi, TIRET } from "../lib/formats";
-import { Bouton, Carte, EnTetePage, type Etat, EtatVide, PastilleEtat } from "../ui";
+import { Bouton, Carte, EnTetePage, type Etat, EtatVide, PastilleACompleter, PastilleEtat } from "../ui";
 
 const CLASSES_CHAMP =
   "min-h-[44px] w-full rounded-lg border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent";
@@ -430,6 +430,7 @@ function CarteTousLesChantiers({
                   <p className={`mt-1 text-xs font-medium ${chantier.actif ? "text-conforme" : "text-encre-2"}`}>
                     {chantier.actif ? "Actif" : "Inactif"}
                   </p>
+                  {chantier.a_completer && <PastilleACompleter className="mt-1" />}
                 </Link>
               </li>
             ))}
@@ -461,6 +462,7 @@ function CarteTousLesChantiers({
                       <span className={`font-medium ${chantier.actif ? "text-conforme" : "text-encre-2"}`}>
                         {chantier.actif ? "Actif" : "Inactif"}
                       </span>
+                      {chantier.a_completer && <PastilleACompleter className="ml-2" />}
                     </td>
                   </tr>
                 ))}
@@ -473,19 +475,21 @@ function CarteTousLesChantiers({
   );
 }
 
-/** Même correspondance que `Chantiers.tsx::LIBELLES_ROLE` (repris tel quel,
- * corrections de revue tour 3, constat 1) : `DepotAgent.role` porte la
- * valeur brute d'`Utilisateur.role` (`admin`/`agent`), jamais un libellé
- * affichable. Sans cette table, un administrateur qui a déposé un bon
- * apparaîtrait comme un agent de terrain de plus — exactement la confusion
- * que le Ruling L5-R7 (décision du contrôleur) et l'ajout du champ côté
- * serveur (`ingest/referentiels_vue.py`, tour de correction 1 bis) visaient
- * à éviter. Chaque écran garde sa propre table de deux entrées (décision du
- * contrôleur, pas de fichier partagé pour une correspondance aussi
- * courte). */
+/** Même correspondance que `Comptes.tsx::LIBELLES_ROLE` (repris tel quel,
+ * corrections de revue tour 3, constat 1 ; libellé « agent » aligné sur
+ * « Employé » par le Ruling C5 de la revue finale du 27/09/2026 -- les deux
+ * écrans disaient un mot différent pour le même rôle) : `DepotAgent.role`
+ * porte la valeur brute d'`Utilisateur.role` (`admin`/`agent`), jamais un
+ * libellé affichable. Sans cette table, un administrateur qui a déposé un
+ * bon apparaîtrait comme un employé de terrain de plus — exactement la
+ * confusion que le Ruling L5-R7 (décision du contrôleur) et l'ajout du
+ * champ côté serveur (`ingest/referentiels_vue.py`, tour de correction 1
+ * bis) visaient à éviter. Chaque écran garde sa propre table de deux
+ * entrées (décision du contrôleur, pas de fichier partagé pour une
+ * correspondance aussi courte). */
 const LIBELLES_ROLE: Record<string, string> = {
   admin: "Administrateur",
-  agent: "Agent",
+  agent: "Employé",
 };
 
 function libelleRole(role: string): string {

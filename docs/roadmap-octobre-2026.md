@@ -331,11 +331,11 @@ deux mois, formation, procès-verbal). Voir `memory.md` et `docs/dette.md`.
 
 ## 10. Suivi
 
-- [ ] Socle commun fusionné dans `dev` (S1 → S5)
-- [ ] Session B lancée (Ilane)
+- [x] Socle commun fusionné dans `dev` (S1 → S5) — PR #1, 27/09
+- [x] Session B lancée (Ilane) — commentaires faits, spec et plan du lot Prix écrits (27/09)
 - [ ] Phase 1 : PR vers `dev`
 - [ ] Phase 1 : déployée (`dev` → `main`, démo puis production)
-- [ ] Phase 2 : sauvegardes, tâches planifiées, clés
+- [~] Phase 2 : restauration corrigée et testée, tâches planifiées et alerte, sauvegardes locales posées (27/09) — restent OVH, clés, contrôles/photos après le déploiement de la phase 1 (`docs/phase-2-exploitation-recette.md`)
 - [x] Phase 3 : commentaires
 - [ ] Phase 3 : lot Prix (P0 → P6), PR vers `dev`
 - [ ] Phase 4

@@ -4,10 +4,21 @@ import type { components } from "./schema";
 export type LigneBilanChantier = components["schemas"]["LigneBilanChantierReponse"];
 export type LigneBilanFournisseur = components["schemas"]["LigneBilanFournisseurReponse"];
 export type LigneBilanBl = components["schemas"]["LigneBilanBlReponse"];
+export type LigneLivraison = components["schemas"]["LigneLivraisonReponse"];
 
 export interface FiltresBilan {
   mois?: string;
   agence?: string;
+}
+
+/** Filtres de `GET /api/bilan/livraisons` (Task 13, spec §4.3) : mêmes
+ * `mois`/`agence` que `FiltresBilan`, plus `chantierId`/`fournisseurId` --
+ * absents ici, jamais aucun filtre sur ce côté (voir le docstring
+ * d'`ingest.bilan.lister_livraisons` : `None` n'y sélectionne pas le côté
+ * non résolu comme les autres niveaux du bilan). */
+export interface FiltresLivraisons extends FiltresBilan {
+  chantierId?: string;
+  fournisseurId?: string;
 }
 
 export const CLE_BILAN_CHANTIERS = ["bilan", "chantiers"] as const;
@@ -84,6 +95,39 @@ export function listerBilanFournisseursGlobal(
   return appelerApi<LigneBilanFournisseur[]>("/api/bilan/fournisseurs", {
     url: ajouterFiltres("/api/bilan/fournisseurs", filtres),
   });
+}
+
+/** `GET /api/bilan/livraisons` (Task 13, spec §4.3) : une ligne par bloc,
+ * comme `listerBilanBl`, mais jamais imbriquée sous un chantier et un
+ * fournisseur déjà fixés par l'URL -- chaque ligne porte donc son propre
+ * chantier et son propre fournisseur (`LigneLivraison.chantier`/
+ * `fournisseur`). Sert les bons conformes cliquables (accueil, fiche
+ * chantier, fiche fournisseur) et l'écran `/livraisons`. */
+export function listerLivraisons(
+  filtres: FiltresLivraisons = {},
+): Promise<LigneLivraison[]> {
+  const params = new URLSearchParams();
+  if (filtres.mois) {
+    params.set("mois", filtres.mois);
+  }
+  if (filtres.agence) {
+    params.set("agence", filtres.agence);
+  }
+  if (filtres.chantierId) {
+    params.set("chantier", filtres.chantierId);
+  }
+  if (filtres.fournisseurId) {
+    params.set("fournisseur", filtres.fournisseurId);
+  }
+  const requete = params.toString();
+  const chemin = requete === "" ? "/api/bilan/livraisons" : `/api/bilan/livraisons?${requete}`;
+  return appelerApi<LigneLivraison[]>("/api/bilan/livraisons", { url: chemin });
+}
+
+export function cleLivraisons(
+  filtres: FiltresLivraisons,
+): readonly [string, string, FiltresLivraisons] {
+  return ["bilan", "livraisons", filtres] as const;
 }
 
 export function listerBilanChantiersFournisseur(

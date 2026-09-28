@@ -231,6 +231,7 @@ class DocumentDetailReponse(BaseModel):
     agence_fournisseur: str | None
     chantier_id: uuid.UUID | None
     chantier: str | None
+    legende: str | None
     champs: ChampsDocumentReponse
     lignes: list[LigneDocumentReponse]
     motifs: list[MotifReponse]
@@ -290,6 +291,23 @@ class ArchivageRequete(BaseModel):
         if not valeur.strip():
             raise ValueError("commentaire requis")
         return valeur
+
+
+class ChoixChantierDocumentRequete(BaseModel):
+    """Corps de `PUT /api/documents/{id}/chantier` (Task 6, avenant du
+    27/09/2026, spec §2.4/§2.6) : le chantier choisi par un humain, pour
+    régler une alerte « Chantier à confirmer » (R18) ou corriger le
+    chantier d'un bon depuis sa fiche."""
+
+    chantier_id: uuid.UUID
+
+
+class ChoixChantierDocumentReponse(BaseModel):
+    """Réponse de `PUT /api/documents/{id}/chantier` : le chantier
+    réellement retenu (`ingest.rattachement_chantier.chantier_effectif` du
+    chantier choisi, Task 7)."""
+
+    chantier_id: uuid.UUID
 
 
 # --------------------------------------------------------------------------
@@ -408,10 +426,23 @@ class TraitementAnomalieRequete(BaseModel):
         return valeur
 
 
+class ChantierACompleterReponse(BaseModel):
+    """Un chantier créé automatiquement encore à compléter, dans `GET /api
+    /a-traiter` — mêmes attributs qu'`ingest.a_traiter.ChantierACompleter`
+    (Task 6, avenant du 27/09/2026, spec §2.6)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    nom: str
+    nb_bons: int
+    cree_le: datetime
+
+
 class ATraiterReponse(BaseModel):
     """`GET /api/a-traiter` : contenu complet de l'écran admin (L3-D18),
     complété par `anomalies_hautes` (anomalies ouvertes de gravité haute,
-    L4-D18)."""
+    L4-D18) et `chantiers_a_completer` (Task 6, avenant du 27/09/2026)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -419,6 +450,7 @@ class ATraiterReponse(BaseModel):
     alias: list[AliasEnAttenteReponse]
     articles: list[ArticleAValiderReponse]
     anomalies_hautes: list[AnomalieReponse]
+    chantiers_a_completer: list[ChantierACompleterReponse]
 
 
 class CompteProblemesReponse(BaseModel):
@@ -445,9 +477,18 @@ class CompteProblemesReponse(BaseModel):
 
 
 class ChantierReponse(BaseModel):
-    """Une ligne de `GET /api/chantiers` — mêmes attributs qu'`ingest
-    .referentiels.ChantierResume`. `client` : ajout hors CDC demandé le
-    23/09/2026 (`docs/dette.md`)."""
+    """Une ligne de `GET /api/chantiers`, et la fiche `GET /api
+    /chantiers/{id}` (Task 7) — mêmes attributs qu'`ingest.referentiels
+    .ChantierResume`. `client` : ajout hors CDC demandé le 23/09/2026
+    (`docs/dette.md`). `a_completer` (Task 6, avenant du 27/09/2026) :
+    chantier créé automatiquement, pas encore complété.
+
+    `fusionne_dans_id`/`fusionne_dans_nom` (Task 7, avenant du 27/09/2026,
+    spec §2.7) : chantier absorbé par un autre (« Fusionner avec… ») --
+    toujours `None` sur `GET /api/chantiers` (qui exclut déjà les chantiers
+    fusionnés, Task 6) ; non `None` seulement quand `GET /api/chantiers
+    /{id}` renvoie un chantier fusionné, pour son bandeau « Ce chantier a
+    été fusionné dans <cible> »."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -456,6 +497,9 @@ class ChantierReponse(BaseModel):
     agence: str | None
     client: str | None
     actif: bool
+    a_completer: bool
+    fusionne_dans_id: uuid.UUID | None
+    fusionne_dans_nom: str | None
 
 
 class ChantierCreationRequete(BaseModel):
@@ -489,6 +533,26 @@ class ChantierModificationRequete(BaseModel):
         if not valeur.strip():
             raise ValueError("nom vide")
         return valeur
+
+
+class FusionChantierRequete(BaseModel):
+    """Corps de `POST /api/chantiers/{id}/fusionner` (Task 7, avenant du
+    27/09/2026, spec §2.7) : `{id}` (source) est fusionné dans `cible_id`."""
+
+    cible_id: uuid.UUID
+
+
+class ResultatFusionReponse(BaseModel):
+    """Réponse de `POST /api/chantiers/{id}/fusionner` — mêmes attributs
+    qu'`ingest.fusion_chantier.ResultatFusion`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    cible_id: uuid.UUID
+    nb_documents: int
+    nb_blocs: int
+    nb_alias: int
+    nb_anomalies: int
 
 
 class AgenceFournisseurReponse(BaseModel):
@@ -610,6 +674,28 @@ class LigneBilanBlReponse(BaseModel):
     statut_rapprochement: str | None
     bl_document_id: uuid.UUID | None
     facture_id: uuid.UUID
+    montants: MontantsBilanReponse
+
+
+class LigneLivraisonReponse(BaseModel):
+    """Une ligne de `GET /api/bilan/livraisons` (Task 13, mise en production
+    du 1er octobre) -- mêmes attributs qu'`ingest.bilan.LigneLivraison` :
+    ceux de `LigneBilanBlReponse`, plus le chantier et le fournisseur de
+    chaque ligne (cette liste n'est jamais imbriquée sous un chantier et un
+    fournisseur déjà fixés par l'URL, contrairement à `LigneBilanBlReponse`)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    bloc_id: uuid.UUID
+    numero_bl: str | None
+    date_bl: date | None
+    statut_rapprochement: str | None
+    bl_document_id: uuid.UUID | None
+    facture_id: uuid.UUID
+    chantier_id: uuid.UUID | None
+    chantier: str | None
+    fournisseur_id: uuid.UUID | None
+    fournisseur: str | None
     montants: MontantsBilanReponse
 
 
@@ -800,7 +886,13 @@ class JournalReponse(BaseModel):
     `apres` sont exposés tels quels (JSON brut : `dict[str, Any] | None`,
     décision du contrôleur) — aucune interprétation métier ici, la mise en
     forme lisible revient au front (`Journal.tsx`), même principe que
-    `detail` sur `AnomalieReponse`."""
+    `detail` sur `AnomalieReponse`.
+
+    `noms` (Task 12, spec §4.1) : identifiant (texte) -> nom, pour toute
+    valeur d'`avant`/`apres` que le serveur a su résoudre (compte, chantier,
+    fournisseur — voir `ingest.journal.JournalLue`) ; jamais l'UUID brut
+    côté client, ni un calcul côté front, qui n'a pas accès aux
+    référentiels."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -813,6 +905,85 @@ class JournalReponse(BaseModel):
     avant: dict[str, Any] | None
     apres: dict[str, Any] | None
     horodatage: datetime
+    noms: dict[str, str]
+
+
+# --------------------------------------------------------------------------
+# Comptes (Task 10, spec §3) : schémas construits à partir d'`app.core.auth
+# .CompteLu`, consommés par `api/comptes.py`. `CompteReponse` n'expose jamais
+# `hashed_password`/`mdp_hash` -- `CompteLu` ne les porte même pas (défense
+# en profondeur, décision du contrôleur).
+# --------------------------------------------------------------------------
+
+
+class CompteReponse(BaseModel):
+    """Une ligne de `GET /api/comptes`, et la réponse de chaque route
+    d'écriture de l'écran « Comptes » -- mêmes attributs qu'`app.core.auth
+    .CompteLu`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    nom: str | None
+    email: str
+    role: str
+    agence: str | None
+    telegram_user_id: int | None
+    actif: bool
+    cree_le: datetime
+
+
+class CompteCreationRequete(BaseModel):
+    """Corps de `POST /api/comptes` (spec §3 : « Créer ») : e-mail et nom
+    obligatoires (blanc refusé, même convention que `ChantierCreationRequete`
+    ci-dessus), rôle restreint aux deux valeurs valides (`Literal`, un rôle
+    hors de cet ensemble est un 422 avant même d'atteindre le service),
+    agence et identifiant Telegram facultatifs, mot de passe provisoire
+    (longueur revérifiée par `app.core.auth._mot_de_passe_valide`, jamais
+    ici : une seule source de vérité pour ce seuil)."""
+
+    email: str = Field(min_length=1, max_length=320)
+    nom: str = Field(min_length=1, max_length=200)
+    role: Literal["admin", "agent"]
+    agence: str | None = Field(default=None, max_length=200)
+    telegram_user_id: int | None = None
+    mot_de_passe: str = Field(min_length=1)
+
+    @field_validator("email", "nom")
+    @classmethod
+    def _non_blanc(cls, valeur: str) -> str:
+        if not valeur.strip():
+            raise ValueError("champ requis")
+        return valeur
+
+
+class CompteModificationRequete(BaseModel):
+    """Corps de `PUT /api/comptes/{id}` (spec §3 : « Modifier ») -- jamais le
+    mot de passe (`ChangementMotDePasseRequete` ci-dessous), mêmes règles que
+    `CompteCreationRequete`."""
+
+    email: str = Field(min_length=1, max_length=320)
+    nom: str = Field(min_length=1, max_length=200)
+    role: Literal["admin", "agent"]
+    agence: str | None = Field(default=None, max_length=200)
+    telegram_user_id: int | None = None
+
+    @field_validator("email", "nom")
+    @classmethod
+    def _non_blanc(cls, valeur: str) -> str:
+        if not valeur.strip():
+            raise ValueError("champ requis")
+        return valeur
+
+
+class ChangementMotDePasseRequete(BaseModel):
+    """Corps de `PUT /api/comptes/{id}/mot-de-passe` (spec §3 : « Changer le
+    mot de passe ») : l'admin saisit lui-même le nouveau mot de passe, jamais
+    d'envoi d'e-mail -- longueur revérifiée par `app.core.auth
+    ._mot_de_passe_valide`, jamais ici (même raison que `mot_de_passe`
+    ci-dessus)."""
+
+    mot_de_passe: str = Field(min_length=1)
 
 
 # --------------------------------------------------------------------------
