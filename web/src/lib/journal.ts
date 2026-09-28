@@ -50,6 +50,17 @@
  * que `anomalie_traitee`/`anomalie_ignoree` -- invisibles à la regex du
  * test de complétude, ajoutées ici par prudence). L'écran dédié (T5) reste
  * à construire ; ces libellés ne servent ici qu'à l'écran Journal existant.
+ *
+ * Tâche T5 (phase 4 IA, 27/09/2026) : l'écran dédié est construit
+ * (`components/SyntheseCommentaires.tsx`, monté par la Vue d'ensemble) --
+ * les trois libellés d'action ci-dessus restent ceux posés par T4, non
+ * dupliqués ici. Complété : deux cibles (`synthese_commentaires`,
+ * `synthese_action`, `Journal(cible_table=...)` d'`ingest/ia_synthese.py`)
+ * dans `CIBLES_CONNUES`/`LIBELLES_CIBLE`/`lienCible` (aucune fiche dédiée à
+ * une synthèse ou une action de synthèse : le lien renvoie à l'accueil, où
+ * la carte les affiche) ; quatre clés de détail dans `LIBELLES_CLE_DETAIL`
+ * (`semaine_debut`, `semaine_fin`, `nb_commentaires`, `nb_actions` --
+ * `statut` et `texte` avaient déjà un libellé générique, inchangés).
  */
 
 import { formaterDate, formaterDateHeure, formaterMontant, formaterQuantite, TIRET } from "./formats";
@@ -147,6 +158,8 @@ export const CIBLES_CONNUES = [
   "utilisateur",
   "parametre",
   "commentaire",
+  "synthese_commentaires",
+  "synthese_action",
 ] as const;
 
 const LIBELLES_CIBLE: Record<string, string> = {
@@ -164,6 +177,12 @@ const LIBELLES_CIBLE: Record<string, string> = {
   // les autres cibles (constat de relecture, tour 1 de la Task C3,
   // 27/09/2026).
   commentaire: "Commentaire",
+  // `synthese_generee` (`ingest/ia_synthese.py`, T4/T5, phase 4 IA) : la
+  // synthèse hebdomadaire des commentaires elle-même.
+  synthese_commentaires: "Synthèse des commentaires",
+  // `synthese_action_faite`/`synthese_action_a_faire` (même module) : une
+  // action à cocher de la synthèse.
+  synthese_action: "Action de la synthèse",
 };
 
 /** Libellé français de l'élément concerné par une entrée (`cible_table`) —
@@ -310,6 +329,12 @@ export function lienCible(
       }
       return null;
     }
+    // Aucune fiche dédiée à une synthèse ou à une action de synthèse (T5,
+    // phase 4 IA) : la carte « Commentaires de la semaine » qui les affiche
+    // vit sur l'accueil.
+    case "synthese_commentaires":
+    case "synthese_action":
+      return { href: "/", libelle: "Voir l'accueil" };
     default:
       return null;
   }
@@ -468,6 +493,14 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   // `CLES_JAMAIS_AFFICHEES` plus bas).
   ligne: "Ligne",
   texte: "Commentaire",
+  // `synthese_generee`/`synthese_action_faite`/`synthese_action_a_faire`
+  // (`ingest/ia_synthese.py`, T5, phase 4 IA) : `statut` (déjà listé
+  // ci-dessus) et `texte` (déjà listé ci-dessus, inchangé) sont partagés
+  // avec d'autres actions.
+  semaine_debut: "Semaine du",
+  semaine_fin: "Jusqu'au",
+  nb_commentaires: "Commentaires",
+  nb_actions: "Actions",
 };
 
 /** Un identifiant (`chantier_id`, `fournisseur_id`…) désigne l'élément

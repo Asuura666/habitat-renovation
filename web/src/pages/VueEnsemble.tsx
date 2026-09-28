@@ -10,6 +10,7 @@ import {
   type TableauDeBord,
   obtenirTableauDeBord,
 } from "../api/tableauDeBord";
+import { SyntheseCommentaires } from "../components/SyntheseCommentaires";
 import {
   Carte,
   Chiffre,
@@ -498,6 +499,16 @@ export function VueEnsemble(): ReactElement {
           </div>
         </>
       )}
+
+      {/* Carte « Commentaires de la semaine » (T5, phase 4 IA, spec §4.6) :
+          après les chantiers et les problèmes à régler, plus urgents et
+          consultés à chaque visite -- cette synthèse hebdomadaire est un
+          point d'étape, plus utile en fin de lecture qu'en tête d'écran, où
+          elle repousserait sur téléphone les deux sections d'action sous la
+          ligne de flottaison. En dehors du `{donnees && (...)}` ci-dessus :
+          sa propre requête, indépendante du tableau de bord (une panne de
+          l'une n'empêche jamais l'autre de s'afficher). */}
+      <SyntheseCommentaires />
     </div>
   );
 }
