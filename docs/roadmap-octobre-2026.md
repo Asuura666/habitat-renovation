@@ -358,9 +358,9 @@ deux mois, formation, procès-verbal). Voir `memory.md` et `docs/dette.md`.
 
 - [x] Socle commun fusionné dans `dev` (S1 → S5) — PR #1, 27/09
 - [x] Session B lancée (Ilane) — commentaires faits, spec et plan du lot Prix écrits (27/09)
-- [ ] Phase 1 : PR vers `dev`
-- [ ] Phase 1 : déployée (`dev` → `main`, démo puis production)
+- [x] Phase 1 : PR vers `dev` — PR #2, 27/09
+- [ ] Phase 1 : déployée (`dev` → `main`, démo puis production) — procédure prête : `docs/deploiement-octobre-2026.md`
 - [~] Phase 2 : restauration corrigée et testée, tâches planifiées et alerte, sauvegardes locales posées (27/09) — restent OVH, clés, contrôles/photos après le déploiement de la phase 1 (`docs/phase-2-exploitation-recette.md`)
-- [x] Phase 3 : commentaires (session B ; fusionnés dans `feature/phase-4-ia` pour la synthèse IA)
-- [x] Phase 3 : lot Prix (P0 → P6), fusionné dans `dev` (PR #5)
-- [~] Phase 4 : IA (synthèse, explication, prix internet) faite sur `feature/phase-4-ia`, éteinte (`IA_ACTIVE=false`) ; T10a (service groupé, route `/api/ia/prix-internet`, essai de bout en bout sur R22) fait sur `feature/phase-4-t10` — reste T10b (écran) et le contrôle des prix à la facture (non IA), non commencé
+- [x] Phase 3 : commentaires (session B) — dans `dev` depuis la PR #4, 28/09
+- [x] Phase 3 : lot Prix (P0 → P6), fusionné dans `dev` (PR #5, 28/09)
+- [~] Phase 4 : IA (synthèse, explication, prix internet) dans `dev` (PR #4, 28/09), éteinte (`IA_ACTIVE=false`) ; T10 (colonne « Internet » de la page Prix, essai de bout en bout sur R22, interrupteurs du lot Prix respectés) fait sur `feature/phase-4-t10` — reste le contrôle des prix à la facture (non IA), non commencé
