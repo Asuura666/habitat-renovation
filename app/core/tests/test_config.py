@@ -274,3 +274,116 @@ def test_drive_reste_optionnel_et_son_secret_est_masque(
     )
     assert avec_drive.google_drive_folder_id == "dossier-invente"
     assert COMPTE_SERVICE_DRIVE_INVENTE not in repr(avec_drive)
+
+
+# --------------------------------------------------------------------------
+# IA / OpenCode (phase 4, brief T3)
+# --------------------------------------------------------------------------
+
+MDP_OPENCODE_INVENTE = "mdp-opencode-invente-pour-les-tests"
+
+
+def test_ia_active_absent_vaut_faux_et_opencode_reste_optionnel(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Décision D6 (« Go, implémente déjà tout ») : `IA_ACTIVE` absente vaut
+    `False`, et l'application démarre sans `OPENCODE_URL`/
+    `OPENCODE_MOT_DE_PASSE`."""
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+    monkeypatch.delenv("IA_ACTIVE", raising=False)
+    monkeypatch.delenv("OPENCODE_URL", raising=False)
+    monkeypatch.delenv("OPENCODE_MOT_DE_PASSE", raising=False)
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.ia_active is False
+    assert settings.opencode_url is None
+    assert settings.opencode_mot_de_passe is None
+    assert settings.ia_appels_max_jour == 40
+
+
+def test_ia_active_sans_opencode_url_refuse_et_nomme_la_variable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+    monkeypatch.setenv("IA_ACTIVE", "true")
+    monkeypatch.delenv("OPENCODE_URL", raising=False)
+    monkeypatch.setenv("OPENCODE_MOT_DE_PASSE", MDP_OPENCODE_INVENTE)
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert "OPENCODE_URL" in str(exc_info.value)
+
+
+def test_ia_active_avec_opencode_url_vide_refuse(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """« Absent ou vide » (brief T3) : une chaîne vide vaut absence."""
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+    monkeypatch.setenv("IA_ACTIVE", "true")
+    monkeypatch.setenv("OPENCODE_URL", "")
+    monkeypatch.setenv("OPENCODE_MOT_DE_PASSE", MDP_OPENCODE_INVENTE)
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert "OPENCODE_URL" in str(exc_info.value)
+
+
+def test_ia_active_sans_mot_de_passe_refuse_et_nomme_la_variable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+    monkeypatch.setenv("IA_ACTIVE", "true")
+    monkeypatch.setenv("OPENCODE_URL", "http://opencode:4096")
+    monkeypatch.delenv("OPENCODE_MOT_DE_PASSE", raising=False)
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert "OPENCODE_MOT_DE_PASSE" in str(exc_info.value)
+
+
+def test_ia_active_complete_ok(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+    monkeypatch.setenv("IA_ACTIVE", "true")
+    monkeypatch.setenv("OPENCODE_URL", "http://opencode:4096")
+    monkeypatch.setenv("OPENCODE_MOT_DE_PASSE", MDP_OPENCODE_INVENTE)
+    monkeypatch.setenv("IA_APPELS_MAX_JOUR", "10")
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.ia_active is True
+    assert settings.opencode_url == "http://opencode:4096"
+    assert settings.opencode_mot_de_passe is not None
+    assert settings.opencode_mot_de_passe.get_secret_value() == MDP_OPENCODE_INVENTE
+    assert settings.ia_appels_max_jour == 10
+
+
+def test_ia_appels_max_jour_zero_refuse(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`Field(ge=1)` : vérifié même IA éteinte (pas de garde conditionnée à
+    `ia_active`, contrairement à `OPENCODE_URL`/`OPENCODE_MOT_DE_PASSE`)."""
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+    monkeypatch.delenv("IA_ACTIVE", raising=False)
+    monkeypatch.setenv("IA_APPELS_MAX_JOUR", "0")
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert "ia_appels_max_jour" in str(exc_info.value)
+
+
+def test_opencode_mot_de_passe_absent_du_repr_de_settings(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _regler_environnement_complet(monkeypatch, tmp_path / "docs-inventes")
+    monkeypatch.setenv("IA_ACTIVE", "true")
+    monkeypatch.setenv("OPENCODE_URL", "http://opencode:4096")
+    monkeypatch.setenv("OPENCODE_MOT_DE_PASSE", MDP_OPENCODE_INVENTE)
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert MDP_OPENCODE_INVENTE not in repr(settings)
