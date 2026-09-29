@@ -18,6 +18,7 @@ import {
 } from "../api/ia";
 import { listerAlertesPrix } from "../api/prix";
 import { TIRET } from "../lib/formats";
+import { texteMontantPrixInternet } from "../lib/prixInternet";
 import { Bouton, Carte, EnTetePage, EtatVide } from "../ui";
 
 const CLE_ALERTES_PRIX_LABO = ["ia", "labo", "alertes-prix"] as const;
@@ -313,6 +314,12 @@ function Essayer({ onLance }: { onLance: (id: string) => void }): ReactElement {
   );
 }
 
+/** Champ texte d'un résultat d'essai (`Record<string, unknown>`), `null`
+ * s'il est absent ou d'un autre type. */
+function texteOuNull(valeur: unknown): string | null {
+  return typeof valeur === "string" ? valeur : null;
+}
+
 function ResultatEssai({
   type,
   resultat,
@@ -328,9 +335,12 @@ function ResultatEssai({
       const sourceUrl = typeof resultat.source_url === "string" ? resultat.source_url : null;
       return (
         <p className="text-sm text-encre">
-          {`Prix trouvé : ${String(resultat.prix)} ${typeof resultat.devise === "string" ? resultat.devise : ""} ${
-            typeof resultat.taxes === "string" ? resultat.taxes : ""
-          }`}
+          {`Prix trouvé : ${texteMontantPrixInternet({
+            prix: texteOuNull(resultat.prix),
+            taxes: texteOuNull(resultat.taxes),
+            conditionnement: texteOuNull(resultat.conditionnement),
+            unite: texteOuNull(resultat.unite),
+          })}`}
           {sourceUrl !== null && sourceUrl.startsWith("https://") && (
             <>
               {" — "}

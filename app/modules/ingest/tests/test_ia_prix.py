@@ -36,7 +36,7 @@ from sqlalchemy import event, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.modules.ingest import anomalies, commun, opencode
+from app.modules.ingest import anomalies, commun, ia_prix, opencode
 from app.modules.ingest.anomalies import AnomalieIntrouvable
 from app.modules.ingest.ia_prix import (
     ECHECS_MAX,
@@ -944,7 +944,7 @@ async def test_chercher_prix_internet_prix_du_bon_absent_du_texte_envoye(
     assert "7,90" not in texte_envoye
     assert "Fournisseur habituel : Fournisseur Habituel Invente" in texte_envoye
     assert "Désignation : Plaque std 13" in texte_envoye
-    assert "Référence : PL13" in texte_envoye
+    assert "Code article chez le fournisseur habituel : PL13" in texte_envoye
     assert "Unité : u" in texte_envoye
 
 
@@ -999,7 +999,7 @@ async def test_chercher_prix_internet_detail_r22_reel_code_et_unite_tiret(
     assert "7.90" not in texte_envoye
     assert "7,90" not in texte_envoye
     assert "Désignation : Plaque std 13" in texte_envoye
-    assert "Référence : —" in texte_envoye
+    assert "Code article chez le fournisseur habituel : —" in texte_envoye
     assert "Unité : —" in texte_envoye
 
 
@@ -1789,3 +1789,24 @@ async def test_prix_internet_des_anomalies_meme_calcul_qu_avis_ia_anomalie(
     vue_lot = lot.par_anomalie[anomalie.id]
     assert vue_lot is not None
     assert avis.prix_internet == vue_lot
+
+
+def test_texte_prix_code_du_fournisseur_jamais_exige_sur_la_page() -> None:
+    """29/09/2026, essai sur dix vrais produits Unikalo : l'IA avait trouvé
+    le bon produit et son prix dans quatre cas, puis les avait refusés parce
+    que la page n'affichait pas le code article demandé -- un code interne
+    au fournisseur habituel, qu'aucun autre site n'affiche. Le produit
+    s'identifie par sa marque, son nom et son format ; le code n'est qu'un
+    indice."""
+    texte = ia_prix._texte_prix(
+        fournisseur="Fournisseur Invente",
+        designation="Mastic invente 300ML",
+        code="XY123",
+        unite=None,
+    )
+
+    assert "Code article chez le fournisseur habituel : XY123" in texte
+    assert "Référence :" not in texte
+    assert "marque, son nom et son format" in texte
+    assert "n'est pas une raison de refuser" in texte
+    assert "Vérifie la référence" not in texte
