@@ -215,6 +215,10 @@ Ordre à respecter sur chaque instance déjà en service :
    ```
 
 4. **Puis l'API** (reconstruction et redémarrage de l'instance).
+5. **Reprise des factures** (correction d'audit du 29/09/2026) : `docker
+   compose $P $C exec -T api python -m app.cli rapprocher --tout`, une fois
+   l'API redémarrée, pour que les factures « à vérifier » déjà en base
+   reçoivent leur alerte R10 (voir `docs/deploiement-octobre-2026.md` §4.4).
 
 Ne pas lancer la tâche `ia-prix` avant l'étape 3 : un produit cherché avec
 l'ancien agent peut être enregistré « non vérifiable » et rester dans le

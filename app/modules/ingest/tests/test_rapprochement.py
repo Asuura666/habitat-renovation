@@ -1756,3 +1756,108 @@ async def test_fixture_reelle_rapprochement_28_blocs_3_recus(
         .all()
     )
     assert len(anomalies_r01) >= 1, "au moins un bloc facturé doit être non reçu"
+
+
+# --------------------------------------------------------------------------
+# R10 d'une facture à vérifier : levée dans la transaction de la correction
+# (I1), rien évalué ni balayé quand R10 est désactivée (M3)
+# --------------------------------------------------------------------------
+
+
+async def _facture_incoherente(
+    db_session: AsyncSession, *, numero_bl: str
+) -> tuple[Document, Document, BlocFacture]:
+    """Facture « à vérifier » à somme incohérente, dont R10 est ouverte, et
+    le bon `numero_bl` déjà déposé (un seul bloc)."""
+    fournisseur = await _creer_fournisseur(db_session)
+    bl = await _creer_bl(db_session, fournisseur=fournisseur, numero=numero_bl)
+    facture = await _creer_facture(
+        db_session, fournisseur=fournisseur, statut="a_verifier"
+    )
+    facture.motifs = [
+        {
+            "code": "somme_incoherente",
+            "champ": "total_ht",
+            "detail": {"somme": "20.00", "total": "999.99", "ecart": "979.99"},
+        }
+    ]
+    await db_session.commit()
+    bloc = await _creer_bloc(db_session, facture=facture, numero_bl=numero_bl)
+    resultat = await rapprocher_facture(db_session, facture.id)
+    assert resultat.nb_anomalies == 1
+    return facture, bl, bloc
+
+
+async def _r10_ouvertes(db_session: AsyncSession, facture: Document) -> int:
+    return (
+        await db_session.execute(
+            select(func.count())
+            .select_from(Anomalie)
+            .where(
+                Anomalie.document_id == facture.id,
+                Anomalie.regle == "R10",
+                Anomalie.statut == "ouverte",
+            )
+        )
+    ).scalar_one()
+
+
+async def test_rejeu_apres_ecriture_d_une_facture_leve_r10_et_rapproche_les_blocs(
+    db_session: AsyncSession,
+) -> None:
+    """I1 : la facture corrigée (somme juste) ou validée est rejouée elle-même,
+    dans la transaction de l'écriture : R10 est levée et les blocs sont
+    rapprochés (avant, seul le rejeu des bons existait, `[]` pour une
+    facture)."""
+    from app.modules.ingest.corrections import _rejouer_apres_ecriture
+
+    facture, _bl, bloc = await _facture_incoherente(db_session, numero_bl="L7001")
+    assert await _r10_ouvertes(db_session, facture) == 1
+
+    # La correction rend la somme juste : le motif disparaît, la facture
+    # passe « reçue » (validation) -- écritures en attente, pas de commit.
+    facture.motifs = []
+    facture.statut = "recu"
+    await _rejouer_apres_ecriture(db_session, facture)
+    await db_session.commit()
+
+    assert await _r10_ouvertes(db_session, facture) == 0
+    await _rafraichir(db_session, bloc)
+    assert bloc.statut_rapprochement == "recu"
+
+
+async def test_rejeu_apres_ecriture_d_un_bon_rejoue_les_factures_qui_le_citent(
+    db_session: AsyncSession,
+) -> None:
+    """Le rejeu des bons reste celui de `rapprocher_factures_du_bl`."""
+    from app.modules.ingest.corrections import _rejouer_apres_ecriture
+
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    bloc = await _creer_bloc(db_session, facture=facture, numero_bl="L7002")
+    bl = await _creer_bl(db_session, fournisseur=fournisseur, numero="L7002")
+
+    await _rejouer_apres_ecriture(db_session, bl)
+    await db_session.commit()
+
+    await _rafraichir(db_session, bloc)
+    assert bloc.statut_rapprochement == "recu"
+
+
+async def test_r10_desactivee_ne_balaie_ni_n_evalue(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M3 : R10 désactivée -> aucune évaluation et aucun balayage (l'alerte
+    déjà ouverte n'est pas touchée)."""
+    facture, _bl, _bloc = await _facture_incoherente(db_session, numero_bl="L7003")
+    monkeypatch.setattr(
+        "app.modules.ingest.rapprochement.regles_desactivees",
+        lambda: frozenset({"R10"}),
+    )
+    facture.motifs = []
+    await db_session.commit()
+
+    resultat = await rapprocher_facture(db_session, facture.id)
+
+    assert resultat.nb_anomalies == 0
+    assert await _r10_ouvertes(db_session, facture) == 1

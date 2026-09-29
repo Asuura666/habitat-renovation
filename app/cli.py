@@ -558,7 +558,8 @@ async def _rapprocher_facture(*, facture_id: uuid.UUID) -> int:
 
 async def _rapprocher_tout() -> int:
     """Implémentation de `rapprocher --tout` (L4-T11, décision du
-    contrôleur) : traite les factures `recu` de la plus ancienne à la plus
+    contrôleur) : traite les factures `recu` ou `a_verifier` (R10 seule pour la
+    seconde) de la plus ancienne à la plus
     récente (`ingest.rapprochement.factures_recues`), une transaction par
     facture via `rapprocher_facture_sans_echec` (déjà commité : journalise
     l'échec, absorbe l'exception, ne fait jamais échouer la boucle) — compte

@@ -551,7 +551,9 @@ async def _lignes_negatives_sans_origine(
 
 
 async def factures_recues(session: AsyncSession) -> list[tuple[uuid.UUID, int]]:
-    """`(id, numero_interne)` de chaque facture `recu`, du plus ancien au
+    """`(id, numero_interne)` de chaque facture `recu` ou `a_verifier` (la
+    seconde n'est pas rapprochée mais voit R10 évaluée, B-09 : reprise des
+    factures déjà en base sans R10), du plus ancien au
     plus récent (`Document.created_at` croissant) — matière de `rapprocher
     --tout` (CLI, décision du contrôleur de la tâche L4-T11 : « traite les
     factures reçues de la plus ancienne à la plus récente »).
@@ -562,7 +564,10 @@ async def factures_recues(session: AsyncSession) -> list[tuple[uuid.UUID, int]]:
     révéler de donnée du document source."""
     resultat = await session.execute(
         select(Document.id, Document.numero_interne)
-        .where(Document.type == "facture", Document.statut == "recu")
+        .where(
+            Document.type == "facture",
+            Document.statut.in_(("recu", "a_verifier")),
+        )
         .order_by(Document.created_at.asc())
     )
     return [(id_, numero_interne) for id_, numero_interne in resultat.all()]
@@ -581,14 +586,18 @@ async def _evaluer_r10_facture_a_verifier(
     R10 applique la tolérance de l'admin. La portée du balayage se limite à
     R10 : aucune autre règle n'a été recalculée. Une correction qui
     supprime le motif lève l'alerte au prochain passage. Renvoie le nombre
-    d'anomalies R10 ouvertes (0 ou 1). Ne commite pas."""
+    d'anomalies R10 ouvertes (0 ou 1). Ne commite pas. R10 désactivée : rien
+    n'est évalué ni balayé, renvoie 0."""
+    if "R10" not in REGLES_FACTURE - regles_desactivees():
+        # Règle désactivée : ni évaluation ni balayage (comme le moteur
+        # complet de `rapprocher_facture`).
+        return 0
     anomalies: tuple[AnomalieRegle, ...] = ()
-    if "R10" in REGLES_FACTURE - regles_desactivees():
-        anomalie = R10(
-            _document_controle(facture_doc, None), await _charger_parametres(session)
-        )
-        if anomalie is not None:
-            anomalies = (anomalie,)
+    anomalie = R10(
+        _document_controle(facture_doc, None), await _charger_parametres(session)
+    )
+    if anomalie is not None:
+        anomalies = (anomalie,)
     return await synchroniser_anomalies(
         session,
         anomalies=anomalies,

@@ -1146,13 +1146,19 @@ _SYNTHESE_RAPPROCHER_TOUT_RE = re.compile(
 )
 
 
-async def _creer_facture_recue(engine: AsyncEngine) -> tuple[uuid.UUID, int]:
+async def _creer_facture_recue(
+    engine: AsyncEngine,
+    *,
+    statut: str = "recu",
+    motifs: list[dict[str, Any]] | None = None,
+) -> tuple[uuid.UUID, int]:
     sessionmaker = creer_sessionmaker(engine)
     async with sessionmaker() as session:
         document = Document(
             type="facture",
             source="upload",
-            statut="recu",
+            statut=statut,
+            motifs=motifs or [],
             fichier_path=f"{_PREFIXE_FICHIER_RAPPROCHER}{uuid.uuid4()}.pdf",
         )
         session.add(document)
@@ -1244,6 +1250,53 @@ def test_rapprocher_tout_traite_les_factures_recues_une_par_une_code_0(
         traitees, echecs, _anomalies = (int(g) for g in correspondance.groups())
         assert traitees >= 2
         assert echecs == 0
+    finally:
+        asyncio.run(_nettoyer_factures_rapprochees(db_engine))
+
+
+@pytest.mark.db
+def test_rapprocher_tout_evalue_r10_des_factures_a_verifier(
+    db_engine: AsyncEngine, _env_bl_test: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Reprise des factures déjà en base « à vérifier » à somme incohérente
+    sans R10 (posées avant la correction du 29/09/2026) : `rapprocher --tout`
+    les traite aussi et ouvre leur R10 (procédure de déploiement d'octobre)."""
+    facture_id, numero = asyncio.run(
+        _creer_facture_recue(
+            db_engine,
+            statut="a_verifier",
+            motifs=[
+                {
+                    "code": "somme_incoherente",
+                    "champ": "total_ht",
+                    "detail": {"somme": "20.00", "total": "999.99", "ecart": "979.99"},
+                }
+            ],
+        )
+    )
+
+    async def _r10_ouvertes() -> int:
+        async with creer_sessionmaker(db_engine)() as session:
+            return (
+                await session.execute(
+                    select(func.count())
+                    .select_from(Anomalie)
+                    .where(
+                        Anomalie.document_id == facture_id,
+                        Anomalie.regle == "R10",
+                        Anomalie.statut == "ouverte",
+                    )
+                )
+            ).scalar_one()
+
+    try:
+        assert asyncio.run(_r10_ouvertes()) == 0
+        code = cli.main(["rapprocher", "--tout"])
+        sortie = capsys.readouterr().out
+
+        assert code == 0
+        assert f"facture {numero} : " in sortie
+        assert asyncio.run(_r10_ouvertes()) == 1
     finally:
         asyncio.run(_nettoyer_factures_rapprochees(db_engine))
 

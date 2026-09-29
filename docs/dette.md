@@ -1459,7 +1459,14 @@ Décisions d'Ilane du 29/09/2026 (`.superpowers/sdd/corrections-audit/decisions-
   partir du motif `somme_incoherente` posé à l'extraction (la tolérance de
   l'admin s'applique). L'alerte apparaît dans « À régler » (elle s'ajoute à la
   facture elle-même, listée dans « À traiter » : le compte unique compte donc
-  les deux). Elle est levée au rejeu suivant si le motif disparaît. Ce qui
+  les deux). Elle est levée au rejeu suivant si le motif disparaît (une
+  correction ou une validation de facture rejoue la facture elle-même, dans
+  la transaction de l'écriture : `corrections._rejouer_apres_ecriture` ;
+  **mais** aucune route ne corrige ni ne valide une facture aujourd'hui,
+  `corrections.py` est réservé aux bons : en pratique l'alerte tombe par
+  archivage, par un changement de tolérance suivi de `rapprocher --tout`
+  (les factures « à vérifier » y sont traitées), ou quand la correction de
+  facture sera construite). Ce qui
   précède corrige la formule inexacte de la section précédente : R10 n'était
   jamais produite avant cette date.
 - **« Facturé » garde ces factures**, avec la mention « dont X € sur des

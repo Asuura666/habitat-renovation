@@ -164,12 +164,20 @@ Si la migration échoue : **laisser l'API arrêtée** et passer au §7.
 ```bash
 docker compose $P exec -T api python -m app.cli rattacher-chantiers
 docker compose $P exec -T api python -m app.cli ranger-photos
+docker compose $P exec -T api python -m app.cli rapprocher --tout
 ```
 
 `rattacher-chantiers` rattache les noms en attente et les bons sans chantier
 (création « à compléter » si besoin, signalée dans « À régler ») ; il garde
 le verrou des chantiers le temps de sa passe (quasi instantané aujourd'hui).
 `ranger-photos` crée les liens `bl/<année>/<mois>/…` (aucune copie).
+`rapprocher --tout` (ajouté le 29/09/2026, audit) rejoue le rapprochement de
+toutes les factures reçues et évalue R10 (« total incohérent ») sur les
+factures « à vérifier » déjà en base, qui n'en avaient jamais eu : sans cette
+passe, elles restent sans alerte R10 (un total faux passait inaperçu) jusqu'à
+leur prochain rejeu. Idempotent ; une ligne par facture, puis une synthèse
+(« N factures traitées, 0 échec »). À lancer après le redémarrage de l'API du
+§4.3 (le code corrigé doit tourner) et après `rattacher-chantiers`.
 
 ### 4.5 Vérifier
 
@@ -277,6 +285,7 @@ dépôts sur la production avec un vrai bon, avec l'accord du client).
 - [ ] Comptes : créer, modifier, changer un mot de passe, retirer puis rétablir l'accès ; impossible de se retirer soi-même ou de retirer le dernier admin.
 - [ ] Photos rangées : `ls /home/debian/habitat-data/<instance>/docs/bl/2026/` (liens `<jour>_<déposant>_<chantier>_n<numéro>`).
 - [ ] Seuil de ressemblance réglable dans Réglages (90 % par défaut).
+- [ ] Après `rapprocher --tout` : une facture « à vérifier » à total incohérent affiche son alerte R10 dans « À régler ».
 
 ### 6.2 Phase 3 — commentaires et prix
 
