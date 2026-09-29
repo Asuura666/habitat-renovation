@@ -3,7 +3,8 @@ import type { ReactElement } from "react";
 import type { PrixInternet } from "../api/ia";
 import type { AlerteProduit } from "../api/prix";
 import { formaterJourMois, TIRET } from "../lib/formats";
-import { domaineSource, texteMontantPrixInternet } from "../lib/prixInternet";
+import { domaineSource, texteMontantPrixInternet, texteResumeOffres } from "../lib/prixInternet";
+import { OffresPrixInternet } from "./OffresPrixInternet";
 
 /**
  * Cellule de la colonne « Internet » de la page « Prix à vérifier » (T10b,
@@ -51,6 +52,16 @@ export function PrixInternetCellule({
   }
 
   if (prixInternet.statut === "trouve" && prixInternet.prix !== null) {
+    const resume = texteResumeOffres(prixInternet);
+    if (resume !== null) {
+      return (
+        <>
+          <span className="font-mono">{resume}</span>
+          {` · ${formaterJourMois(prixInternet.consulte_le)}`}
+          <OffresPrixInternet offres={prixInternet.offres} />
+        </>
+      );
+    }
     const sourceDomaine =
       prixInternet.source_url !== null ? domaineSource(prixInternet.source_url) : null;
     return (

@@ -3,7 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 
 import { cleAvisIA, lireAvisIA, type PrixInternet } from "../api/ia";
 import { formaterJourMois, TIRET } from "../lib/formats";
-import { domaineSource, texteMontantPrixInternet } from "../lib/prixInternet";
+import { domaineSource, texteMontantPrixInternet, texteResumeOffres } from "../lib/prixInternet";
+import { OffresPrixInternet } from "./OffresPrixInternet";
 
 /**
  * Encart « Avis de l'IA — à titre indicatif » (T7, phase 4 IA, spec §6.4) :
@@ -53,6 +54,15 @@ export function AvisIA({ anomalieId }: { anomalieId: string }): ReactElement | n
 
 function LignePrixInternet({ prixInternet }: { prixInternet: PrixInternet }): ReactElement | null {
   if (prixInternet.statut === "trouve" && prixInternet.prix !== null) {
+    const resume = texteResumeOffres(prixInternet);
+    if (resume !== null) {
+      return (
+        <div className="text-sm text-encre">
+          <p>{`Prix trouvé sur internet : ${resume} — consulté le ${formaterJourMois(prixInternet.consulte_le)}`}</p>
+          <OffresPrixInternet offres={prixInternet.offres} />
+        </div>
+      );
+    }
     const sourceDomaine =
       prixInternet.source_url !== null ? domaineSource(prixInternet.source_url) : null;
     return (

@@ -88,7 +88,7 @@ def test_nombre_d_etapes_par_agent() -> None:
     config = _opencode_json()
     assert config["agent"]["habitat-synthese"]["steps"] == 3
     assert config["agent"]["habitat-explication"]["steps"] == 3
-    assert config["agent"]["habitat-prix"]["steps"] == 8
+    assert config["agent"]["habitat-prix"]["steps"] == 14
 
 
 def test_seul_habitat_prix_a_le_droit_de_chercher_ou_lire_le_web() -> None:
@@ -213,3 +213,20 @@ def test_habitat_prix_n_exige_pas_le_code_du_fournisseur_sur_la_page() -> None:
     assert "code interne du fournisseur habituel" in consigne
     assert "ne sont une raison de refuser" in consigne
     assert "correspondent exactement" in consigne
+
+
+def test_consigne_habitat_prix_demande_cinq_offres_au_meme_conditionnement() -> None:
+    config = _opencode_json()
+    prompt = config["agent"]["habitat-prix"]["prompt"]
+
+    assert "jusqu'à cinq" in prompt
+    assert "même conditionnement" in prompt
+    assert "sans jamais rouvrir une page déjà lue" in prompt
+
+
+def test_consigne_habitat_prix_cinq_recherches_six_pages_pas_trois() -> None:
+    """Relecture finale, point 2 : bornes de la consigne de l'agent."""
+    prompt = _opencode_json()["agent"]["habitat-prix"]["prompt"]
+
+    assert "au plus cinq recherches et ouvre au plus six pages" in prompt
+    assert "trois recherches" not in prompt

@@ -1122,9 +1122,29 @@ class ExplicationAlerteReponse(BaseModel):
     cree_le: datetime
 
 
+class OffrePrixInternetReponse(BaseModel):
+    """Une offre vérifiée sur un site — mêmes attributs
+    qu'`ingest.ia_prix.OffreVue` (`prix_ht` : `None` si les taxes sont
+    inconnues)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    prix: Decimal
+    devise: str | None
+    taxes: str | None
+    prix_ht: Decimal | None
+    unite: str | None
+    conditionnement: str | None
+    produit_trouve: str | None
+    source_url: str | None
+    confiance: str | None
+
+
 class PrixInternetReponse(BaseModel):
     """Dernier prix trouvé sur internet pour le produit d'une anomalie —
-    mêmes attributs qu'`ingest.ia_prix.PrixInternetVue`."""
+    mêmes attributs qu'`ingest.ia_prix.PrixInternetVue` : les champs à plat
+    décrivent l'offre la moins chère ; `offres` les liste toutes (la moins
+    chère en HT d'abord), `prix_ht_min`/`prix_ht_max` bornent le HT connu."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1139,6 +1159,10 @@ class PrixInternetReponse(BaseModel):
     confiance: str | None
     raison: str | None
     consulte_le: datetime
+    offres: list[OffrePrixInternetReponse]
+    prix_ht_min: Decimal | None
+    prix_ht_max: Decimal | None
+    nb_sources: int
 
 
 class AvisIAReponse(BaseModel):

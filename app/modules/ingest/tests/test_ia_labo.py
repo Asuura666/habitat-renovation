@@ -182,15 +182,19 @@ async def test_essai_prix_bout_en_bout_trouve(
     reponses = _reponses_session(
         {
             "statut": "trouve",
-            "produit_trouve": "Ciment CEM II 25kg",
-            "prix": 12.34,
-            "devise": "EUR",
-            "taxes": "TTC",
-            "unite": "sac",
-            "conditionnement": "25kg",
-            "source_url": "https://fournisseur.test/ciment",
-            "confiance": "moyenne",
             "raison": "",
+            "offres": [
+                {
+                    "produit_trouve": "Ciment CEM II 25kg",
+                    "prix": 12.34,
+                    "devise": "EUR",
+                    "taxes": "TTC",
+                    "unite": "sac",
+                    "conditionnement": "25kg",
+                    "source_url": "https://fournisseur.test/ciment",
+                    "confiance": "moyenne",
+                }
+            ],
         },
         parts=[
             _partie_outil(
@@ -236,7 +240,7 @@ async def test_essai_prix_bout_en_bout_trouve(
     assert trace.outils[0].outil == "webfetch"
     assert trace.outils[0].adresse == "https://fournisseur.test/ciment"
     assert trace.reponse_brute["info"]["structured"]["statut"] == "trouve"
-    assert len(trace.controles) == 4
+    assert len(trace.controles) == 2
     assert all(controle.ok for controle in trace.controles)
     assert trace.resultat == {
         "statut": "trouve",
@@ -249,6 +253,18 @@ async def test_essai_prix_bout_en_bout_trouve(
         "source_url": "https://fournisseur.test/ciment",
         "confiance": "moyenne",
         "raison": None,
+        "offres": [
+            {
+                "prix": "12.3400",
+                "taxes": "TTC",
+                "prix_ht": "10.28",
+                "unite": "sac",
+                "conditionnement": "25kg",
+                "produit_trouve": "Ciment CEM II 25kg",
+                "source_url": "https://fournisseur.test/ciment",
+                "confiance": "moyenne",
+            }
+        ],
     }
     assert trace.appels_restants == 39  # plafond par défaut (40) - 1 appel
 
@@ -310,15 +326,19 @@ async def test_essai_prix_extrait_tronque(
     reponses = _reponses_session(
         {
             "statut": "trouve",
-            "produit_trouve": "Produit",
-            "prix": 1,
-            "devise": "EUR",
-            "taxes": "HT",
-            "unite": "u",
-            "conditionnement": "",
-            "source_url": "https://fournisseur.test/produit",
-            "confiance": "faible",
             "raison": "",
+            "offres": [
+                {
+                    "produit_trouve": "Produit",
+                    "prix": 1,
+                    "devise": "EUR",
+                    "taxes": "HT",
+                    "unite": "u",
+                    "conditionnement": "",
+                    "source_url": "https://fournisseur.test/produit",
+                    "confiance": "faible",
+                }
+            ],
         },
         parts=[
             _partie_outil(
@@ -901,15 +921,19 @@ async def test_essai_prix_bug_imprevu_dans_controles_termine_la_trace(
     reponses = _reponses_session(
         {
             "statut": "trouve",
-            "produit_trouve": "Ciment",
-            "prix": 12.34,
-            "devise": "EUR",
-            "taxes": "TTC",
-            "unite": "sac",
-            "conditionnement": "25kg",
-            "source_url": "https://fournisseur.test/ciment",
-            "confiance": "moyenne",
             "raison": "",
+            "offres": [
+                {
+                    "produit_trouve": "Ciment",
+                    "prix": 12.34,
+                    "devise": "EUR",
+                    "taxes": "TTC",
+                    "unite": "sac",
+                    "conditionnement": "25kg",
+                    "source_url": "https://fournisseur.test/ciment",
+                    "confiance": "moyenne",
+                }
+            ],
         }
     )
     http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
@@ -1045,15 +1069,19 @@ async def test_essai_prix_appels_restants_echoue_mais_essai_termine(
     reponses = _reponses_session(
         {
             "statut": "trouve",
-            "produit_trouve": "Ciment",
-            "prix": 12.34,
-            "devise": "EUR",
-            "taxes": "TTC",
-            "unite": "sac",
-            "conditionnement": "25kg",
-            "source_url": "https://fournisseur.test/ciment",
-            "confiance": "moyenne",
             "raison": "",
+            "offres": [
+                {
+                    "produit_trouve": "Ciment",
+                    "prix": 12.34,
+                    "devise": "EUR",
+                    "taxes": "TTC",
+                    "unite": "sac",
+                    "conditionnement": "25kg",
+                    "source_url": "https://fournisseur.test/ciment",
+                    "confiance": "moyenne",
+                }
+            ],
         },
         parts=[
             _partie_outil(
@@ -1161,3 +1189,34 @@ async def test_essai_prix_annulation_nest_pas_avalee(
     trace = lire_essai(essai_id)
     assert trace is not None
     assert trace.statut == "en_cours"
+
+
+async def test_essai_prix_delai_300_secondes_comme_la_production(
+    sessions_test: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Relecture finale, point 2 : même délai (300 s) que `rechercher_prix`."""
+    delais: list[float | None] = []
+
+    async def faux_interroger(*args: Any, **kwargs: Any) -> Any:
+        delais.append(kwargs.get("delai"))
+        raise opencode.IAIndisponible("eteinte")
+
+    monkeypatch.setattr(ia_labo, "interroger", faux_interroger)
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(500))
+    )
+    background_tasks = BackgroundTasks()
+
+    await lancer_essai_prix(
+        sessions_test,
+        http,
+        background_tasks,
+        fournisseur=None,
+        designation="Produit",
+        code=None,
+        unite=None,
+    )
+    await _executer(background_tasks)
+
+    assert delais == [300]

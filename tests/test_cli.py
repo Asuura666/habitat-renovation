@@ -97,7 +97,7 @@ from app.core.config import get_settings
 from app.core.db import creer_sessionmaker
 from app.modules.extract.bl import OPTIONS_OCR_BL
 from app.modules.extract.facture import Facture, FactureIllisible
-from app.modules.extract.reponses_ia import PrixInternetLu
+from app.modules.extract.reponses_ia import OffreLue, PrixInternetLu
 from app.modules.extract.verification import SEUIL_CONFIANCE_DEFAUT
 from app.modules.ingest.ia_prix import BilanIA, LigneEssai, ProduitEssai
 from app.modules.ingest.ia_synthese import ResultatSynthese
@@ -2080,9 +2080,9 @@ def test_essai_prix_internet_champ_ia_echappe_dans_la_sortie(
     assert code == 0
     lignes = list(csv.reader(io.StringIO(sortie), delimiter=";"))
     assert len(lignes) == 2  # en-tête + une ligne de données
-    assert len(lignes[0]) == 11
+    assert len(lignes[0]) == 14
     ligne_donnees = lignes[1]
-    assert len(ligne_donnees) == 11  # jamais décalée par le `;`/`"` du champ
+    assert len(ligne_donnees) == 14  # jamais décalée par le `;`/`"` du champ
     assert ligne_donnees[0] == "Produit Un"
     assert ligne_donnees[1] == "non_verifiable"
     assert ligne_donnees[9] == raison_piegee  # colonne "raison", intacte
@@ -2247,6 +2247,30 @@ def test_essai_prix_internet_nominal_csv_sortie(
                 source_url="https://exemple.invalid/produit-un",
                 confiance="elevee",
                 raison=None,
+                offres=(
+                    OffreLue(
+                        prix=Decimal("12.3400"),
+                        devise="EUR",
+                        taxes="HT",
+                        prix_ht=Decimal("12.34"),
+                        unite="u",
+                        conditionnement="boîte",
+                        produit_trouve="Produit Un Trouvé",
+                        source_url="https://exemple.invalid/produit-un",
+                        confiance="elevee",
+                    ),
+                    OffreLue(
+                        prix=Decimal("15.0000"),
+                        devise="EUR",
+                        taxes="HT",
+                        prix_ht=Decimal("15.00"),
+                        unite="u",
+                        conditionnement="boîte",
+                        produit_trouve="Produit Un Trouvé",
+                        source_url="https://autre.invalid/produit-un",
+                        confiance="moyenne",
+                    ),
+                ),
             ),
             erreur=None,
             duree_s=1.234,
@@ -2275,7 +2299,7 @@ def test_essai_prix_internet_nominal_csv_sortie(
     assert produits_captures == produits_attendus
     assert sortie[0] == (
         "designation;statut;prix;taxes;unite;conditionnement;produit_trouve;"
-        "source_url;confiance;raison;duree_s"
+        "source_url;confiance;raison;duree_s;nb_sources;prix_ht_min;prix_ht_max"
     )
     assert sortie[1] == ";".join(
         [
@@ -2290,6 +2314,9 @@ def test_essai_prix_internet_nominal_csv_sortie(
             "elevee",
             "",
             "1.2",
+            "2",
+            "12.34",
+            "15.00",
         ]
     )
     assert sortie[2] == ";".join(
@@ -2305,6 +2332,9 @@ def test_essai_prix_internet_nominal_csv_sortie(
             "",
             "ProviderAuthError",
             "0.5",
+            "",
+            "",
+            "",
         ]
     )
 

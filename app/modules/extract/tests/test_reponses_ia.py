@@ -8,15 +8,14 @@ appel OpenCode, seulement la structure JSON déjà décodée qu'il produirait.
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Any
 
 import pytest
 
 from app.modules.extract.reponses_ia import (
-    _CONTROLE_NON_EVALUE as _CONTROLE_NON_EVALUE_ATTENDU,
-)
-from app.modules.extract.reponses_ia import (
     ActionLue,
     Controle,
+    OffreLue,
     PageLue,
     PrixInternetLu,
     ReponseIAInvalide,
@@ -28,6 +27,7 @@ from app.modules.extract.reponses_ia import (
     lire_prix_internet,
     lire_synthese,
     nombres_du_texte,
+    prix_ht,
 )
 
 # Construits via `chr()`, jamais recopiés tels quels dans une chaîne (`ruff`
@@ -413,8 +413,12 @@ def test_lire_prix_internet_statut_prix_non_verifiable_garde_produit_et_source()
 ):
     structure = {
         "statut": "prix_non_verifiable",
-        "produit_trouve": "Ciment 25kg",
-        "source_url": "https://exemple.test/produit",
+        "offres": [
+            {
+                "produit_trouve": "Ciment 25kg",
+                "source_url": "https://exemple.test/produit",
+            }
+        ],
     }
 
     resultat = lire_prix_internet(structure, pages=[])
@@ -432,10 +436,9 @@ def test_lire_prix_internet_statut_inconnu_non_verifiable() -> None:
     assert resultat.raison == "réponse incomplète"
 
 
-def _structure_trouve(**overrides: object) -> dict[str, object]:
-    """Réponse `SCHEMA_PRIX_INTERNET` nominale, personnalisable par champ."""
-    base: dict[str, object] = {
-        "statut": "trouve",
+def _offre(**champs: Any) -> dict[str, Any]:
+    """Une offre nominale (forme du 29/09/2026), personnalisable par champ."""
+    base: dict[str, Any] = {
         "produit_trouve": "Ciment CEM II 25kg",
         "prix": 12.34,
         "devise": "EUR",
@@ -444,10 +447,18 @@ def _structure_trouve(**overrides: object) -> dict[str, object]:
         "conditionnement": "25kg",
         "source_url": "https://fournisseur.test/ciment",
         "confiance": "moyenne",
-        "raison": "",
     }
-    base.update(overrides)
+    base.update(champs)
     return base
+
+
+def _structure_trouve(**offre: Any) -> dict[str, Any]:
+    """Une réponse `trouve` à une seule offre (forme du 29/09/2026)."""
+    return {"statut": "trouve", "raison": "", "offres": [_offre(**offre)]}
+
+
+def _page(adresse: str, texte: str) -> PageLue:
+    return PageLue(outil="webfetch", adresse=adresse, texte=texte)
 
 
 def test_lire_prix_internet_garde2_prix_negatif_non_verifiable() -> None:
@@ -883,6 +894,19 @@ def test_lire_prix_internet_tout_passe_trouve() -> None:
         source_url="https://fournisseur.test/ciment",
         confiance="moyenne",
         raison=None,
+        offres=(
+            OffreLue(
+                prix=Decimal("12.3400"),
+                devise="EUR",
+                taxes="TTC",
+                prix_ht=Decimal("10.28"),
+                unite=None,
+                conditionnement="25kg",
+                produit_trouve="Ciment CEM II 25kg",
+                source_url="https://fournisseur.test/ciment",
+                confiance="moyenne",
+            ),
+        ),
     )
 
 
@@ -924,6 +948,199 @@ def test_lire_prix_internet_taxes_valeur_inattendue_devient_none() -> None:
     assert resultat.taxes is None
 
 
+def test_prix_ht_ttc_divise_par_1_20_au_centime() -> None:
+    assert prix_ht(Decimal("13.91"), "TTC") == Decimal("11.59")
+    assert prix_ht(Decimal("12.34"), "HT") == Decimal("12.34")
+    assert prix_ht(Decimal("12.34"), None) is None
+    assert prix_ht(Decimal("12.34"), "inconnu") is None
+
+
+def test_lire_prix_internet_plusieurs_offres_triees_la_moins_chere_en_tete() -> None:
+    structure = {
+        "statut": "trouve",
+        "raison": "",
+        "offres": [
+            _offre(prix=13.91, taxes="TTC", source_url="https://a.test/p"),
+            _offre(prix=12.00, taxes="HT", source_url="https://b.test/p"),
+            _offre(prix=9.99, taxes="inconnu", source_url="https://c.test/p"),
+        ],
+    }
+    pages = [
+        _page("https://a.test/p", "Prix : 13,91 € TTC"),
+        _page("https://b.test/p", "12,00 € HT"),
+        _page("https://c.test/p", "9,99 €"),
+    ]
+
+    resultat = lire_prix_internet(structure, pages)
+
+    assert resultat.statut == "trouve"
+    assert [o.source_url for o in resultat.offres] == [
+        "https://a.test/p",  # 11,59 HT
+        "https://b.test/p",  # 12,00 HT
+        "https://c.test/p",  # inconnu : à la fin
+    ]
+    assert resultat.prix == Decimal("13.9100")
+    assert resultat.taxes == "TTC"
+    assert resultat.source_url == "https://a.test/p"
+    assert [o.prix_ht for o in resultat.offres] == [
+        Decimal("11.59"),
+        Decimal("12.00"),
+        None,
+    ]
+
+
+def test_lire_prix_internet_offre_en_echec_ecartee_les_autres_gardees() -> None:
+    structure = {
+        "statut": "trouve",
+        "raison": "",
+        "offres": [
+            _offre(prix=10.00, source_url="https://a.test/p"),  # page jamais ouverte
+            _offre(prix=11.00, source_url="https://b.test/p"),  # prix absent
+            _offre(prix=12.00, source_url="https://c.test/p"),  # gardée
+        ],
+    }
+    pages = [_page("https://b.test/p", "rien"), _page("https://c.test/p", "12,00 €")]
+
+    resultat = lire_prix_internet(structure, pages)
+
+    assert resultat.statut == "trouve"
+    assert [o.source_url for o in resultat.offres] == ["https://c.test/p"]
+
+
+def test_lire_prix_internet_aucune_offre_gardee_raison_de_la_premiere() -> None:
+    structure = {
+        "statut": "trouve",
+        "raison": "",
+        "offres": [
+            _offre(prix=10.00, source_url="https://a.test/p"),
+            _offre(prix=11.00, source_url="https://b.test/p"),
+        ],
+    }
+    pages = [_page("https://b.test/p", "rien")]
+
+    resultat = lire_prix_internet(structure, pages)
+
+    assert resultat.statut == "non_verifiable"
+    assert resultat.raison == "source non ouverte"
+    assert resultat.offres == ()
+
+
+def test_lire_prix_internet_liste_vide_aucune_offre() -> None:
+    resultat = lire_prix_internet({"statut": "trouve", "raison": "", "offres": []}, [])
+
+    assert resultat.statut == "non_verifiable"
+    assert resultat.raison == "aucune offre"
+
+
+def test_lire_prix_internet_ancien_format_a_plat_aucune_offre() -> None:
+    """Point de vigilance 1 : un OpenCode pas encore mis à jour répond à
+    l'ancienne forme (champs à plat, sans `offres`)."""
+    structure = {
+        "statut": "trouve",
+        "produit_trouve": "Produit",
+        "prix": 12.0,
+        "devise": "EUR",
+        "taxes": "HT",
+        "source_url": "https://a.test/p",
+        "confiance": "elevee",
+        "raison": "",
+    }
+
+    resultat = lire_prix_internet(structure, [_page("https://a.test/p", "12,00 €")])
+
+    assert resultat.statut == "non_verifiable"
+    assert resultat.raison == "aucune offre"
+
+
+def test_lire_prix_internet_meme_page_une_seule_offre() -> None:
+    """Point de vigilance 2 : barre oblique finale et fragment ignorés."""
+    structure = {
+        "statut": "trouve",
+        "raison": "",
+        "offres": [
+            _offre(prix=12.00, source_url="https://a.test/p"),
+            _offre(prix=12.00, source_url="https://A.test/p/#avis"),
+        ],
+    }
+
+    resultat = lire_prix_internet(structure, [_page("https://a.test/p", "12,00 €")])
+
+    assert len(resultat.offres) == 1
+
+
+def test_lire_prix_internet_cinq_offres_au_plus() -> None:
+    offres = [
+        _offre(prix=10.00 + i, source_url=f"https://s{i}.test/p") for i in range(7)
+    ]
+    pages = [_page(f"https://s{i}.test/p", f"{10 + i},00 €") for i in range(7)]
+
+    resultat = lire_prix_internet(
+        {"statut": "trouve", "raison": "", "offres": offres}, pages
+    )
+
+    assert [o.source_url for o in resultat.offres] == [
+        f"https://s{i}.test/p" for i in range(5)
+    ]
+
+
+def test_lire_prix_internet_toutes_inconnues_premiere_offre_en_tete() -> None:
+    """Point de vigilance 3."""
+    structure = {
+        "statut": "trouve",
+        "raison": "",
+        "offres": [
+            _offre(prix=15.00, taxes="inconnu", source_url="https://a.test/p"),
+            _offre(prix=9.00, taxes="inconnu", source_url="https://b.test/p"),
+        ],
+    }
+    pages = [_page("https://a.test/p", "15,00 €"), _page("https://b.test/p", "9,00 €")]
+
+    resultat = lire_prix_internet(structure, pages)
+
+    assert resultat.source_url == "https://a.test/p"
+    assert all(o.prix_ht is None for o in resultat.offres)
+
+
+def test_controles_prix_internet_une_ligne_par_offre() -> None:
+    structure = {
+        "statut": "trouve",
+        "raison": "",
+        "offres": [
+            _offre(prix=10.00, source_url="https://www.a.test/p"),
+            _offre(prix=11.00, source_url="https://b.test/p"),
+        ],
+    }
+    pages = [_page("https://www.a.test/p", "10,00 €")]
+
+    controles = controles_prix_internet(structure, pages)
+
+    assert [(c.nom, c.ok) for c in controles] == [
+        ("L'IA annonce un prix, pas « non vérifiable »", True),
+        ("Offre 1 — a.test", True),
+        ("Offre 2 — b.test", False),
+    ]
+    assert (
+        controles[2].detail
+        == "écartée : aucune page ouverte à l'adresse https://b.test/p"
+    )
+
+
+def test_controles_prix_internet_coherents_avec_lire() -> None:
+    structure = {
+        "statut": "trouve",
+        "raison": "",
+        "offres": [
+            _offre(prix=10.00, source_url="https://a.test/p"),
+            _offre(prix=11.00, source_url="https://b.test/p"),
+        ],
+    }
+    pages = [_page("https://a.test/p", "10,00 €"), _page("https://b.test/p", "11,00 €")]
+
+    gardees = sum(1 for c in controles_prix_internet(structure, pages)[1:] if c.ok)
+
+    assert gardees == len(lire_prix_internet(structure, pages).offres)
+
+
 # --------------------------------------------------------------------------
 # Controle (dataclass) -- immuable, comme `PageLue`/`ActionLue`.
 # --------------------------------------------------------------------------
@@ -940,123 +1157,108 @@ def test_controle_immuable() -> None:
 
 
 # --------------------------------------------------------------------------
-# controles_prix_internet (Laboratoire IA) -- toujours les quatre gardes,
-# dans l'ordre, cohérentes avec `lire_prix_internet` sur la même entrée.
+# controles_prix_internet (Laboratoire IA) -- le statut, puis une ligne par
+# offre, cohérents avec `lire_prix_internet` sur la même entrée.
 # --------------------------------------------------------------------------
+
+_NOM_STATUT = "L'IA annonce un prix, pas « non vérifiable »"
 
 
 def test_controles_prix_internet_structure_non_dict() -> None:
     controles = controles_prix_internet("pas un dict", pages=[])
 
-    assert len(controles) == 4
-    assert controles[0].ok is False
-    assert all(controle.ok is False for controle in controles)
+    assert [(c.nom, c.ok) for c in controles] == [(_NOM_STATUT, False)]
 
 
-def test_controles_prix_internet_statut_non_verifiable_une_seule_garde_evaluee() -> (
-    None
-):
+def test_controles_prix_internet_statut_non_verifiable_seul_controle() -> None:
     structure = {"statut": "prix_non_verifiable", "raison": "aucun résultat"}
 
     controles = controles_prix_internet(structure, pages=[])
 
-    assert len(controles) == 4
-    assert controles[0].ok is False
-    for controle in controles[1:]:
-        assert controle.ok is False
-        assert "non vérifié" in controle.detail
+    assert [(c.nom, c.ok) for c in controles] == [(_NOM_STATUT, False)]
 
 
-def test_controles_prix_internet_garde1_positive_si_trouve() -> None:
-    structure = _structure_trouve()
+def test_controles_prix_internet_statut_inconnu() -> None:
+    controles = controles_prix_internet({"statut": "autre"}, pages=[])
 
-    controles = controles_prix_internet(structure, pages=[])
-
-    assert controles[0].ok is True
+    assert [(c.nom, c.ok) for c in controles] == [(_NOM_STATUT, False)]
 
 
-def test_controles_prix_internet_garde2_negative_si_champ_manquant() -> None:
-    structure = _structure_trouve(devise="USD")
-
-    controles = controles_prix_internet(structure, pages=[])
+def test_controles_prix_internet_statut_positif_si_trouve() -> None:
+    controles = controles_prix_internet(_structure_trouve(), pages=[])
 
     assert controles[0].ok is True
-    assert controles[1].ok is False
-    assert controles[2].detail == _CONTROLE_NON_EVALUE_ATTENDU
-    assert controles[3].detail == _CONTROLE_NON_EVALUE_ATTENDU
 
 
-def test_controles_prix_internet_garde3_nom_correspond_au_brief() -> None:
-    """Le brief donne cet exemple exact de `nom`/`detail` pour la garde 3."""
-    structure = _structure_trouve(source_url="https://fournisseur.test/ciment")
-
-    controles = controles_prix_internet(structure, pages=[])
-
-    assert controles[2].nom == "La page source a vraiment été ouverte"
-    assert controles[2].ok is False
-    assert "aucune page ouverte" in controles[2].detail
-
-
-def test_controles_prix_internet_garde3_positive_si_page_ouverte() -> None:
-    structure = _structure_trouve(source_url="https://fournisseur.test/ciment")
-    pages = [
-        PageLue(
-            outil="webfetch",
-            adresse="https://fournisseur.test/ciment",
-            texte="Aucun prix mentionné ici.",
-        )
-    ]
-
-    controles = controles_prix_internet(structure, pages=pages)
-
-    assert controles[2].ok is True
-    assert "https://fournisseur.test/ciment" in controles[2].detail
-    assert controles[3].ok is False
-
-
-def test_controles_prix_internet_toutes_gardes_positives() -> None:
-    structure = _structure_trouve(
-        prix=12.34, source_url="https://fournisseur.test/ciment"
+def test_controles_prix_internet_liste_vide() -> None:
+    controles = controles_prix_internet(
+        {"statut": "trouve", "raison": "", "offres": []}, pages=[]
     )
-    pages = [
-        PageLue(
-            outil="webfetch",
-            adresse="https://fournisseur.test/ciment",
-            texte="Ciment 25kg à 12,34 € TTC.",
-        )
+
+    assert [(c.nom, c.ok, c.detail) for c in controles] == [
+        (_NOM_STATUT, True, "l'IA répond « trouvé »"),
+        ("Au moins une offre", False, "aucune offre dans la réponse"),
     ]
 
-    controles = controles_prix_internet(structure, pages=pages)
 
-    assert [controle.ok for controle in controles] == [True, True, True, True]
+def test_controles_prix_internet_offre_champ_invalide() -> None:
+    controles = controles_prix_internet(_structure_trouve(devise="USD"), pages=[])
+
+    assert controles[1].nom == "Offre 1 — fournisseur.test"
+    assert controles[1].ok is False
+    assert controles[1].detail == (
+        "écartée : champ manquant ou invalide (prix, devise, source ou confiance)"
+    )
 
 
-def test_controles_prix_internet_coherent_avec_lire_prix_internet() -> None:
-    """Sur un même jeu d'entrées variées, le nombre de gardes réussies vaut 4
-    si et seulement si `lire_prix_internet` renvoie `trouve`."""
-    cas: list[tuple[dict[str, object], list[PageLue]]] = [
-        ({"statut": "prix_non_verifiable"}, []),
-        (_structure_trouve(devise="USD"), []),
-        (
-            _structure_trouve(source_url="https://fournisseur.test/ciment"),
-            [],
-        ),
-        (
-            _structure_trouve(prix=12.34, source_url="https://fournisseur.test/ciment"),
-            [
-                PageLue(
-                    outil="webfetch",
-                    adresse="https://fournisseur.test/ciment",
-                    texte="Ciment 25kg à 12,34 € TTC.",
-                )
-            ],
-        ),
+def test_controles_prix_internet_offre_page_absente() -> None:
+    controles = controles_prix_internet(_structure_trouve(), pages=[])
+
+    assert controles[1].ok is False
+    assert controles[1].detail == (
+        "écartée : aucune page ouverte à l'adresse https://fournisseur.test/ciment"
+    )
+
+
+def test_controles_prix_internet_offre_prix_absent() -> None:
+    pages = [_page("https://fournisseur.test/ciment", "Aucun prix mentionné ici.")]
+
+    controles = controles_prix_internet(_structure_trouve(), pages=pages)
+
+    assert controles[1].ok is False
+    assert controles[1].detail == "écartée : prix absent du texte de la page lue"
+
+
+def test_controles_prix_internet_offre_gardee() -> None:
+    pages = [_page("https://fournisseur.test/ciment", "Ciment 25kg à 12,34 € TTC.")]
+
+    controles = controles_prix_internet(_structure_trouve(), pages=pages)
+
+    assert [c.ok for c in controles] == [True, True]
+    assert controles[1].detail == (
+        "gardée : page https://fournisseur.test/ciment lue, prix retrouvé"
+    )
+
+
+def test_controles_prix_internet_au_dela_de_cinq_et_doublon() -> None:
+    offres = [
+        _offre(prix=10.0 + i, source_url=f"https://s{i}.test/p") for i in range(6)
     ]
-    for structure, pages in cas:
-        resultat = lire_prix_internet(structure, pages=pages)
-        controles = controles_prix_internet(structure, pages=pages)
-        toutes_ok = all(controle.ok for controle in controles)
-        assert toutes_ok == (resultat.statut == "trouve")
+    offres.append(_offre(prix=10.0, source_url="https://s0.test/p/"))
+    pages = [_page(f"https://s{i}.test/p", f"{10 + i},00 €") for i in range(6)]
+
+    controles = controles_prix_internet(
+        {"statut": "trouve", "raison": "", "offres": offres}, pages=pages
+    )
+
+    assert controles[6].detail == "écartée : au-delà des 5 offres gardées"
+    assert controles[7].detail == "écartée : au-delà des 5 offres gardées"
+
+    doublon = controles_prix_internet(
+        {"statut": "trouve", "raison": "", "offres": [offres[0], offres[6]]},
+        pages=pages,
+    )
+    assert doublon[2].detail == "écartée : même page qu'une offre déjà gardée"
 
 
 # --------------------------------------------------------------------------
@@ -1240,3 +1442,60 @@ def test_controles_synthese_action_ecartee_montre_les_references_citees() -> Non
     )
     assert controles[3].ok is False
     assert controles[3].detail == "aucune référence valide (aucune citée), écartée"
+
+
+def test_adresse_mal_formee_ne_leve_pas_les_autres_offres_gardees() -> None:
+    """`urlsplit('https://[x')` lève ValueError : une offre à l'adresse
+    illisible est écartée « source non ouverte », jamais une exception."""
+    structure = {
+        "statut": "trouve",
+        "raison": "",
+        "offres": [
+            _offre(prix=10.00, source_url="https://[x"),
+            _offre(prix=12.00, source_url="https://c.test/p"),
+        ],
+    }
+    pages = [_page("https://[y", "10,00 €"), _page("https://c.test/p", "12,00 €")]
+
+    resultat = lire_prix_internet(structure, pages)
+    controles = controles_prix_internet(structure, pages)
+
+    assert [o.source_url for o in resultat.offres] == ["https://c.test/p"]
+    assert controles[1].nom == "Offre 1"
+    assert controles[1].ok is False
+    assert controles[1].detail == (
+        "écartée : aucune page ouverte à l'adresse https://[x"
+    )
+    assert controles[2].ok is True
+
+
+@pytest.mark.parametrize("prix_aberrant", [1e30, float("inf"), 1_000_000, 1e100])
+def test_prix_aberrant_ecarte_sans_lever_et_prix_valide_garde(
+    prix_aberrant: float,
+) -> None:
+    """Relecture finale, point 1 : un prix non fini ou hors borne
+    (`0 < prix < 1 000 000`) écarte l'offre (« réponse incomplète »), jamais
+    une exception -- l'offre valide de la même réponse reste gardée."""
+    structure = {
+        "statut": "trouve",
+        "raison": "",
+        "offres": [
+            _offre(prix=prix_aberrant, source_url="https://a.test/p"),
+            _offre(prix=12.00, source_url="https://c.test/p"),
+        ],
+    }
+    pages = [_page("https://a.test/p", "12,00 €"), _page("https://c.test/p", "12,00 €")]
+
+    resultat = lire_prix_internet(structure, pages)
+    controles = controles_prix_internet(structure, pages)
+
+    assert [o.source_url for o in resultat.offres] == ["https://c.test/p"]
+    assert controles[1].ok is False
+    assert controles[2].ok is True
+
+
+def test_prix_aberrant_seul_non_verifiable_sans_exception() -> None:
+    resultat = lire_prix_internet(_structure_trouve(prix=1e30), pages=[])
+
+    assert resultat.statut == "non_verifiable"
+    assert resultat.raison == "réponse incomplète"

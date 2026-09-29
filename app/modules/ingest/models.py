@@ -888,6 +888,11 @@ class PrixInternet(Base):
     confiance: Mapped[str | None] = mapped_column(Text, nullable=True)
     raison: Mapped[str | None] = mapped_column(Text, nullable=True)
     modele: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Jusqu'à cinq offres vérifiées (migration 0015, spec du 29/09/2026) ;
+    # les colonnes ci-dessus décrivent la moins chère en HT.
+    offres: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
     consulte_le: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

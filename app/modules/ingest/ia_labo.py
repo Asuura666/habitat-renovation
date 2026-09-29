@@ -363,6 +363,19 @@ def _resultat_prix(resultat: PrixInternetLu) -> dict[str, Any]:
         "source_url": resultat.source_url,
         "confiance": resultat.confiance,
         "raison": resultat.raison,
+        "offres": [
+            {
+                "prix": str(o.prix),
+                "taxes": o.taxes,
+                "prix_ht": str(o.prix_ht) if o.prix_ht is not None else None,
+                "unite": o.unite,
+                "conditionnement": o.conditionnement,
+                "produit_trouve": o.produit_trouve,
+                "source_url": o.source_url,
+                "confiance": o.confiance,
+            }
+            for o in resultat.offres
+        ],
     }
 
 
@@ -403,7 +416,7 @@ async def _executer_essai_prix(
                     agent="habitat-prix",
                     texte=trace.texte_envoye,
                     schema=SCHEMA_PRIX_INTERNET,
-                    delai=240,
+                    delai=300,
                 )
             except IAIndisponible as exc:
                 await _terminer_en_echec_avant_appel(

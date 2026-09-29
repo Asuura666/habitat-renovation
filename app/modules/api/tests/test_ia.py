@@ -758,3 +758,93 @@ async def test_get_prix_internet_lot_uuid_invalide_422(
         )
 
     assert reponse.status_code == 422
+
+
+# --------------------------------------------------------------------------
+# Prix internet à plusieurs sources : offres, plus bas et plus haut HT
+# --------------------------------------------------------------------------
+
+
+async def test_prix_internet_plusieurs_offres_json(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.ia.offres@example.invalid", role="admin"
+    )
+    anomalie, fournisseur, _document = await _creer_anomalie_prix(
+        db_session, detail=dict(_DETAIL_R22_INVENTE)
+    )
+    cle = cle_produit_internet(
+        fournisseur.id, _DETAIL_R22_INVENTE["produit"], _DETAIL_R22_INVENTE["code"]
+    )
+    db_session.add(
+        PrixInternet(
+            fournisseur_id=fournisseur.id,
+            cle=cle,
+            designation=_DETAIL_R22_INVENTE["produit"],
+            code=_DETAIL_R22_INVENTE["code"],
+            statut="trouve",
+            prix=Decimal("13.9100"),
+            devise="EUR",
+            taxes="TTC",
+            unite="u",
+            conditionnement=None,
+            produit_trouve="Plaque std 13",
+            source_url="https://a.exemple.invalid/p",
+            confiance="elevee",
+            raison=None,
+            modele="modele-invente",
+            offres=[
+                {
+                    "prix": "12.00",
+                    "devise": "EUR",
+                    "taxes": "HT",
+                    "unite": "u",
+                    "conditionnement": None,
+                    "produit_trouve": "Plaque std 13 B",
+                    "source_url": "https://b.exemple.invalid/p",
+                    "confiance": "moyenne",
+                },
+                {
+                    "prix": "13.91",
+                    "devise": "EUR",
+                    "taxes": "TTC",
+                    "unite": "u",
+                    "conditionnement": None,
+                    "produit_trouve": "Plaque std 13",
+                    "source_url": "https://a.exemple.invalid/p",
+                    "confiance": "elevee",
+                },
+            ],
+            consulte_le=datetime.now(UTC),
+        )
+    )
+    await _activer_controle_prix_bl(db_session)
+    await db_session.commit()
+
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app_test),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        lot = await client.get(
+            "/api/ia/prix-internet", params=[("anomalie_id", str(anomalie.id))]
+        )
+        avis = await client.get(f"/api/ia/anomalies/{anomalie.id}")
+
+    assert lot.status_code == 200
+    assert avis.status_code == 200
+    for prix in (lot.json()["prix"][str(anomalie.id)], avis.json()["prix_internet"]):
+        assert prix["nb_sources"] == 2
+        assert prix["prix_ht_min"] == "11.59"
+        assert prix["prix_ht_max"] == "12.00"
+        assert [o["source_url"] for o in prix["offres"]] == [
+            "https://a.exemple.invalid/p",
+            "https://b.exemple.invalid/p",
+        ]
+        assert prix["offres"][0]["prix_ht"] == "11.59"
+        assert prix["offres"][0]["taxes"] == "TTC"
