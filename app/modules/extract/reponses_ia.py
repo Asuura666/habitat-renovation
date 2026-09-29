@@ -581,6 +581,13 @@ def prix_ht(prix: Decimal, taxes: str | None) -> Decimal | None:
     return None
 
 
+def cle_tri_offre(prix_ht_offre: Decimal | None) -> tuple[bool, Decimal]:
+    """Clé de tri des offres, partagée avec la vue (`ingest.ia_prix`) : `prix_ht`
+    croissant, offres sans HT (`None`) à la fin ; `sorted` étant stable,
+    l'ordre d'origine (celui de l'IA) départage les égalités."""
+    return (prix_ht_offre is None, prix_ht_offre or Decimal(0))
+
+
 @dataclass(frozen=True)
 class OffreLue:
     """Une offre gardée (§6.2) : page ouverte, prix relu dans son texte."""
@@ -909,7 +916,7 @@ def _gardes_prix_internet(
             controles
         )
 
-    triees = sorted(gardees, key=lambda o: (o.prix_ht is None, o.prix_ht or Decimal(0)))
+    triees = sorted(gardees, key=lambda o: cle_tri_offre(o.prix_ht))
     m = triees[0]
     resultat = PrixInternetLu(
         statut="trouve",

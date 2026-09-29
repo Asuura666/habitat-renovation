@@ -253,6 +253,18 @@ async def test_essai_prix_bout_en_bout_trouve(
         "source_url": "https://fournisseur.test/ciment",
         "confiance": "moyenne",
         "raison": None,
+        "offres": [
+            {
+                "prix": "12.3400",
+                "taxes": "TTC",
+                "prix_ht": "10.28",
+                "unite": "sac",
+                "conditionnement": "25kg",
+                "produit_trouve": "Ciment CEM II 25kg",
+                "source_url": "https://fournisseur.test/ciment",
+                "confiance": "moyenne",
+            }
+        ],
     }
     assert trace.appels_restants == 39  # plafond par défaut (40) - 1 appel
 

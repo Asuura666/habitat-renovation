@@ -51,10 +51,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.extract.reponses_ia import (
     SCHEMA_EXPLICATION,
     SCHEMA_PRIX_INTERNET,
+    OffreLue,
     PrixInternetLu,
     ReponseIAInvalide,
+    cle_tri_offre,
     lire_explication,
     lire_prix_internet,
+    prix_ht,
 )
 from app.modules.ingest.anomalies import (
     AnomalieIntrouvable,
@@ -451,8 +454,13 @@ _CONSIGNE_PRIX = (
     "conditionnement) : ils doivent correspondre exactement. Le code article "
     "est celui du fournisseur habituel : il n'apparaît presque jamais "
     "ailleurs, et son absence de la page n'est pas une raison de refuser, pas "
-    "plus qu'une référence fabricant ou un code EAN différents. Ouvre la page "
-    "du produit avec webfetch avant de donner un prix. Indique si le prix est "
+    "plus qu'une référence fabricant ou un code EAN différents. Cherche "
+    "jusqu'à cinq offres de sites différents pour ce même produit au même "
+    "format, chacune avec son prix pour le même conditionnement (jamais un "
+    "prix au mètre à côté d'un prix à la pièce), et ouvre la page de chacune "
+    "avec webfetch. Une seule offre sûre vaut mieux que plusieurs douteuses. "
+    "Ouvre la page du produit avec webfetch avant de donner un prix. Indique "
+    "si le prix est "
     "HT ou TTC. Si tu ne peux pas vérifier, réponds prix_non_verifiable avec "
     "la raison. Ne donne jamais un prix estimé."
 )
@@ -487,7 +495,7 @@ async def rechercher_prix(
 ) -> tuple[PrixInternetLu, str | None]:
     """Une recherche de prix internet pour un produit (§6.2), partagée par
     `chercher_prix_internet` (avec cache et enregistrement) et par l'essai
-    (`essayer_prix_internet`, sans l'un ni l'autre). Délai de 240 s (recherche
+    (`essayer_prix_internet`, sans l'un ni l'autre). Délai de 300 s (recherche
     internet, plus longue que les autres usages de l'IA).
 
     Écart mineur avec le brief T6 (signature `-> PrixInternetLu`) : cette
@@ -507,7 +515,7 @@ async def rechercher_prix(
         agent="habitat-prix",
         texte=texte,
         schema=SCHEMA_PRIX_INTERNET,
-        delai=240,
+        delai=300,
     )
     return lire_prix_internet(reponse.structure, reponse.pages), reponse.modele
 
@@ -543,9 +551,23 @@ def _ligne_prix_echec(
         source_url=None,
         confiance=None,
         raison=raison,
+        offres=[],
         modele=None,
         consulte_le=consulte_le,
     )
+
+
+def _offre_json(offre: OffreLue) -> dict[str, Any]:
+    return {
+        "prix": str(offre.prix),
+        "devise": offre.devise,
+        "taxes": offre.taxes,
+        "unite": offre.unite,
+        "conditionnement": offre.conditionnement,
+        "produit_trouve": offre.produit_trouve,
+        "source_url": offre.source_url,
+        "confiance": offre.confiance,
+    }
 
 
 async def chercher_prix_internet(
@@ -713,6 +735,7 @@ async def chercher_prix_internet(
                 source_url=resultat.source_url,
                 confiance=resultat.confiance,
                 raison=resultat.raison,
+                offres=[_offre_json(o) for o in resultat.offres],
                 modele=modele,
                 consulte_le=datetime.now(UTC),
             )
@@ -821,6 +844,21 @@ class ExplicationVue:
 
 
 @dataclass(frozen=True)
+class OffreVue:
+    """Une offre affichée (tâche 3, spec prix internet à plusieurs sources)."""
+
+    prix: Decimal
+    devise: str | None
+    taxes: str | None
+    prix_ht: Decimal | None
+    unite: str | None
+    conditionnement: str | None
+    produit_trouve: str | None
+    source_url: str | None
+    confiance: str | None
+
+
+@dataclass(frozen=True)
 class PrixInternetVue:
     """Dernier résultat de prix internet affiché pour une anomalie -- une
     ligne `echec` n'est jamais montrée (§5.3/§6.4 : seul `trouve` ou
@@ -837,6 +875,10 @@ class PrixInternetVue:
     confiance: str | None
     raison: str | None
     consulte_le: datetime
+    offres: tuple[OffreVue, ...] = ()
+    prix_ht_min: Decimal | None = None
+    prix_ht_max: Decimal | None = None
+    nb_sources: int = 0
 
 
 @dataclass(frozen=True)
@@ -868,6 +910,8 @@ def _vue_prix_internet(ligne: PrixInternet) -> PrixInternetVue:
     """`PrixInternet` (ligne de base) -> `PrixInternetVue` (dataclass
     affichée) -- factorise la construction partagée par `avis_ia_anomalie`
     et `prix_internet_des_anomalies` (brief T10a)."""
+    offres = _offres_de_la_ligne(ligne)
+    hts = [o.prix_ht for o in offres if o.prix_ht is not None]
     return PrixInternetVue(
         statut=ligne.statut,
         prix=ligne.prix,
@@ -880,7 +924,47 @@ def _vue_prix_internet(ligne: PrixInternet) -> PrixInternetVue:
         confiance=ligne.confiance,
         raison=ligne.raison,
         consulte_le=ligne.consulte_le,
+        offres=offres,
+        prix_ht_min=min(hts) if hts else None,
+        prix_ht_max=max(hts) if hts else None,
+        nb_sources=len(offres),
     )
+
+
+def _offres_de_la_ligne(ligne: PrixInternet) -> tuple[OffreVue, ...]:
+    """Offres de la ligne, triées comme à la lecture (`cle_tri_offre`). Une
+    ligne `trouve` sans offres (écrite avant la migration 0015) est
+    reconstituée comme une offre unique depuis ses colonnes."""
+    offres = [
+        OffreVue(
+            prix=Decimal(o["prix"]),
+            devise=o.get("devise"),
+            taxes=o.get("taxes"),
+            prix_ht=prix_ht(Decimal(o["prix"]), o.get("taxes")),
+            unite=o.get("unite"),
+            conditionnement=o.get("conditionnement"),
+            produit_trouve=o.get("produit_trouve"),
+            source_url=o.get("source_url"),
+            confiance=o.get("confiance"),
+        )
+        for o in ligne.offres or []
+    ]
+    if not offres and ligne.statut == "trouve" and ligne.prix is not None:
+        offres = [
+            OffreVue(
+                prix=ligne.prix,
+                devise=ligne.devise,
+                taxes=ligne.taxes,
+                prix_ht=prix_ht(ligne.prix, ligne.taxes),
+                unite=ligne.unite,
+                conditionnement=ligne.conditionnement,
+                produit_trouve=ligne.produit_trouve,
+                source_url=ligne.source_url,
+                confiance=ligne.confiance,
+            )
+        ]
+    offres.sort(key=lambda o: cle_tri_offre(o.prix_ht))
+    return tuple(offres)
 
 
 async def _dernieres_vues_prix_internet(

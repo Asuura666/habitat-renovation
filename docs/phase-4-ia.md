@@ -234,7 +234,11 @@ quotidien, essayer la recherche sur une vingtaine de produits **réels** :
 3. `essai-prix-resultat.csv` contient une ligne par produit : désignation,
    statut (`trouve`/`prix_non_verifiable`/`echec`), prix, taxes (HT/TTC),
    unité, conditionnement, produit trouvé, source, confiance, raison,
-   durée. Rien n'est enregistré en base (ni cache ni historique) : seul
+   durée, puis le nombre d'offres (`nb_sources`) et le prix HT le plus bas
+   et le plus haut (`prix_ht_min`, `prix_ht_max`). L'agent cherche jusqu'à
+   cinq offres de sites différents pour le même produit ; les prix TTC sont
+   ramenés en HT (÷ 1,20), une offre dont les taxes sont inconnues est
+   listée mais ne compte ni dans le plus bas ni dans le plus haut. Rien n'est enregistré en base (ni cache ni historique) : seul
    `appel_ia` garde une trace technique (usage, durée, succès/échec), comme
    pour tout appel à l'IA.
 

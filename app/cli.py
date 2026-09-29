@@ -957,6 +957,9 @@ _ENTETE_CSV_ESSAI = (
     "confiance",
     "raison",
     "duree_s",
+    "nb_sources",
+    "prix_ht_min",
+    "prix_ht_max",
 )
 
 
@@ -1027,10 +1030,20 @@ def _champs_csv_essai(ligne: LigneEssai) -> list[str]:
             resultat.confiance or "",
             _champ_texte_csv(resultat.raison or ""),
         ]
+    if resultat is None:
+        offres_csv = ["", "", ""]
+    else:
+        hts = [o.prix_ht for o in resultat.offres if o.prix_ht is not None]
+        offres_csv = [
+            str(len(resultat.offres)),
+            str(min(hts)) if hts else "",
+            str(max(hts)) if hts else "",
+        ]
     return [
         _champ_texte_csv(ligne.produit.designation),
         *champs,
         f"{ligne.duree_s:.1f}",
+        *offres_csv,
     ]
 
 

@@ -1814,3 +1814,184 @@ def test_texte_prix_code_du_fournisseur_jamais_exige_sur_la_page() -> None:
     assert "marque, son nom et son format" in texte
     assert "n'est pas une raison de refuser" in texte
     assert "Vérifie la référence" not in texte
+
+
+# --------------------------------------------------------------------------
+# Plusieurs offres (tâche 3, spec prix internet à plusieurs sources)
+# --------------------------------------------------------------------------
+
+
+def _reponses_prix_deux_offres() -> dict[tuple[str, str], httpx.Response]:
+    adresse_a = "https://site-a.exemple.invalid/produit"
+    adresse_b = "https://site-b.exemple.invalid/produit"
+    structured = {
+        "statut": "trouve",
+        "raison": "",
+        "offres": [
+            {
+                "produit_trouve": "Produit trouvé A",
+                "prix": 13.91,
+                "devise": "EUR",
+                "taxes": "TTC",
+                "unite": "u",
+                "conditionnement": "boîte de 10",
+                "source_url": adresse_a,
+                "confiance": "elevee",
+            },
+            {
+                "produit_trouve": "Produit trouvé B",
+                "prix": 12.00,
+                "devise": "EUR",
+                "taxes": "HT",
+                "unite": "u",
+                "conditionnement": "boîte de 10",
+                "source_url": adresse_b,
+                "confiance": "moyenne",
+            },
+        ],
+    }
+    info = _info_minimal(structured=structured)
+    parts = [
+        _partie_webfetch(url=adresse_a, texte="Prix : 13,91 € TTC."),
+        _partie_webfetch(url=adresse_b, texte="Prix : 12,00 € HT."),
+    ]
+    return {
+        ("POST", "/session"): httpx.Response(200, json={"id": _SESSION_ID}),
+        (
+            "POST",
+            f"/session/{_SESSION_ID}/message",
+        ): httpx.Response(200, json={"info": info, "parts": []}),
+        ("GET", f"/session/{_SESSION_ID}/message"): _historique(parts),
+        ("DELETE", f"/session/{_SESSION_ID}"): httpx.Response(200, json=True),
+    }
+
+
+async def test_chercher_prix_internet_deux_offres_enregistrees_et_vue(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    detail = _detail_r22(produit="Produit Deux Offres")
+    anomalie = await _creer_anomalie(
+        db_session, regle="R22", detail=detail, document=facture
+    )
+    await _activer_controle_prix_bl(db_session)
+    await db_session.commit()
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(_handler_json(_reponses_prix_deux_offres()))
+    )
+
+    bilan = await chercher_prix_internet(db_session, http)
+
+    assert bilan == BilanIA(ok=1)
+    ligne = (await db_session.execute(select(PrixInternet))).scalar_one()
+    assert len(ligne.offres) == 2
+    assert {o["prix"] for o in ligne.offres} == {"13.9100", "12.0000"}
+    assert set(ligne.offres[0]) == {
+        "prix",
+        "devise",
+        "taxes",
+        "unite",
+        "conditionnement",
+        "produit_trouve",
+        "source_url",
+        "confiance",
+    }
+    # 13,91 TTC = 11,59 HT : colonnes = offre la moins chère en HT.
+    assert ligne.prix == Decimal("13.9100")
+    assert ligne.taxes == "TTC"
+
+    avis = await avis_ia_anomalie(db_session, anomalie.id)
+    vue = avis.prix_internet
+    assert vue is not None
+    assert vue.nb_sources == 2
+    assert vue.prix_ht_min == Decimal("11.59")
+    assert vue.prix_ht_max == Decimal("12.00")
+    assert [o.prix_ht for o in vue.offres] == [Decimal("11.59"), Decimal("12.00")]
+
+
+async def test_vue_ligne_trouve_sans_offres_reconstituee_depuis_les_colonnes(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    detail = _detail_r22(produit="Produit Ancienne Ligne")
+    anomalie = await _creer_anomalie(
+        db_session, regle="R22", detail=detail, document=facture
+    )
+    cle = cle_produit_internet(fournisseur.id, detail["produit"], detail["code"])
+    ligne = await _creer_prix_internet(
+        db_session,
+        cle=cle,
+        statut="trouve",
+        consulte_le=datetime.now(UTC),
+        fournisseur_id=fournisseur.id,
+    )
+    ligne.offres = []
+    await _activer_controle_prix_bl(db_session)
+    await db_session.commit()
+
+    avis = await avis_ia_anomalie(db_session, anomalie.id)
+
+    vue = avis.prix_internet
+    assert vue is not None
+    assert vue.nb_sources == 1
+    assert len(vue.offres) == 1
+    assert vue.offres[0].prix == Decimal("10.0000")
+    assert vue.offres[0].source_url == "https://exemple.invalid/produit-cache"
+    assert vue.prix_ht_min == Decimal("10.00") == vue.prix_ht_max
+
+
+async def test_vue_offres_toutes_taxes_inconnues_sans_prix_ht(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    detail = _detail_r22(produit="Produit Taxes Inconnues")
+    anomalie = await _creer_anomalie(
+        db_session, regle="R22", detail=detail, document=facture
+    )
+    cle = cle_produit_internet(fournisseur.id, detail["produit"], detail["code"])
+    ligne = await _creer_prix_internet(
+        db_session,
+        cle=cle,
+        statut="trouve",
+        consulte_le=datetime.now(UTC),
+        fournisseur_id=fournisseur.id,
+    )
+    ligne.taxes = None
+    ligne.offres = [
+        {
+            "prix": prix,
+            "devise": "EUR",
+            "taxes": None,
+            "unite": "u",
+            "conditionnement": None,
+            "produit_trouve": "Produit",
+            "source_url": f"https://site-{prix}.exemple.invalid/p",
+            "confiance": "moyenne",
+        }
+        for prix in ("10.0000", "9.0000")
+    ]
+    await _activer_controle_prix_bl(db_session)
+    await db_session.commit()
+
+    avis = await avis_ia_anomalie(db_session, anomalie.id)
+
+    vue = avis.prix_internet
+    assert vue is not None
+    assert vue.nb_sources == 2
+    assert vue.prix_ht_min is None and vue.prix_ht_max is None
+    assert [o.prix for o in vue.offres] == [Decimal("10.0000"), Decimal("9.0000")]
+
+
+def test_texte_prix_demande_jusqu_a_cinq_offres_de_sites_differents() -> None:
+    texte = ia_prix._texte_prix(
+        fournisseur="Fournisseur Invente",
+        designation="Mastic invente 300ML",
+        code=None,
+        unite=None,
+    )
+
+    assert "jusqu'à cinq offres" in texte
+    assert "sites différents" in texte
