@@ -1995,3 +1995,59 @@ def test_texte_prix_demande_jusqu_a_cinq_offres_de_sites_differents() -> None:
 
     assert "jusqu'à cinq offres" in texte
     assert "sites différents" in texte
+
+
+async def test_vue_ignore_les_offres_mal_formees_en_base(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    detail = _detail_r22(produit="Produit Offres Corrompues")
+    anomalie = await _creer_anomalie(
+        db_session, regle="R22", detail=detail, document=facture
+    )
+    cle = cle_produit_internet(fournisseur.id, detail["produit"], detail["code"])
+    ligne = await _creer_prix_internet(
+        db_session,
+        cle=cle,
+        statut="trouve",
+        consulte_le=datetime.now(UTC),
+        fournisseur_id=fournisseur.id,
+    )
+    valide = {
+        "prix": "12.0000",
+        "devise": "EUR",
+        "taxes": "HT",
+        "unite": "u",
+        "conditionnement": None,
+        "produit_trouve": "Produit",
+        "source_url": "https://site-valide.exemple.invalid/p",
+        "confiance": "moyenne",
+    }
+    ligne.offres = [
+        {"devise": "EUR"},  # prix absent
+        {**valide, "prix": ""},
+        {**valide, "prix": "abc"},
+        {**valide, "prix": "0"},
+        {**valide, "prix": "-3"},
+        "pas un dict",  # type: ignore[list-item]
+        valide,
+    ]
+    await _activer_controle_prix_bl(db_session)
+    await db_session.commit()
+
+    avis = await avis_ia_anomalie(db_session, anomalie.id)
+
+    vue = avis.prix_internet
+    assert vue is not None
+    assert vue.nb_sources == 1
+    assert vue.offres[0].prix == Decimal("12.0000")
+
+    # Plus aucune offre valide : retour aux colonnes de la ligne.
+    ligne.offres = [{"devise": "EUR"}, 3]  # type: ignore[list-item]
+    await db_session.commit()
+    avis = await avis_ia_anomalie(db_session, anomalie.id)
+    vue = avis.prix_internet
+    assert vue is not None
+    assert vue.nb_sources == 1
+    assert vue.offres[0].prix == Decimal("10.0000")

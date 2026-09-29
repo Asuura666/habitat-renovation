@@ -41,7 +41,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
 import httpx
@@ -931,40 +931,53 @@ def _vue_prix_internet(ligne: PrixInternet) -> PrixInternetVue:
     )
 
 
+def _offre_vue(brut: Any) -> OffreVue | None:
+    """Une offre stockée (dict à 8 clés) -> `OffreVue`, ou `None` si elle est
+    inutilisable (pas un dict, prix absent, non décimal ou non positif) : une
+    offre corrompue en base ne doit jamais faire échouer toute la vue."""
+    if not isinstance(brut, dict):
+        return None
+    try:
+        prix = Decimal(str(brut["prix"]))
+    except (KeyError, InvalidOperation):
+        return None
+    if not prix.is_finite() or prix <= 0:
+        return None
+    return OffreVue(
+        prix=prix,
+        devise=brut.get("devise"),
+        taxes=brut.get("taxes"),
+        prix_ht=prix_ht(prix, brut.get("taxes")),
+        unite=brut.get("unite"),
+        conditionnement=brut.get("conditionnement"),
+        produit_trouve=brut.get("produit_trouve"),
+        source_url=brut.get("source_url"),
+        confiance=brut.get("confiance"),
+    )
+
+
 def _offres_de_la_ligne(ligne: PrixInternet) -> tuple[OffreVue, ...]:
-    """Offres de la ligne, triées comme à la lecture (`cle_tri_offre`). Une
-    ligne `trouve` sans offres (écrite avant la migration 0015) est
-    reconstituée comme une offre unique depuis ses colonnes."""
-    offres = [
-        OffreVue(
-            prix=Decimal(o["prix"]),
-            devise=o.get("devise"),
-            taxes=o.get("taxes"),
-            prix_ht=prix_ht(Decimal(o["prix"]), o.get("taxes")),
-            unite=o.get("unite"),
-            conditionnement=o.get("conditionnement"),
-            produit_trouve=o.get("produit_trouve"),
-            source_url=o.get("source_url"),
-            confiance=o.get("confiance"),
+    """Offres valides de la ligne, triées comme à la lecture
+    (`cle_tri_offre`). Une ligne `trouve` sans offre valide (écrite avant la
+    migration 0015, ou offres corrompues) est reconstituée comme une offre
+    unique depuis ses colonnes, lue par le même code."""
+    valides = [o for o in map(_offre_vue, ligne.offres or []) if o is not None]
+    if not valides and ligne.statut == "trouve" and ligne.prix is not None:
+        colonnes = _offre_vue(
+            {
+                "prix": ligne.prix,
+                "devise": ligne.devise,
+                "taxes": ligne.taxes,
+                "unite": ligne.unite,
+                "conditionnement": ligne.conditionnement,
+                "produit_trouve": ligne.produit_trouve,
+                "source_url": ligne.source_url,
+                "confiance": ligne.confiance,
+            }
         )
-        for o in ligne.offres or []
-    ]
-    if not offres and ligne.statut == "trouve" and ligne.prix is not None:
-        offres = [
-            OffreVue(
-                prix=ligne.prix,
-                devise=ligne.devise,
-                taxes=ligne.taxes,
-                prix_ht=prix_ht(ligne.prix, ligne.taxes),
-                unite=ligne.unite,
-                conditionnement=ligne.conditionnement,
-                produit_trouve=ligne.produit_trouve,
-                source_url=ligne.source_url,
-                confiance=ligne.confiance,
-            )
-        ]
-    offres.sort(key=lambda o: cle_tri_offre(o.prix_ht))
-    return tuple(offres)
+        valides = [colonnes] if colonnes is not None else []
+    valides.sort(key=lambda o: cle_tri_offre(o.prix_ht))
+    return tuple(valides)
 
 
 async def _dernieres_vues_prix_internet(
