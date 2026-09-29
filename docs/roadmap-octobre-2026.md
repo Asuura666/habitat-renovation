@@ -22,6 +22,14 @@ Session A = la session Claude Code principale (`/home/debian/habitat_reno`).
 Session B = une seconde session Claude Code lancée par Ilane dans un autre
 worktree (§2.2).
 
+**État des phases au 29/09/2026** (détail au §10) : socle commun, phases 1, 2
+(partie faisable) et 3 (commentaires et lot Prix) **faits et déployés en
+production le 28/09/2026** (étiquette `mise-en-prod-octobre-2026`, avant la
+date du 1er octobre) ; phase 4 : IA (synthèse, explication, prix internet)
+**faite et déployée mais éteinte en production**, allumée sur la démo, puis
+**gelée par Ilane le 29/09** ; contrôle des prix à la facture **non commencé**.
+Un audit complet a eu lieu le 29/09 ; ses corrections sont en cours.
+
 ---
 
 ## 1. La demande
@@ -332,6 +340,15 @@ commencé.
 
 ---
 
+**Mise à jour du 29/09/2026.** Le compte ChatGPT d'Ilane a été connecté le
+29/09 (modèle `gpt-5.6-sol`) ; le T10b (colonne « Internet ») est fait (PR #6).
+Le prix internet a été amélioré le jour même : identification par marque, nom
+et format, jusqu'à cinq sources ramenées en HT (PR #12 et #13, migration 0015),
+dans `dev` et sur la démo seulement. L'essai sur des produits réels a été fait
+(environ la moitié des produits retrouvés, les autres sans prix public). L'IA
+est **gelée** depuis le 29/09 par décision d'Ilane. Contrôle des prix à la
+facture (non IA) : non commencé.
+
 ## 8. En attente, hors de cette demande
 
 Point.P (parseur de factures, bloque le rapprochement avec ce fournisseur) ;
@@ -356,11 +373,23 @@ deux mois, formation, procès-verbal). Voir `memory.md` et `docs/dette.md`.
 
 ## 10. Suivi
 
+État au 29/09/2026 (légende : [x] fait, [~] en cours ou partiel, [ ] à faire).
+
 - [x] Socle commun fusionné dans `dev` (S1 → S5) — PR #1, 27/09
 - [x] Session B lancée (Ilane) — commentaires faits, spec et plan du lot Prix écrits (27/09)
 - [x] Phase 1 : PR vers `dev` — PR #2, 27/09
-- [ ] Phase 1 : déployée (`dev` → `main`, démo puis production) — procédure prête : `docs/deploiement-octobre-2026.md`
-- [~] Phase 2 : restauration corrigée et testée, tâches planifiées et alerte, sauvegardes locales posées (27/09) — restent OVH, clés, contrôles/photos après le déploiement de la phase 1 (`docs/phase-2-exploitation-recette.md`)
-- [x] Phase 3 : commentaires (session B) — dans `dev` depuis la PR #4, 28/09
-- [x] Phase 3 : lot Prix (P0 → P6), fusionné dans `dev` (PR #5, 28/09)
-- [~] Phase 4 : IA (synthèse, explication, prix internet) dans `dev` (PR #4, 28/09), éteinte (`IA_ACTIVE=false`) ; T10 (colonne « Internet » de la page Prix, essai de bout en bout sur R22, interrupteurs du lot Prix respectés) fait sur `feature/phase-4-t10` — reste le contrôle des prix à la facture (non IA), non commencé
+- [x] Phase 1 : déployée — démo le 28/09 à 18 h 24 UTC, production le 28/09 vers 19 h UTC (`dev` → `main`, PR #8, étiquette `mise-en-prod-octobre-2026`) ; reprise `rattacher-chantiers` et `ranger-photos` faites. Reste à faire par Ilane : changer le mot de passe admin de production, créer les comptes des employés, compléter les chantiers créés « à compléter »
+- [~] Phase 2 : restauration corrigée et testée (27/09), tâches planifiées (sauvegarde, contrôles, photos) et alerte posées sur les deux instances (réinstallées le 28/09 depuis l'arbre de déploiement), sauvegardes **locales** posées — restent : sauvegardes hors du serveur (conteneur et clés OVH), renouvellement des clés (`docs/phase-2-exploitation-recette.md`). Le canal de supervision Telegram a été supprimé par Ilane le 28/09 (supervision nulle part pour l'instant) ; scripts de supervision de `feature/exploitation-2` préparés, non validés, non déployés
+- [x] Phase 3 : commentaires (session B) — dans `dev` depuis la PR #4, 28/09 ; déployés en production le 28/09
+- [x] Phase 3 : lot Prix (P0 → P6), fusionné dans `dev` (PR #5, 28/09), déployé en production le 28/09 avec le contrôle **éteint** (interrupteur `prix_controle_bl_actif`) : reste l'import des grilles réelles par Ilane, puis l'allumage
+- [x] Phase 4 : IA (synthèse, explication, prix internet) dans `dev` (PR #4, 28/09), T10 (colonne « Internet » de la page Prix, PR #6, 28/09), déployée le 28/09 ; **éteinte en production** (`IA_ACTIVE=false`), allumée sur la démo ; conteneur OpenCode installé le 28/09, compte ChatGPT d'Ilane connecté le 29/09 (modèle `gpt-5.6-sol`)
+- [x] Phase 4 : améliorations du 29/09 dans `dev` (Laboratoire IA PR #9, correctifs de l'IA PR #10, Entrée et prix « collés » PR #11, prix par marque, nom et format PR #12, prix à plusieurs sources et migration 0015 PR #13), déployées sur la démo seulement
+- [x] **IA gelée par Ilane le 29/09** : plus d'évolution de l'IA sans son accord
+- [ ] Phase 4 : contrôle des prix à la facture (non IA) — non commencé
+- [ ] Phase 4 : tâches planifiées `synthese` et `ia-prix` — non posées au dernier récapitulatif ; à poser avec l'allumage de l'IA en production
+- [x] Dépendances à jour (PR #14, 29/09) : `pip-audit` et `npm audit` sans faille connue
+- [x] Audit complet du 29/09 : 60 constats, 26 importants vérifiés de façon contradictoire, **0 critique, 13 importants confirmés** ; décisions d'Ilane (« Conforme » strict, facture incohérente comptée avec mention et R10 dans « À régler », chantiers à numéro jamais rattachés automatiquement) — README §20
+- [~] Corrections de l'audit sur `feature/corrections-audit` : groupe 1 (recalculs après correction, relecture et archivage) codé, en relecture ; groupes 2 (codes répétés), 3 (« Conforme » strict, R10), 4 (chantiers à numéro), 5 (sauvegardes et restauration) à faire
+- [ ] Passage de `dev` en production après les corrections (accord d'Ilane donné : sauvegarde, migration 0015, image OpenCode, API)
+- [ ] Documentation globale (`README.md`, `CLAUDE.md`, `docs/dette.md`, `ARCHITECTURE.md`) mise à jour le 29/09/2026 — cette PR
+- [ ] Lot 6 (recette sur deux mois, formation, procès-verbal) — non commencé
