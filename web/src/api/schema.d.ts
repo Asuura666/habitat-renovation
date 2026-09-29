@@ -3108,6 +3108,32 @@ export interface components {
             };
         };
         /**
+         * OffrePrixInternetReponse
+         * @description Une offre vérifiée sur un site — mêmes attributs
+         *     qu'`ingest.ia_prix.OffreVue` (`prix_ht` : `None` si les taxes sont
+         *     inconnues).
+         */
+        OffrePrixInternetReponse: {
+            /** Prix */
+            prix: string;
+            /** Devise */
+            devise: string | null;
+            /** Taxes */
+            taxes: string | null;
+            /** Prix Ht */
+            prix_ht: string | null;
+            /** Unite */
+            unite: string | null;
+            /** Conditionnement */
+            conditionnement: string | null;
+            /** Produit Trouve */
+            produit_trouve: string | null;
+            /** Source Url */
+            source_url: string | null;
+            /** Confiance */
+            confiance: string | null;
+        };
+        /**
          * OutilTraceReponse
          * @description Une recherche ou une page ouverte par l'IA pendant un essai -- mêmes
          *     attributs qu'`ingest.ia_labo.OutilTrace`.
@@ -3175,7 +3201,9 @@ export interface components {
         /**
          * PrixInternetReponse
          * @description Dernier prix trouvé sur internet pour le produit d'une anomalie —
-         *     mêmes attributs qu'`ingest.ia_prix.PrixInternetVue`.
+         *     mêmes attributs qu'`ingest.ia_prix.PrixInternetVue` : les champs à plat
+         *     décrivent l'offre la moins chère ; `offres` les liste toutes (la moins
+         *     chère en HT d'abord), `prix_ht_min`/`prix_ht_max` bornent le HT connu.
          */
         PrixInternetReponse: {
             /** Statut */
@@ -3203,6 +3231,14 @@ export interface components {
              * Format: date-time
              */
             consulte_le: string;
+            /** Offres */
+            offres: components["schemas"]["OffrePrixInternetReponse"][];
+            /** Prix Ht Min */
+            prix_ht_min: string | null;
+            /** Prix Ht Max */
+            prix_ht_max: string | null;
+            /** Nb Sources */
+            nb_sources: number;
         };
         /**
          * ProblemePrioritaireReponse

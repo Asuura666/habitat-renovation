@@ -8592,6 +8592,118 @@
     "title": "MotifReponse",
     "description": "Un motif de mise « à vérifier » (L3-T7), tel que renvoyé par `GET\n/api/factures`/`GET /api/factures/{id}` (réutilisé par L3-T8a/L3-T8b) —\nmêmes champs qu'`ingest.lecture.MotifLu`."
    },
+   "OffrePrixInternetReponse": {
+    "properties": {
+     "prix": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Prix"
+     },
+     "devise": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Devise"
+     },
+     "taxes": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Taxes"
+     },
+     "prix_ht": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Prix Ht"
+     },
+     "unite": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite"
+     },
+     "conditionnement": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Conditionnement"
+     },
+     "produit_trouve": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Produit Trouve"
+     },
+     "source_url": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Url"
+     },
+     "confiance": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confiance"
+     }
+    },
+    "type": "object",
+    "required": [
+     "prix",
+     "devise",
+     "taxes",
+     "prix_ht",
+     "unite",
+     "conditionnement",
+     "produit_trouve",
+     "source_url",
+     "confiance"
+    ],
+    "title": "OffrePrixInternetReponse",
+    "description": "Une offre vérifiée sur un site — mêmes attributs\nqu'`ingest.ia_prix.OffreVue` (`prix_ht` : `None` si les taxes sont\ninconnues)."
+   },
    "OutilTraceReponse": {
     "properties": {
      "outil": {
@@ -8809,6 +8921,41 @@
       "type": "string",
       "format": "date-time",
       "title": "Consulte Le"
+     },
+     "offres": {
+      "items": {
+       "$ref": "#/components/schemas/OffrePrixInternetReponse"
+      },
+      "type": "array",
+      "title": "Offres"
+     },
+     "prix_ht_min": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Prix Ht Min"
+     },
+     "prix_ht_max": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Prix Ht Max"
+     },
+     "nb_sources": {
+      "type": "integer",
+      "title": "Nb Sources"
      }
     },
     "type": "object",
@@ -8823,10 +8970,14 @@
      "source_url",
      "confiance",
      "raison",
-     "consulte_le"
+     "consulte_le",
+     "offres",
+     "prix_ht_min",
+     "prix_ht_max",
+     "nb_sources"
     ],
     "title": "PrixInternetReponse",
-    "description": "Dernier prix trouvé sur internet pour le produit d'une anomalie —\nmêmes attributs qu'`ingest.ia_prix.PrixInternetVue`."
+    "description": "Dernier prix trouvé sur internet pour le produit d'une anomalie —\nmêmes attributs qu'`ingest.ia_prix.PrixInternetVue` : les champs à plat\ndécrivent l'offre la moins chère ; `offres` les liste toutes (la moins\nchère en HT d'abord), `prix_ht_min`/`prix_ht_max` bornent le HT connu."
    },
    "ProblemePrioritaireReponse": {
     "properties": {
