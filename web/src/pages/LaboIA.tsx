@@ -18,7 +18,7 @@ import {
 } from "../api/ia";
 import { listerAlertesPrix } from "../api/prix";
 import { TIRET } from "../lib/formats";
-import { texteMontantPrixInternet } from "../lib/prixInternet";
+import { domaineSource, texteMontantPrixInternet } from "../lib/prixInternet";
 import { Bouton, Carte, EnTetePage, EtatVide } from "../ui";
 
 const CLE_ALERTES_PRIX_LABO = ["ia", "labo", "alertes-prix"] as const;
@@ -320,6 +320,45 @@ function texteOuNull(valeur: unknown): string | null {
   return typeof valeur === "string" ? valeur : null;
 }
 
+/** Offres d'un essai de prix (`resultat.offres`), au format brut du
+ * serveur : chaque champ est vérifié avant usage. */
+function ListeOffresEssai({ offres }: { offres: unknown }): ReactElement | null {
+  if (!Array.isArray(offres) || offres.length === 0) {
+    return null;
+  }
+  return (
+    <ul className="mt-2 flex flex-col gap-2 text-sm text-encre">
+      {offres.map((brute, indice) => {
+        const offre = (typeof brute === "object" && brute !== null ? brute : {}) as Record<string, unknown>;
+        const url = texteOuNull(offre.source_url);
+        const domaine = url !== null ? domaineSource(url) : null;
+        return (
+          <li key={indice} className="flex flex-col gap-1 sm:flex-row sm:flex-wrap sm:gap-x-2">
+            <span className="font-mono">
+              {texteMontantPrixInternet({
+                prix: texteOuNull(offre.prix),
+                taxes: texteOuNull(offre.taxes),
+                conditionnement: texteOuNull(offre.conditionnement),
+                unite: texteOuNull(offre.unite),
+              })}
+            </span>
+            {domaine !== null && url !== null && (
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex min-h-[44px] items-center font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent sm:min-h-0"
+              >
+                {`source (${domaine})`}
+              </a>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function ResultatEssai({
   type,
   resultat,
@@ -334,6 +373,7 @@ function ResultatEssai({
     if (resultat.statut === "trouve") {
       const sourceUrl = typeof resultat.source_url === "string" ? resultat.source_url : null;
       return (
+        <div>
         <p className="text-sm text-encre">
           {`Prix trouvé : ${texteMontantPrixInternet({
             prix: texteOuNull(resultat.prix),
@@ -355,6 +395,8 @@ function ResultatEssai({
             </>
           )}
         </p>
+        <ListeOffresEssai offres={resultat.offres} />
+        </div>
       );
     }
     return (

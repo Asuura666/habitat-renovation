@@ -61,3 +61,17 @@ export function texteMontantPrixInternet(prixInternet: MontantPrixInternet): str
   const taxes = prixInternet.taxes !== null ? ` ${prixInternet.taxes}` : "";
   return `${formaterMontant(prixInternet.prix)}${taxes}${parentheseConditionnement(prixInternet)}`;
 }
+
+/** « dès 11,59 € HT · 3 sources (jusqu'à 13,91 € HT) » -- `null` quand il
+ * n'y a qu'une source (l'affichage d'une offre unique reste celui d'avant)
+ * ou qu'aucune offre n'a de prix HT connu. */
+export function texteResumeOffres(prixInternet: PrixInternet): string | null {
+  if (prixInternet.nb_sources < 2 || prixInternet.prix_ht_min === null) {
+    return null;
+  }
+  const jusqua =
+    prixInternet.prix_ht_max !== null && prixInternet.prix_ht_max !== prixInternet.prix_ht_min
+      ? ` (jusqu'à ${formaterMontant(prixInternet.prix_ht_max)} HT)`
+      : "";
+  return `dès ${formaterMontant(prixInternet.prix_ht_min)} HT · ${prixInternet.nb_sources} sources${jusqua}`;
+}
