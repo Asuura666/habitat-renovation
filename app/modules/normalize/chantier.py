@@ -92,6 +92,10 @@ class Correspondance:
     chantier_id: uuid.UUID | None = None  # RECONNU
     score: int | None = None  # RECONNU / AMBIGU : meilleur score
     candidats: tuple[uuid.UUID, ...] = ()  # AMBIGU : triés par str(uuid)
+    # AMBIGU « voisin numéroté » (B-05) : les candidats ne diffèrent du nom
+    # cherché que par des nombres. Ce n'est pas un ex æquo : « à confirmer »,
+    # et cela ne confirme jamais un chantier reconnu par ailleurs.
+    voisin_numerote: bool = False
 
 
 class TypeDecision(StrEnum):
@@ -141,7 +145,11 @@ def reconnaitre_chantier(
         )
         if score > cible.get(nom.chantier_id, -1):
             cible[nom.chantier_id] = score
-    # Un chantier qui a aussi un nom de mêmes nombres reste rattachable.
+    # Un chantier qui a au moins un nom de mêmes nombres n'est pas un « voisin
+    # numéroté » : on le retire des voisins. Sinon un autre de ses noms (aux
+    # nombres différents) le proposerait à confirmer alors que son nom de
+    # mêmes nombres est déjà sous le seuil (il n'est alors ni rattaché ni
+    # proposé : INCONNU, comme avant B-05).
     for cid in meilleurs:
         voisins.pop(cid, None)
     if meilleurs and max(meilleurs.values()) >= seuil:
@@ -169,6 +177,7 @@ def reconnaitre_chantier(
             libelle=decompose.libelle,
             score=max(proches.values()),
             candidats=tuple(sorted(proches, key=str)),
+            voisin_numerote=True,
         )
     return Correspondance(EtatCorrespondance.INCONNU, libelle=decompose.libelle)
 
@@ -220,7 +229,9 @@ def decider_chantier(lu: Correspondance, legende: Correspondance) -> DecisionCha
                     (legende.chantier_id,) if legende.chantier_id else (),
                 ),
             )
-        if legende.etat is AMBIGU and lu_id not in legende.candidats:
+        if legende.etat is AMBIGU and (
+            legende.voisin_numerote or lu_id not in legende.candidats
+        ):
             return DecisionChantier(
                 TypeDecision.ALERTE,
                 candidats=_sans_doublon((lu_id,), legende.candidats),

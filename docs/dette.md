@@ -1474,3 +1474,8 @@ Décisions d'Ilane du 29/09/2026 (`.superpowers/sdd/corrections-audit/decisions-
   chantier et fournisseur). Les exports CSV du bilan (colonnes fixées par le
   CDC) n'ont pas cette mention.
 
+## Rattachement des chantiers : nombres différents (29/09/2026, audit B-05)
+
+- **Les lettres ne sont pas traitées** : « Bât A » / « Bât B » (ressemblance 94) se rattachent encore d'office ; seule la différence de nombres force « à confirmer » (décision d'Ilane, point 3).
+- **Choix prudent** : « Les Pins » / « Les Pins 2 » (un nombre d'un seul côté) passe aussi « à confirmer » quand le score atteint le seuil, ce qui ajoute quelques R18.
+- **Alias déjà appris** : jamais revus automatiquement ; diagnostic `chantiers-alias-suspects` (lecture seule), correction manuelle par Ilane. Les chiffres dans les mots (« m2 ») comptent comme des nombres.

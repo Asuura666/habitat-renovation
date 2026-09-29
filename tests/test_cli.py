@@ -2397,3 +2397,63 @@ def test_essai_prix_internet_sans_fichier_systemexit_2() -> None:
         cli.main(["essai-prix-internet"])
 
     assert exc_info.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# `chantiers-alias-suspects` (B-05) : diagnostic en lecture seule.
+# ---------------------------------------------------------------------------
+
+
+async def _preparer_alias_suspect(
+    engine: AsyncEngine,
+) -> tuple[uuid.UUID, uuid.UUID]:
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        fournisseur = Fournisseur(nom=f"Fournisseur suspect {uuid.uuid4()}")
+        session.add(fournisseur)
+        chantier = Chantier(nom_canonique="Résidence Les Cèdres 12")
+        session.add(chantier)
+        await session.flush()
+        session.add(
+            ChantierAlias(
+                fournisseur_id=fournisseur.id,
+                libelle_brut="residence les cedres 13",
+                code_brut=None,
+                chantier_id=chantier.id,
+            )
+        )
+        await session.commit()
+        return fournisseur.id, chantier.id
+
+
+@pytest.mark.db
+def test_cli_chantiers_alias_suspects(
+    db_engine: AsyncEngine, _env_bl_test: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fournisseur_id, chantier_id = asyncio.run(_preparer_alias_suspect(db_engine))
+    try:
+        code = cli.main(["chantiers-alias-suspects"])
+        sortie = capsys.readouterr().out
+
+        assert code == 0
+        assert "residence les cedres 13" in sortie
+        assert "Résidence Les Cèdres 12" in sortie
+        assert "0 document" in sortie
+
+        async def _nb() -> int:
+            async with creer_sessionmaker(db_engine)() as session:
+                return len(
+                    (
+                        await session.execute(
+                            select(ChantierAlias).where(
+                                ChantierAlias.fournisseur_id == fournisseur_id
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+
+        assert asyncio.run(_nb()) == 1
+    finally:
+        asyncio.run(_nettoyer_alias_en_attente(db_engine, fournisseur_id, chantier_id))

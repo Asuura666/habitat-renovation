@@ -355,6 +355,13 @@ correctif sur `dev` puis un nouveau déploiement.
 
 - Consigner : date, étiquette, révision, instantanés restic, dans le journal
   d'exploitation (`memory.md` §0).
+- **Alias de chantier suspects** (audit B-05, 29/09/2026) : lancer, en lecture
+  seule, `docker compose $P exec -T api python -m app.cli chantiers-alias-suspects`.
+  Elle liste les noms appris par ressemblance dont les nombres diffèrent de
+  ceux du chantier (« … 13 » appris sur « … 12 ») : libellé, chantier, date,
+  nombre de documents concernés. Elle ne modifie rien : ces alias continuent
+  de rattacher d'office tant qu'ils existent ; Ilane relit la liste et décide
+  (fusion ou correction depuis l'application).
 - Roadmap §10 : cocher les déploiements ; `docs/dette.md` : ce qui a été
   constaté.
 - Supprimer les images `avant-octobre` et les dumps `avant-octobre-*` une

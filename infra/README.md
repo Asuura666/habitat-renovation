@@ -635,6 +635,7 @@ Lancées dans le conteneur `api` : `python -m app.cli <commande>`.
 | `rapprocher --facture <uuid>` ou `--tout` | Rejoue le rapprochement. `--tout` : toutes les factures au statut « reçu », de la plus ancienne à la plus récente (les factures « à vérifier » sont ignorées), une transaction chacune ; code 1 si au moins un échec. `--facture` : code 2 si la facture est introuvable. |
 | `controles-differes` | Évalue R14, R15, R16, et R06 seulement si `CONTROLE_LIVRE_NON_FACTURE_ACTIF` est vraie ; idempotente, prévue chaque jour |
 | `drive-sync [--limite 1..1000]` | Copie vers le Drive les documents en attente (100 par défaut) ; sortie 0, 1 (au moins un échec) ou 2 (configuration Drive absente ou invalide) |
+| `chantiers-alias-suspects` | Lecture seule : liste les noms de chantier appris dont les nombres diffèrent de ceux du chantier (« … 13 » sur « … 12 », audit B-05) : libellé, chantier, date, nombre de documents. Ne modifie rien ; à relire par Ilane après déploiement. |
 | `bl-non-recus <facture.pdf>` | Liste les BL d'une facture avec l'indicateur « photo reçue », sans écriture en base, mais avec un appel payant à Mistral OCR sur le PDF (le document part chez ce tiers). Le fichier doit être lisible depuis le conteneur : seul `/srv/docs` y est monté. |
 | `rapport-ocr <dossier> --sortie <md> [--seuil] [--appeler-ocr]` | Mesure le taux d'erreur OCR sur des photos annotées (`docs/protocole-mesure-ocr.md`) |
 

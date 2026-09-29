@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from app.modules.normalize.texte import normaliser_libelle, ressemblance
+from app.modules.normalize.texte import (
+    nombres_differents,
+    normaliser_libelle,
+    ressemblance,
+)
 
 
 def test_normaliser_libelle_retire_accents_et_casefold() -> None:
@@ -39,8 +43,6 @@ def test_ressemblance_est_un_entier_arrondi_vers_le_bas() -> None:
 
 
 def test_nombres_differents_paires_numerotees() -> None:
-    from app.modules.normalize.texte import nombres_differents
-
     assert nombres_differents("Lot 12", "Lot 13") is True
     assert nombres_differents("Résidence Les Pins 2", "Résidence Les Pins 3") is True
     assert nombres_differents("Bât A 3", "Bât A 4") is True
@@ -48,8 +50,6 @@ def test_nombres_differents_paires_numerotees() -> None:
 
 
 def test_nombres_differents_memes_nombres_ou_aucun() -> None:
-    from app.modules.normalize.texte import nombres_differents
-
     assert nombres_differents("Villa Test", "VILLA TEST") is False
     assert nombres_differents("Lot 12", "lot 12") is False
     assert nombres_differents("Lot 12 Bât A", "bat a - lot 12") is False

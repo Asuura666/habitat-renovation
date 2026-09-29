@@ -12,7 +12,7 @@ import asyncio
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.core.db import creer_sessionmaker
@@ -33,6 +33,7 @@ from app.modules.ingest.parametres import CLE_SEUIL_RESSEMBLANCE_CHANTIER
 from app.modules.ingest.rattachement_chantier import (
     BilanReprise,
     choisir_chantier_document,
+    lister_alias_suspects,
     rattacher_chantier_bloc,
     rattacher_chantier_document,
     reprendre_chantiers,
@@ -923,3 +924,142 @@ async def test_bloc_facture_voisin_numerote_non_rattache(
     )
     await db_session.commit()
     assert resultat is None
+
+
+async def test_legende_voisine_numerotee_leve_R18_sans_apprendre(
+    db_session: AsyncSession,
+) -> None:
+    """Nom lu exact (chantier 12), légende « 13 » sans chantier 13 : la
+    légende voisine ne confirme jamais le 12 -> R18, aucun alias appris."""
+    f = await _fournisseur(db_session)
+    t12 = await _chantier(db_session, "Résidence Les Tilleuls 12")
+    bon = await _bon(
+        db_session,
+        fournisseur_id=f.id,
+        chantier_brut="Résidence Les Tilleuls 12",
+        legende="Résidence Les Tilleuls 13",
+    )
+
+    r = await rattacher_chantier_document(db_session, bon)
+    await db_session.commit()
+    await db_session.refresh(bon)
+
+    assert r.alerte is True and bon.chantier_id is None
+    anomalie = (
+        await db_session.execute(
+            select(Anomalie).where(
+                Anomalie.document_id == bon.id, Anomalie.regle == "R18"
+            )
+        )
+    ).scalar_one()
+    assert anomalie.statut == "ouverte"
+    alias = (
+        (
+            await db_session.execute(
+                select(ChantierAlias).where(ChantierAlias.chantier_id == t12.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert alias == []
+
+
+async def test_chantier_a_deux_noms_dont_un_voisin_numerote(
+    db_session: AsyncSession,
+) -> None:
+    """Le chantier a un nom de mêmes nombres (rattachable) : il l'emporte,
+    même si un autre de ses noms est un voisin numéroté."""
+    f = await _fournisseur(db_session)
+    c = await _chantier(db_session, "Résidence Les Tilleuls 13")
+    db_session.add(
+        ChantierAlias(
+            fournisseur_id=f.id,
+            libelle_brut="residence les tilleuls 12",
+            code_brut=None,
+            chantier_id=c.id,
+        )
+    )
+    await db_session.flush()
+    bon = await _bon(
+        db_session,
+        fournisseur_id=None,
+        chantier_brut="RESIDENCE LES TILLEULS 13",
+        legende=None,
+    )
+    r = await rattacher_chantier_document(db_session, bon)
+    assert r.chantier_id == c.id and r.alerte is False
+
+
+async def test_reprise_voisin_numerote_ouvre_R18(db_session: AsyncSession) -> None:
+    await _chantier(db_session, "Résidence Les Tilleuls 12")
+    bon = await _bon(
+        db_session,
+        fournisseur_id=None,
+        chantier_brut="Résidence Les Tilleuls 13",
+        legende=None,
+    )
+    bilan = await reprendre_chantiers(db_session)
+    await db_session.refresh(bon)
+    assert bilan.bons_en_alerte == 1 and bilan.bons_rattaches == 0
+    assert bon.chantier_id is None
+    regles = (
+        (
+            await db_session.execute(
+                select(Anomalie.regle).where(Anomalie.document_id == bon.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert "R18" in regles
+
+
+async def test_alias_suspects_liste_sans_rien_modifier(
+    db_session: AsyncSession,
+) -> None:
+    f = await _fournisseur(db_session)
+    c12 = await _chantier(db_session, "Résidence Les Tilleuls 12")
+    sain = await _chantier(db_session, "Villa Test")
+    db_session.add_all(
+        [
+            ChantierAlias(
+                fournisseur_id=f.id,
+                libelle_brut="residence les tilleuls 13",
+                code_brut=None,
+                chantier_id=c12.id,
+            ),
+            ChantierAlias(
+                fournisseur_id=f.id,
+                libelle_brut="villa test",
+                code_brut=None,
+                chantier_id=sain.id,
+            ),
+            ChantierAlias(
+                fournisseur_id=f.id,
+                libelle_brut="lot 4",
+                code_brut=None,
+                chantier_id=None,
+            ),
+        ]
+    )
+    for _ in range(2):
+        d = await _bon(
+            db_session,
+            fournisseur_id=f.id,
+            chantier_brut="Résidence Les Tilleuls 13 (55)",
+            legende=None,
+        )
+        d.chantier_id = c12.id
+    await db_session.flush()
+
+    suspects = await lister_alias_suspects(db_session)
+
+    assert len(suspects) == 1
+    s = suspects[0]
+    assert s.libelle == "residence les tilleuls 13"
+    assert s.chantier == "Résidence Les Tilleuls 12"
+    assert s.nb_documents == 2
+    assert s.appris_le is not None
+    nb = (await db_session.execute(select(func.count(ChantierAlias.id)))).scalar_one()
+    assert nb == 3
