@@ -201,3 +201,15 @@ def test_env_opencode_ignore_par_git_mais_pas_son_modele() -> None:
         check=False,
     )
     assert suivi.returncode == 1, "exemple.env ne doit pas être ignoré par git"
+
+
+def test_habitat_prix_n_exige_pas_le_code_du_fournisseur_sur_la_page() -> None:
+    """Même correction que `ingest.ia_prix._texte_prix` (29/09/2026) : le
+    code article donné est interne au fournisseur habituel ; le produit
+    s'identifie par sa marque, son nom et son format, qui doivent
+    correspondre exactement."""
+    consigne = _opencode_json()["agent"]["habitat-prix"]["prompt"]
+
+    assert "code interne du fournisseur habituel" in consigne
+    assert "ne sont une raison de refuser" in consigne
+    assert "correspondent exactement" in consigne

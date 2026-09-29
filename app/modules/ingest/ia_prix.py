@@ -438,13 +438,23 @@ async def expliquer_alertes(session: AsyncSession, http: httpx.AsyncClient) -> B
 # Prix trouvé sur internet (§6)
 # --------------------------------------------------------------------------
 
+# 29/09/2026, essai sur dix vrais produits Unikalo : l'IA refusait des prix
+# trouvés parce que la page n'affichait pas le code article envoyé -- un
+# code interne au fournisseur habituel, qu'aucun autre site n'affiche. Le
+# produit s'identifie par sa marque, son nom et son format ; le code n'est
+# qu'un indice (même correction dans la consigne de l'agent `habitat-prix`,
+# `deploy/opencode/opencode.json`).
 _CONSIGNE_PRIX = (
     "Trouve le prix public actuel de ce produit sur internet, en euros, chez "
-    "le fabricant ou un revendeur identifiable. Ouvre la page du produit "
-    "avec webfetch avant de donner un prix. Vérifie la référence, le "
-    "conditionnement et l'unité. Indique si le prix est HT ou TTC. Si tu ne "
-    "peux pas vérifier, réponds prix_non_verifiable avec la raison. Ne donne "
-    "jamais un prix estimé."
+    "le fabricant ou un revendeur identifiable. Identifie le produit par sa "
+    "marque, son nom et son format (contenance, dimensions, poids, "
+    "conditionnement) : ils doivent correspondre exactement. Le code article "
+    "est celui du fournisseur habituel : il n'apparaît presque jamais "
+    "ailleurs, et son absence de la page n'est pas une raison de refuser, pas "
+    "plus qu'une référence fabricant ou un code EAN différents. Ouvre la page "
+    "du produit avec webfetch avant de donner un prix. Indique si le prix est "
+    "HT ou TTC. Si tu ne peux pas vérifier, réponds prix_non_verifiable avec "
+    "la raison. Ne donne jamais un prix estimé."
 )
 
 
@@ -452,13 +462,14 @@ def _texte_prix(
     *, fournisseur: str | None, designation: str, code: str | None, unite: str | None
 ) -> str:
     """Texte envoyé à l'agent `habitat-prix` (§6.1/§6.2) : fournisseur
-    habituel, désignation, référence, unité -- **jamais** le prix du bon
+    habituel, désignation, code article chez ce fournisseur, unité --
+    **jamais** le prix du bon
     (`prix_bon`), qui n'apparaît nulle part dans ce texte : la recherche ne
     doit pas être orientée par le prix qu'on cherche à vérifier."""
     lignes = [
         f"Fournisseur habituel : {fournisseur or _TIRET}",
         f"Désignation : {designation}",
-        f"Référence : {code or _TIRET}",
+        f"Code article chez le fournisseur habituel : {code or _TIRET}",
         f"Unité : {unite or _TIRET}",
         _CONSIGNE_PRIX,
     ]
