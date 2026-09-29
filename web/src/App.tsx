@@ -13,6 +13,7 @@ import { FicheFournisseur } from "./pages/FicheFournisseur";
 import { FournisseursListe } from "./pages/FournisseursListe";
 import { GrilleFournisseur } from "./pages/GrilleFournisseur";
 import { Journal } from "./pages/Journal";
+import { LaboIA } from "./pages/LaboIA";
 import { Livraisons } from "./pages/Livraisons";
 import { PageBl } from "./pages/PageBl";
 import { Prix } from "./pages/Prix";
@@ -201,6 +202,17 @@ export function App(): ReactElement {
             element={
               <GardeAdmin>
                 <Reglages />
+              </GardeAdmin>
+            }
+          />
+          {/* Laboratoire IA (tâche LABO, phase 4 IA) : essai des trois
+              usages de l'IA avant de s'y fier — admin, atteignable depuis
+              Réglages (« Essayer l'IA »), lien discret comme Comptes. */}
+          <Route
+            path="ia"
+            element={
+              <GardeAdmin>
+                <LaboIA />
               </GardeAdmin>
             }
           />

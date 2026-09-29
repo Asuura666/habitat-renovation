@@ -3611,6 +3611,222 @@
     }
    }
   },
+  "/api/ia/labo/etat": {
+   "get": {
+    "summary": "Etat Labo Endpoint",
+    "operationId": "etat_labo_endpoint_api_ia_labo_etat_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/EtatLaboReponse"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/labo/essais/prix": {
+   "post": {
+    "summary": "Lancer Essai Prix Endpoint",
+    "operationId": "lancer_essai_prix_endpoint_api_ia_labo_essais_prix_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/EssaiPrixRequete"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/EssaiLanceReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/labo/essais/explication": {
+   "post": {
+    "summary": "Lancer Essai Explication Endpoint",
+    "operationId": "lancer_essai_explication_endpoint_api_ia_labo_essais_explication_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/EssaiExplicationRequete"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/EssaiLanceReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/labo/essais/synthese": {
+   "post": {
+    "summary": "Lancer Essai Synthese Endpoint",
+    "operationId": "lancer_essai_synthese_endpoint_api_ia_labo_essais_synthese_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/EssaiSyntheseRequete"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/EssaiLanceReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/labo/essais/{essai_id}": {
+   "get": {
+    "summary": "Lire Essai Endpoint",
+    "operationId": "lire_essai_endpoint_api_ia_labo_essais__essai_id__get",
+    "parameters": [
+     {
+      "name": "essai_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Essai Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TraceEssaiReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/labo/essais": {
+   "get": {
+    "summary": "Derniers Essais Endpoint",
+    "operationId": "derniers_essais_endpoint_api_ia_labo_essais_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/TraceEssaiResumeReponse"
+         },
+         "type": "array",
+         "title": "Response Derniers Essais Endpoint Api Ia Labo Essais Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ia/labo/appels": {
+   "get": {
+    "summary": "Journal Appels Endpoint",
+    "operationId": "journal_appels_endpoint_api_ia_labo_appels_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/AppelIALigneReponse"
+         },
+         "type": "array",
+         "title": "Response Journal Appels Endpoint Api Ia Labo Appels Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/health": {
    "get": {
     "summary": "Health",
@@ -4371,6 +4587,54 @@
     ],
     "title": "ApercuImportReponse",
     "description": "`POST /api/grilles/fournisseurs/{id}/import/apercu` -- mêmes\nattributs qu'`ingest.grilles.ApercuImport`."
+   },
+   "AppelIALigneReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "usage": {
+      "type": "string",
+      "title": "Usage"
+     },
+     "statut": {
+      "type": "string",
+      "title": "Statut"
+     },
+     "erreur": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Erreur"
+     },
+     "duree_ms": {
+      "type": "integer",
+      "title": "Duree Ms"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Created At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "usage",
+     "statut",
+     "erreur",
+     "duree_ms",
+     "created_at"
+    ],
+    "title": "AppelIALigneReponse",
+    "description": "Une ligne de `GET /api/ia/labo/appels` -- mêmes attributs\nqu'`ingest.ia_labo.LigneAppelIA`."
    },
    "ArchivageRequete": {
     "properties": {
@@ -5669,6 +5933,30 @@
     "title": "ContesterPrixRequete",
     "description": "Corps de `POST /api/prix/contester` (spec §8.2) : commentaire\nobligatoire (validé de nouveau par `ingest.prix_bl.contester_prix`, même\nprincipe que `TraitementAnomalieRequete`)."
    },
+   "ControleReponse": {
+    "properties": {
+     "nom": {
+      "type": "string",
+      "title": "Nom"
+     },
+     "ok": {
+      "type": "boolean",
+      "title": "Ok"
+     },
+     "detail": {
+      "type": "string",
+      "title": "Detail"
+     }
+    },
+    "type": "object",
+    "required": [
+     "nom",
+     "ok",
+     "detail"
+    ],
+    "title": "ControleReponse",
+    "description": "Un contrôle anti-invention -- mêmes attributs\nqu'`extract.reponses_ia.Controle`."
+   },
    "CorrectionEnteteRequete": {
     "properties": {
      "type": {
@@ -6329,6 +6617,164 @@
     ],
     "title": "ErreurImportReponse",
     "description": "Une ligne du fichier non retenue -- mêmes attributs\nqu'`ingest.grilles.ErreurImport`."
+   },
+   "EssaiExplicationRequete": {
+    "properties": {
+     "anomalie_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Anomalie Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "anomalie_id"
+    ],
+    "title": "EssaiExplicationRequete",
+    "description": "Corps de `POST /api/ia/labo/essais/explication`."
+   },
+   "EssaiLanceReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id"
+    ],
+    "title": "EssaiLanceReponse",
+    "description": "Réponse `202` des trois routes `POST /api/ia/labo/essais/...`."
+   },
+   "EssaiPrixRequete": {
+    "properties": {
+     "fournisseur": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fournisseur"
+     },
+     "designation": {
+      "type": "string",
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Designation"
+     },
+     "code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Code"
+     },
+     "unite": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite"
+     }
+    },
+    "type": "object",
+    "required": [
+     "designation"
+    ],
+    "title": "EssaiPrixRequete",
+    "description": "Corps de `POST /api/ia/labo/essais/prix`."
+   },
+   "EssaiSyntheseRequete": {
+    "properties": {
+     "semaine_debut": {
+      "type": "string",
+      "format": "date",
+      "title": "Semaine Debut"
+     }
+    },
+    "type": "object",
+    "required": [
+     "semaine_debut"
+    ],
+    "title": "EssaiSyntheseRequete",
+    "description": "Corps de `POST /api/ia/labo/essais/synthese`."
+   },
+   "EtatLaboReponse": {
+    "properties": {
+     "ia_active": {
+      "type": "boolean",
+      "title": "Ia Active"
+     },
+     "url_configuree": {
+      "type": "boolean",
+      "title": "Url Configuree"
+     },
+     "joignable": {
+      "type": "boolean",
+      "title": "Joignable"
+     },
+     "joignable_detail": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Joignable Detail"
+     },
+     "agents": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Agents"
+     },
+     "abonnement_connecte": {
+      "type": "boolean",
+      "title": "Abonnement Connecte"
+     },
+     "recherche_web": {
+      "type": "boolean",
+      "title": "Recherche Web"
+     },
+     "appels_aujourdhui": {
+      "type": "integer",
+      "title": "Appels Aujourdhui"
+     },
+     "appels_max_jour": {
+      "type": "integer",
+      "title": "Appels Max Jour"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ia_active",
+     "url_configuree",
+     "joignable",
+     "joignable_detail",
+     "agents",
+     "abonnement_connecte",
+     "recherche_web",
+     "appels_aujourdhui",
+     "appels_max_jour"
+    ],
+    "title": "EtatLaboReponse",
+    "description": "Réponse de `GET /api/ia/labo/etat` -- diagnostic (`ingest.opencode\n.DiagnosticIA`) et appels du jour/plafond, construite à la main par le\nrouteur (deux sources combinées, jamais une seule dataclass)."
    },
    "ExplicationAlerteReponse": {
     "properties": {
@@ -8146,6 +8592,30 @@
     "title": "MotifReponse",
     "description": "Un motif de mise « à vérifier » (L3-T7), tel que renvoyé par `GET\n/api/factures`/`GET /api/factures/{id}` (réutilisé par L3-T8a/L3-T8b) —\nmêmes champs qu'`ingest.lecture.MotifLu`."
    },
+   "OutilTraceReponse": {
+    "properties": {
+     "outil": {
+      "type": "string",
+      "title": "Outil"
+     },
+     "adresse": {
+      "type": "string",
+      "title": "Adresse"
+     },
+     "extrait": {
+      "type": "string",
+      "title": "Extrait"
+     }
+    },
+    "type": "object",
+    "required": [
+     "outil",
+     "adresse",
+     "extrait"
+    ],
+    "title": "OutilTraceReponse",
+    "description": "Une recherche ou une page ouverte par l'IA pendant un essai -- mêmes\nattributs qu'`ingest.ia_labo.OutilTrace`."
+   },
    "ParametreReponse": {
     "properties": {
      "cle": {
@@ -8909,6 +9379,237 @@
     ],
     "title": "TotauxMoisReponse",
     "description": "Les quatre montants du bilan du mois plus `conforme` — mêmes\nattributs qu'`ingest.tableau_de_bord.TotauxMois`."
+   },
+   "TraceEssaiReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "type": {
+      "type": "string",
+      "enum": [
+       "prix",
+       "explication",
+       "synthese"
+      ],
+      "title": "Type"
+     },
+     "statut": {
+      "type": "string",
+      "enum": [
+       "en_cours",
+       "fini",
+       "erreur"
+      ],
+      "title": "Statut"
+     },
+     "debut": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Debut"
+     },
+     "fin": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fin"
+     },
+     "duree_ms": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Duree Ms"
+     },
+     "agent": {
+      "type": "string",
+      "title": "Agent"
+     },
+     "texte_envoye": {
+      "type": "string",
+      "title": "Texte Envoye"
+     },
+     "schema": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Schema"
+     },
+     "modele": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Modele"
+     },
+     "outils": {
+      "items": {
+       "$ref": "#/components/schemas/OutilTraceReponse"
+      },
+      "type": "array",
+      "title": "Outils"
+     },
+     "reponse_brute": {
+      "title": "Reponse Brute"
+     },
+     "controles": {
+      "items": {
+       "$ref": "#/components/schemas/ControleReponse"
+      },
+      "type": "array",
+      "title": "Controles"
+     },
+     "resultat": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Resultat"
+     },
+     "erreur": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Erreur"
+     },
+     "appels_restants": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Appels Restants"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "type",
+     "statut",
+     "debut",
+     "fin",
+     "duree_ms",
+     "agent",
+     "texte_envoye",
+     "schema",
+     "modele",
+     "outils",
+     "reponse_brute",
+     "controles",
+     "resultat",
+     "erreur",
+     "appels_restants"
+    ],
+    "title": "TraceEssaiReponse",
+    "description": "Réponse de `GET /api/ia/labo/essais/{id}` -- mêmes attributs\nqu'`ingest.ia_labo.TraceEssai`."
+   },
+   "TraceEssaiResumeReponse": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "type": {
+      "type": "string",
+      "enum": [
+       "prix",
+       "explication",
+       "synthese"
+      ],
+      "title": "Type"
+     },
+     "statut": {
+      "type": "string",
+      "enum": [
+       "en_cours",
+       "fini",
+       "erreur"
+      ],
+      "title": "Statut"
+     },
+     "debut": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Debut"
+     },
+     "fin": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fin"
+     },
+     "duree_ms": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Duree Ms"
+     },
+     "erreur": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Erreur"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "type",
+     "statut",
+     "debut",
+     "fin",
+     "duree_ms",
+     "erreur"
+    ],
+    "title": "TraceEssaiResumeReponse",
+    "description": "Une ligne de `GET /api/ia/labo/essais` (résumé, sans le texte envoyé\nni la réponse brute -- trop volumineux pour une liste)."
    },
    "TraitementAnomalieRequete": {
     "properties": {
