@@ -23,9 +23,13 @@ DEPLOY_OPENCODE = REPO_ROOT / "deploy" / "opencode"
 # plutôt que laissé à la recherche de `subprocess` dans `PATH` à chaque appel.
 GIT = shutil.which("git") or "/usr/bin/git"
 
-# Modèles admis par OpenCode 1.18.32 avec l'abonnement ChatGPT (faits
-# vérifiés le 27/09/2026, brief T8).
+# Modèles admis par OpenCode 1.18.32 avec l'abonnement ChatGPT : liste
+# relevée le 29/09/2026 sur le serveur réel une fois l'abonnement connecté
+# (`GET /config/providers`, fournisseur `openai`) — sous-ensemble utile.
+# Les agents utilisent `gpt-5.6-sol` depuis le 29/09 (choix d'Ilane).
 MODELES_ADMIS = {
+    "openai/gpt-5.6-sol",
+    "openai/gpt-5.6-sol-fast",
     "openai/gpt-5.5",
     "openai/gpt-5.4",
     "openai/gpt-5.4-mini",
@@ -88,18 +92,32 @@ def test_nombre_d_etapes_par_agent() -> None:
 
 
 def test_seul_habitat_prix_a_le_droit_de_chercher_ou_lire_le_web() -> None:
-    """`websearch`/`webfetch` ne sont autorisés nulle part ailleurs : les deux
-    autres agents gardent une permission strictement `{"*": "deny"}`, et
-    aucun agent n'autorise un autre outil (`read`, `bash`, `edit`, ...)."""
+    """`websearch`/`webfetch` ne sont autorisés nulle part ailleurs, et aucun
+    agent n'autorise un autre outil (`read`, `bash`, `edit`, ...).
+
+    Seule exception, pour les trois agents : `StructuredOutput`, l'outil
+    interne par lequel OpenCode rend la réponse au format JSON imposé
+    (`format: json_schema`). Constaté le 29/09/2026 sur le serveur réel :
+    sans cette autorisation, `"*": "deny"` retire aussi cet outil avant
+    l'appel au modèle (`session/llm/request.ts::resolveTools`, OpenCode
+    1.18.32) — « Model did not produce structured output » pour la synthèse
+    et l'explication, et une recherche de prix qui tourne jusqu'au délai.
+    La règle `"*"` doit venir en premier : la dernière règle qui correspond
+    l'emporte."""
     config = _opencode_json()
     for nom, agent in config["agent"].items():
         permission = agent["permission"]
+        assert next(iter(permission)) == "*", nom
         assert permission["*"] == "deny", nom
         autorisations = {cle: val for cle, val in permission.items() if cle != "*"}
         if nom == "habitat-prix":
-            assert autorisations == {"websearch": "allow", "webfetch": "allow"}, nom
+            assert autorisations == {
+                "StructuredOutput": "allow",
+                "websearch": "allow",
+                "webfetch": "allow",
+            }, nom
         else:
-            assert autorisations == {}, nom
+            assert autorisations == {"StructuredOutput": "allow"}, nom
 
 
 def test_dockerfile_rend_le_cache_opencode_inscriptible() -> None:

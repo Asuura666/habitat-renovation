@@ -153,6 +153,18 @@ def _tronquer(texte: str, longueur_max: int) -> str:
     return coupe.rstrip() + "…"
 
 
+def _reference_normalisee(reference: Any) -> str | None:
+    """Référence de commentaire citée par l'IA, ramenée à la forme `cN` :
+    espaces et crochets autour retirés, minuscules -- `None` si ce n'est pas
+    un texte. 29/09/2026, essai réel : la consigne envoyée demandait « les
+    références [cN] » (avec crochets), celle de l'agent « c1, c2 » ; une
+    réponse citant « [c1] » voyait toutes ses actions écartées. La référence
+    normalisée reste vérifiée contre les références réellement envoyées."""
+    if not isinstance(reference, str):
+        return None
+    return reference.strip().strip("[]").strip().lower()
+
+
 def lire_synthese(structure: Any, references_valides: Collection[str]) -> SyntheseLue:
     """Lit et garde une réponse `SCHEMA_SYNTHESE`. Une action est écartée
     silencieusement (jamais l'ensemble de la synthèse) si elle est mal
@@ -187,9 +199,10 @@ def lire_synthese(structure: Any, references_valides: Collection[str]) -> Synthe
             continue
 
         references: list[str] = []
-        for reference in commentaires_bruts:
+        for reference_citee in commentaires_bruts:
+            reference = _reference_normalisee(reference_citee)
             if (
-                isinstance(reference, str)
+                reference is not None
                 and reference in references_valides_figees
                 and reference not in references
             ):
@@ -269,17 +282,23 @@ def controles_synthese(
         references_valides_de_laction = [
             reference
             for reference in commentaires_bruts
-            if isinstance(reference, str) and reference in references_valides_figees
+            if _reference_normalisee(reference) in references_valides_figees
         ]
         references_inconnues = [
             reference
             for reference in commentaires_bruts
-            if not (
-                isinstance(reference, str) and reference in references_valides_figees
-            )
+            if _reference_normalisee(reference) not in references_valides_figees
         ]
         if not references_valides_de_laction:
-            controles.append(Controle(nom, False, "aucune référence valide, écartée"))
+            citees = (
+                "citées : "
+                + ", ".join(str(reference) for reference in commentaires_bruts)
+                if commentaires_bruts
+                else "aucune citée"
+            )
+            controles.append(
+                Controle(nom, False, f"aucune référence valide ({citees}), écartée")
+            )
             continue
 
         if references_inconnues:

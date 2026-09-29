@@ -108,6 +108,22 @@ copier ou coller le contenu du fichier `auth.json` (secret, même règle que
 tout autre jeton du projet) : `auth login`/`auth list` suffisent pour tout
 l'usage courant.
 
+**Puis redémarrer OpenCode** (constaté le 29/09/2026) : la connexion est
+écrite par un conteneur à part (`run --rm`), et le serveur déjà lancé ne la
+relit pas — tant qu'il n'est pas redémarré, il ne connaît que ses modèles
+gratuits et chaque essai échoue (« Model not found: openai/… », réponse
+500) :
+
+```bash
+docker compose -f deploy/opencode/docker-compose.yml restart opencode
+```
+
+La page « Essayer l'IA » (Réglages) montre ensuite le voyant « Abonnement
+ChatGPT connecté » au vert. Les trois agents utilisent `openai/gpt-5.6-sol`
+(`deploy/opencode/opencode.json`, choix d'Ilane du 29/09/2026) ; changer de
+modèle = modifier ce fichier, puis reconstruire le conteneur (`up -d
+--build`).
+
 ## 4. Allumer l'IA sur une instance
 
 À faire séparément pour `prod` et pour `demo` (le choix d'allumer l'une sans
@@ -312,6 +328,34 @@ jour : `docs/superpowers/specs/2026-09-27-phase-4-ia-design.md` §9.
 
 ## 9. Limites connues
 
+- **Trois pièges d'OpenCode 1.18.32, constatés le 29/09/2026 sur le vrai
+  serveur** (les deux premiers expliquent les premiers essais ratés du
+  Laboratoire IA : synthèse en `StructuredOutputError`, recherche de prix
+  qui tournait jusqu'au délai) :
+  1. la réponse au format JSON passe par un outil interne,
+     `StructuredOutput` ; la permission `"*": "deny"` des agents le retirait
+     aussi. Chaque agent l'autorise désormais explicitement
+     (`deploy/opencode/opencode.json`, vérifié par
+     `tests/test_opencode_config.py`) ;
+  2. chaque étape de l'agent prix (une recherche, une page ouverte, la
+     réponse) est un message à part, et `POST /session/{id}/message` ne
+     renvoie que le dernier. Les pages lues aux étapes précédentes étaient
+     donc invisibles, et le contrôle « la page source a vraiment été
+     ouverte » aurait rejeté tout prix trouvé. Elles se relisent maintenant
+     une étape à la fois (`ingest/opencode.py`,
+     `_parties_de_toutes_les_etapes`) ;
+  3. OpenCode ne sait pas renvoyer la demande de départ (400 « Expected
+     OutputFormatJsonSchema ») dès qu'elle porte un format JSON : la liste
+     complète des messages échoue, d'où cette relecture une étape à la fois,
+     qui s'arrête sur ce refus. **À revoir à chaque mise à jour d'OpenCode**
+     (image épinglée sur 1.18.32).
+
+  Une fois ces pièges levés, l'agent prix répondait sans rien chercher. Sa
+  consigne exige maintenant au moins une recherche, au plus trois
+  recherches et trois pages. Essai réel du 29/09/2026 : une plaque BA13 est
+  trouvée à 13,79 € TTC chez un revendeur identifié, les quatre contrôles
+  sont verts. Un mastic Unikalo sans prix public ressort en « non
+  vérifiable », avec sa raison.
 - **Conteneur `read_only` non activé, par choix délibéré**
   (`deploy/opencode/docker-compose.yml`) : confirmé en direct (fix round 1,
   essai sur l'image construite) — OpenCode écrit un `.gitignore` dans

@@ -17,6 +17,10 @@ API utilisée (extrait réel de l'OpenAPI d'OpenCode 1.18.32,
   1}}`) -> `{"info": AssistantMessage, "parts": [Part, ...]}` — `info.error`
   (un des schémas `ProviderAuthError`/`APIError`/`UnknownError`/...) signale
   un échec fournisseur ; `info.structured` porte la sortie JSON demandée ;
+- `GET {url}/session/{id}/message?limit=1[&before=curseur]` -> `[{"info",
+  "parts"}]` et l'en-tête `X-Next-Cursor` : relecture des étapes de la
+  recherche de prix, seul agent qui a des outils (voir
+  `_parties_de_toutes_les_etapes`) ;
 - `DELETE {url}/session/{id}` -> tenté systématiquement, échec ignoré.
 
 Authentification HTTP Basic, utilisateur `opencode`, mot de passe
@@ -55,6 +59,13 @@ logger = logging.getLogger(__name__)
 _UTILISATEUR_BASIC = "opencode"
 _DELAI_DEFAUT_S = 90.0
 _OUTILS_PAGE = ("webfetch", "websearch")
+# Seul l'agent de la recherche de prix a des outils (`opencode.json`) : pour
+# lui seul, les pages lues se relisent sur toutes les étapes.
+_USAGES_AVEC_OUTILS = frozenset({"prix"})
+# Borne de la relecture des étapes : `steps: 8` pour `habitat-prix`, plus
+# une éventuelle nouvelle tentative de la sortie structurée -- large marge.
+_ETAPES_LUES_MAX = 20
+_DELAI_ETAPES_S = 10.0
 # Codes journalisés dans `appel_ia.erreur` pour une exception qui n'est pas
 # une `ErreurIA` (fix round 1) : `_creer_session`/`_envoyer_message` ne
 # lèvent normalement que des `ErreurIA`, mais un bug imprévu ou une
@@ -102,8 +113,9 @@ class ReponseIA:
     demandé (`info.structured`), encore non gardé — chaque appelant le
     passe à la fonction `lire_...` de `extract.reponses_ia` qui va avec son
     usage. `pages` : les pages effectivement lues par l'IA (outils
-    `webfetch`/`websearch` terminés). `modele` : `providerID/modelID`
-    quand les deux sont présents, sinon `None`."""
+    `webfetch`/`websearch` terminés), sur toutes ses étapes pour la
+    recherche de prix. `modele` : `providerID/modelID` quand les deux sont
+    présents, sinon `None`."""
 
     structure: Any
     pages: tuple[PageLue, ...]
@@ -304,6 +316,66 @@ def _pages_lues(parts: Any) -> tuple[PageLue, ...]:
     return tuple(page for page in pages if page is not None)
 
 
+async def _parties_de_toutes_les_etapes(
+    http: httpx.AsyncClient,
+    url: str,
+    auth: httpx.BasicAuth,
+    session_id: str,
+) -> list[Any]:
+    """Parties de toutes les étapes de l'IA, de la première à la dernière,
+    ou une liste vide si l'historique ne se lit pas du tout.
+
+    Constaté le 29/09/2026 sur OpenCode 1.18.32 : chaque étape de l'agent
+    (une recherche, une page ouverte, puis la sortie structurée) est un
+    message distinct, et `POST /session/{id}/message` ne renvoie que le
+    dernier -- les pages lues aux étapes précédentes n'y figurent pas. La
+    liste complète des messages ne se lit pas non plus : OpenCode refuse
+    (400) toute page qui contient la demande de départ, parce qu'elle porte
+    le `format` demandé. Les étapes se relisent donc une par une, de la plus
+    récente à la plus ancienne (`limit=1`, curseur `X-Next-Cursor` repassé
+    en `before`), jusqu'à ce refus, une page sans curseur ou la borne
+    `_ETAPES_LUES_MAX`. Seuls les messages de rôle `assistant` comptent.
+    Aucune exception ne remonte : un échec arrête simplement la relecture."""
+    etapes: list[list[Any]] = []
+    curseur: str | None = None
+    for _ in range(_ETAPES_LUES_MAX):
+        params = (
+            {"limit": "1"} if curseur is None else {"limit": "1", "before": curseur}
+        )
+        try:
+            reponse = await http.get(
+                f"{url}/session/{session_id}/message",
+                params=params,
+                auth=auth,
+                timeout=_DELAI_ETAPES_S,
+            )
+        except httpx.HTTPError:
+            break
+        if reponse.status_code != 200:
+            break
+        try:
+            messages = reponse.json()
+        except ValueError:
+            break
+        if not isinstance(messages, list):
+            break
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            info = message.get("info")
+            parts = message.get("parts")
+            if (
+                isinstance(info, dict)
+                and info.get("role") == "assistant"
+                and isinstance(parts, list)
+            ):
+                etapes.append(parts)
+        curseur = reponse.headers.get("X-Next-Cursor")
+        if not curseur:
+            break
+    return [partie for parts in reversed(etapes) for partie in parts]
+
+
 async def _envoyer_message(
     http: httpx.AsyncClient,
     url: str,
@@ -314,12 +386,16 @@ async def _envoyer_message(
     texte: str,
     schema: Mapping[str, Any],
     delai: float,
+    toutes_les_etapes: bool,
 ) -> tuple[Any, tuple[PageLue, ...], str | None, dict[str, Any]]:
     """`POST {url}/session/{id}/message` en sortie structurée -> `(structure,
     pages, modele, corps)` -- `corps` (`info` + `parts`) est le JSON complet
     renvoyé, porté jusqu'à `ReponseIA.brut` (Laboratoire IA, tâche LABO).
     Lève `ErreurIA` sur `info.error` ou `info.structured` absent/`None`
-    (brief T3 étape 5) ; `info.error` est alors porté par `ErreurIA.brut`."""
+    (brief T3 étape 5) ; `info.error` est alors porté par `ErreurIA.brut`.
+    `toutes_les_etapes` : les pages sont relevées sur toutes les étapes
+    (`_parties_de_toutes_les_etapes`) ; si l'historique ne se lit pas, elles
+    le sont sur le dernier message seul."""
     corps_requete = {
         "agent": agent,
         "parts": [{"type": "text", "text": texte}],
@@ -347,7 +423,12 @@ async def _envoyer_message(
     if structure is None:
         raise ErreurIA("sans_sortie", "Réponse d'OpenCode sans sortie structurée")
 
-    return structure, _pages_lues(corps.get("parts")), _modele_info(info), corps
+    parts = corps.get("parts")
+    if toutes_les_etapes:
+        parts = (
+            await _parties_de_toutes_les_etapes(http, url, auth, session_id) or parts
+        )
+    return structure, _pages_lues(parts), _modele_info(info), corps
 
 
 async def _journaliser_appel(
@@ -470,6 +551,7 @@ async def interroger(
             texte=texte,
             schema=schema,
             delai=delai_effectif,
+            toutes_les_etapes=usage in _USAGES_AVEC_OUTILS,
         )
     except ErreurIA as erreur:
         code_erreur = erreur.code

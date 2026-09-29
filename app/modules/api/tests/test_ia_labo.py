@@ -132,6 +132,11 @@ def _reponses_session(structured: Any) -> dict[tuple[str, str], httpx.Response]:
         ("POST", "/session/ses_api_labo_1/message"): httpx.Response(
             200, json={"info": info, "parts": []}
         ),
+        # Relecture des étapes de la recherche de prix (`opencode.
+        # _parties_de_toutes_les_etapes`) : une seule étape, sans curseur.
+        ("GET", "/session/ses_api_labo_1/message"): httpx.Response(
+            200, json=[{"info": info, "parts": []}]
+        ),
         ("DELETE", "/session/ses_api_labo_1"): httpx.Response(200, json=True),
     }
 
@@ -580,8 +585,9 @@ async def test_lancer_essai_synthese_202_puis_fini(
     admin = await _creer_utilisateur(
         db_session, email="admin.labo.synthese@example.invalid", role="admin"
     )
-    reponses = _reponses_session({"resume": "Rien à signaler.", "actions": []})
-    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+    # Semaine sans commentaire : comme en production, l'IA n'est pas appelée
+    # (aucune requête prévue, `_handler_json` échoue sur toute requête).
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json({})))
     app_test = _app_test(sessions_test, tmp_path, http)
     cookie = await _login(app_test, email=admin.email)
 
@@ -600,7 +606,8 @@ async def test_lancer_essai_synthese_202_puis_fini(
     corps = lu.json()
     assert corps["type"] == "synthese"
     assert corps["statut"] == "fini"
-    assert corps["resultat"] == {"resume": "Rien à signaler.", "actions": []}
+    assert corps["resultat"]["actions"] == []
+    assert "Aucun commentaire" in corps["resultat"]["resume"]
 
 
 # --------------------------------------------------------------------------

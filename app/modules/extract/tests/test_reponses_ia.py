@@ -190,6 +190,45 @@ def test_lire_synthese_reference_dupliquee_non_repetee() -> None:
     assert resultat.actions[0].references == ("c1", "c2")
 
 
+@pytest.mark.parametrize("citee", ["[c1]", "C1", " c1 ", "[ c1 ]", "[C1]"])
+def test_lire_synthese_reference_ecrite_autrement_reconnue(citee: str) -> None:
+    """29/09/2026, essai réel : toutes les actions d'une synthèse avaient été
+    écartées alors que les commentaires existaient -- la consigne envoyée
+    demandait « les références [cN] » (avec crochets), celle de l'agent
+    « c1, c2 ». Une référence citée avec crochets, espaces ou majuscule est
+    la même référence."""
+    structure = {
+        "resume": "ok",
+        "actions": [{"texte": "Une action", "commentaires": [citee]}],
+    }
+
+    resultat = lire_synthese(structure, references_valides=["c1"])
+
+    assert resultat.actions == (ActionLue(texte="Une action", references=("c1",)),)
+
+
+def test_lire_synthese_reference_normalisee_non_repetee() -> None:
+    structure = {
+        "resume": "ok",
+        "actions": [{"texte": "action", "commentaires": ["c1", "[c1]", "C2"]}],
+    }
+
+    resultat = lire_synthese(structure, references_valides=["c1", "c2"])
+
+    assert resultat.actions[0].references == ("c1", "c2")
+
+
+def test_lire_synthese_reference_normalisee_toujours_verifiee() -> None:
+    structure = {
+        "resume": "ok",
+        "actions": [{"texte": "Action fantôme", "commentaires": ["[c99]", "c", "[]"]}],
+    }
+
+    resultat = lire_synthese(structure, references_valides=["c1"])
+
+    assert resultat.actions == ()
+
+
 # --------------------------------------------------------------------------
 # nombres_du_texte
 # --------------------------------------------------------------------------
@@ -1115,3 +1154,36 @@ def test_controles_synthese_coherente_avec_lire_synthese() -> None:
 
     nb_actions_gardees_controles = sum(1 for controle in controles[2:] if controle.ok)
     assert nb_actions_gardees_controles == len(resultat.actions)
+
+
+def test_controles_synthese_reference_entre_crochets_gardee() -> None:
+    structure = {
+        "resume": "Résumé.",
+        "actions": [{"texte": "Action", "commentaires": ["[c1]", "C2"]}],
+    }
+
+    controles = controles_synthese(structure, references_valides=["c1", "c2"])
+
+    assert controles[2].ok is True
+    assert controles[2].detail == "gardée, toutes les références citées sont valides"
+
+
+def test_controles_synthese_action_ecartee_montre_les_references_citees() -> None:
+    """Sans les références citées, une action écartée ne se comprend pas
+    (29/09/2026 : six actions écartées, impossible de dire pourquoi)."""
+    structure = {
+        "resume": "Résumé.",
+        "actions": [
+            {"texte": "Action fantôme", "commentaires": ["c99", "commentaire 3"]},
+            {"texte": "Action sans source", "commentaires": []},
+        ],
+    }
+
+    controles = controles_synthese(structure, references_valides=["c1"])
+
+    assert controles[2].ok is False
+    assert controles[2].detail == (
+        "aucune référence valide (citées : c99, commentaire 3), écartée"
+    )
+    assert controles[3].ok is False
+    assert controles[3].detail == "aucune référence valide (aucune citée), écartée"

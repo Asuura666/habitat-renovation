@@ -329,6 +329,24 @@ def _partie_webfetch(*, url: str, texte: str) -> dict[str, Any]:
     }
 
 
+def _refus_historique() -> httpx.Response:
+    """Relecture des étapes de la recherche de prix (`GET /session/{id}/
+    message`, voir `opencode._parties_de_toutes_les_etapes`) : forme de la
+    réponse d'OpenCode 1.18.32 à la page qui contient la demande de départ
+    (contenu inventé) -- seules restent les pages du dernier message."""
+    return httpx.Response(
+        400, json={"name": "BadRequest", "data": {"message": "refus inventé"}}
+    )
+
+
+def _historique(parts: list[dict[str, Any]]) -> httpx.Response:
+    """Relecture des étapes : une étape précédente de l'IA, sans curseur
+    (la relecture s'arrête là)."""
+    return httpx.Response(
+        200, json=[{"info": _info_minimal(id="msg_test_0b"), "parts": parts}]
+    )
+
+
 def _reponses_ok(structured: dict[str, Any]) -> dict[tuple[str, str], httpx.Response]:
     info = _info_minimal(structured=structured)
     return {
@@ -337,6 +355,7 @@ def _reponses_ok(structured: dict[str, Any]) -> dict[tuple[str, str], httpx.Resp
             "POST",
             f"/session/{_SESSION_ID}/message",
         ): httpx.Response(200, json={"info": info, "parts": []}),
+        ("GET", f"/session/{_SESSION_ID}/message"): _refus_historique(),
         ("DELETE", f"/session/{_SESSION_ID}"): httpx.Response(200, json=True),
     }
 
@@ -357,13 +376,16 @@ def _reponses_prix_trouve(
         "raison": "",
     }
     info = _info_minimal(structured=structured)
+    # Comme sur le vrai serveur : la page a été ouverte à une étape
+    # précédente, le dernier message ne porte que la sortie structurée.
     parts = [_partie_webfetch(url=source_url, texte=page_texte)]
     return {
         ("POST", "/session"): httpx.Response(200, json={"id": _SESSION_ID}),
         (
             "POST",
             f"/session/{_SESSION_ID}/message",
-        ): httpx.Response(200, json={"info": info, "parts": parts}),
+        ): httpx.Response(200, json={"info": info, "parts": []}),
+        ("GET", f"/session/{_SESSION_ID}/message"): _historique(parts),
         ("DELETE", f"/session/{_SESSION_ID}"): httpx.Response(200, json=True),
     }
 
@@ -856,9 +878,12 @@ async def test_chercher_prix_internet_R22_seulement(db_session: AsyncSession) ->
     bilan = await chercher_prix_internet(db_session, http)
 
     assert bilan == BilanIA(ok=1)
-    # Une seule recherche (session + message + suppression), pour R22 --
-    # R07 n'a jamais atteint la sélection de `chercher_prix_internet`.
-    assert len(requetes) == 3
+    # Une seule recherche (une seule session créée), pour R22 -- R07 n'a
+    # jamais atteint la sélection de `chercher_prix_internet`.
+    assert [r.url.path for r in requetes if r.method == "POST"] == [
+        "/session",
+        f"/session/{_SESSION_ID}/message",
+    ]
 
 
 async def test_chercher_prix_internet_dernier_prix_present_pas_de_recherche(
@@ -1091,7 +1116,11 @@ async def test_chercher_prix_internet_une_seule_recherche_meme_produit(
     bilan = await chercher_prix_internet(db_session, http)
 
     assert bilan == BilanIA(ok=1)
-    assert len(requetes) == 3  # une seule recherche, pas deux
+    # Une seule recherche, pas deux (une seule session créée).
+    assert [r.url.path for r in requetes if r.method == "POST"] == [
+        "/session",
+        f"/session/{_SESSION_ID}/message",
+    ]
     lignes = (await db_session.execute(select(PrixInternet))).scalars().all()
     assert len(lignes) == 1
 

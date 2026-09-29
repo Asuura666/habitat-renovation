@@ -93,14 +93,14 @@ ni httpx, ni SQLAlchemy, ni FastAPI ; `api/ia.py` n'importe que `ingest` et
   dépôt monté.
 - **Configuration** `deploy/opencode/opencode.json` :
   - `autoupdate: false`, `share: "disabled"`, permission globale `{"*": "deny"}` ;
-  - agent `habitat-synthese` : `mode: primary`, modèle `openai/gpt-5.4-mini`,
+  - agent `habitat-synthese` : `mode: primary`, modèle `openai/gpt-5.6-sol` (choix d'Ilane du 29/09/2026 ; `gpt-5.4-mini` à l'origine),
     permission `{"*": "deny"}`, `steps: 3`, consigne : résumer des
     commentaires de chantier en français simple, ne rien décider, ne citer
     que les références fournies ;
   - agent `habitat-explication` : idem, consigne : expliquer en une à trois
     phrases un écart de prix déjà calculé, sans jamais donner un chiffre
     absent des données fournies, sans dire si le prix est bon ou mauvais ;
-  - agent `habitat-prix` : modèle `openai/gpt-5.4`, permission `{"*":
+  - agent `habitat-prix` : modèle `openai/gpt-5.6-sol` (`gpt-5.4` à l'origine), permission `{"*":
     "deny", "websearch": "allow", "webfetch": "allow"}`, `steps: 8`,
     consigne reprise du §10 du document d'Ilane (plusieurs résultats,
     fabricant ou revendeur identifiable, **ouvrir la page source avec
@@ -117,7 +117,7 @@ ni httpx, ni SQLAlchemy, ni FastAPI ; `api/ia.py` n'importe que `ingest` et
   ChatGPT, Paramètres → Contrôle des données → désactiver « Améliorer le
   modèle pour tout le monde » (sinon les données du client peuvent servir à
   l'entraînement). Modèles admis par OpenCode avec l'abonnement (1.18.32) :
-  `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark`.
+  relevés le 29/09/2026 sur le serveur réel : `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-6-sol`, `gpt-6-luna`, `gpt-6-astra`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark` (et leurs variantes `-fast`).
 
 ### 3.2 Rattachement de l'API (`deploy/docker-compose.ia.yml`)
 

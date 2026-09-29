@@ -190,12 +190,20 @@ def _reponses_opencode_prix_trouve(
             },
         }
     ]
+    # Comme sur le vrai serveur (OpenCode 1.18.32) : la page a été ouverte à
+    # une étape précédente, relue par `GET /session/{id}/message` ; le
+    # dernier message ne porte que la sortie structurée.
+    etape_precedente = {**info, "id": "msg_bout_en_bout_0b"}
+    del etape_precedente["structured"]
     return {
         ("POST", "/session"): httpx.Response(200, json={"id": _SESSION_ID}),
         (
             "POST",
             f"/session/{_SESSION_ID}/message",
-        ): httpx.Response(200, json={"info": info, "parts": parts}),
+        ): httpx.Response(200, json={"info": info, "parts": []}),
+        ("GET", f"/session/{_SESSION_ID}/message"): httpx.Response(
+            200, json=[{"info": etape_precedente, "parts": parts}]
+        ),
         ("DELETE", f"/session/{_SESSION_ID}"): httpx.Response(200, json=True),
     }
 
@@ -356,7 +364,8 @@ async def test_bout_en_bout_r22_prix_internet_trouve_lie_page_prix(
     bilan = await chercher_prix_internet(db_session, http)
 
     assert bilan == BilanIA(ok=1)
-    assert len(requetes) == 3  # session + message + suppression de session
+    # session + message + relecture des étapes + suppression de session
+    assert len(requetes) == 4
 
     lignes_prix_internet = (
         (await db_session.execute(select(PrixInternet))).scalars().all()

@@ -72,8 +72,9 @@ _CONSIGNE_SYNTHESE = (
     "Voici les commentaires laissés cette semaine par l'équipe sur des "
     "lignes de bons de livraison. Résume-les en quelques phrases simples "
     "pour le dirigeant, puis propose au plus dix actions concrètes à "
-    "mener ; chaque action cite les références [cN] des commentaires sur "
-    "lesquels elle s'appuie. Tu ne décides rien : un humain choisira."
+    "mener ; chaque action cite, sans crochets (c1, c2, ...), les "
+    "références des commentaires sur lesquels elle s'appuie. Tu ne décides "
+    "rien : un humain choisira."
 )
 
 

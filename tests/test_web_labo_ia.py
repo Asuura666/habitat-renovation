@@ -148,6 +148,14 @@ def test_etapes_numerotees_du_deroule() -> None:
     assert positions == sorted(positions)
 
 
+def test_texte_envoye_vide_dit_que_rien_n_est_envoye() -> None:
+    """Semaine sans commentaire : l'IA n'est pas appelée (comme en
+    production), l'étape ① le dit au lieu d'un bloc vide."""
+    composant = _lire("pages", "LaboIA.tsx")
+
+    assert "Rien n'a été envoyé à l'IA." in composant
+
+
 def test_lien_connexion_abonnement_present() -> None:
     composant = _lire("pages", "LaboIA.tsx")
 

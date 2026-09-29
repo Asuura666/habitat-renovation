@@ -148,6 +148,11 @@ def _reponses_session(
         ("POST", "/session/ses_labo_1/message"): httpx.Response(
             200, json={"info": info, "parts": parts or []}
         ),
+        # Relecture des étapes de la recherche de prix (`opencode.
+        # _parties_de_toutes_les_etapes`) : ici une seule étape, sans curseur.
+        ("GET", "/session/ses_labo_1/message"): httpx.Response(
+            200, json=[{"info": info, "parts": parts or []}]
+        ),
         ("DELETE", "/session/ses_labo_1"): httpx.Response(200, json=True),
     }
 
@@ -673,16 +678,19 @@ async def test_essai_synthese_bout_en_bout(
     assert await _compter(db_session, SyntheseAction) == 0
 
 
-async def test_essai_synthese_semaine_vide_appelle_quand_meme_lia(
+async def test_essai_synthese_semaine_vide_sans_appel_a_lia(
     sessions_test: async_sessionmaker[AsyncSession], db_session: AsyncSession
 ) -> None:
-    """Contrairement à la production (`generer_synthese`, raccourci « vide »
-    sans appel à l'IA), l'essai appelle toujours l'IA -- le but est de voir
-    ce qu'elle ferait, y compris sur une semaine sans commentaire."""
-    reponses = _reponses_session(
-        {"resume": "Aucun commentaire cette semaine.", "actions": []}
-    )
-    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+    """Comme en production (`generer_synthese`, synthèse « vide » sans appel
+    à l'IA) : une semaine sans commentaire ne sollicite jamais l'IA, ne
+    compte pas dans le plafond du jour, et l'essai le dit tout de suite
+    (29/09/2026 : un essai sur une semaine vide avait été pris pour une
+    synthèse ratée)."""
+
+    def _aucune_requete(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"aucune requête attendue : {request.url}")
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_aucune_requete))
     background_tasks = BackgroundTasks()
 
     essai_id = await lancer_essai_synthese(
@@ -693,6 +701,15 @@ async def test_essai_synthese_semaine_vide_appelle_quand_meme_lia(
     trace = lire_essai(essai_id)
     assert trace is not None
     assert trace.statut == "fini"
+    assert trace.texte_envoye == ""
+    assert trace.erreur is None
+    assert trace.resultat is not None
+    assert trace.resultat["actions"] == []
+    assert "Aucun commentaire" in trace.resultat["resume"]
+    assert "pas appelée" in trace.resultat["resume"]
+    assert trace.appels_restants == 40
+    assert await _compter(db_session, AppelIA) == 0
+    assert await _compter(db_session, SyntheseCommentaires) == 0
 
 
 async def test_essai_synthese_semaine_pas_lundi_422(
@@ -968,6 +985,29 @@ async def test_essai_synthese_bug_imprevu_termine_la_trace(
         raise ValueError("valeur inventée invalide")
 
     monkeypatch.setattr(ia_labo, "controles_synthese", _controles_qui_bug)
+
+    # Au moins un commentaire dans la semaine : sans commentaire, l'IA n'est
+    # pas appelée et `controles_synthese` jamais atteint.
+    fournisseur = Fournisseur(nom="Fournisseur Synthese Bug Labo")
+    db_session.add(fournisseur)
+    await db_session.flush()
+    document = Document(
+        type="bl",
+        source="telegram",
+        statut="a_verifier",
+        fichier_path=f"bl-labo-{uuid.uuid4()}.jpg",
+        fournisseur_id=fournisseur.id,
+        numero="BL-LABO-BUG",
+    )
+    db_session.add(document)
+    await db_session.flush()
+    await _creer_commentaire(
+        db_session,
+        document,
+        texte="Commentaire inventé.",
+        created_at=datetime.combine(_LUNDI, time(10, 0), tzinfo=FUSEAU_PARIS),
+    )
+    await db_session.commit()
 
     reponses = _reponses_session({"resume": "Rien à signaler.", "actions": []})
     http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))

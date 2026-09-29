@@ -696,6 +696,36 @@ async def _executer_essai_synthese(
         _terminer_en_erreur_imprevue(trace, exc)
 
 
+_RESUME_SEMAINE_VIDE = (
+    "Aucun commentaire cette semaine : pas de synthèse, l'IA n'est pas appelée "
+    "(comme en production)."
+)
+
+
+async def _essai_synthese_semaine_vide(
+    sessions: async_sessionmaker[AsyncSession],
+) -> uuid.UUID:
+    """Essai terminé sur-le-champ pour une semaine sans commentaire, sans
+    aucune requête à l'IA (voir `lancer_essai_synthese`)."""
+    maintenant = datetime.now(UTC)
+    trace = TraceEssai(
+        id=uuid.uuid4(),
+        type="synthese",
+        statut="fini",
+        debut=maintenant,
+        fin=maintenant,
+        duree_ms=0,
+        agent="habitat-synthese",
+        texte_envoye="",
+        schema=dict(SCHEMA_SYNTHESE),
+        resultat={"resume": _RESUME_SEMAINE_VIDE, "actions": []},
+    )
+    async with sessions() as session:
+        trace.appels_restants = await _appels_restants_sans_echec(session)
+    _enregistrer_trace(trace)
+    return trace.id
+
+
 async def lancer_essai_synthese(
     sessions: async_sessionmaker[AsyncSession],
     http: httpx.AsyncClient,
@@ -707,10 +737,13 @@ async def lancer_essai_synthese(
     422). Charge les commentaires de la semaine et construit le texte
     exactement comme `ia_synthese.generer_synthese`
     (`_commentaires_de_la_semaine`/`_texte_synthese`, mêmes fonctions,
-    jamais dupliquées) -- y compris pour une semaine sans commentaire (l'essai
-    sert justement à voir ce que l'IA ferait, jamais un raccourci « vide »
-    silencieux comme en production). Crée la trace `en_cours` et exécute
-    l'appel à l'IA en tâche de fond. Renvoie l'identifiant de l'essai."""
+    jamais dupliquées). Crée la trace `en_cours` et exécute l'appel à l'IA
+    en tâche de fond. Renvoie l'identifiant de l'essai.
+
+    Semaine sans commentaire : comme en production (`generer_synthese`,
+    synthèse « vide »), l'IA n'est pas appelée -- l'essai se termine tout de
+    suite, sans texte envoyé, avec un résumé qui le dit (29/09/2026 : un
+    essai sur une semaine vide avait été pris pour une synthèse ratée)."""
     if semaine_debut.weekday() != 0:
         raise ValueError(
             f"semaine_debut doit être un lundi (reçu {semaine_debut.isoformat()})"
@@ -723,6 +756,9 @@ async def lancer_essai_synthese(
             commentaire_par_reference,
             nb_total,
         ) = await _commentaires_de_la_semaine(session, debut_dt, fin_dt)
+    if nb_total == 0:
+        return await _essai_synthese_semaine_vide(sessions)
+
     texte = _texte_synthese(commentaires_envoyes, nb_total)
     references_valides = frozenset(commentaire_par_reference.keys())
 
