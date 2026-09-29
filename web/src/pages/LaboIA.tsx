@@ -401,9 +401,13 @@ function DerouleContenu({ trace }: { trace: TraceEssai }): ReactElement {
 
       <details className="border-t border-bordure pt-3">
         <summary className="cursor-pointer text-sm font-semibold text-encre">① Texte envoyé</summary>
-        <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-fond p-3 font-mono text-xs text-encre">
-          {trace.texte_envoye}
-        </pre>
+        {trace.texte_envoye === "" ? (
+          <p className="mt-2 text-sm text-encre-2">Rien n'a été envoyé à l'IA.</p>
+        ) : (
+          <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-fond p-3 font-mono text-xs text-encre">
+            {trace.texte_envoye}
+          </pre>
+        )}
       </details>
 
       <div className="border-t border-bordure pt-3">
