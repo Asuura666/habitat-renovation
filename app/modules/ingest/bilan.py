@@ -219,6 +219,11 @@ class MontantsBilan:
     conforme: Decimal
     a_verifier: Decimal
     facture_a_verifier: Decimal
+    # Blocs du périmètre qui ne sont pas « conformes » (définition unique) :
+    # l'état « conforme » d'un chantier se décide sur ce compte, jamais sur
+    # un montant (un bloc à 0 € ou un avoir qui annule une facture ne pèsent
+    # rien dans `a_verifier`).
+    nb_blocs_non_conformes: int = 0
 
 
 @dataclass(frozen=True)
@@ -335,6 +340,7 @@ class _ExpressionsMontants:
     conforme: Any
     a_verifier: Any
     facture_a_verifier: Any
+    nb_blocs_non_conformes: Any
 
 
 def _conditions_base(mois: date | None) -> list[Any]:
@@ -704,6 +710,21 @@ def _expressions_montants(
                 else_=0,
             )
         ),
+        nb_blocs_non_conformes=func.coalesce(
+            func.sum(
+                case(
+                    (
+                        or_(
+                            categories.c.categorie.is_(None),
+                            categories.c.categorie != "conforme",
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ),
+            0,
+        ),
     )
 
 
@@ -721,6 +742,7 @@ def _montants_bilan(ligne: Any) -> MontantsBilan:
         conforme=ligne.conforme,
         a_verifier=ligne.a_verifier,
         facture_a_verifier=ligne.facture_a_verifier,
+        nb_blocs_non_conformes=ligne.nb_blocs_non_conformes,
     )
 
 
@@ -822,6 +844,7 @@ async def _bilan_par_chantier_interne(
             montants.conforme.label("conforme"),
             montants.a_verifier.label("a_verifier"),
             montants.facture_a_verifier.label("facture_a_verifier"),
+            montants.nb_blocs_non_conformes.label("nb_blocs_non_conformes"),
         )
         .select_from(blocs)
         .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
@@ -949,6 +972,7 @@ async def _bilan_par_fournisseur_interne(
             montants.conforme.label("conforme"),
             montants.a_verifier.label("a_verifier"),
             montants.facture_a_verifier.label("facture_a_verifier"),
+            montants.nb_blocs_non_conformes.label("nb_blocs_non_conformes"),
         )
         .select_from(blocs)
         .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
@@ -1080,6 +1104,7 @@ async def bilan_par_bl(
             montants.conforme.label("conforme"),
             montants.a_verifier.label("a_verifier"),
             montants.facture_a_verifier.label("facture_a_verifier"),
+            montants.nb_blocs_non_conformes.label("nb_blocs_non_conformes"),
         )
         .select_from(blocs)
         .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
@@ -1225,6 +1250,7 @@ async def lister_livraisons(
             montants.conforme.label("conforme"),
             montants.a_verifier.label("a_verifier"),
             montants.facture_a_verifier.label("facture_a_verifier"),
+            montants.nb_blocs_non_conformes.label("nb_blocs_non_conformes"),
         )
         .select_from(blocs)
         .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
@@ -1449,13 +1475,35 @@ async def bilan_detail(
     # B-06 : une ligne de facture peut être reliée à plusieurs lignes de BL
     # (même code réparti sur le BL) : on somme leurs quantités par ligne de
     # facture pour ne produire qu'une ligne de détail par ligne facturée.
-    qte_bl_par_ligne = (
+    # Une ligne de BL reliée à plusieurs lignes de facture (2/1) n'est
+    # comptée que sur la première ligne de facture du groupe (ordre, puis
+    # id) : une somme de la colonne ne la compte ainsi qu'une fois.
+    facture_liee = aliased(Ligne)
+    rang_lien = (
+        func.row_number()
+        .over(
+            partition_by=RapprochementLigne.ligne_bl_id,
+            order_by=(facture_liee.ordre.asc(), facture_liee.id.asc()),
+        )
+        .label("rang")
+    )
+    liens_de_tete = (
         select(
             RapprochementLigne.ligne_facture_id.label("ligne_facture_id"),
+            RapprochementLigne.ligne_bl_id.label("ligne_bl_id"),
+            rang_lien,
+        )
+        .join(facture_liee, facture_liee.id == RapprochementLigne.ligne_facture_id)
+        .subquery()
+    )
+    qte_bl_par_ligne = (
+        select(
+            liens_de_tete.c.ligne_facture_id.label("ligne_facture_id"),
             func.sum(bl_ligne.qte_totale).label("qte_bl"),
         )
-        .join(bl_ligne, bl_ligne.id == RapprochementLigne.ligne_bl_id)
-        .group_by(RapprochementLigne.ligne_facture_id)
+        .join(bl_ligne, bl_ligne.id == liens_de_tete.c.ligne_bl_id)
+        .where(liens_de_tete.c.rang == 1)
+        .group_by(liens_de_tete.c.ligne_facture_id)
         .subquery()
     )
 

@@ -82,8 +82,9 @@ def construire_lignes_rapprochees(
                 # Prudence : pas d'agrégation, comparaison ligne à ligne
                 # (une ligne de facture sans ligne de BL de même rang reste
                 # non appariée).
-                rang = appariement.groupe_facture.index(facture.id)
-                if rang >= len(appariement.groupe_bl):
+                groupe = appariement.groupe_facture
+                rang = groupe.index(facture.id) if facture.id in groupe else None
+                if rang is None or rang >= len(appariement.groupe_bl):
                     bl, methode = None, None
 
         lignes.append(

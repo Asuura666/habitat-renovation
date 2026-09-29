@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ingest.bilan import bilan_detail
 from app.modules.ingest.comparaison_bl import comparer_bl
+from app.modules.ingest.export import csv_bilan_detail
 from app.modules.ingest.models import Document, Ligne, RapprochementLigne
 from app.modules.ingest.rapprochement import rapprocher_facture
 from app.modules.ingest.tests.test_rapprochement import (
@@ -137,3 +138,59 @@ async def test_bl_10_plus_10_facture_25_une_r03_avec_detail(
     assert detail["lignes_facture"] == "25"
     assert detail["lignes_bl"] == "10 + 10"
     assert anomalies[0].ligne_id == ligne_facture.id
+
+
+async def test_deux_lignes_de_facture_un_bon_qte_bl_comptee_une_fois(
+    db_session: AsyncSession,
+) -> None:
+    """2/1 (constat 6) : la quantité du bon n'est portée que par la ligne de
+    tête du groupe (sinon la somme de la colonne compterait le bon deux fois),
+    de même dans le bilan détaillé et dans l'export CSV."""
+    fournisseur = await _creer_fournisseur(db_session)
+    article = await _creer_article(
+        db_session,
+        fournisseur=fournisseur,
+        code="X1",
+        unite_cdt="kg",
+        unite_fact="kg",
+        ratio=Decimal("1"),
+    )
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    bloc = await _creer_bloc(db_session, facture=facture, numero_bl="L0002")
+    for ordre in (0, 1):
+        await _creer_ligne(
+            db_session,
+            document=facture,
+            bloc=bloc,
+            code_brut="X1",
+            article=article,
+            ordre=ordre,
+            qte_totale=Decimal("10"),
+            unite_brut="kg",
+            pu_ht=Decimal("2.00"),
+            montant_ht=Decimal("20.00"),
+        )
+    bl = await _creer_bl(db_session, fournisseur=fournisseur, numero="L0002")
+    await _creer_ligne(
+        db_session,
+        document=bl,
+        code_brut="X1",
+        article=article,
+        ordre=0,
+        qte_totale=Decimal("20"),
+        unite_brut="kg",
+    )
+    await rapprocher_facture(db_session, facture.id)
+
+    lignes = [
+        ligne
+        for ligne in await bilan_detail(db_session, mois=None, agence=None)
+        if ligne.facture_id == facture.id
+    ]
+    assert [ligne.qte_bl_appariee for ligne in lignes] == [Decimal("20"), None]
+    assert sum((ligne.qte_bl_appariee or Decimal("0")) for ligne in lignes) == Decimal(
+        "20"
+    )
+    colonnes = csv_bilan_detail(lignes).splitlines()
+    indice = colonnes[0].split(";").index("Quantité BL appariée")
+    assert [ligne.split(";")[indice] for ligne in colonnes[1:]] == ["20,00", ""]

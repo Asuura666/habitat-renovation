@@ -34,6 +34,10 @@ def agreger_lignes(lignes: Sequence[LigneControlee]) -> LigneControlee | None:
         return None
     if len({ligne.unite_implicite for ligne in lignes}) != 1:
         return None
+    # Même code mais articles différents : chaque quantité est convertie
+    # dans l'unité de facturation de son article, deux unités possibles.
+    if len({ligne.article_id for ligne in lignes}) != 1:
+        return None
     if len(lignes) == 1:
         return lignes[0]
     return replace(

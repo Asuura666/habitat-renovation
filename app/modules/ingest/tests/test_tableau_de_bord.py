@@ -858,7 +858,10 @@ async def test_tableau_de_bord_bon_manquant_deja_regle_nest_plus_a_verifier(
 
     par_nom = {chantier.nom_canonique: chantier for chantier in tdb.chantiers}
     for nom in ("Résidence Test", "Maison Test"):
-        assert par_nom[nom].etat == "conforme", nom
+        # Ni « BL manquant » ni montant à vérifier ; mais le bloc reste sans
+        # bon : l'état se décide sur les blocs (correction commune 2/3, I2),
+        # le chantier n'est donc pas « conforme » mais « à voir ».
+        assert par_nom[nom].etat == "a_voir", nom
         assert par_nom[nom].a_verifier == Decimal("0"), nom
         assert par_nom[nom].montants.a_verifier == Decimal("0"), nom
         assert par_nom[nom].montants.nb_anomalies_ouvertes == 0, nom

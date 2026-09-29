@@ -11,7 +11,11 @@ from decimal import Decimal
 from typing import Any
 
 from app.modules.ingest.regroupement_lignes import construire_lignes_rapprochees
-from app.modules.normalize.appariement import LigneAApparier, apparier_lignes
+from app.modules.normalize.appariement import (
+    Appariement,
+    LigneAApparier,
+    apparier_lignes,
+)
 from app.modules.rules.engine import evaluer_facture
 from app.modules.rules.modeles import (
     Anomalie,
@@ -176,3 +180,38 @@ def test_liens_persistes_toutes_les_lignes_de_bl_du_groupe_sont_reliees() -> Non
     assert {lien.ligne_bl_id for lien in construction.liens} == {b.id for b in bl}
     assert construction.liens[0].ecart_qte == Decimal("0")
     assert construction.cles_bl_couvertes == {bl[0].id, bl[1].id}
+
+
+def test_groupe_d_articles_differents_n_est_pas_agrege() -> None:
+    """Constat 8 : deux lignes de même code rattachées à deux articles
+    différents (donc converties dans deux unités de facturation possibles)
+    ne sont jamais additionnées : retour à la comparaison ligne à ligne."""
+    anomalies = _anomalies(
+        [
+            _ligne("X", "10", article_id=uuid.uuid4()),
+            _ligne("X", "10", article_id=uuid.uuid4()),
+        ],
+        [_ligne("X", "20")],
+    )
+    assert sorted(a.regle for a in anomalies) == ["R04", "R05"]
+
+
+def test_appariement_de_groupe_incoherent_ne_leve_pas() -> None:
+    """Constat 7 : un groupe de facture qui ne contient pas la ligne (donnée
+    incohérente, jamais produite par `apparier_lignes`) laisse la ligne sans
+    bon au lieu de lever `ValueError`."""
+    facture = [_ligne("X", "10"), _ligne("X", "10", type_ligne="eco")]
+    bl = [_ligne("X", "10")]
+    autre = uuid.uuid4()
+    appariements = tuple(
+        Appariement(
+            cle_facture=ligne.id,
+            cle_bl=bl[0].id,
+            methode="code",
+            groupe_facture=(autre,),
+            groupe_bl=(bl[0].id,),
+        )
+        for ligne in facture
+    )
+    construction = construire_lignes_rapprochees(facture, bl, appariements)
+    assert [ligne.bl for ligne in construction.lignes] == [None, None]

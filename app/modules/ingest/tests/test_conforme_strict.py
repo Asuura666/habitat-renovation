@@ -305,3 +305,82 @@ async def test_facture_a_verifier_jamais_conforme_meme_avec_bon_valide(
     lignes = await _liste(db_session)
     assert lignes[0].categorie == "a_verifier"
     assert lignes[0].montants.conforme == Decimal("0")
+
+
+# --------------------------------------------------------------------------
+# État d'un chantier à l'accueil décidé sur les blocs (I2)
+# --------------------------------------------------------------------------
+
+
+async def _etat_du_chantier(db_session: AsyncSession, chantier: Chantier) -> str:
+    tableau = await tableau_de_bord(db_session, mois=_MOIS)
+    return next(c.etat for c in tableau.chantiers if c.chantier_id == chantier.id)
+
+
+async def test_etat_chantier_tous_blocs_conformes_est_conforme(
+    db_session: AsyncSession,
+) -> None:
+    chantier = await _creer_chantier(db_session, nom="Chantier propre")
+    await _livraison(db_session, numero="E1", chantier=chantier)
+    await _livraison(db_session, numero="E2", chantier=chantier)
+
+    assert await _etat_du_chantier(db_session, chantier) == "conforme"
+
+
+async def test_etat_chantier_bloc_a_verifier_a_zero_euro_n_est_pas_conforme(
+    db_session: AsyncSession,
+) -> None:
+    """Un bloc « à vérifier » (bon non validé) à 0 € ne pèse rien dans
+    `a_verifier` : l'état se décide sur les blocs, pas sur le montant."""
+    chantier = await _creer_chantier(db_session, nom="Chantier zéro")
+    await _livraison(
+        db_session,
+        numero="E3",
+        montant="0.00",
+        statut_bl="a_verifier",
+        chantier=chantier,
+    )
+
+    assert await _etat_du_chantier(db_session, chantier) == "a_voir"
+
+
+async def test_etat_chantier_avoir_qui_annule_une_facture_n_est_pas_conforme(
+    db_session: AsyncSession,
+) -> None:
+    """Facture à vérifier de 100 € annulée par un avoir de -100 € : la somme
+    « à vérifier » est nulle, le chantier n'est pourtant pas conforme."""
+    chantier = await _creer_chantier(db_session, nom="Chantier avoir")
+    await _livraison(
+        db_session,
+        numero="E4",
+        montant="100.00",
+        statut_bl="a_verifier",
+        chantier=chantier,
+    )
+    await _livraison(
+        db_session,
+        numero="E5",
+        montant="-100.00",
+        statut_bl="a_verifier",
+        chantier=chantier,
+    )
+
+    assert await _etat_du_chantier(db_session, chantier) == "a_voir"
+
+
+async def test_etat_chantier_blocs_sans_bon_sans_anomalie_ouverte_pas_conforme(
+    db_session: AsyncSession,
+) -> None:
+    """Un bloc « sans bon » dont le problème a été traité (aucune anomalie
+    ouverte) ne rend pas le chantier conforme."""
+    chantier = await _creer_chantier(db_session, nom="Chantier sans bon")
+    bloc, _ = await _livraison(
+        db_session,
+        numero="E6",
+        statut_bl=None,
+        statut_rapprochement="non_recu",
+        chantier=chantier,
+    )
+    await _creer_anomalie(db_session, regle="R01", bloc_id=bloc.id, statut="ignoree")
+
+    assert await _etat_du_chantier(db_session, chantier) == "a_voir"

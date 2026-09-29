@@ -289,10 +289,14 @@ def _etat_chantier(
         return "prix"
     if "quantites" in categories:
         return "quantites"
-    # Un chantier n'est « conforme » que si toutes ses livraisons le sont
-    # (définition unique d'`ingest.bilan`) : un bon à vérifier ou une
-    # facture à vérifier, même sans anomalie, le met « à voir ».
-    if ligne.montants.nb_anomalies_ouvertes > 0 or ligne.montants.a_verifier != 0:
+    # Un chantier n'est « conforme » que si tous ses blocs du mois le sont
+    # (définition unique d'`ingest.bilan`, comptés côté serveur) : un bon ou
+    # une facture à vérifier, un bloc sans bon, même à 0 € ou sans anomalie
+    # ouverte, le met « à voir » -- jamais décidé sur un montant.
+    if (
+        ligne.montants.nb_anomalies_ouvertes > 0
+        or ligne.montants.nb_blocs_non_conformes > 0
+    ):
         return "a_voir"
     return "conforme"
 
