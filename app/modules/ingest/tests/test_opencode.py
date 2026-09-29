@@ -26,7 +26,14 @@ from app.core.fuseau import FUSEAU_PARIS
 from app.modules.extract.reponses_ia import PageLue
 from app.modules.ingest import opencode
 from app.modules.ingest.models import AppelIA, Fournisseur
-from app.modules.ingest.opencode import ErreurIA, IAIndisponible, interroger
+from app.modules.ingest.opencode import (
+    AGENTS_ATTENDUS,
+    DiagnosticIA,
+    ErreurIA,
+    IAIndisponible,
+    diagnostic_ia,
+    interroger,
+)
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
 
@@ -724,3 +731,268 @@ async def test_interroger_journal_defaillant_sur_echec_ne_masque_pas_lorigine(
         )
 
     assert exc_info.value.code == "http_401"
+
+
+# --------------------------------------------------------------------------
+# `ReponseIA.brut` / `ErreurIA.brut` (Laboratoire IA, tâche LABO)
+# --------------------------------------------------------------------------
+
+
+async def test_interroger_reponse_brut_porte_info_et_parts(
+    db_session: AsyncSession,
+) -> None:
+    reponses = _reponse_nominale()
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+
+    resultat = await interroger(
+        db_session,
+        http,
+        usage="synthese",
+        agent="habitat-synthese",
+        texte=TEXTE_ENVOYE_INVENTE,
+        schema=SCHEMA_INVENTE,
+    )
+
+    assert isinstance(resultat.brut, dict)
+    assert resultat.brut["info"]["structured"] == {
+        "resume": "résumé inventé",
+        "actions": [],
+    }
+    assert len(resultat.brut["parts"]) == 4
+
+
+async def test_interroger_erreur_ia_porte_info_error_brut(
+    db_session: AsyncSession,
+) -> None:
+    erreur_info = {
+        "name": "ProviderAuthError",
+        "data": {
+            "providerID": "fournisseur-invente",
+            "message": "message d'erreur inventé",
+        },
+    }
+    info = _info_minimal(error=erreur_info)
+    reponses = {
+        ("POST", "/session"): httpx.Response(200, json={"id": "ses_test_1"}),
+        ("POST", "/session/ses_test_1/message"): httpx.Response(
+            200, json={"info": info, "parts": []}
+        ),
+        ("DELETE", "/session/ses_test_1"): httpx.Response(200, json=True),
+    }
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+
+    with pytest.raises(ErreurIA) as exc_info:
+        await interroger(
+            db_session,
+            http,
+            usage="explication",
+            agent="habitat-explication",
+            texte=TEXTE_ENVOYE_INVENTE,
+            schema=SCHEMA_INVENTE,
+        )
+
+    assert exc_info.value.brut == erreur_info
+    # Jamais dans le message (même principe que le mot de passe/le texte
+    # envoyé, brief T-LABO).
+    assert "message d'erreur inventé" not in str(exc_info.value)
+
+
+async def test_interroger_erreur_sans_info_error_brut_none(
+    db_session: AsyncSession,
+) -> None:
+    """`ErreurIA.brut` reste `None` quand l'échec ne vient pas d'`info.error`
+    (ex. un statut HTTP 401 avant même d'atteindre `info`)."""
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(401, json={"message": "non autorisé"})
+        )
+    )
+
+    with pytest.raises(ErreurIA) as exc_info:
+        await interroger(
+            db_session,
+            http,
+            usage="prix",
+            agent="habitat-prix",
+            texte=TEXTE_ENVOYE_INVENTE,
+            schema=SCHEMA_INVENTE,
+        )
+
+    assert exc_info.value.brut is None
+
+
+# --------------------------------------------------------------------------
+# diagnostic_ia (Laboratoire IA, tâche LABO)
+# --------------------------------------------------------------------------
+
+
+def _reponses_diagnostic(
+    *,
+    agents: dict[str, Any] | None = None,
+    connected: list[str] | None = None,
+    outils: list[str] | None = None,
+) -> dict[tuple[str, str], httpx.Response]:
+    agents_effectifs = (
+        agents
+        if agents is not None
+        else {
+            "habitat-synthese": {},
+            "habitat-explication": {},
+            "habitat-prix": {},
+            "un-autre-agent": {},
+        }
+    )
+    connected_effectifs = connected if connected is not None else ["opencode", "openai"]
+    outils_effectifs = (
+        outils if outils is not None else ["bash", "websearch", "webfetch"]
+    )
+    return {
+        ("GET", "/agent"): httpx.Response(200, json=agents_effectifs),
+        ("GET", "/provider"): httpx.Response(
+            200,
+            json={"all": [], "connected": connected_effectifs, "default": "openai"},
+        ),
+        ("GET", "/experimental/tool/ids"): httpx.Response(200, json=outils_effectifs),
+    }
+
+
+async def test_diagnostic_ia_eteinte_aucune_requete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("aucune requête ne doit être faite, IA éteinte")
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(
+        opencode, "get_settings", lambda: _SettingsIAFake(ia_active=False)
+    )
+
+    resultat = await diagnostic_ia(http)
+
+    assert resultat == DiagnosticIA(
+        ia_active=False,
+        url_configuree=True,
+        joignable=False,
+        joignable_detail=None,
+        agents=frozenset(),
+        abonnement_connecte=False,
+        recherche_web=False,
+    )
+
+
+async def test_diagnostic_ia_eteinte_sans_url_configuree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        opencode,
+        "get_settings",
+        lambda: _SettingsIAFake(ia_active=False, opencode_url=None),
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("aucune requête, IA éteinte")
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    resultat = await diagnostic_ia(http)
+
+    assert resultat.url_configuree is False
+
+
+async def test_diagnostic_ia_active_nominal(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(opencode, "get_settings", lambda: _SettingsIAFake())
+    reponses = _reponses_diagnostic()
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+
+    resultat = await diagnostic_ia(http)
+
+    assert resultat.ia_active is True
+    assert resultat.url_configuree is True
+    assert resultat.joignable is True
+    assert resultat.joignable_detail == "200"
+    assert resultat.agents == AGENTS_ATTENDUS
+    assert resultat.abonnement_connecte is True
+    assert resultat.recherche_web is True
+
+
+async def test_diagnostic_ia_abonnement_non_connecte(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(opencode, "get_settings", lambda: _SettingsIAFake())
+    reponses = _reponses_diagnostic(connected=["opencode"])
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+
+    resultat = await diagnostic_ia(http)
+
+    assert resultat.abonnement_connecte is False
+
+
+async def test_diagnostic_ia_recherche_web_absente(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(opencode, "get_settings", lambda: _SettingsIAFake())
+    reponses = _reponses_diagnostic(outils=["bash", "webfetch"])
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+
+    resultat = await diagnostic_ia(http)
+
+    assert resultat.recherche_web is False
+
+
+async def test_diagnostic_ia_agents_partiels(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(opencode, "get_settings", lambda: _SettingsIAFake())
+    reponses = _reponses_diagnostic(agents={"habitat-synthese": {}})
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+
+    resultat = await diagnostic_ia(http)
+
+    assert resultat.agents == {"habitat-synthese"}
+
+
+async def test_diagnostic_ia_injoignable_ne_leve_pas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Brief LABO : « aucune exception ne remonte » -- une panne réseau se
+    traduit en `joignable=False` avec le nom de l'exception, jamais une
+    exception qui remonte à l'appelant."""
+    monkeypatch.setattr(opencode, "get_settings", lambda: _SettingsIAFake())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("panne réseau inventée", request=request)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    resultat = await diagnostic_ia(http)
+
+    assert resultat.joignable is False
+    assert resultat.joignable_detail == "ConnectError"
+    assert resultat.agents == frozenset()
+    assert resultat.abonnement_connecte is False
+    assert resultat.recherche_web is False
+
+
+async def test_diagnostic_ia_statut_http_erreur(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(opencode, "get_settings", lambda: _SettingsIAFake())
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(500))
+    )
+
+    resultat = await diagnostic_ia(http)
+
+    assert resultat.joignable is False
+    assert resultat.joignable_detail == "500"
+
+
+# --------------------------------------------------------------------------
+# ia_appels_max_jour (Laboratoire IA, tâche LABO) -- même principe qu'ia_active
+# --------------------------------------------------------------------------
+
+
+def test_ia_appels_max_jour_lit_les_reglages(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        opencode, "get_settings", lambda: _SettingsIAFake(ia_appels_max_jour=17)
+    )
+
+    assert opencode.ia_appels_max_jour() == 17
