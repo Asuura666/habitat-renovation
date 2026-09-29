@@ -12,11 +12,18 @@ from decimal import Decimal
 import pytest
 
 from app.modules.extract.reponses_ia import (
+    _CONTROLE_NON_EVALUE as _CONTROLE_NON_EVALUE_ATTENDU,
+)
+from app.modules.extract.reponses_ia import (
     ActionLue,
+    Controle,
     PageLue,
     PrixInternetLu,
     ReponseIAInvalide,
     SyntheseLue,
+    controles_explication,
+    controles_prix_internet,
+    controles_synthese,
     lire_explication,
     lire_prix_internet,
     lire_synthese,
@@ -823,3 +830,288 @@ def test_lire_prix_internet_taxes_valeur_inattendue_devient_none() -> None:
     resultat = lire_prix_internet(structure, pages=pages)
 
     assert resultat.taxes is None
+
+
+# --------------------------------------------------------------------------
+# Controle (dataclass) -- immuable, comme `PageLue`/`ActionLue`.
+# --------------------------------------------------------------------------
+
+
+def test_controle_immuable() -> None:
+    controle = Controle(nom="Un contrôle", ok=True, detail="tout va bien")
+
+    assert controle.nom == "Un contrôle"
+    assert controle.ok is True
+    assert controle.detail == "tout va bien"
+    with pytest.raises(AttributeError):
+        controle.ok = False  # type: ignore[misc]
+
+
+# --------------------------------------------------------------------------
+# controles_prix_internet (Laboratoire IA) -- toujours les quatre gardes,
+# dans l'ordre, cohérentes avec `lire_prix_internet` sur la même entrée.
+# --------------------------------------------------------------------------
+
+
+def test_controles_prix_internet_structure_non_dict() -> None:
+    controles = controles_prix_internet("pas un dict", pages=[])
+
+    assert len(controles) == 4
+    assert controles[0].ok is False
+    assert all(controle.ok is False for controle in controles)
+
+
+def test_controles_prix_internet_statut_non_verifiable_une_seule_garde_evaluee() -> (
+    None
+):
+    structure = {"statut": "prix_non_verifiable", "raison": "aucun résultat"}
+
+    controles = controles_prix_internet(structure, pages=[])
+
+    assert len(controles) == 4
+    assert controles[0].ok is False
+    for controle in controles[1:]:
+        assert controle.ok is False
+        assert "non vérifié" in controle.detail
+
+
+def test_controles_prix_internet_garde1_positive_si_trouve() -> None:
+    structure = _structure_trouve()
+
+    controles = controles_prix_internet(structure, pages=[])
+
+    assert controles[0].ok is True
+
+
+def test_controles_prix_internet_garde2_negative_si_champ_manquant() -> None:
+    structure = _structure_trouve(devise="USD")
+
+    controles = controles_prix_internet(structure, pages=[])
+
+    assert controles[0].ok is True
+    assert controles[1].ok is False
+    assert controles[2].detail == _CONTROLE_NON_EVALUE_ATTENDU
+    assert controles[3].detail == _CONTROLE_NON_EVALUE_ATTENDU
+
+
+def test_controles_prix_internet_garde3_nom_correspond_au_brief() -> None:
+    """Le brief donne cet exemple exact de `nom`/`detail` pour la garde 3."""
+    structure = _structure_trouve(source_url="https://fournisseur.test/ciment")
+
+    controles = controles_prix_internet(structure, pages=[])
+
+    assert controles[2].nom == "La page source a vraiment été ouverte"
+    assert controles[2].ok is False
+    assert "aucune page ouverte" in controles[2].detail
+
+
+def test_controles_prix_internet_garde3_positive_si_page_ouverte() -> None:
+    structure = _structure_trouve(source_url="https://fournisseur.test/ciment")
+    pages = [
+        PageLue(
+            outil="webfetch",
+            adresse="https://fournisseur.test/ciment",
+            texte="Aucun prix mentionné ici.",
+        )
+    ]
+
+    controles = controles_prix_internet(structure, pages=pages)
+
+    assert controles[2].ok is True
+    assert "https://fournisseur.test/ciment" in controles[2].detail
+    assert controles[3].ok is False
+
+
+def test_controles_prix_internet_toutes_gardes_positives() -> None:
+    structure = _structure_trouve(
+        prix=12.34, source_url="https://fournisseur.test/ciment"
+    )
+    pages = [
+        PageLue(
+            outil="webfetch",
+            adresse="https://fournisseur.test/ciment",
+            texte="Ciment 25kg à 12,34 € TTC.",
+        )
+    ]
+
+    controles = controles_prix_internet(structure, pages=pages)
+
+    assert [controle.ok for controle in controles] == [True, True, True, True]
+
+
+def test_controles_prix_internet_coherent_avec_lire_prix_internet() -> None:
+    """Sur un même jeu d'entrées variées, le nombre de gardes réussies vaut 4
+    si et seulement si `lire_prix_internet` renvoie `trouve`."""
+    cas: list[tuple[dict[str, object], list[PageLue]]] = [
+        ({"statut": "prix_non_verifiable"}, []),
+        (_structure_trouve(devise="USD"), []),
+        (
+            _structure_trouve(source_url="https://fournisseur.test/ciment"),
+            [],
+        ),
+        (
+            _structure_trouve(prix=12.34, source_url="https://fournisseur.test/ciment"),
+            [
+                PageLue(
+                    outil="webfetch",
+                    adresse="https://fournisseur.test/ciment",
+                    texte="Ciment 25kg à 12,34 € TTC.",
+                )
+            ],
+        ),
+    ]
+    for structure, pages in cas:
+        resultat = lire_prix_internet(structure, pages=pages)
+        controles = controles_prix_internet(structure, pages=pages)
+        toutes_ok = all(controle.ok for controle in controles)
+        assert toutes_ok == (resultat.statut == "trouve")
+
+
+# --------------------------------------------------------------------------
+# controles_explication (Laboratoire IA)
+# --------------------------------------------------------------------------
+
+
+def test_controles_explication_structure_non_dict() -> None:
+    controles = controles_explication("pas un dict", {})
+
+    assert len(controles) == 1
+    assert controles[0].ok is False
+
+
+def test_controles_explication_champ_manquant() -> None:
+    controles = controles_explication({}, {})
+
+    assert len(controles) == 1
+    assert controles[0].ok is False
+
+
+def test_controles_explication_vide() -> None:
+    controles = controles_explication({"explication": "   "}, {})
+
+    assert [c.ok for c in controles] == [True, False]
+
+
+def test_controles_explication_trop_longue() -> None:
+    controles = controles_explication({"explication": "a" * 401}, {})
+
+    assert [c.ok for c in controles] == [True, False]
+
+
+def test_controles_explication_nombre_valide_et_invente() -> None:
+    detail = {"prix_bon": Decimal("12.50")}
+    structure = {"explication": "Le prix de 12,50 dépasse la référence de 99."}
+
+    controles = controles_explication(structure, detail)
+
+    # Forme, longueur, puis un contrôle par nombre écrit (12,50 puis 99).
+    assert [c.ok for c in controles] == [True, True, True, False]
+    assert controles[2].detail == "12,50 figure dans les données"
+    assert controles[3].detail == "99 absent des données"
+
+
+def test_controles_explication_sans_nombre() -> None:
+    controles = controles_explication({"explication": "Rien à signaler ici."}, {})
+
+    assert [c.ok for c in controles] == [True, True]
+
+
+def test_controles_explication_coherente_avec_lire_explication() -> None:
+    """Le nombre de contrôles « nombre » réussis correspond exactement au
+    fait que `lire_explication` accepte (ou non) la réponse."""
+    detail = {"prix_bon": Decimal("12.50")}
+    for structure, accepte in (
+        ({"explication": "Le prix de 12,50 est confirmé."}, True),
+        ({"explication": "Le prix de 99 est confirmé."}, False),
+    ):
+        controles = controles_explication(structure, detail)
+        try:
+            lire_explication(structure, detail)
+            ok_reel = True
+        except ReponseIAInvalide:
+            ok_reel = False
+        assert ok_reel == accepte
+        assert all(c.ok for c in controles) == accepte
+
+
+# --------------------------------------------------------------------------
+# controles_synthese (Laboratoire IA)
+# --------------------------------------------------------------------------
+
+
+def test_controles_synthese_structure_non_dict() -> None:
+    controles = controles_synthese("pas un dict", references_valides=[])
+
+    assert len(controles) == 1
+    assert controles[0].ok is False
+
+
+def test_controles_synthese_champ_manquant() -> None:
+    controles = controles_synthese({"resume": "ok"}, references_valides=[])
+
+    assert len(controles) == 1
+    assert controles[0].ok is False
+
+
+def test_controles_synthese_resume_vide() -> None:
+    controles = controles_synthese(
+        {"resume": "   ", "actions": []}, references_valides=[]
+    )
+
+    assert [c.ok for c in controles] == [True, False]
+
+
+def test_controles_synthese_action_gardee_ecartee_et_pourquoi() -> None:
+    structure = {
+        "resume": "Deux soucis cette semaine.",
+        "actions": [
+            {"texte": "Relancer Unikalo", "commentaires": ["c1", "c99"]},
+            {"texte": "   ", "commentaires": ["c1"]},
+            {"texte": "Action fantôme", "commentaires": ["c99"]},
+        ],
+    }
+
+    controles = controles_synthese(structure, references_valides=["c1", "c2"])
+
+    # forme, résumé, puis une ligne par action.
+    assert len(controles) == 5
+    assert controles[0].ok is True
+    assert controles[1].ok is True
+    assert controles[2].ok is True  # gardée, référence inconnue retirée
+    assert "inconnue" in controles[2].detail
+    assert controles[3].ok is False  # sans texte
+    assert "sans texte" in controles[3].detail
+    assert controles[4].ok is False  # aucune référence valide
+    assert "aucune référence valide" in controles[4].detail
+
+
+def test_controles_synthese_au_dela_de_dix_actions() -> None:
+    actions = [{"texte": f"action {i}", "commentaires": [f"c{i}"]} for i in range(12)]
+    structure = {"resume": "ok", "actions": actions}
+    references_valides = [f"c{i}" for i in range(12)]
+
+    controles = controles_synthese(structure, references_valides=references_valides)
+
+    # forme, résumé, dix actions gardées, deux au-delà écartées.
+    assert len(controles) == 2 + 12
+    assert all(c.ok for c in controles[2:12])
+    assert controles[12].ok is False
+    assert controles[13].ok is False
+    assert "au-delà" in controles[12].detail
+
+
+def test_controles_synthese_coherente_avec_lire_synthese() -> None:
+    structure = {
+        "resume": "Résumé.",
+        "actions": [
+            {"texte": "Action valide", "commentaires": ["c1"]},
+            {"texte": "Action fantôme", "commentaires": ["c99"]},
+        ],
+    }
+    references_valides = ["c1", "c2"]
+
+    resultat = lire_synthese(structure, references_valides=references_valides)
+    controles = controles_synthese(structure, references_valides=references_valides)
+
+    nb_actions_gardees_controles = sum(1 for controle in controles[2:] if controle.ok)
+    assert nb_actions_gardees_controles == len(resultat.actions)

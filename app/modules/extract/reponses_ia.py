@@ -51,6 +51,33 @@ class ReponseIAInvalide(Exception):
 
 
 # --------------------------------------------------------------------------
+# Détail d'un contrôle anti-invention (Laboratoire IA, tâche LABO) : chaque
+# fonction `controles_...` ci-dessous détaille, contrôle par contrôle, ce que
+# sa fonction `lire_...` correspondante vérifie déjà -- jamais une seconde
+# implémentation des gardes (les deux s'appuient sur les mêmes fonctions
+# privées), seulement une vue plus détaillée pour l'écran d'essai admin.
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Controle:
+    """Un contrôle anti-invention appliqué à une réponse de l'IA, tel
+    qu'affiché à l'admin sur le Laboratoire IA. `nom` : ce qui est vérifié,
+    en français courant (ex. « La page source a vraiment été ouverte »).
+    `detail` : le verdict précis pour cette réponse (ex. « page https://…
+    lue » / « aucune page ouverte à cette adresse »). Un contrôle qui n'a pas
+    pu être évalué parce qu'un contrôle précédent a déjà échoué porte
+    `ok=False` et `detail="non vérifié (contrôle précédent en échec)"`."""
+
+    nom: str
+    ok: bool
+    detail: str
+
+
+_CONTROLE_NON_EVALUE = "non vérifié (contrôle précédent en échec)"
+
+
+# --------------------------------------------------------------------------
 # Page lue par l'orchestrateur (T3), consommée ici pour la garde 3 du prix
 # --------------------------------------------------------------------------
 
@@ -180,6 +207,92 @@ def lire_synthese(structure: Any, references_valides: Collection[str]) -> Synthe
     return SyntheseLue(resume=resume, actions=tuple(actions))
 
 
+_NOM_FORME_SYNTHESE = "La réponse a la forme attendue (résumé et actions)"
+_NOM_RESUME_SYNTHESE = "Le résumé n'est pas vide"
+
+
+def controles_synthese(
+    structure: Any, references_valides: Collection[str]
+) -> tuple[Controle, ...]:
+    """Détail, contrôle par contrôle, de ce que vérifie `lire_synthese` sur
+    la même entrée (Laboratoire IA) : forme de la réponse, résumé non vide,
+    puis une ligne par action brute -- gardée (toutes ses références valides,
+    ou certaines retirées) ou écartée (sans texte, aucune référence valide,
+    au-delà des `_ACTIONS_MAX` premières). Jamais de seconde implémentation
+    des gardes : mêmes conditions que `lire_synthese`, lues sur la même
+    entrée."""
+    if not isinstance(structure, dict):
+        return (Controle(_NOM_FORME_SYNTHESE, False, "réponse de l'IA invalide"),)
+
+    resume_brut = structure.get("resume")
+    actions_brutes = structure.get("actions")
+    if not isinstance(resume_brut, str) or not isinstance(actions_brutes, list):
+        return (
+            Controle(
+                _NOM_FORME_SYNTHESE,
+                False,
+                "champ « resume » ou « actions » manquant ou invalide",
+            ),
+        )
+    controles: list[Controle] = [
+        Controle(_NOM_FORME_SYNTHESE, True, "réponse bien formée")
+    ]
+
+    resume = resume_brut.strip()
+    if not resume:
+        controles.append(Controle(_NOM_RESUME_SYNTHESE, False, "résumé vide"))
+        return tuple(controles)
+    controles.append(
+        Controle(_NOM_RESUME_SYNTHESE, True, f"{len(resume)} caractère(s)")
+    )
+
+    references_valides_figees = frozenset(references_valides)
+    for indice, action_brute in enumerate(actions_brutes, start=1):
+        nom = f"Action {indice} de la réponse"
+        if indice > _ACTIONS_MAX:
+            controles.append(
+                Controle(nom, False, f"au-delà des {_ACTIONS_MAX} premières, écartée")
+            )
+            continue
+        if not isinstance(action_brute, dict):
+            controles.append(Controle(nom, False, "action mal formée, écartée"))
+            continue
+        texte_brut = action_brute.get("texte")
+        commentaires_bruts = action_brute.get("commentaires")
+        if not isinstance(texte_brut, str) or not isinstance(commentaires_bruts, list):
+            controles.append(Controle(nom, False, "action mal formée, écartée"))
+            continue
+        if not texte_brut.strip():
+            controles.append(Controle(nom, False, "sans texte, écartée"))
+            continue
+
+        references_valides_de_laction = [
+            reference
+            for reference in commentaires_bruts
+            if isinstance(reference, str) and reference in references_valides_figees
+        ]
+        references_inconnues = [
+            reference
+            for reference in commentaires_bruts
+            if not (
+                isinstance(reference, str) and reference in references_valides_figees
+            )
+        ]
+        if not references_valides_de_laction:
+            controles.append(Controle(nom, False, "aucune référence valide, écartée"))
+            continue
+
+        if references_inconnues:
+            detail = "gardée, références inconnues retirées : " + ", ".join(
+                str(reference) for reference in references_inconnues
+            )
+        else:
+            detail = "gardée, toutes les références citées sont valides"
+        controles.append(Controle(nom, True, detail))
+
+    return tuple(controles)
+
+
 # --------------------------------------------------------------------------
 # Explication d'une alerte prix (§5.2) -- garde des chiffres
 # --------------------------------------------------------------------------
@@ -307,6 +420,72 @@ def lire_explication(structure: Any, detail: Mapping[str, Any]) -> str:
             raise ReponseIAInvalide("chiffre absent des données")
 
     return explication
+
+
+_NOM_FORME_EXPLICATION = "La réponse a la forme attendue (texte)"
+_NOM_LONGUEUR_EXPLICATION = (
+    f"Le texte n'est ni vide ni trop long ({_EXPLICATION_MAX} caractères au plus)"
+)
+
+
+def controles_explication(
+    structure: Any, detail: Mapping[str, Any]
+) -> tuple[Controle, ...]:
+    """Détail, contrôle par contrôle, de ce que vérifie `lire_explication`
+    sur la même entrée (Laboratoire IA) : forme de la réponse, longueur, puis
+    un contrôle par nombre écrit dans l'explication -- même garde que
+    `lire_explication` (`_nombre_valide_dans_detail`, lecture fusionnée ou
+    par parties), jamais une seconde implémentation."""
+    if not isinstance(structure, dict):
+        return (Controle(_NOM_FORME_EXPLICATION, False, "réponse de l'IA invalide"),)
+
+    explication_brute = structure.get("explication")
+    if not isinstance(explication_brute, str):
+        return (
+            Controle(
+                _NOM_FORME_EXPLICATION,
+                False,
+                "champ « explication » manquant ou invalide",
+            ),
+        )
+    controles: list[Controle] = [
+        Controle(_NOM_FORME_EXPLICATION, True, "réponse bien formée")
+    ]
+
+    explication = explication_brute.strip()
+    if not explication:
+        controles.append(Controle(_NOM_LONGUEUR_EXPLICATION, False, "texte vide"))
+        return tuple(controles)
+    if len(explication) > _EXPLICATION_MAX:
+        controles.append(
+            Controle(
+                _NOM_LONGUEUR_EXPLICATION,
+                False,
+                f"{len(explication)} caractères, plus de {_EXPLICATION_MAX}",
+            )
+        )
+        return tuple(controles)
+    controles.append(
+        Controle(_NOM_LONGUEUR_EXPLICATION, True, f"{len(explication)} caractère(s)")
+    )
+
+    nombres_detail = _nombres_de_valeur(detail)
+    for correspondance in _NOMBRE_RE.finditer(explication):
+        brut = correspondance.group()
+        valide = _nombre_valide_dans_detail(brut, nombres_detail)
+        controles.append(
+            Controle(
+                nom=f"Le nombre « {brut} » écrit par l'IA",
+                ok=valide,
+                detail=(
+                    f"{brut} figure dans les données"
+                    if valide
+                    else f"{brut} absent des données"
+                ),
+            )
+        )
+
+    return tuple(controles)
 
 
 # --------------------------------------------------------------------------
@@ -488,16 +667,21 @@ def _prix_dans_texte(prix: Decimal, texte: str) -> bool:
     return any(re.search(motif, texte, re.IGNORECASE) for motif in motifs)
 
 
-def lire_prix_internet(structure: Any, pages: Sequence[PageLue]) -> PrixInternetLu:
-    """Lit et garde une réponse `SCHEMA_PRIX_INTERNET`. Seule une
-    `structure` qui n'est pas un dict est un échec de contrat (exception) :
-    toute autre réponse douteuse (statut inconnu, champ manquant, source
-    non ouverte par l'IA, prix introuvable dans la page) donne un résultat
-    `non_verifiable`, jamais une exception -- la recherche sur internet est
-    par nature incertaine (§6.2)."""
-    if not isinstance(structure, dict):
-        raise ReponseIAInvalide("réponse de l'IA invalide")
+_NOM_GARDE_STATUT = "L'IA annonce un prix, pas « non vérifiable »"
+_NOM_GARDE_COMPLETE = "La réponse est complète (prix, devise, source, confiance)"
+_NOM_GARDE_PAGE_OUVERTE = "La page source a vraiment été ouverte"
+_NOM_GARDE_PRIX_DANS_PAGE = "Le prix annoncé figure dans le texte de la page"
 
+
+def _gardes_prix_internet(
+    structure: dict[Any, Any], pages: Sequence[PageLue]
+) -> tuple[PrixInternetLu, tuple[Controle, Controle, Controle, Controle]]:
+    """Évalue les quatre gardes du §6.2, une seule fois -- `lire_prix_internet`
+    (résultat) et `controles_prix_internet` (détail affiché à l'admin,
+    Laboratoire IA) s'appuient toutes les deux sur cette fonction, jamais sur
+    deux implémentations distinctes des gardes. Une garde non atteinte parce
+    qu'une garde précédente a déjà échoué porte `ok=False` et
+    `detail=_CONTROLE_NON_EVALUE`."""
     statut_brut = structure.get("statut")
 
     # Garde 1. `raison` est coupée brutalement à `_RAISON_MAX` caractères
@@ -509,10 +693,24 @@ def lire_prix_internet(structure: Any, pages: Sequence[PageLue]) -> PrixInternet
         raison = (
             raison_brute[:_RAISON_MAX] if raison_brute is not None else "non vérifiable"
         )
-        return _non_verifiable(structure, raison)
+        return _non_verifiable(structure, raison), (
+            Controle(_NOM_GARDE_STATUT, False, "l'IA répond « prix non vérifiable »"),
+            Controle(_NOM_GARDE_COMPLETE, False, _CONTROLE_NON_EVALUE),
+            Controle(_NOM_GARDE_PAGE_OUVERTE, False, _CONTROLE_NON_EVALUE),
+            Controle(_NOM_GARDE_PRIX_DANS_PAGE, False, _CONTROLE_NON_EVALUE),
+        )
 
     if statut_brut != "trouve":
-        return _non_verifiable(structure, "réponse incomplète")
+        return _non_verifiable(structure, "réponse incomplète"), (
+            Controle(
+                _NOM_GARDE_STATUT, False, "réponse de l'IA sans statut exploitable"
+            ),
+            Controle(_NOM_GARDE_COMPLETE, False, _CONTROLE_NON_EVALUE),
+            Controle(_NOM_GARDE_PAGE_OUVERTE, False, _CONTROLE_NON_EVALUE),
+            Controle(_NOM_GARDE_PRIX_DANS_PAGE, False, _CONTROLE_NON_EVALUE),
+        )
+
+    garde_statut = Controle(_NOM_GARDE_STATUT, True, "l'IA répond « trouvé »")
 
     # Garde 2.
     prix_brut = structure.get("prix")
@@ -531,24 +729,58 @@ def lire_prix_internet(structure: Any, pages: Sequence[PageLue]) -> PrixInternet
         and confiance in _CONFIANCES_VALIDES
     )
     if not reponse_complete or source_url is None:
-        return _non_verifiable(structure, "réponse incomplète")
+        return _non_verifiable(structure, "réponse incomplète"), (
+            garde_statut,
+            Controle(
+                _NOM_GARDE_COMPLETE,
+                False,
+                "champ manquant ou invalide (prix, devise, source ou confiance)",
+            ),
+            Controle(_NOM_GARDE_PAGE_OUVERTE, False, _CONTROLE_NON_EVALUE),
+            Controle(_NOM_GARDE_PRIX_DANS_PAGE, False, _CONTROLE_NON_EVALUE),
+        )
+    garde_complete = Controle(
+        _NOM_GARDE_COMPLETE, True, "prix, devise, source et confiance présents"
+    )
 
     # Garde 3.
     page = _page_ouverte(source_url, pages)
     if page is None:
-        return _non_verifiable(structure, "source non ouverte")
+        return _non_verifiable(structure, "source non ouverte"), (
+            garde_statut,
+            garde_complete,
+            Controle(
+                _NOM_GARDE_PAGE_OUVERTE,
+                False,
+                f"aucune page ouverte à l'adresse {source_url}",
+            ),
+            Controle(_NOM_GARDE_PRIX_DANS_PAGE, False, _CONTROLE_NON_EVALUE),
+        )
+    garde_page_ouverte = Controle(
+        _NOM_GARDE_PAGE_OUVERTE, True, f"page {source_url} lue"
+    )
 
     # Garde 4.
     prix_decimal = Decimal(str(prix_brut)).quantize(Decimal("0.0001"))
     if not _prix_dans_texte(prix_decimal, page.texte):
-        return _non_verifiable(structure, "prix absent de la page")
+        return _non_verifiable(structure, "prix absent de la page"), (
+            garde_statut,
+            garde_complete,
+            garde_page_ouverte,
+            Controle(
+                _NOM_GARDE_PRIX_DANS_PAGE, False, "prix absent du texte de la page lue"
+            ),
+        )
+    garde_prix_dans_page = Controle(
+        _NOM_GARDE_PRIX_DANS_PAGE, True, "prix retrouvé dans le texte de la page lue"
+    )
 
     taxes_brut = structure.get("taxes")
     taxes: Literal["HT", "TTC"] | None = (
         taxes_brut if taxes_brut in _TAXES_VALIDES else None
     )
 
-    return PrixInternetLu(
+    resultat = PrixInternetLu(
         statut="trouve",
         prix=prix_decimal,
         devise="EUR",
@@ -560,3 +792,40 @@ def lire_prix_internet(structure: Any, pages: Sequence[PageLue]) -> PrixInternet
         confiance=confiance,
         raison=None,
     )
+    return resultat, (
+        garde_statut,
+        garde_complete,
+        garde_page_ouverte,
+        garde_prix_dans_page,
+    )
+
+
+def lire_prix_internet(structure: Any, pages: Sequence[PageLue]) -> PrixInternetLu:
+    """Lit et garde une réponse `SCHEMA_PRIX_INTERNET`. Seule une
+    `structure` qui n'est pas un dict est un échec de contrat (exception) :
+    toute autre réponse douteuse (statut inconnu, champ manquant, source
+    non ouverte par l'IA, prix introuvable dans la page) donne un résultat
+    `non_verifiable`, jamais une exception -- la recherche sur internet est
+    par nature incertaine (§6.2)."""
+    if not isinstance(structure, dict):
+        raise ReponseIAInvalide("réponse de l'IA invalide")
+    resultat, _controles = _gardes_prix_internet(structure, pages)
+    return resultat
+
+
+def controles_prix_internet(
+    structure: Any, pages: Sequence[PageLue]
+) -> tuple[Controle, ...]:
+    """Détail des quatre gardes de `lire_prix_internet`, dans l'ordre,
+    chacune avec son verdict sur la même entrée (Laboratoire IA) -- s'appuie
+    sur `_gardes_prix_internet`, jamais sur une seconde implémentation des
+    gardes."""
+    if not isinstance(structure, dict):
+        return (
+            Controle(_NOM_GARDE_STATUT, False, "réponse de l'IA invalide"),
+            Controle(_NOM_GARDE_COMPLETE, False, _CONTROLE_NON_EVALUE),
+            Controle(_NOM_GARDE_PAGE_OUVERTE, False, _CONTROLE_NON_EVALUE),
+            Controle(_NOM_GARDE_PRIX_DANS_PAGE, False, _CONTROLE_NON_EVALUE),
+        )
+    _resultat, controles = _gardes_prix_internet(structure, pages)
+    return controles

@@ -1166,6 +1166,149 @@ class PrixInternetLotReponse(BaseModel):
 
 
 # --------------------------------------------------------------------------
+# Laboratoire IA (tâche LABO) : schémas construits à partir des dataclasses
+# d'`ingest.ia_labo` (`TraceEssai`, `OutilTrace`, `LigneAppelIA`) et
+# `ingest.opencode` (`DiagnosticIA`), consommés par `api/ia.py`.
+# --------------------------------------------------------------------------
+
+
+class ControleReponse(BaseModel):
+    """Un contrôle anti-invention -- mêmes attributs
+    qu'`extract.reponses_ia.Controle`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    nom: str
+    ok: bool
+    detail: str
+
+
+class OutilTraceReponse(BaseModel):
+    """Une recherche ou une page ouverte par l'IA pendant un essai -- mêmes
+    attributs qu'`ingest.ia_labo.OutilTrace`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    outil: str
+    adresse: str
+    extrait: str
+
+
+class TraceEssaiReponse(BaseModel):
+    """Réponse de `GET /api/ia/labo/essais/{id}` -- mêmes attributs
+    qu'`ingest.ia_labo.TraceEssai`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    type: Literal["prix", "explication", "synthese"]
+    statut: Literal["en_cours", "fini", "erreur"]
+    debut: datetime
+    fin: datetime | None
+    duree_ms: int | None
+    agent: str
+    texte_envoye: str
+    # `schema_` (jamais `schema`) : `BaseModel.schema()` est une méthode
+    # historique de Pydantic (dépréciée en v2, encore présente) -- un champ
+    # nommé `schema` écraserait son type et ferait échouer mypy strict.
+    # `alias="schema"` restitue le nom attendu côté JSON (`model_validate`
+    # lit `TraceEssai.schema` malgré l'alias, `from_attributes=True`), sans
+    # toucher au nom de l'attribut Python de la dataclass source.
+    schema_: dict[str, Any] = Field(alias="schema")
+    modele: str | None
+    outils: list[OutilTraceReponse]
+    reponse_brute: Any
+    controles: list[ControleReponse]
+    resultat: dict[str, Any] | None
+    erreur: dict[str, Any] | None
+    appels_restants: int | None
+
+
+class TraceEssaiResumeReponse(BaseModel):
+    """Une ligne de `GET /api/ia/labo/essais` (résumé, sans le texte envoyé
+    ni la réponse brute -- trop volumineux pour une liste)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    type: Literal["prix", "explication", "synthese"]
+    statut: Literal["en_cours", "fini", "erreur"]
+    debut: datetime
+    fin: datetime | None
+    duree_ms: int | None
+    erreur: dict[str, Any] | None
+
+
+class EtatLaboReponse(BaseModel):
+    """Réponse de `GET /api/ia/labo/etat` -- diagnostic (`ingest.opencode
+    .DiagnosticIA`) et appels du jour/plafond, construite à la main par le
+    routeur (deux sources combinées, jamais une seule dataclass)."""
+
+    ia_active: bool
+    url_configuree: bool
+    joignable: bool
+    joignable_detail: str | None
+    agents: list[str]
+    abonnement_connecte: bool
+    recherche_web: bool
+    appels_aujourdhui: int
+    appels_max_jour: int
+
+
+class AppelIALigneReponse(BaseModel):
+    """Une ligne de `GET /api/ia/labo/appels` -- mêmes attributs
+    qu'`ingest.ia_labo.LigneAppelIA`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    usage: str
+    statut: str
+    erreur: str | None
+    duree_ms: int
+    created_at: datetime
+
+
+class EssaiPrixRequete(BaseModel):
+    """Corps de `POST /api/ia/labo/essais/prix`. `designation` nettoyée des
+    espaces de tête/fin (fix round 1, revue LABO) : `min_length=1` seul
+    laissait passer une chaîne blanche (« un espace » a une longueur de 1),
+    envoyée telle quelle à l'IA -- même principe que `ChantierCreationRequete
+    ._nom_non_blanc`."""
+
+    fournisseur: str | None = None
+    designation: str = Field(min_length=1, max_length=300)
+    code: str | None = None
+    unite: str | None = None
+
+    @field_validator("designation")
+    @classmethod
+    def _designation_non_blanche(cls, valeur: str) -> str:
+        nettoyee = valeur.strip()
+        if not nettoyee:
+            raise ValueError("désignation requise")
+        return nettoyee
+
+
+class EssaiExplicationRequete(BaseModel):
+    """Corps de `POST /api/ia/labo/essais/explication`."""
+
+    anomalie_id: uuid.UUID
+
+
+class EssaiSyntheseRequete(BaseModel):
+    """Corps de `POST /api/ia/labo/essais/synthese`."""
+
+    semaine_debut: date
+
+
+class EssaiLanceReponse(BaseModel):
+    """Réponse `202` des trois routes `POST /api/ia/labo/essais/...`."""
+
+    id: uuid.UUID
+
+
+# --------------------------------------------------------------------------
 # Grilles de prix fournisseur (phase 3, tâche P4) : schémas construits à
 # partir des dataclasses d'`ingest.grilles` (`ProduitGrilleAffiche`,
 # `GrilleFournisseur`, `LigneHistorique`, `ApercuImport`, `ImportEffectue`).
