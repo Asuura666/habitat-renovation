@@ -19,6 +19,7 @@ import { invaliderApresChangementAnomalies } from "../api/invalidations";
 import { CLE_PARAMETRES, listerParametres } from "../api/parametres";
 import { CLE_FOURNISSEURS, listerFournisseurs } from "../api/referentiels";
 import { PrixInternetCellule } from "../components/PrixInternetCellule";
+import { gererEntreeCommentaire } from "../lib/entreeClavier";
 import { formaterDate, formaterMontant, formaterPoints, TIRET } from "../lib/formats";
 import { lienBon } from "../lib/liens";
 import { Bouton, Carte, EnTetePage, EtatVide, Filtres, type OptionFiltre, titreRegle } from "../ui";
@@ -213,6 +214,15 @@ function ActionsAlertePrix({
   onConfirmerPanneau,
 }: ActionsProps): ReactElement {
   const commentaireVide = commentaire.trim() === "";
+  const confirmationPossible = !enCours && !(panneauOuvert === "contester" && commentaireVide);
+
+  /** Entrée sur ordinateur (`lib/entreeClavier.ts`) : mêmes conditions que
+   * le bouton « Contester »/« Ignorer » du panneau. */
+  function confirmerAuClavier(): void {
+    if (confirmationPossible) {
+      onConfirmerPanneau();
+    }
+  }
   return (
     <div className="flex flex-col gap-2">
       {panneauOuvert === null && (
@@ -247,14 +257,18 @@ function ActionsAlertePrix({
             id={`commentaire-${cleProduit(produit)}`}
             value={commentaire}
             onChange={(e) => onCommentaireChange(e.target.value)}
+            onKeyDown={(e) => gererEntreeCommentaire(e, confirmerAuClavier, onCommentaireChange)}
             rows={2}
             maxLength={500}
             className="w-full resize-none rounded-lg border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent"
           />
+          <p className="hidden text-xs text-encre-2 [@media(hover:hover)_and_(pointer:fine)]:block">
+            Entrée pour valider, Maj+Entrée pour aller à la ligne
+          </p>
           <div className="flex flex-wrap gap-2">
             <Bouton
               onClick={onConfirmerPanneau}
-              disabled={enCours || (panneauOuvert === "contester" && commentaireVide)}
+              disabled={!confirmationPossible}
             >
               {enCours ? "En cours…" : panneauOuvert === "contester" ? "Contester" : "Ignorer"}
             </Bouton>
