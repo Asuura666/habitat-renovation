@@ -20,7 +20,7 @@ import {
   phraseProbleme,
   titreRegle,
 } from "../ui";
-import { formaterMontant, libelleMois, lireMois, moisApi, TIRET } from "../lib/formats";
+import { formaterMontant, libelleMois, lireMois, mentionFactureAVerifier, moisApi, TIRET } from "../lib/formats";
 import { lienChantier } from "../lib/liens";
 
 type Chantier = TableauDeBord["chantiers"][number];
@@ -449,7 +449,11 @@ export function VueEnsemble(): ReactElement {
             aria-label="Chiffres du mois"
             className="grid grid-cols-2 gap-3.5 md:grid-cols-3 xl:grid-cols-6"
           >
-            <Chiffre libelle="Facturé ce mois" valeur={formaterMontant(donnees.totaux.facture_ht)} />
+            <Chiffre
+              libelle="Facturé ce mois"
+              valeur={formaterMontant(donnees.totaux.facture_ht)}
+              sousTexte={mentionFactureAVerifier(donnees.totaux.facture_a_verifier)}
+            />
             <Chiffre
               libelle="Conforme"
               valeur={formaterMontant(donnees.totaux.conforme)}

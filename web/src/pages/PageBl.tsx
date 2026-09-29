@@ -94,46 +94,46 @@ function construireFilAriane(donnees: DonneesDocument, numero: string, estAdmin:
  * Toujours doublée d'un libellé en toutes lettres, jamais la couleur seule
  * (spec §2).
  *
- * Constat de revue corrigé au tour de correction 1 : « Conforme »
- * n'apparaît plus que lorsque `nb_problemes` (calculé par le serveur, voir
- * `api/documents.ts::ComparaisonBl`) vaut `0` **et** qu'une facture cite
- * bien ce bon (`factureConnue`) — un bon jamais facturé affichait
- * auparavant « Conforme » à tort (aucune ligne comparée, donc aucune
- * `regles_ouvertes`, mais rien n'a en réalité été vérifié) ; il affiche
- * désormais « Pas encore facturé ». */
+ * « Conforme » n'est plus décidé ici (décision d'Ilane du 29/09/2026,
+ * définition unique) : la page affiche `categorie`, calculée par le serveur
+ * (`api/documents.ts::ComparaisonBl`) -- bon validé, facture comparée sans
+ * écart, aucun autre problème ouvert. `pas_encore_facture` : aucune facture
+ * ne cite ce bon, rien n'a été comparé. */
 function PastilleDocument({
   statut,
   nbProblemes,
-  comparaisonChargee,
-  factureConnue,
+  categorie,
 }: {
   statut: string;
   nbProblemes: number;
-  comparaisonChargee: boolean;
-  factureConnue: boolean;
+  categorie: ComparaisonBl["categorie"] | undefined;
 }): ReactElement {
   const libelleStatut = libelleStatutDocument(statut);
-  const pasEncoreFacture = comparaisonChargee && !factureConnue && nbProblemes === 0;
+  const pasEncoreFacture = categorie === "pas_encore_facture" && nbProblemes === 0;
+  const aVerifier = nbProblemes > 0 || categorie === "a_verifier" || statut === "a_verifier";
   let texte = libelleStatut;
   if (nbProblemes > 0) {
     texte = `${libelleStatut} · ${nbProblemes} problème${nbProblemes > 1 ? "s" : ""}`;
   } else if (pasEncoreFacture) {
     texte = `${libelleStatut} · Pas encore facturé`;
-  } else if (comparaisonChargee) {
+  } else if (categorie === "conforme") {
     texte = `${libelleStatut} · Conforme`;
+  } else if (categorie === "a_verifier") {
+    texte = `${libelleStatut} · À vérifier`;
   }
   const classes =
     nbProblemes > 0
       ? "bg-[#fbe9c6] text-[#7a4a00]"
       : pasEncoreFacture || statut === "archive"
         ? "bg-bordure text-encre"
-        : "bg-[#e4f1ea] text-encre";
-  const classeDot =
-    nbProblemes > 0 || statut === "a_verifier"
-      ? "bg-ecart"
-      : pasEncoreFacture || statut === "archive"
-        ? "bg-encre-2"
-        : "bg-conforme";
+        : aVerifier
+          ? "bg-[#fbe9c6] text-[#7a4a00]"
+          : "bg-[#e4f1ea] text-encre";
+  const classeDot = aVerifier
+    ? "bg-ecart"
+    : pasEncoreFacture || statut === "archive"
+      ? "bg-encre-2"
+      : "bg-conforme";
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3 py-1 text-sm font-medium ${classes}`}
@@ -538,7 +538,6 @@ export function PageBl(): ReactElement {
   // absents de `lignes` (voir le docstring de `ComparaisonBl` côté
   // serveur).
   const nbProblemes = comparaison.data?.nb_problemes ?? 0;
-  const factureConnue = comparaison.data !== undefined && comparaison.data.facture_id !== null;
 
   return (
     <div className="space-y-6">
@@ -568,8 +567,7 @@ export function PageBl(): ReactElement {
         <PastilleDocument
           statut={donnees.statut}
           nbProblemes={nbProblemes}
-          comparaisonChargee={comparaison.data !== undefined}
-          factureConnue={factureConnue}
+          categorie={comparaison.data?.categorie}
         />
       </header>
 

@@ -113,6 +113,9 @@ from app.modules.normalize.appariement import LigneAApparier, apparier_lignes
 from app.modules.normalize.unites import convertir_en_unite_fact, unite_implicite
 from app.modules.rules.engine import REGLES_FACTURE, evaluer_facture
 from app.modules.rules.modeles import (
+    Anomalie as AnomalieRegle,
+)
+from app.modules.rules.modeles import (
     ArticleControle,
     BlocControle,
     DocumentControle,
@@ -122,6 +125,7 @@ from app.modules.rules.modeles import (
     Parametres,
 )
 from app.modules.rules.rules.R02 import mention_pas_de_bon
+from app.modules.rules.rules.R10 import R10
 
 __all__ = [
     "FactureIntrouvable",
@@ -569,6 +573,30 @@ async def factures_recues(session: AsyncSession) -> list[tuple[uuid.UUID, int]]:
 # --------------------------------------------------------------------------
 
 
+async def _evaluer_r10_facture_a_verifier(
+    session: AsyncSession, facture_doc: Document
+) -> int:
+    """R10 seule, sur une facture « à vérifier » (CDC §5 : « R10 d'abord »).
+    Le motif `somme_incoherente` posé à l'extraction porte l'écart chiffré ;
+    R10 applique la tolérance de l'admin. La portée du balayage se limite à
+    R10 : aucune autre règle n'a été recalculée. Une correction qui
+    supprime le motif lève l'alerte au prochain passage. Renvoie le nombre
+    d'anomalies R10 ouvertes (0 ou 1). Ne commite pas."""
+    anomalies: tuple[AnomalieRegle, ...] = ()
+    if "R10" in REGLES_FACTURE - regles_desactivees():
+        anomalie = R10(
+            _document_controle(facture_doc, None), await _charger_parametres(session)
+        )
+        if anomalie is not None:
+            anomalies = (anomalie,)
+    return await synchroniser_anomalies(
+        session,
+        anomalies=anomalies,
+        portee_document_id=facture_doc.id,
+        portee_regles=("R10",),
+    )
+
+
 async def rapprocher_facture(
     session: AsyncSession, facture_id: uuid.UUID, *, commit: bool = True
 ) -> ResultatRapprochement:
@@ -585,22 +613,36 @@ async def rapprocher_facture(
     commun avec une correction, tout ou rien).
 
     Lève `FactureIntrouvable` si `facture_id` est absent ou n'est pas une
-    facture. Ne fait rien et renvoie un résultat vide (tous les compteurs à
-    zéro, rien écrit) si la facture n'est pas `recu` (document « à
-    vérifier » : CDC §5, ordre d'exécution — R10/R11 d'abord, les règles de
-    rapprochement n'exécutent pas tant que l'admin n'a pas corrigé)."""
+    facture. Si la facture n'est pas `recu` (document « à vérifier » : CDC §5,
+    ordre d'exécution — R10/R11 d'abord, les règles de rapprochement
+    n'exécutent pas tant que l'admin n'a pas corrigé), ne rapproche rien
+    (compteurs de blocs à zéro) mais évalue R10 seule (B-09,
+    `_evaluer_r10_facture_a_verifier`) : `nb_anomalies` vaut 1 si son alerte
+    est ouverte."""
     facture_doc = await session.get(Document, facture_id)
     if facture_doc is None or facture_doc.type != "facture":
         raise FactureIntrouvable(str(facture_id))
 
     if facture_doc.statut != "recu":
+        # B-09 (décision d'Ilane du 29/09/2026) : une facture « à vérifier »
+        # n'est toujours pas rapprochée, mais R10 (somme incohérente) doit
+        # produire son alerte chiffrée, visible dans « À régler » ; la
+        # facture reste comptée dans « Facturé » (mention « dont X € sur des
+        # factures à vérifier »).
+        nb_anomalies = 0
+        if facture_doc.statut == "a_verifier":
+            nb_anomalies = await _evaluer_r10_facture_a_verifier(session, facture_doc)
+            if commit:
+                await session.commit()
+            else:
+                await session.flush()
         return ResultatRapprochement(
             facture_id=facture_id,
             nb_blocs=0,
             nb_blocs_recus=0,
             nb_blocs_pas_de_bon=0,
             nb_lignes_appariees=0,
-            nb_anomalies=0,
+            nb_anomalies=nb_anomalies,
         )
 
     blocs_db = (

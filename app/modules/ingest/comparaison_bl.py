@@ -88,6 +88,7 @@ from app.modules.ingest.anomalies import (
     condition_anomalies_du_bl,
     condition_regles_actives,
 )
+from app.modules.ingest.bilan import categories_des_blocs
 from app.modules.ingest.commun import regles_masquees
 from app.modules.ingest.lecture import TYPES_BL, DocumentIntrouvable
 from app.modules.ingest.models import (
@@ -101,6 +102,13 @@ from app.modules.ingest.models import (
 Controle = Literal[
     "conforme", "ecart", "non_facture", "non_controle", "pas_encore_facture"
 ]
+
+# Verdict d'ensemble du bon (décision d'Ilane du 29/09/2026) : « conforme » ou
+# « a_verifier » selon la définition unique `ingest.bilan._sous_requete_
+# categories` (toutes les factures qui citent ce bon, ce bon validé, aucun
+# problème ouvert) ; « pas_encore_facture » tant qu'aucune facture ne le cite ;
+# « sans_bon » n'existe pas ici (un bon qu'on regarde existe).
+CategorieBon = Literal["conforme", "a_verifier", "pas_encore_facture"]
 
 
 @dataclass(frozen=True)
@@ -146,6 +154,7 @@ class ComparaisonBl:
     montant_facture_ht: Decimal | None
     lignes: list[LigneComparee]
     nb_problemes: int
+    categorie: CategorieBon
 
 
 def _controle(
@@ -321,6 +330,31 @@ async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> Comparai
             )
         )
 
+    categorie: CategorieBon = "pas_encore_facture"
+    ids_blocs_du_bon = (
+        (
+            await session.execute(
+                select(BlocFacture.id)
+                .join(Document, Document.id == BlocFacture.facture_id)
+                .where(
+                    BlocFacture.bl_document_id == document_id,
+                    Document.type == "facture",
+                    Document.statut != "archive",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if ids_blocs_du_bon:
+        categories = await categories_des_blocs(session, ids_blocs_du_bon)
+        tous_conformes = all(c == "conforme" for c in categories.values())
+        categorie = (
+            "conforme"
+            if tous_conformes and not ids_anomalies_ouvertes and categories
+            else "a_verifier"
+        )
+
     return ComparaisonBl(
         document_id=document_id,
         facture_id=facture_id,
@@ -329,4 +363,5 @@ async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> Comparai
         montant_facture_ht=montant_facture_ht,
         lignes=lignes,
         nb_problemes=len(ids_anomalies_ouvertes),
+        categorie=categorie,
     )

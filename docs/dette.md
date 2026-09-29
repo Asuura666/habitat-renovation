@@ -1432,3 +1432,37 @@ phase :
   de déploiement, §14 de la spec) ; l'ordre conseillé au déploiement est
   d'importer les grilles, de vérifier la page Grille fournisseur, puis
   d'allumer le contrôle et de relancer un recontrôle des bons existants.
+
+## « Conforme » strict et facture à somme incohérente (29/09/2026, audit B-02/B-03/B-09/D-01)
+
+Décisions d'Ilane du 29/09/2026 (`.superpowers/sdd/corrections-audit/decisions-ilane.md`, points 1 et 2).
+
+- **Une seule définition de « Conforme », calculée par le serveur**
+  (`ingest.bilan._sous_requete_categories`). Une livraison (bloc de facture)
+  est « conforme » seulement si son bon est **validé**, si le rapprochement l'a
+  trouvé, si sa facture n'est pas « à vérifier » et si **aucune anomalie
+  ouverte** (toute règle : R10, R11, R12, R13, R17, quantité, prix...) ne porte
+  sur ce bloc ni sur le bon qu'il cite. Sinon « à vérifier » (ou « sans bon »
+  quand le bon n'est jamais venu). Reprise par le montant « Conforme » (bilan à
+  cinq niveaux, accueil, fiches chantier et fournisseur), la liste des
+  livraisons (`categorie`), la page du bon (`categorie` de la comparaison) et
+  l'état d'un chantier de l'accueil. Le front n'a plus de règle propre
+  (`categorieLivraison` supprimée). Un doublon de facturation (R12) rend aussi
+  le bloc d'origine « à vérifier » (les deux blocs citent le même bon).
+- **Reste à savoir** : la colonne « Contrôle » de chaque ligne de la page du
+  bon (`controle`) reste un verdict par ligne (appariée, comparée, sans
+  anomalie) ; elle ne regarde pas le statut du bon. C'est la pastille du haut
+  de page qui porte le verdict de la livraison.
+- **R10 est produite pour une facture « à vérifier »** : `rapprocher_facture`
+  n'apparie toujours pas une facture non validée, mais évalue R10 seule à
+  partir du motif `somme_incoherente` posé à l'extraction (la tolérance de
+  l'admin s'applique). L'alerte apparaît dans « À régler » (elle s'ajoute à la
+  facture elle-même, listée dans « À traiter » : le compte unique compte donc
+  les deux). Elle est levée au rejeu suivant si le motif disparaît. Ce qui
+  précède corrige la formule inexacte de la section précédente : R10 n'était
+  jamais produite avant cette date.
+- **« Facturé » garde ces factures**, avec la mention « dont X € sur des
+  factures à vérifier » (champ `facture_a_verifier` de l'accueil, des fiches
+  chantier et fournisseur). Les exports CSV du bilan (colonnes fixées par le
+  CDC) n'ont pas cette mention.
+

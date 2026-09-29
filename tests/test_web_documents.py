@@ -87,7 +87,13 @@ def test_page_bl_verdict_conforme_fonde_sur_le_serveur() -> None:
     assert "comparaison.data?.nb_problemes ?? 0" in page
     assert "lignes.reduce" not in page
     assert "Pas encore facturé" in page
-    assert "factureConnue" in page
+    # Décision d'Ilane du 29/09/2026 : « Conforme » est calculé par le
+    # serveur (`categorie`, définition unique) -- la page n'a plus de règle
+    # propre (ni `facture_id`, ni comparaison chargée, ni statut du bon).
+    assert "comparaison.data?.categorie" in page
+    assert 'categorie === "conforme"' in page
+    assert "factureConnue" not in page
+    assert "comparaisonChargee" not in page
 
 
 def test_page_bl_invalide_la_comparaison_apres_une_correction() -> None:

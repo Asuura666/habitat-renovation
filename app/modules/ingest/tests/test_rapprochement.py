@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ingest.anomalies import lister_anomalies
@@ -676,6 +676,81 @@ async def test_rapprocher_facture_a_verifier_ne_fait_rien(
         )
     ).first()
     assert aucun_journal is None
+
+
+async def test_rapprocher_facture_a_verifier_somme_incoherente_produit_r10(
+    db_session: AsyncSession,
+) -> None:
+    """B-09 : une facture « à vérifier » à somme incohérente reçoit son
+    alerte R10 (visible dans « À régler »), sans être rapprochée."""
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(
+        db_session, fournisseur=fournisseur, statut="a_verifier"
+    )
+    facture.motifs = [
+        {
+            "code": "somme_incoherente",
+            "champ": "total_ht",
+            "detail": {"somme": "20.00", "total": "999.99", "ecart": "979.99"},
+        }
+    ]
+    await db_session.commit()
+    bloc = await _creer_bloc(db_session, facture=facture, numero_bl="L0010")
+
+    resultat = await rapprocher_facture(db_session, facture.id)
+    assert resultat.nb_anomalies == 1
+    assert resultat.nb_blocs == 0
+
+    anomalies = (
+        (
+            await db_session.execute(
+                select(Anomalie).where(Anomalie.document_id == facture.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [(a.regle, a.statut, a.gravite) for a in anomalies] == [
+        ("R10", "ouverte", "haute")
+    ]
+    assert anomalies[0].detail["ecart"] == "979.99"
+    await _rafraichir(db_session, bloc)
+    assert bloc.statut_rapprochement is None
+
+    # Idempotent : un second rejeu ne duplique pas l'alerte.
+    await rapprocher_facture(db_session, facture.id)
+    nb = (
+        await db_session.execute(
+            select(func.count())
+            .select_from(Anomalie)
+            .where(Anomalie.document_id == facture.id)
+        )
+    ).scalar_one()
+    assert nb == 1
+
+
+async def test_rapprocher_facture_a_verifier_sans_somme_incoherente_pas_de_r10(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(
+        db_session, fournisseur=fournisseur, statut="a_verifier"
+    )
+    facture.motifs = [
+        {"code": "fournisseur_inconnu", "champ": "fournisseur", "detail": {}}
+    ]
+    await db_session.commit()
+
+    resultat = await rapprocher_facture(db_session, facture.id)
+    assert resultat.nb_anomalies == 0
+    nb = (
+        await db_session.execute(
+            select(func.count())
+            .select_from(Anomalie)
+            .where(Anomalie.document_id == facture.id)
+        )
+    ).scalar_one()
+    assert nb == 0
 
 
 async def test_rapprocher_facture_id_inconnu_leve_facture_introuvable(

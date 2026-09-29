@@ -838,3 +838,42 @@ def test_tableau_livraisons_etat_inconnu_replie_sur_toutes() -> None:
     assert "VALEURS_ETAT_CONNUES" in page
     assert "etatParam !== null && VALEURS_ETAT_CONNUES.has(etatParam)" in page
     assert 'etatParam : "toutes";' in page
+
+
+def test_tableau_livraisons_categorie_calculee_par_le_serveur() -> None:
+    """Décision d'Ilane du 29/09/2026 (audit B-02/B-03/D-01) : une seule
+    définition de « Conforme », calculée par le serveur (`categorie`) -- le
+    front n'a plus de règle propre (l'ancienne `categorieLivraison` déduisait
+    « conforme » de `nb_anomalies_ouvertes`, ce qui divergeait du montant de
+    la tuile) : il affiche et filtre sur le champ renvoyé."""
+    page = _lire("components", "TableauLivraisons.tsx")
+
+    assert "categorieLivraison" not in page
+    assert '"ecart" : "conforme"' not in page
+    assert 'ligne.categorie === "conforme"' in page
+    assert "livraison.ligne.categorie === etat" in page
+    assert '{ valeur: "a_verifier", libelle: "À vérifier" }' in page
+    assert '{ valeur: "sans_bon", libelle: "Sans bon" }' in page
+    assert '"categorie"' in page
+
+
+def test_mention_factures_a_verifier_a_cote_de_facture() -> None:
+    """B-09 : une facture à somme incohérente reste comptée dans « Facturé »,
+    avec la mention « dont X € sur des factures à vérifier » (montant
+    `facture_a_verifier` renvoyé par le serveur) sur l'accueil et sur les
+    deux fiches où « Facturé » figure."""
+    formats = _lire("lib", "formats.ts")
+    assert "sur des factures à vérifier" in formats
+    assert "export function mentionFactureAVerifier" in formats
+
+    accueil = _lire("pages", "VueEnsemble.tsx")
+    assert "mentionFactureAVerifier(donnees.totaux.facture_a_verifier)" in accueil
+    chantier = _lire("pages", "FicheChantier.tsx")
+    assert (
+        "mentionFactureAVerifier(ligneBilan?.montants.facture_a_verifier)" in chantier
+    )
+    fournisseur = _lire("pages", "FicheFournisseur.tsx")
+    assert (
+        "mentionFactureAVerifier(ligneMontants.montants.facture_a_verifier)"
+        in fournisseur
+    )

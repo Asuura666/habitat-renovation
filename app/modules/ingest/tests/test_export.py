@@ -43,6 +43,7 @@ def _montants(
     nb_anomalies_ouvertes: int = 0,
     conforme: Decimal = Decimal("0.00"),
     a_verifier: Decimal = Decimal("0.00"),
+    facture_a_verifier: Decimal = Decimal("0.00"),
 ) -> MontantsBilan:
     return MontantsBilan(
         facture_ht=facture_ht,
@@ -52,6 +53,7 @@ def _montants(
         nb_anomalies_ouvertes=nb_anomalies_ouvertes,
         conforme=conforme,
         a_verifier=a_verifier,
+        facture_a_verifier=facture_a_verifier,
     )
 
 
@@ -214,6 +216,7 @@ def test_csv_bilan_bl_numero_date_statut_absents_cellules_vides() -> None:
         statut_rapprochement=None,
         bl_document_id=None,
         facture_id=uuid.uuid4(),
+        categorie="a_verifier",
         montants=_montants(),
     )
     lignes = _lignes_csv(csv_bilan_bl([ligne]))
@@ -232,6 +235,7 @@ def test_csv_bilan_bl_date_au_format_iso() -> None:
         statut_rapprochement="recu",
         bl_document_id=uuid.uuid4(),
         facture_id=uuid.uuid4(),
+        categorie="a_verifier",
         montants=_montants(),
     )
     lignes = _lignes_csv(csv_bilan_bl([ligne]))

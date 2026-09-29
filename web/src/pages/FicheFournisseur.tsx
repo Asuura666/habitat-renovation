@@ -17,7 +17,7 @@ import { type Anomalie, cleAnomalies, listerAnomalies } from "../api/anomalies";
 import { CLE_COMPTE_A_REGLER, obtenirCompteARegler } from "../api/aTraiter";
 import { CLE_FOURNISSEURS, listerFournisseurs } from "../api/referentiels";
 import { type LivraisonAffichee, TableauLivraisons } from "../components/TableauLivraisons";
-import { estMontantNul, formaterMontant, libelleMois, lireMois, moisApi } from "../lib/formats";
+import { estMontantNul, formaterMontant, libelleMois, lireMois, mentionFactureAVerifier, moisApi } from "../lib/formats";
 import { lienChantier } from "../lib/liens";
 import {
   Chiffre,
@@ -416,7 +416,11 @@ export function FicheFournisseur(): ReactElement {
         <>
           {ligneMontants ? (
             <section aria-label="Chiffres du fournisseur" className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
-              <Chiffre libelle="Facturé" valeur={formaterMontant(ligneMontants.montants.facture_ht)} />
+              <Chiffre
+                libelle="Facturé"
+                valeur={formaterMontant(ligneMontants.montants.facture_ht)}
+                sousTexte={mentionFactureAVerifier(ligneMontants.montants.facture_a_verifier)}
+              />
               <Chiffre
                 libelle="Conforme"
                 valeur={formaterMontant(ligneMontants.montants.conforme)}
