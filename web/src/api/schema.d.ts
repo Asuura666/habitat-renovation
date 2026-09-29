@@ -2425,7 +2425,11 @@ export interface components {
         };
         /**
          * EssaiPrixRequete
-         * @description Corps de `POST /api/ia/labo/essais/prix`.
+         * @description Corps de `POST /api/ia/labo/essais/prix`. `designation` nettoyée des
+         *     espaces de tête/fin (fix round 1, revue LABO) : `min_length=1` seul
+         *     laissait passer une chaîne blanche (« un espace » a une longueur de 1),
+         *     envoyée telle quelle à l'IA -- même principe que `ChantierCreationRequete
+         *     ._nom_non_blanc`.
          */
         EssaiPrixRequete: {
             /** Fournisseur */

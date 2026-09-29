@@ -27,6 +27,14 @@ Principes (non négociables, brief LABO) :
 - Aucun secret ni texte envoyé/réponse de l'IA n'est journalisé par ce
   module -- seule `interroger` écrit une ligne `appel_ia` (usage/statut/durée/
   erreur, jamais le contenu).
+- **Un essai se termine toujours** (fix round 1, revue LABO) : chaque
+  `_executer_essai_...` porte un filet de sécurité (`except Exception`,
+  jamais `except BaseException` -- une annulation continue de se propager)
+  qui termine la trace en `erreur` (message générique, code = nom de la
+  classe de l'exception seulement, jamais son message) au lieu de la laisser
+  bloquée en `en_cours` pour toujours si un bug imprévu survient (dans
+  `controles_...`, dans le calcul des appels restants, ...) -- l'écran
+  interroge l'essai toutes les 2 s tant qu'il reste `en_cours`.
 
 Chaque essai lance son travail en tâche de fond (`fastapi.BackgroundTasks`,
 même mécanique que `ingest.router.webhook_telegram`) : la validation
@@ -38,6 +46,7 @@ requête, fermés avant que la tâche de fond ne s'exécute)."""
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -85,6 +94,8 @@ from app.modules.ingest.opencode import (
     ia_appels_max_jour,
     interroger,
 )
+
+logger = logging.getLogger(__name__)
 
 TypeEssai = Literal["prix", "explication", "synthese"]
 StatutEssai = Literal["en_cours", "fini", "erreur"]
@@ -252,6 +263,23 @@ async def _appels_restants(session: AsyncSession) -> int:
     return max(ia_appels_max_jour() - await appels_du_jour(session), 0)
 
 
+async def _appels_restants_sans_echec(session: AsyncSession) -> int | None:
+    """`_appels_restants`, best-effort (fix round 1, revue LABO) : une panne
+    ici (ex. base indisponible juste après un essai autrement réussi) ne
+    doit jamais empêcher l'essai de se terminer avec son résultat déjà
+    calculé -- seul `appels_restants` reste alors `None`, jamais
+    l'ensemble de la trace perdu au profit d'un état « erreur imprévue »
+    générique. Journalisé (jamais le texte envoyé ni la réponse, qu'elle
+    ne reçoit de toute façon pas)."""
+    try:
+        return await _appels_restants(session)
+    except Exception:
+        logger.exception(
+            "échec du calcul des appels restants après un essai du Laboratoire IA"
+        )
+        return None
+
+
 async def _terminer_en_echec_avant_appel(
     trace: TraceEssai, session: AsyncSession, erreur: dict[str, Any]
 ) -> None:
@@ -264,7 +292,7 @@ async def _terminer_en_echec_avant_appel(
     trace.fin = fin
     trace.duree_ms = round((fin - trace.debut).total_seconds() * 1000)
     trace.erreur = erreur
-    trace.appels_restants = await _appels_restants(session)
+    trace.appels_restants = await _appels_restants_sans_echec(session)
 
 
 async def _terminer(
@@ -291,7 +319,36 @@ async def _terminer(
     trace.controles = controles
     trace.resultat = resultat
     trace.erreur = erreur
-    trace.appels_restants = await _appels_restants(session)
+    trace.appels_restants = await _appels_restants_sans_echec(session)
+
+
+def _erreur_imprevue(exc: Exception) -> dict[str, Any]:
+    """`code` : le nom de la classe de l'exception **seulement**, jamais
+    `str(exc)` (pourrait porter une donnée -- brief fix round 1, même
+    principe que les `logger.warning` d'`ingest.opencode`, qui ne portent
+    eux non plus jamais que `type(exc).__name__`)."""
+    return {
+        "code": type(exc).__name__,
+        "message_court": "Erreur imprévue pendant l'essai.",
+        "brut": None,
+    }
+
+
+def _terminer_en_erreur_imprevue(trace: TraceEssai, exc: Exception) -> None:
+    """Dernier filet (fix round 1, revue LABO) : une exception qu'aucun des
+    `except` ciblés de `_executer_essai_...` ne prévoyait (bug dans
+    `controles_...`/`_resultat_...`, panne à l'ouverture de la session, ...)
+    ne doit **jamais** laisser une trace bloquée en `en_cours` pour toujours
+    -- l'écran l'interroge toutes les 2 s tant qu'elle y reste. Ne recalcule
+    pas `appels_restants` : le recalculer exigerait une nouvelle session,
+    susceptible d'échouer pour la même raison que l'exception d'origine (une
+    panne de base, par exemple) ; il reste à sa valeur précédente (`None` si
+    l'essai n'avait encore rien terminé)."""
+    fin = datetime.now(UTC)
+    trace.statut = "erreur"
+    trace.fin = fin
+    trace.duree_ms = round((fin - trace.debut).total_seconds() * 1000)
+    trace.erreur = _erreur_imprevue(exc)
 
 
 def _resultat_prix(resultat: PrixInternetLu) -> dict[str, Any]:
@@ -329,40 +386,60 @@ async def _executer_essai_prix(
     sessions: async_sessionmaker[AsyncSession],
     http: httpx.AsyncClient,
 ) -> None:
-    async with sessions() as session:
-        try:
-            reponse = await interroger(
-                session,
-                http,
-                usage="prix",
-                agent="habitat-prix",
-                texte=trace.texte_envoye,
-                schema=SCHEMA_PRIX_INTERNET,
-                delai=240,
-            )
-        except IAIndisponible as exc:
-            await _terminer_en_echec_avant_appel(
-                trace, session, _erreur_ia_indisponible(exc)
-            )
-            return
-        except ErreurIA as exc:
-            await _terminer(
-                trace,
-                session,
-                modele=None,
-                outils=(),
-                reponse_brute=None,
-                controles=(),
-                resultat=None,
-                erreur=_erreur_erreur_ia(exc),
-            )
-            return
+    # Filet de sécurité (fix round 1, revue LABO) : `except Exception`, jamais
+    # `except BaseException` -- une annulation (`asyncio.CancelledError`,
+    # hérite de `BaseException` depuis Python 3.8) doit continuer à se
+    # propager sans passer par ici. Tout le reste (bug dans `controles_...`,
+    # panne à l'ouverture de la session, ...) termine la trace au lieu de la
+    # laisser bloquée en `en_cours` pour toujours (l'écran l'interroge toutes
+    # les 2 s tant qu'elle y reste).
+    try:
+        async with sessions() as session:
+            try:
+                reponse = await interroger(
+                    session,
+                    http,
+                    usage="prix",
+                    agent="habitat-prix",
+                    texte=trace.texte_envoye,
+                    schema=SCHEMA_PRIX_INTERNET,
+                    delai=240,
+                )
+            except IAIndisponible as exc:
+                await _terminer_en_echec_avant_appel(
+                    trace, session, _erreur_ia_indisponible(exc)
+                )
+                return
+            except ErreurIA as exc:
+                await _terminer(
+                    trace,
+                    session,
+                    modele=None,
+                    outils=(),
+                    reponse_brute=None,
+                    controles=(),
+                    resultat=None,
+                    erreur=_erreur_erreur_ia(exc),
+                )
+                return
 
-        controles = controles_prix_internet(reponse.structure, reponse.pages)
-        outils = _outils_trace(reponse.pages)
-        try:
-            resultat = lire_prix_internet(reponse.structure, reponse.pages)
-        except ReponseIAInvalide as exc:
+            controles = controles_prix_internet(reponse.structure, reponse.pages)
+            outils = _outils_trace(reponse.pages)
+            try:
+                resultat = lire_prix_internet(reponse.structure, reponse.pages)
+            except ReponseIAInvalide as exc:
+                await _terminer(
+                    trace,
+                    session,
+                    modele=reponse.modele,
+                    outils=outils,
+                    reponse_brute=reponse.brut,
+                    controles=controles,
+                    resultat=None,
+                    erreur=_erreur_reponse_invalide(exc),
+                )
+                return
+
             await _terminer(
                 trace,
                 session,
@@ -370,21 +447,12 @@ async def _executer_essai_prix(
                 outils=outils,
                 reponse_brute=reponse.brut,
                 controles=controles,
-                resultat=None,
-                erreur=_erreur_reponse_invalide(exc),
+                resultat=_resultat_prix(resultat),
+                erreur=None,
             )
-            return
-
-        await _terminer(
-            trace,
-            session,
-            modele=reponse.modele,
-            outils=outils,
-            reponse_brute=reponse.brut,
-            controles=controles,
-            resultat=_resultat_prix(resultat),
-            erreur=None,
-        )
+    except Exception as exc:
+        logger.exception("erreur imprévue pendant un essai « prix » du Laboratoire IA")
+        _terminer_en_erreur_imprevue(trace, exc)
 
 
 async def lancer_essai_prix(
@@ -447,39 +515,54 @@ async def _executer_essai_explication(
     http: httpx.AsyncClient,
     detail: dict[str, Any],
 ) -> None:
-    async with sessions() as session:
-        try:
-            reponse = await interroger(
-                session,
-                http,
-                usage="explication",
-                agent="habitat-explication",
-                texte=trace.texte_envoye,
-                schema=SCHEMA_EXPLICATION,
-            )
-        except IAIndisponible as exc:
-            await _terminer_en_echec_avant_appel(
-                trace, session, _erreur_ia_indisponible(exc)
-            )
-            return
-        except ErreurIA as exc:
-            await _terminer(
-                trace,
-                session,
-                modele=None,
-                outils=(),
-                reponse_brute=None,
-                controles=(),
-                resultat=None,
-                erreur=_erreur_erreur_ia(exc),
-            )
-            return
+    # Filet de sécurité (fix round 1, revue LABO) -- voir le commentaire
+    # d'`_executer_essai_prix` (même principe, `except Exception` seulement).
+    try:
+        async with sessions() as session:
+            try:
+                reponse = await interroger(
+                    session,
+                    http,
+                    usage="explication",
+                    agent="habitat-explication",
+                    texte=trace.texte_envoye,
+                    schema=SCHEMA_EXPLICATION,
+                )
+            except IAIndisponible as exc:
+                await _terminer_en_echec_avant_appel(
+                    trace, session, _erreur_ia_indisponible(exc)
+                )
+                return
+            except ErreurIA as exc:
+                await _terminer(
+                    trace,
+                    session,
+                    modele=None,
+                    outils=(),
+                    reponse_brute=None,
+                    controles=(),
+                    resultat=None,
+                    erreur=_erreur_erreur_ia(exc),
+                )
+                return
 
-        controles = controles_explication(reponse.structure, detail)
-        outils = _outils_trace(reponse.pages)
-        try:
-            texte_explication = lire_explication(reponse.structure, detail)
-        except ReponseIAInvalide as exc:
+            controles = controles_explication(reponse.structure, detail)
+            outils = _outils_trace(reponse.pages)
+            try:
+                texte_explication = lire_explication(reponse.structure, detail)
+            except ReponseIAInvalide as exc:
+                await _terminer(
+                    trace,
+                    session,
+                    modele=reponse.modele,
+                    outils=outils,
+                    reponse_brute=reponse.brut,
+                    controles=controles,
+                    resultat=None,
+                    erreur=_erreur_reponse_invalide(exc),
+                )
+                return
+
             await _terminer(
                 trace,
                 session,
@@ -487,21 +570,14 @@ async def _executer_essai_explication(
                 outils=outils,
                 reponse_brute=reponse.brut,
                 controles=controles,
-                resultat=None,
-                erreur=_erreur_reponse_invalide(exc),
+                resultat={"texte": texte_explication},
+                erreur=None,
             )
-            return
-
-        await _terminer(
-            trace,
-            session,
-            modele=reponse.modele,
-            outils=outils,
-            reponse_brute=reponse.brut,
-            controles=controles,
-            resultat={"texte": texte_explication},
-            erreur=None,
+    except Exception as exc:
+        logger.exception(
+            "erreur imprévue pendant un essai « explication » du Laboratoire IA"
         )
+        _terminer_en_erreur_imprevue(trace, exc)
 
 
 async def lancer_essai_explication(
@@ -555,39 +631,54 @@ async def _executer_essai_synthese(
     http: httpx.AsyncClient,
     references_valides: frozenset[str],
 ) -> None:
-    async with sessions() as session:
-        try:
-            reponse = await interroger(
-                session,
-                http,
-                usage="synthese",
-                agent="habitat-synthese",
-                texte=trace.texte_envoye,
-                schema=SCHEMA_SYNTHESE,
-            )
-        except IAIndisponible as exc:
-            await _terminer_en_echec_avant_appel(
-                trace, session, _erreur_ia_indisponible(exc)
-            )
-            return
-        except ErreurIA as exc:
-            await _terminer(
-                trace,
-                session,
-                modele=None,
-                outils=(),
-                reponse_brute=None,
-                controles=(),
-                resultat=None,
-                erreur=_erreur_erreur_ia(exc),
-            )
-            return
+    # Filet de sécurité (fix round 1, revue LABO) -- voir le commentaire
+    # d'`_executer_essai_prix` (même principe, `except Exception` seulement).
+    try:
+        async with sessions() as session:
+            try:
+                reponse = await interroger(
+                    session,
+                    http,
+                    usage="synthese",
+                    agent="habitat-synthese",
+                    texte=trace.texte_envoye,
+                    schema=SCHEMA_SYNTHESE,
+                )
+            except IAIndisponible as exc:
+                await _terminer_en_echec_avant_appel(
+                    trace, session, _erreur_ia_indisponible(exc)
+                )
+                return
+            except ErreurIA as exc:
+                await _terminer(
+                    trace,
+                    session,
+                    modele=None,
+                    outils=(),
+                    reponse_brute=None,
+                    controles=(),
+                    resultat=None,
+                    erreur=_erreur_erreur_ia(exc),
+                )
+                return
 
-        controles = controles_synthese(reponse.structure, references_valides)
-        outils = _outils_trace(reponse.pages)
-        try:
-            synthese_lue = lire_synthese(reponse.structure, references_valides)
-        except ReponseIAInvalide as exc:
+            controles = controles_synthese(reponse.structure, references_valides)
+            outils = _outils_trace(reponse.pages)
+            try:
+                synthese_lue = lire_synthese(reponse.structure, references_valides)
+            except ReponseIAInvalide as exc:
+                await _terminer(
+                    trace,
+                    session,
+                    modele=reponse.modele,
+                    outils=outils,
+                    reponse_brute=reponse.brut,
+                    controles=controles,
+                    resultat=None,
+                    erreur=_erreur_reponse_invalide(exc),
+                )
+                return
+
             await _terminer(
                 trace,
                 session,
@@ -595,21 +686,14 @@ async def _executer_essai_synthese(
                 outils=outils,
                 reponse_brute=reponse.brut,
                 controles=controles,
-                resultat=None,
-                erreur=_erreur_reponse_invalide(exc),
+                resultat=_resultat_synthese(synthese_lue),
+                erreur=None,
             )
-            return
-
-        await _terminer(
-            trace,
-            session,
-            modele=reponse.modele,
-            outils=outils,
-            reponse_brute=reponse.brut,
-            controles=controles,
-            resultat=_resultat_synthese(synthese_lue),
-            erreur=None,
+    except Exception as exc:
+        logger.exception(
+            "erreur imprévue pendant un essai « synthèse » du Laboratoire IA"
         )
+        _terminer_en_erreur_imprevue(trace, exc)
 
 
 async def lancer_essai_synthese(

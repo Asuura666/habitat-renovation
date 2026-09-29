@@ -1270,12 +1270,24 @@ class AppelIALigneReponse(BaseModel):
 
 
 class EssaiPrixRequete(BaseModel):
-    """Corps de `POST /api/ia/labo/essais/prix`."""
+    """Corps de `POST /api/ia/labo/essais/prix`. `designation` nettoyée des
+    espaces de tête/fin (fix round 1, revue LABO) : `min_length=1` seul
+    laissait passer une chaîne blanche (« un espace » a une longueur de 1),
+    envoyée telle quelle à l'IA -- même principe que `ChantierCreationRequete
+    ._nom_non_blanc`."""
 
     fournisseur: str | None = None
     designation: str = Field(min_length=1, max_length=300)
     code: str | None = None
     unite: str | None = None
+
+    @field_validator("designation")
+    @classmethod
+    def _designation_non_blanche(cls, valeur: str) -> str:
+        nettoyee = valeur.strip()
+        if not nettoyee:
+            raise ValueError("désignation requise")
+        return nettoyee
 
 
 class EssaiExplicationRequete(BaseModel):

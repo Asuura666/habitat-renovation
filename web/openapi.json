@@ -6695,7 +6695,7 @@
      "designation"
     ],
     "title": "EssaiPrixRequete",
-    "description": "Corps de `POST /api/ia/labo/essais/prix`."
+    "description": "Corps de `POST /api/ia/labo/essais/prix`. `designation` nettoyée des\nespaces de tête/fin (fix round 1, revue LABO) : `min_length=1` seul\nlaissait passer une chaîne blanche (« un espace » a une longueur de 1),\nenvoyée telle quelle à l'IA -- même principe que `ChantierCreationRequete\n._nom_non_blanc`."
    },
    "EssaiSyntheseRequete": {
     "properties": {

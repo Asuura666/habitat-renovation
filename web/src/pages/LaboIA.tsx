@@ -63,7 +63,7 @@ function StatutBadge({ statut }: { statut: TraceEssai["statut"] }): ReactElement
  * qu'il faut faire si l'abonnement n'est pas connecté.
  */
 function EtatIA(): ReactElement {
-  const etat = useQuery({ queryKey: CLE_ETAT_LABO, queryFn: lireEtatLabo, refetchInterval: 30_000 });
+  const etat = useQuery({ queryKey: CLE_ETAT_LABO, queryFn: lireEtatLabo, refetchInterval: 60_000 });
 
   return (
     <Carte titre="État de l'IA">

@@ -9,6 +9,7 @@ données (fournisseurs, anomalies, commentaires) sont entièrement inventées.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
@@ -855,3 +856,268 @@ async def test_essai_prix_aucun_secret_dans_la_trace(
     assert MDP_INVENTE not in trace.texte_envoye
     assert MDP_INVENTE not in str(trace.reponse_brute)
     assert MDP_INVENTE not in str(trace.resultat)
+
+
+# --------------------------------------------------------------------------
+# Fix round 1 (revue LABO) : un essai se termine toujours, même sur une
+# exception imprévue (bug dans controles_..., panne du calcul des appels
+# restants) -- jamais bloqué en `en_cours` pour toujours.
+# --------------------------------------------------------------------------
+
+
+async def test_essai_prix_bug_imprevu_dans_controles_termine_la_trace(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Une exception qu'aucun `except` ciblé de `_executer_essai_prix` ne
+    prévoit (ici un bug inventé dans `controles_prix_internet`) doit
+    terminer la trace en `erreur` -- jamais la laisser bloquée en
+    `en_cours` pour toujours (l'écran l'interroge toutes les 2 s tant
+    qu'elle y reste)."""
+
+    def _controles_qui_bug(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("bug inventé, message qui ne doit apparaître nulle part")
+
+    monkeypatch.setattr(ia_labo, "controles_prix_internet", _controles_qui_bug)
+
+    reponses = _reponses_session(
+        {
+            "statut": "trouve",
+            "produit_trouve": "Ciment",
+            "prix": 12.34,
+            "devise": "EUR",
+            "taxes": "TTC",
+            "unite": "sac",
+            "conditionnement": "25kg",
+            "source_url": "https://fournisseur.test/ciment",
+            "confiance": "moyenne",
+            "raison": "",
+        }
+    )
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+    background_tasks = BackgroundTasks()
+
+    essai_id = await lancer_essai_prix(
+        sessions_test,
+        http,
+        background_tasks,
+        fournisseur=None,
+        designation="Ciment",
+        code=None,
+        unite=None,
+    )
+    await _executer(background_tasks)
+
+    trace = lire_essai(essai_id)
+    assert trace is not None
+    assert trace.statut != "en_cours"
+    assert trace.statut == "erreur"
+    assert trace.fin is not None
+    assert trace.duree_ms is not None
+    assert trace.erreur is not None
+    assert trace.erreur["code"] == "RuntimeError"
+    assert trace.erreur["message_court"] == "Erreur imprévue pendant l'essai."
+    assert trace.erreur["brut"] is None
+    # Jamais le message de l'exception (pourrait porter une donnée) --
+    # seul le nom de la classe est gardé.
+    assert "bug inventé" not in str(trace.erreur)
+    assert "bug inventé" not in str(trace.__dict__)
+
+
+async def test_essai_explication_bug_imprevu_termine_la_trace(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Même garantie qu'`_executer_essai_prix`, vérifiée aussi pour
+    `_executer_essai_explication` (bug inventé dans `controles_explication`)."""
+    anomalie = await _creer_anomalie_prix(db_session)
+
+    def _controles_qui_bug(*args: Any, **kwargs: Any) -> Any:
+        raise KeyError("clé inventée absente")
+
+    monkeypatch.setattr(ia_labo, "controles_explication", _controles_qui_bug)
+
+    reponses = _reponses_session({"explication": "Prix 12.50, médiane 10.00."})
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+    background_tasks = BackgroundTasks()
+
+    essai_id = await lancer_essai_explication(
+        sessions_test, http, background_tasks, anomalie.id
+    )
+    await _executer(background_tasks)
+
+    trace = lire_essai(essai_id)
+    assert trace is not None
+    assert trace.statut == "erreur"
+    assert trace.erreur is not None
+    assert trace.erreur["code"] == "KeyError"
+    assert trace.erreur["message_court"] == "Erreur imprévue pendant l'essai."
+
+
+async def test_essai_synthese_bug_imprevu_termine_la_trace(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Même garantie, vérifiée aussi pour `_executer_essai_synthese` (bug
+    inventé dans `controles_synthese`)."""
+
+    def _controles_qui_bug(*args: Any, **kwargs: Any) -> Any:
+        raise ValueError("valeur inventée invalide")
+
+    monkeypatch.setattr(ia_labo, "controles_synthese", _controles_qui_bug)
+
+    reponses = _reponses_session({"resume": "Rien à signaler.", "actions": []})
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+    background_tasks = BackgroundTasks()
+
+    essai_id = await lancer_essai_synthese(
+        sessions_test, http, background_tasks, _LUNDI
+    )
+    await _executer(background_tasks)
+
+    trace = lire_essai(essai_id)
+    assert trace is not None
+    assert trace.statut == "erreur"
+    assert trace.erreur is not None
+    assert trace.erreur["code"] == "ValueError"
+    assert trace.erreur["message_court"] == "Erreur imprévue pendant l'essai."
+
+
+async def test_essai_prix_appels_restants_echoue_mais_essai_termine(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Une panne du calcul des appels restants (ex. base indisponible juste
+    après un essai par ailleurs réussi) ne doit jamais empêcher l'essai de
+    se terminer avec son résultat déjà calculé -- seul `appels_restants`
+    reste `None`, jamais l'ensemble de la trace remplacé par une erreur
+    générique."""
+
+    async def _appels_restants_qui_bug(*args: Any, **kwargs: Any) -> int:
+        raise RuntimeError("panne de base inventée")
+
+    monkeypatch.setattr(ia_labo, "_appels_restants", _appels_restants_qui_bug)
+
+    reponses = _reponses_session(
+        {
+            "statut": "trouve",
+            "produit_trouve": "Ciment",
+            "prix": 12.34,
+            "devise": "EUR",
+            "taxes": "TTC",
+            "unite": "sac",
+            "conditionnement": "25kg",
+            "source_url": "https://fournisseur.test/ciment",
+            "confiance": "moyenne",
+            "raison": "",
+        },
+        parts=[
+            _partie_outil(
+                id_partie="prt_1",
+                outil="webfetch",
+                entree={"url": "https://fournisseur.test/ciment"},
+                output="Ciment 25kg à 12,34 € TTC.",
+            )
+        ],
+    )
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+    background_tasks = BackgroundTasks()
+
+    essai_id = await lancer_essai_prix(
+        sessions_test,
+        http,
+        background_tasks,
+        fournisseur=None,
+        designation="Ciment",
+        code=None,
+        unite=None,
+    )
+    await _executer(background_tasks)
+
+    trace = lire_essai(essai_id)
+    assert trace is not None
+    assert trace.statut == "fini"
+    assert trace.erreur is None
+    assert trace.resultat is not None
+    assert trace.resultat["statut"] == "trouve"
+    assert trace.appels_restants is None
+
+
+async def test_essai_plafond_appels_restants_echoue_mais_essai_termine(
+    sessions_test: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Même garantie que ci-dessus, sur le chemin `_terminer_en_echec_avant_
+    appel` (IA éteinte/plafond, avant même une tentative de requête)."""
+
+    async def _appels_restants_qui_bug(*args: Any, **kwargs: Any) -> int:
+        raise RuntimeError("panne de base inventée")
+
+    monkeypatch.setattr(ia_labo, "_appels_restants", _appels_restants_qui_bug)
+    monkeypatch.setattr(
+        opencode, "get_settings", lambda: _SettingsIAFake(ia_active=False)
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("aucune requête ne doit être faite, IA éteinte")
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    background_tasks = BackgroundTasks()
+
+    essai_id = await lancer_essai_prix(
+        sessions_test,
+        http,
+        background_tasks,
+        fournisseur=None,
+        designation="Produit",
+        code=None,
+        unite=None,
+    )
+    await _executer(background_tasks)
+
+    trace = lire_essai(essai_id)
+    assert trace is not None
+    assert trace.statut == "erreur"
+    assert trace.erreur is not None
+    assert trace.erreur["code"] == "eteinte"
+    assert trace.appels_restants is None
+
+
+async def test_essai_prix_annulation_nest_pas_avalee(
+    sessions_test: async_sessionmaker[AsyncSession], db_session: AsyncSession
+) -> None:
+    """`asyncio.CancelledError` (hérite de `BaseException`, pas d'`Exception`
+    depuis Python 3.8) ne doit jamais être avalée par le filet de sécurité
+    du fix round 1 -- elle doit continuer à se propager telle quelle hors
+    de `_executer_essai_prix`."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise asyncio.CancelledError()
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    background_tasks = BackgroundTasks()
+
+    essai_id = await lancer_essai_prix(
+        sessions_test,
+        http,
+        background_tasks,
+        fournisseur=None,
+        designation="Produit",
+        code=None,
+        unite=None,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await _executer(background_tasks)
+
+    # La trace reste `en_cours` (l'annulation a interrompu la tâche avant
+    # qu'elle ne puisse se terminer elle-même) -- comportement attendu d'une
+    # vraie annulation, à la différence d'un bug imprévu.
+    trace = lire_essai(essai_id)
+    assert trace is not None
+    assert trace.statut == "en_cours"

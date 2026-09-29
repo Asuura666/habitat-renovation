@@ -389,6 +389,69 @@ async def test_lancer_essai_prix_designation_vide_422(
     assert reponse.status_code == 422
 
 
+async def test_lancer_essai_prix_designation_blanche_422(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Fix round 1 (revue LABO) : une désignation faite uniquement d'espaces
+    passait `min_length=1` (elle a bien une longueur non nulle) mais doit
+    être refusée comme une désignation vide -- `EssaiPrixRequete
+    ._designation_non_blanche` (même principe que `ChantierCreationRequete
+    ._nom_non_blanc`)."""
+    admin = await _creer_utilisateur(
+        db_session, email="admin.labo.prix.blanche@example.invalid", role="admin"
+    )
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(500))
+    )
+    app_test = _app_test(sessions_test, tmp_path, http)
+    cookie = await _login(app_test, email=admin.email)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app_test),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        reponse = await client.post(
+            "/api/ia/labo/essais/prix", json={"designation": "   "}
+        )
+
+    assert reponse.status_code == 422
+
+
+async def test_lancer_essai_prix_designation_nettoyee_des_espaces(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """La désignation effectivement envoyée à l'IA est nettoyée de ses
+    espaces de tête/fin (fix round 1) : vérifié via le texte envoyé, gardé
+    dans la trace de l'essai."""
+    admin = await _creer_utilisateur(
+        db_session, email="admin.labo.prix.espaces@example.invalid", role="admin"
+    )
+    reponses = _reponses_session({"statut": "prix_non_verifiable", "raison": "essai"})
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+    app_test = _app_test(sessions_test, tmp_path, http)
+    cookie = await _login(app_test, email=admin.email)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app_test),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        lance = await client.post(
+            "/api/ia/labo/essais/prix", json={"designation": "  Ciment 25kg  "}
+        )
+        assert lance.status_code == 202
+        lu = await client.get(f"/api/ia/labo/essais/{lance.json()['id']}")
+
+    assert lu.status_code == 200
+    assert "Ciment 25kg" in lu.json()["texte_envoye"]
+    assert "  Ciment 25kg  " not in lu.json()["texte_envoye"]
+
+
 async def test_lire_essai_inconnu_404(
     db_session: AsyncSession,
     sessions_test: async_sessionmaker[AsyncSession],
