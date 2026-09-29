@@ -108,6 +108,7 @@ from app.modules.ingest.models import (
 )
 from app.modules.ingest.parametres import PARAMETRES_DEFAUT
 from app.modules.ingest.referentiels import lire_parametre_decimal
+from app.modules.ingest.regroupement_lignes import construire_lignes_rapprochees
 from app.modules.normalize.appariement import LigneAApparier, apparier_lignes
 from app.modules.normalize.unites import convertir_en_unite_fact, unite_implicite
 from app.modules.rules.engine import REGLES_FACTURE, evaluer_facture
@@ -118,7 +119,6 @@ from app.modules.rules.modeles import (
     FactureControlee,
     HistoriqueArticle,
     LigneControlee,
-    LigneRapprochee,
     Parametres,
 )
 from app.modules.rules.rules.R02 import mention_pas_de_bon
@@ -809,48 +809,21 @@ async def rapprocher_facture(
             ],
         )
 
-        bl_controlee_par_id = {
-            controlee.id: controlee for controlee in lignes_controlees_bl
-        }
-        cles_bl_matchees: set[uuid.UUID] = set()
-        lignes_rapprochees: list[LigneRapprochee] = []
-        for ligne_controlee_facture, appariement in zip(
-            lignes_controlees_facture, appariements, strict=True
-        ):
-            bl_controlee = (
-                bl_controlee_par_id.get(appariement.cle_bl)
-                if appariement.cle_bl is not None
-                else None
-            )
-            lignes_rapprochees.append(
-                LigneRapprochee(
-                    facture=ligne_controlee_facture,
-                    bl=bl_controlee,
-                    methode=appariement.methode,
+        construction = construire_lignes_rapprochees(
+            lignes_controlees_facture, lignes_controlees_bl, appariements
+        )
+        lignes_rapprochees = list(construction.lignes)
+        cles_bl_matchees = construction.cles_bl_couvertes
+        nb_lignes_appariees += len(construction.liens)
+        for lien in construction.liens:
+            nouvelles_rapprochement_ligne.append(
+                RapprochementLigne(
+                    ligne_facture_id=lien.ligne_facture_id,
+                    ligne_bl_id=lien.ligne_bl_id,
+                    methode=lien.methode,
+                    ecart_qte=lien.ecart_qte,
                 )
             )
-            methode = appariement.methode
-            # `methode` est toujours renseigné quand `bl_controlee` ne l'est
-            # pas (contrat de `apparier_lignes`) : la garde ci-dessous est
-            # défensive, jamais un `assert` (S101) sur une donnée qui reste
-            # sous le contrôle d'un module tiers.
-            if bl_controlee is not None and methode is not None:
-                cles_bl_matchees.add(bl_controlee.id)
-                nb_lignes_appariees += 1
-                ecart_qte: Decimal | None = None
-                if (
-                    ligne_controlee_facture.qte_fact is not None
-                    and bl_controlee.qte_fact is not None
-                ):
-                    ecart_qte = ligne_controlee_facture.qte_fact - bl_controlee.qte_fact
-                nouvelles_rapprochement_ligne.append(
-                    RapprochementLigne(
-                        ligne_facture_id=ligne_controlee_facture.id,
-                        ligne_bl_id=bl_controlee.id,
-                        methode=methode,
-                        ecart_qte=ecart_qte,
-                    )
-                )
 
         lignes_bl_non_facturees = tuple(
             controlee

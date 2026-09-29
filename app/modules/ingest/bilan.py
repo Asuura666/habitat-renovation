@@ -1308,6 +1308,18 @@ async def bilan_detail(
     bloc et enfin son identifiant (dernier départage absolu)."""
     blocs = _sous_requete_blocs(_conditions_base(mois))
     bl_ligne = aliased(Ligne)
+    # B-06 : une ligne de facture peut être reliée à plusieurs lignes de BL
+    # (même code réparti sur le BL) : on somme leurs quantités par ligne de
+    # facture pour ne produire qu'une ligne de détail par ligne facturée.
+    qte_bl_par_ligne = (
+        select(
+            RapprochementLigne.ligne_facture_id.label("ligne_facture_id"),
+            func.sum(bl_ligne.qte_totale).label("qte_bl"),
+        )
+        .join(bl_ligne, bl_ligne.id == RapprochementLigne.ligne_bl_id)
+        .group_by(RapprochementLigne.ligne_facture_id)
+        .subquery()
+    )
 
     requete = (
         select(
@@ -1332,15 +1344,14 @@ async def bilan_detail(
             Ligne.pu_ht,
             Ligne.remise_pct,
             Ligne.montant_ht,
-            bl_ligne.qte_totale.label("qte_bl_appariee"),
+            qte_bl_par_ligne.c.qte_bl.label("qte_bl_appariee"),
         )
         .select_from(Ligne)
         .join(blocs, blocs.c.bloc_id == Ligne.bloc_id)
         .join(Document, Document.id == blocs.c.facture_id)
         .outerjoin(Chantier, Chantier.id == blocs.c.chantier_id)
         .outerjoin(Fournisseur, Fournisseur.id == blocs.c.fournisseur_id)
-        .outerjoin(RapprochementLigne, RapprochementLigne.ligne_facture_id == Ligne.id)
-        .outerjoin(bl_ligne, bl_ligne.id == RapprochementLigne.ligne_bl_id)
+        .outerjoin(qte_bl_par_ligne, qte_bl_par_ligne.c.ligne_facture_id == Ligne.id)
     )
     if agence is not None:
         requete = requete.where(_condition_agence(blocs, agence))

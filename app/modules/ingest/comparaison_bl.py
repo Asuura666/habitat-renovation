@@ -276,8 +276,18 @@ async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> Comparai
             anomalies_par_ligne.setdefault(ligne_id, []).append(regle)
 
     lignes: list[LigneComparee] = []
+    # B-06 : plusieurs lignes de BL de même code peuvent être reliées à la
+    # même ligne de facture ; ses quantités et son montant ne sont montrés
+    # qu'une fois (première ligne de BL), les suivantes gardent le verdict.
+    lignes_facture_deja_montrees: set[uuid.UUID] = set()
     for ligne_bl in lignes_bl:
         ligne_facture = ligne_facture_par_ligne_bl.get(ligne_bl.id)
+        deja_montree = (
+            ligne_facture is not None
+            and ligne_facture.id in lignes_facture_deja_montrees
+        )
+        if ligne_facture is not None:
+            lignes_facture_deja_montrees.add(ligne_facture.id)
         regles_ouvertes = list(anomalies_par_ligne.get(ligne_bl.id, ()))
         if ligne_facture is not None:
             regles_ouvertes += anomalies_par_ligne.get(ligne_facture.id, ())
@@ -288,11 +298,19 @@ async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> Comparai
                 article=ligne_bl.article_brut,
                 qte_livree=ligne_bl.qte_totale,
                 qte_facturee=(
-                    ligne_facture.qte_totale if ligne_facture is not None else None
+                    ligne_facture.qte_totale
+                    if ligne_facture is not None and not deja_montree
+                    else None
                 ),
-                pu_facture=ligne_facture.pu_ht if ligne_facture is not None else None,
+                pu_facture=(
+                    ligne_facture.pu_ht
+                    if ligne_facture is not None and not deja_montree
+                    else None
+                ),
                 montant_facture=(
-                    ligne_facture.montant_ht if ligne_facture is not None else None
+                    ligne_facture.montant_ht
+                    if ligne_facture is not None and not deja_montree
+                    else None
                 ),
                 regles_ouvertes=regles_ouvertes,
                 controle=_controle(
