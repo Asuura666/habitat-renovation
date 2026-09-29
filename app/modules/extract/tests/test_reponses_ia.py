@@ -1442,3 +1442,28 @@ def test_controles_synthese_action_ecartee_montre_les_references_citees() -> Non
     )
     assert controles[3].ok is False
     assert controles[3].detail == "aucune référence valide (aucune citée), écartée"
+
+
+def test_adresse_mal_formee_ne_leve_pas_les_autres_offres_gardees() -> None:
+    """`urlsplit('https://[x')` lève ValueError : une offre à l'adresse
+    illisible est écartée « source non ouverte », jamais une exception."""
+    structure = {
+        "statut": "trouve",
+        "raison": "",
+        "offres": [
+            _offre(prix=10.00, source_url="https://[x"),
+            _offre(prix=12.00, source_url="https://c.test/p"),
+        ],
+    }
+    pages = [_page("https://[y", "10,00 €"), _page("https://c.test/p", "12,00 €")]
+
+    resultat = lire_prix_internet(structure, pages)
+    controles = controles_prix_internet(structure, pages)
+
+    assert [o.source_url for o in resultat.offres] == ["https://c.test/p"]
+    assert controles[1].nom == "Offre 1"
+    assert controles[1].ok is False
+    assert controles[1].detail == (
+        "écartée : aucune page ouverte à l'adresse https://[x"
+    )
+    assert controles[2].ok is True

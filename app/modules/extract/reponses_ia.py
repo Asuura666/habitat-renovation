@@ -664,12 +664,16 @@ def _non_verifiable(structure: dict[Any, Any], raison: str) -> PrixInternetLu:
     )
 
 
-def _normaliser_adresse(adresse: str) -> str:
+def _normaliser_adresse(adresse: str) -> str | None:
     """Adresse comparable pour la garde 3 : schéma et hôte en minuscules,
     barre oblique finale du chemin et fragment ignorés (§6.2 : « à la barre
-    oblique finale près »)."""
+    oblique finale près »). `None` pour une adresse illisible (`urlsplit`
+    lève `ValueError`, ex. `https://[x`) : jamais une page ouverte."""
     sans_fragment, _, _ = adresse.partition("#")
-    decoupee = urlsplit(sans_fragment)
+    try:
+        decoupee = urlsplit(sans_fragment)
+    except ValueError:
+        return None
     chemin = decoupee.path.rstrip("/")
     return urlunsplit(
         (decoupee.scheme.lower(), decoupee.netloc.lower(), chemin, decoupee.query, "")
@@ -678,8 +682,11 @@ def _normaliser_adresse(adresse: str) -> str:
 
 def _page_ouverte(adresse: str, pages: Sequence[PageLue]) -> PageLue | None:
     """La page `webfetch` (jamais `websearch`) dont l'adresse normalisée
-    correspond à `adresse`, ou `None` si aucune (garde 3)."""
+    correspond à `adresse`, ou `None` si aucune (garde 3) ou si `adresse`
+    est illisible."""
     cible = _normaliser_adresse(adresse)
+    if cible is None:
+        return None
     for page in pages:
         if page.outil == "webfetch" and _normaliser_adresse(page.adresse) == cible:
             return page
@@ -758,7 +765,10 @@ _DETAIL_INCOMPLETE = (
 def _domaine(adresse: Any) -> str | None:
     if not isinstance(adresse, str):
         return None
-    hote = urlsplit(adresse).netloc.lower()
+    try:
+        hote = urlsplit(adresse).hostname or ""
+    except ValueError:
+        return None
     return hote.removeprefix("www.") or None
 
 
@@ -879,7 +889,7 @@ def _gardes_prix_internet(
                 premiere_raison = raison_courte
             controles.append(Controle(nom, False, detail))
             continue
-        adresse = _normaliser_adresse(offre.source_url)
+        adresse = _normaliser_adresse(offre.source_url) or offre.source_url
         if adresse in adresses_gardees:
             controles.append(
                 Controle(nom, False, "écartée : même page qu'une offre déjà gardée")
