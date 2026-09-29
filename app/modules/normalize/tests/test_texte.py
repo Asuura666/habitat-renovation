@@ -33,3 +33,27 @@ def test_ressemblance_vide_vaut_zero() -> None:
 def test_ressemblance_est_un_entier_arrondi_vers_le_bas() -> None:
     # "villa tes" / "villa test" : 2*9/19 = 94,7 -> 94
     assert ressemblance("Villa tes", "Villa test") == 94
+
+
+# --- nombres_differents (B-05) ---
+
+
+def test_nombres_differents_paires_numerotees() -> None:
+    from app.modules.normalize.texte import nombres_differents
+
+    assert nombres_differents("Lot 12", "Lot 13") is True
+    assert nombres_differents("Résidence Les Pins 2", "Résidence Les Pins 3") is True
+    assert nombres_differents("Bât A 3", "Bât A 4") is True
+    assert nombres_differents("Immeuble Les Acacias 10", "Immeuble Les Acacias 110")
+
+
+def test_nombres_differents_memes_nombres_ou_aucun() -> None:
+    from app.modules.normalize.texte import nombres_differents
+
+    assert nombres_differents("Villa Test", "VILLA TEST") is False
+    assert nombres_differents("Lot 12", "lot 12") is False
+    assert nombres_differents("Lot 12 Bât A", "bat a - lot 12") is False
+    assert nombres_differents("Lot 03", "Lot 3") is False
+    assert nombres_differents("Les Pins", "Les Pins 2") is True
+    assert nombres_differents(None, "Lot 1") is True
+    assert nombres_differents(None, None) is False

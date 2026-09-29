@@ -864,3 +864,62 @@ async def test_reprise_idempotente(db_session: AsyncSession) -> None:
         bons_rattaches=0,
         bons_en_alerte=0,
     )
+
+
+# --------------------------------------------------------------------------
+# B-05 : noms ne différant que par un nombre -> jamais rattachés d'office
+# --------------------------------------------------------------------------
+
+
+async def test_voisin_numerote_leve_R18_sans_rattacher_ni_apprendre(
+    db_session: AsyncSession,
+) -> None:
+    f = await _fournisseur(db_session)
+    tilleuls12 = await _chantier(db_session, "Résidence Les Tilleuls 12")
+    bon = await _bon(
+        db_session,
+        fournisseur_id=f.id,
+        chantier_brut="RESIDENCE LES TILLEULS 13",
+        legende=None,
+    )
+
+    r = await rattacher_chantier_document(db_session, bon)
+    await db_session.commit()
+    await db_session.refresh(bon)
+
+    assert r.alerte is True and r.chantier_id is None and bon.chantier_id is None
+    anomalie = (
+        await db_session.execute(
+            select(Anomalie).where(
+                Anomalie.document_id == bon.id, Anomalie.regle == "R18"
+            )
+        )
+    ).scalar_one()
+    assert anomalie.statut == "ouverte"
+    assert anomalie.detail["candidats"] == "Résidence Les Tilleuls 12"
+    aucun_alias = (
+        (
+            await db_session.execute(
+                select(ChantierAlias).where(
+                    ChantierAlias.chantier_id == tilleuls12.id,
+                    ChantierAlias.libelle_brut == "residence les tilleuls 13",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert aucun_alias == []
+
+
+async def test_bloc_facture_voisin_numerote_non_rattache(
+    db_session: AsyncSession,
+) -> None:
+    f = await _fournisseur(db_session)
+    await _chantier(db_session, "Résidence Les Tilleuls 12")
+
+    resultat = await rattacher_chantier_bloc(
+        db_session, f.id, "Residence Les Tilleuls 13"
+    )
+    await db_session.commit()
+    assert resultat is None

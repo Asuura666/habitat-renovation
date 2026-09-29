@@ -241,3 +241,53 @@ def test_lu_vide_legende_ambigue_alerte() -> None:
 
 def test_rien_du_tout_aucun() -> None:
     assert decider_chantier(vide(), vide()).type is TypeDecision.AUCUN
+
+
+# --- B-05 : jamais de rattachement automatique si seuls les nombres diffèrent ---
+
+
+def test_reconnaitre_noms_ne_differant_que_par_un_nombre_a_confirmer() -> None:
+    paires = [
+        ("Lot 13", "Lot 12"),
+        ("Résidence Les Pins 3", "Résidence Les Pins 2"),
+        ("Bât A 4", "Bât A 3"),
+        ("Résidence Les Tilleuls 13", "Résidence Les Tilleuls 12"),
+    ]
+    for lu, connu in paires:
+        # seuil bas : quelle que soit la ressemblance, jamais RECONNU
+        c = reconnaitre_chantier(lu, [NomConnu(A, connu)], 50)
+        assert c.etat is EtatCorrespondance.AMBIGU, (lu, connu)
+        assert c.chantier_id is None and c.candidats == (A,)
+    c = reconnaitre_chantier(
+        "Résidence Les Tilleuls 13", [NomConnu(A, "Résidence Les Tilleuls 12")], 90
+    )
+    assert c.etat is EtatCorrespondance.AMBIGU and c.candidats == (A,)
+
+
+def test_reconnaitre_meme_nombre_toujours_rattache() -> None:
+    for lu, connu in [
+        ("VILLA TEST", "Villa Test"),
+        ("lot 12", "Lot 12"),
+        ("Bât. A - 3", "bat a 3"),
+    ]:
+        c = reconnaitre_chantier(lu, [NomConnu(A, connu)], 90)
+        assert c.etat is EtatCorrespondance.RECONNU and c.chantier_id == A
+
+
+def test_reconnaitre_le_bon_chantier_gagne_sur_le_voisin_numerote() -> None:
+    noms = [
+        NomConnu(A, "Résidence Les Tilleuls 12"),
+        NomConnu(B, "Résidence Les Tilleuls 13"),
+    ]
+    c = reconnaitre_chantier("Résidence Les Tilleuls 13", noms, 90)
+    assert c.etat is EtatCorrespondance.RECONNU and c.chantier_id == B
+
+
+def test_reconnaitre_voisin_numerote_sous_le_seuil_reste_inconnu() -> None:
+    c = reconnaitre_chantier("Lot 13", [NomConnu(A, "Lot 12")], 90)
+    assert c.etat is EtatCorrespondance.INCONNU
+
+
+def test_reconnaitre_nom_sans_nombre_inchange() -> None:
+    c = reconnaitre_chantier("villa tes", [NomConnu(A, "Villa test")], 94)
+    assert c.etat is EtatCorrespondance.RECONNU and c.chantier_id == A
