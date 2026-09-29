@@ -23,9 +23,13 @@ DEPLOY_OPENCODE = REPO_ROOT / "deploy" / "opencode"
 # plutôt que laissé à la recherche de `subprocess` dans `PATH` à chaque appel.
 GIT = shutil.which("git") or "/usr/bin/git"
 
-# Modèles admis par OpenCode 1.18.32 avec l'abonnement ChatGPT (faits
-# vérifiés le 27/09/2026, brief T8).
+# Modèles admis par OpenCode 1.18.32 avec l'abonnement ChatGPT : liste
+# relevée le 29/09/2026 sur le serveur réel une fois l'abonnement connecté
+# (`GET /config/providers`, fournisseur `openai`) — sous-ensemble utile.
+# Les agents utilisent `gpt-5.6-sol` depuis le 29/09 (choix d'Ilane).
 MODELES_ADMIS = {
+    "openai/gpt-5.6-sol",
+    "openai/gpt-5.6-sol-fast",
     "openai/gpt-5.5",
     "openai/gpt-5.4",
     "openai/gpt-5.4-mini",

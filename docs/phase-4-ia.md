@@ -108,6 +108,22 @@ copier ou coller le contenu du fichier `auth.json` (secret, même règle que
 tout autre jeton du projet) : `auth login`/`auth list` suffisent pour tout
 l'usage courant.
 
+**Puis redémarrer OpenCode** (constaté le 29/09/2026) : la connexion est
+écrite par un conteneur à part (`run --rm`), et le serveur déjà lancé ne la
+relit pas — tant qu'il n'est pas redémarré, il ne connaît que ses modèles
+gratuits et chaque essai échoue (« Model not found: openai/… », réponse
+500) :
+
+```bash
+docker compose -f deploy/opencode/docker-compose.yml restart opencode
+```
+
+La page « Essayer l'IA » (Réglages) montre ensuite le voyant « Abonnement
+ChatGPT connecté » au vert. Les trois agents utilisent `openai/gpt-5.6-sol`
+(`deploy/opencode/opencode.json`, choix d'Ilane du 29/09/2026) ; changer de
+modèle = modifier ce fichier, puis reconstruire le conteneur (`up -d
+--build`).
+
 ## 4. Allumer l'IA sur une instance
 
 À faire séparément pour `prod` et pour `demo` (le choix d'allumer l'une sans

@@ -8,7 +8,7 @@
   "agent": {
     "habitat-synthese": {
       "mode": "primary",
-      "model": "openai/gpt-5.4-mini",
+      "model": "openai/gpt-5.6-sol",
       "description": "Résume les commentaires de la semaine et propose des actions à cocher, sans jamais décider.",
       "permission": {
         "*": "deny"
@@ -18,7 +18,7 @@
     },
     "habitat-explication": {
       "mode": "primary",
-      "model": "openai/gpt-5.4-mini",
+      "model": "openai/gpt-5.6-sol",
       "description": "Explique en une à trois phrases un écart de prix déjà calculé par les règles, sans jamais le juger.",
       "permission": {
         "*": "deny"
@@ -28,7 +28,7 @@
     },
     "habitat-prix": {
       "mode": "primary",
-      "model": "openai/gpt-5.4",
+      "model": "openai/gpt-5.6-sol",
       "description": "Cherche sur internet le prix public d'un produit absent de la grille, avec sa source vérifiée, jamais un prix inventé.",
       "permission": {
         "*": "deny",
