@@ -25,9 +25,10 @@ sortie structurée par `ingest/opencode.py`, T3) et sa fonction de lecture :
   peut ni inventer ni recalculer un montant, elle ne fait que le commenter
   (aucune exception, y compris pour les petits nombres : cf. brief T2).
 - Prix trouvé sur internet (§6.2) : `SCHEMA_PRIX_INTERNET`,
-  `lire_prix_internet`, quatre gardes en cascade (réponse complète, source
-  réellement ouverte par l'IA dans cette session, prix relu dans le texte
-  de cette page) : jamais de prix estimé.
+  `lire_prix_internet`, une liste de 1 à 5 offres (depuis le 29/09/2026) ;
+  chaque offre passe trois gardes (réponse complète, source réellement
+  ouverte par l'IA dans cette session, prix relu dans le texte de cette
+  page) et est ramenée en HT (`prix_ht`) : jamais de prix estimé.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ from __future__ import annotations
 import re
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
@@ -514,31 +515,46 @@ def controles_explication(
 SCHEMA_PRIX_INTERNET: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": [
-        "statut",
-        "produit_trouve",
-        "prix",
-        "devise",
-        "taxes",
-        "unite",
-        "conditionnement",
-        "source_url",
-        "confiance",
-        "raison",
-    ],
+    "required": ["statut", "raison", "offres"],
     "properties": {
         "statut": {"type": "string", "enum": ["trouve", "prix_non_verifiable"]},
-        "produit_trouve": {"type": "string"},
-        "prix": {"type": "number"},
-        "devise": {"type": "string"},
-        "taxes": {"type": "string", "enum": ["HT", "TTC", "inconnu"]},
-        "unite": {"type": "string"},
-        "conditionnement": {"type": "string"},
-        "source_url": {"type": "string"},
-        "confiance": {"type": "string", "enum": ["faible", "moyenne", "elevee"]},
         "raison": {"type": "string"},
+        "offres": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": [
+                    "produit_trouve",
+                    "prix",
+                    "devise",
+                    "taxes",
+                    "unite",
+                    "conditionnement",
+                    "source_url",
+                    "confiance",
+                ],
+                "properties": {
+                    "produit_trouve": {"type": "string"},
+                    "prix": {"type": "number"},
+                    "devise": {"type": "string"},
+                    "taxes": {"type": "string", "enum": ["HT", "TTC", "inconnu"]},
+                    "unite": {"type": "string"},
+                    "conditionnement": {"type": "string"},
+                    "source_url": {"type": "string"},
+                    "confiance": {
+                        "type": "string",
+                        "enum": ["faible", "moyenne", "elevee"],
+                    },
+                },
+            },
+        },
     },
 }
+
+OFFRES_MAX = 5
+TVA_PRIX_INTERNET = Decimal("1.20")
+_CENTIME = Decimal("0.01")
 
 _RAISON_MAX = 300
 _CONFIANCES_VALIDES = frozenset({"faible", "moyenne", "elevee"})
@@ -552,8 +568,41 @@ _TAXES_VALIDES = frozenset({"HT", "TTC"})
 _SEPARATEURS_PRIX = _SEPARATEURS_MILLIERS + "."
 
 
+def prix_ht(prix: Decimal, taxes: str | None) -> Decimal | None:
+    """Prix ramené en HT pour comparer des offres entre elles et au prix
+    facturé (HT) : `HT` tel quel, `TTC` ÷ 1,20 (TVA 20 %), au centime ;
+    `None` quand le site ne dit ni HT ni TTC (décision d'Ilane du
+    29/09/2026 : une telle offre reste listée mais ne compte ni dans le plus
+    bas ni dans l'écart)."""
+    if taxes == "HT":
+        return prix.quantize(_CENTIME, rounding=ROUND_HALF_UP)
+    if taxes == "TTC":
+        return (prix / TVA_PRIX_INTERNET).quantize(_CENTIME, rounding=ROUND_HALF_UP)
+    return None
+
+
+@dataclass(frozen=True)
+class OffreLue:
+    """Une offre gardée (§6.2) : page ouverte, prix relu dans son texte."""
+
+    prix: Decimal
+    devise: str
+    taxes: Literal["HT", "TTC"] | None
+    prix_ht: Decimal | None
+    unite: str | None
+    conditionnement: str | None
+    produit_trouve: str
+    source_url: str
+    confiance: str
+
+
 @dataclass(frozen=True)
 class PrixInternetLu:
+    """Résultat de la lecture. Les champs à plat reprennent l'offre la moins
+    chère en HT (à défaut la première gardée) ; `offres` liste les offres
+    gardées, triées par `prix_ht` croissant (`None` à la fin, ordre de l'IA
+    à égalité)."""
+
     statut: Literal["trouve", "non_verifiable"]
     prix: Decimal | None
     devise: str | None
@@ -564,6 +613,7 @@ class PrixInternetLu:
     source_url: str | None
     confiance: str | None
     raison: str | None
+    offres: tuple[OffreLue, ...] = ()
 
 
 def _texte_ou_none(valeur: Any) -> str | None:
@@ -593,9 +643,13 @@ def _est_prix_valide(valeur: Any) -> bool:
 
 
 def _non_verifiable(structure: dict[Any, Any], raison: str) -> PrixInternetLu:
-    """Résultat `non_verifiable` : `produit_trouve`/`source_url` gardés
-    quand présents (utiles à l'humain même sans prix fiable), `prix` et le
-    reste toujours `None` (§6.2, dernier paragraphe)."""
+    """Résultat `non_verifiable` : `produit_trouve`/`source_url` de la
+    première offre gardés quand présents (utiles à l'humain même sans prix
+    fiable), `prix` et le reste toujours `None` (§6.2, dernier paragraphe)."""
+    offres = structure.get("offres")
+    premiere = offres[0] if isinstance(offres, list) and offres else None
+    if not isinstance(premiere, dict):
+        premiere = {}
     return PrixInternetLu(
         statut="non_verifiable",
         prix=None,
@@ -603,8 +657,8 @@ def _non_verifiable(structure: dict[Any, Any], raison: str) -> PrixInternetLu:
         taxes=None,
         unite=None,
         conditionnement=None,
-        produit_trouve=_texte_ou_none(structure.get("produit_trouve")),
-        source_url=_texte_ou_none(structure.get("source_url")),
+        produit_trouve=_texte_ou_none(premiere.get("produit_trouve")),
+        source_url=_texte_ou_none(premiere.get("source_url")),
         confiance=None,
         raison=raison,
     )
@@ -695,26 +749,95 @@ def _prix_dans_texte(prix: Decimal, texte: str) -> bool:
 
 
 _NOM_GARDE_STATUT = "L'IA annonce un prix, pas « non vérifiable »"
-_NOM_GARDE_COMPLETE = "La réponse est complète (prix, devise, source, confiance)"
-_NOM_GARDE_PAGE_OUVERTE = "La page source a vraiment été ouverte"
-_NOM_GARDE_PRIX_DANS_PAGE = "Le prix annoncé figure dans le texte de la page"
+_NOM_AUCUNE_OFFRE = "Au moins une offre"
+_DETAIL_INCOMPLETE = (
+    "écartée : champ manquant ou invalide (prix, devise, source ou confiance)"
+)
+
+
+def _domaine(adresse: Any) -> str | None:
+    if not isinstance(adresse, str):
+        return None
+    hote = urlsplit(adresse).netloc.lower()
+    return hote.removeprefix("www.") or None
+
+
+def _nom_offre(indice: int, offre_brute: Any) -> str:
+    domaine = (
+        _domaine(offre_brute.get("source_url"))
+        if isinstance(offre_brute, dict)
+        else None
+    )
+    return f"Offre {indice} — {domaine}" if domaine else f"Offre {indice}"
+
+
+def _evaluer_offre(
+    offre_brute: Any, pages: Sequence[PageLue]
+) -> tuple[OffreLue | None, str, str]:
+    """Gardes 2 à 4 du §6.2 sur une offre -> `(offre gardée ou None,
+    raison courte, détail pour le Laboratoire)`."""
+    if not isinstance(offre_brute, dict):
+        return None, "réponse incomplète", _DETAIL_INCOMPLETE
+    prix_brut = offre_brute.get("prix")
+    devise_brute = offre_brute.get("devise")
+    source_url = _texte_ou_none(offre_brute.get("source_url"))
+    produit_trouve = _texte_ou_none(offre_brute.get("produit_trouve"))
+    confiance = offre_brute.get("confiance")
+    if (
+        not _est_prix_valide(prix_brut)
+        or not isinstance(devise_brute, str)
+        or devise_brute.strip().upper() != "EUR"
+        or source_url is None
+        or not source_url.startswith("https://")
+        or produit_trouve is None
+        or confiance not in _CONFIANCES_VALIDES
+    ):
+        return None, "réponse incomplète", _DETAIL_INCOMPLETE
+    page = _page_ouverte(source_url, pages)
+    if page is None:
+        return (
+            None,
+            "source non ouverte",
+            f"écartée : aucune page ouverte à l'adresse {source_url}",
+        )
+    prix = Decimal(str(prix_brut)).quantize(Decimal("0.0001"))
+    if not _prix_dans_texte(prix, page.texte):
+        return (
+            None,
+            "prix absent de la page",
+            "écartée : prix absent du texte de la page lue",
+        )
+    taxes_brut = offre_brute.get("taxes")
+    taxes: Literal["HT", "TTC"] | None = (
+        taxes_brut if taxes_brut in _TAXES_VALIDES else None
+    )
+    offre = OffreLue(
+        prix=prix,
+        devise="EUR",
+        taxes=taxes,
+        prix_ht=prix_ht(prix, taxes),
+        unite=_texte_ou_none(offre_brute.get("unite")),
+        conditionnement=_texte_ou_none(offre_brute.get("conditionnement")),
+        produit_trouve=produit_trouve,
+        source_url=source_url,
+        confiance=str(confiance),
+    )
+    return offre, "", f"gardée : page {source_url} lue, prix retrouvé"
 
 
 def _gardes_prix_internet(
     structure: dict[Any, Any], pages: Sequence[PageLue]
-) -> tuple[PrixInternetLu, tuple[Controle, Controle, Controle, Controle]]:
-    """Évalue les quatre gardes du §6.2, une seule fois -- `lire_prix_internet`
+) -> tuple[PrixInternetLu, tuple[Controle, ...]]:
+    """Évalue les gardes du §6.2 une seule fois -- `lire_prix_internet`
     (résultat) et `controles_prix_internet` (détail affiché à l'admin,
     Laboratoire IA) s'appuient toutes les deux sur cette fonction, jamais sur
-    deux implémentations distinctes des gardes. Une garde non atteinte parce
-    qu'une garde précédente a déjà échoué porte `ok=False` et
-    `detail=_CONTROLE_NON_EVALUE`."""
+    deux implémentations distinctes des gardes. Le statut est contrôlé une
+    fois, puis chaque offre (5 au plus, de pages différentes) passe les
+    gardes 2 à 4 : une offre en échec est écartée, les autres restent."""
     statut_brut = structure.get("statut")
 
-    # Garde 1. `raison` est coupée brutalement à `_RAISON_MAX` caractères
-    # (jamais `_tronquer` : pas de règle « … sans couper un mot » pour ce
-    # champ, le brief ne la décrit que pour `resume`/le texte d'une action
-    # de la synthèse).
+    # `raison` est coupée brutalement à `_RAISON_MAX` caractères (jamais
+    # `_tronquer` : pas de règle « … sans couper un mot » pour ce champ).
     if statut_brut == "prix_non_verifiable":
         raison_brute = _texte_ou_none(structure.get("raison"))
         raison = (
@@ -722,9 +845,6 @@ def _gardes_prix_internet(
         )
         return _non_verifiable(structure, raison), (
             Controle(_NOM_GARDE_STATUT, False, "l'IA répond « prix non vérifiable »"),
-            Controle(_NOM_GARDE_COMPLETE, False, _CONTROLE_NON_EVALUE),
-            Controle(_NOM_GARDE_PAGE_OUVERTE, False, _CONTROLE_NON_EVALUE),
-            Controle(_NOM_GARDE_PRIX_DANS_PAGE, False, _CONTROLE_NON_EVALUE),
         )
 
     if statut_brut != "trouve":
@@ -732,108 +852,79 @@ def _gardes_prix_internet(
             Controle(
                 _NOM_GARDE_STATUT, False, "réponse de l'IA sans statut exploitable"
             ),
-            Controle(_NOM_GARDE_COMPLETE, False, _CONTROLE_NON_EVALUE),
-            Controle(_NOM_GARDE_PAGE_OUVERTE, False, _CONTROLE_NON_EVALUE),
-            Controle(_NOM_GARDE_PRIX_DANS_PAGE, False, _CONTROLE_NON_EVALUE),
         )
 
-    garde_statut = Controle(_NOM_GARDE_STATUT, True, "l'IA répond « trouvé »")
+    controles: list[Controle] = [
+        Controle(_NOM_GARDE_STATUT, True, "l'IA répond « trouvé »")
+    ]
+    offres_brutes = structure.get("offres")
+    if not isinstance(offres_brutes, list):
+        offres_brutes = []
 
-    # Garde 2.
-    prix_brut = structure.get("prix")
-    devise_brute = structure.get("devise")
-    source_url = _texte_ou_none(structure.get("source_url"))
-    produit_trouve = _texte_ou_none(structure.get("produit_trouve"))
-    confiance = structure.get("confiance")
+    gardees: list[OffreLue] = []
+    adresses_gardees: set[str] = set()
+    premiere_raison: str | None = None
+    for indice, offre_brute in enumerate(offres_brutes, start=1):
+        nom = _nom_offre(indice, offre_brute)
+        if len(gardees) >= OFFRES_MAX:
+            controles.append(
+                Controle(
+                    nom, False, f"écartée : au-delà des {OFFRES_MAX} offres gardées"
+                )
+            )
+            continue
+        offre, raison_courte, detail = _evaluer_offre(offre_brute, pages)
+        if offre is None:
+            if premiere_raison is None:
+                premiere_raison = raison_courte
+            controles.append(Controle(nom, False, detail))
+            continue
+        adresse = _normaliser_adresse(offre.source_url)
+        if adresse in adresses_gardees:
+            controles.append(
+                Controle(nom, False, "écartée : même page qu'une offre déjà gardée")
+            )
+            continue
+        adresses_gardees.add(adresse)
+        gardees.append(offre)
+        controles.append(Controle(nom, True, detail))
 
-    reponse_complete = (
-        _est_prix_valide(prix_brut)
-        and isinstance(devise_brute, str)
-        and devise_brute.strip().upper() == "EUR"
-        and source_url is not None
-        and source_url.startswith("https://")
-        and produit_trouve is not None
-        and confiance in _CONFIANCES_VALIDES
-    )
-    if not reponse_complete or source_url is None:
-        return _non_verifiable(structure, "réponse incomplète"), (
-            garde_statut,
-            Controle(
-                _NOM_GARDE_COMPLETE,
-                False,
-                "champ manquant ou invalide (prix, devise, source ou confiance)",
-            ),
-            Controle(_NOM_GARDE_PAGE_OUVERTE, False, _CONTROLE_NON_EVALUE),
-            Controle(_NOM_GARDE_PRIX_DANS_PAGE, False, _CONTROLE_NON_EVALUE),
+    if not offres_brutes:
+        controles.append(
+            Controle(_NOM_AUCUNE_OFFRE, False, "aucune offre dans la réponse")
         )
-    garde_complete = Controle(
-        _NOM_GARDE_COMPLETE, True, "prix, devise, source et confiance présents"
-    )
 
-    # Garde 3.
-    page = _page_ouverte(source_url, pages)
-    if page is None:
-        return _non_verifiable(structure, "source non ouverte"), (
-            garde_statut,
-            garde_complete,
-            Controle(
-                _NOM_GARDE_PAGE_OUVERTE,
-                False,
-                f"aucune page ouverte à l'adresse {source_url}",
-            ),
-            Controle(_NOM_GARDE_PRIX_DANS_PAGE, False, _CONTROLE_NON_EVALUE),
+    if not gardees:
+        return _non_verifiable(structure, premiere_raison or "aucune offre"), tuple(
+            controles
         )
-    garde_page_ouverte = Controle(
-        _NOM_GARDE_PAGE_OUVERTE, True, f"page {source_url} lue"
-    )
 
-    # Garde 4.
-    prix_decimal = Decimal(str(prix_brut)).quantize(Decimal("0.0001"))
-    if not _prix_dans_texte(prix_decimal, page.texte):
-        return _non_verifiable(structure, "prix absent de la page"), (
-            garde_statut,
-            garde_complete,
-            garde_page_ouverte,
-            Controle(
-                _NOM_GARDE_PRIX_DANS_PAGE, False, "prix absent du texte de la page lue"
-            ),
-        )
-    garde_prix_dans_page = Controle(
-        _NOM_GARDE_PRIX_DANS_PAGE, True, "prix retrouvé dans le texte de la page lue"
-    )
-
-    taxes_brut = structure.get("taxes")
-    taxes: Literal["HT", "TTC"] | None = (
-        taxes_brut if taxes_brut in _TAXES_VALIDES else None
-    )
-
+    triees = sorted(gardees, key=lambda o: (o.prix_ht is None, o.prix_ht or Decimal(0)))
+    m = triees[0]
     resultat = PrixInternetLu(
         statut="trouve",
-        prix=prix_decimal,
+        prix=m.prix,
         devise="EUR",
-        taxes=taxes,
-        unite=_texte_ou_none(structure.get("unite")),
-        conditionnement=_texte_ou_none(structure.get("conditionnement")),
-        produit_trouve=produit_trouve,
-        source_url=source_url,
-        confiance=confiance,
+        taxes=m.taxes,
+        unite=m.unite,
+        conditionnement=m.conditionnement,
+        produit_trouve=m.produit_trouve,
+        source_url=m.source_url,
+        confiance=m.confiance,
         raison=None,
+        offres=tuple(triees),
     )
-    return resultat, (
-        garde_statut,
-        garde_complete,
-        garde_page_ouverte,
-        garde_prix_dans_page,
-    )
+    return resultat, tuple(controles)
 
 
 def lire_prix_internet(structure: Any, pages: Sequence[PageLue]) -> PrixInternetLu:
     """Lit et garde une réponse `SCHEMA_PRIX_INTERNET`. Seule une
     `structure` qui n'est pas un dict est un échec de contrat (exception) :
-    toute autre réponse douteuse (statut inconnu, champ manquant, source
-    non ouverte par l'IA, prix introuvable dans la page) donne un résultat
-    `non_verifiable`, jamais une exception -- la recherche sur internet est
-    par nature incertaine (§6.2)."""
+    toute autre réponse douteuse (statut inconnu, ancien format sans
+    `offres`, source non ouverte par l'IA, prix introuvable dans la page)
+    donne un résultat `non_verifiable` ou écarte l'offre concernée, jamais
+    une exception -- la recherche sur internet est par nature incertaine
+    (§6.2)."""
     if not isinstance(structure, dict):
         raise ReponseIAInvalide("réponse de l'IA invalide")
     resultat, _controles = _gardes_prix_internet(structure, pages)
@@ -843,16 +934,10 @@ def lire_prix_internet(structure: Any, pages: Sequence[PageLue]) -> PrixInternet
 def controles_prix_internet(
     structure: Any, pages: Sequence[PageLue]
 ) -> tuple[Controle, ...]:
-    """Détail des quatre gardes de `lire_prix_internet`, dans l'ordre,
-    chacune avec son verdict sur la même entrée (Laboratoire IA) -- s'appuie
-    sur `_gardes_prix_internet`, jamais sur une seconde implémentation des
-    gardes."""
+    """Détail des gardes de `lire_prix_internet` (statut, puis une ligne par
+    offre) sur la même entrée (Laboratoire IA) -- s'appuie sur
+    `_gardes_prix_internet`, jamais sur une seconde implémentation."""
     if not isinstance(structure, dict):
-        return (
-            Controle(_NOM_GARDE_STATUT, False, "réponse de l'IA invalide"),
-            Controle(_NOM_GARDE_COMPLETE, False, _CONTROLE_NON_EVALUE),
-            Controle(_NOM_GARDE_PAGE_OUVERTE, False, _CONTROLE_NON_EVALUE),
-            Controle(_NOM_GARDE_PRIX_DANS_PAGE, False, _CONTROLE_NON_EVALUE),
-        )
+        return (Controle(_NOM_GARDE_STATUT, False, "réponse de l'IA invalide"),)
     _resultat, controles = _gardes_prix_internet(structure, pages)
     return controles

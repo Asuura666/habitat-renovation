@@ -365,15 +365,19 @@ def _reponses_prix_trouve(
 ) -> dict[tuple[str, str], httpx.Response]:
     structured = {
         "statut": "trouve",
-        "produit_trouve": "Produit trouvé invente",
-        "prix": float(prix),
-        "devise": "EUR",
-        "taxes": taxes,
-        "unite": "u",
-        "conditionnement": "boîte de 10",
-        "source_url": source_url,
-        "confiance": "elevee",
         "raison": "",
+        "offres": [
+            {
+                "produit_trouve": "Produit trouvé invente",
+                "prix": float(prix),
+                "devise": "EUR",
+                "taxes": taxes,
+                "unite": "u",
+                "conditionnement": "boîte de 10",
+                "source_url": source_url,
+                "confiance": "elevee",
+            }
+        ],
     }
     info = _info_minimal(structured=structured)
     # Comme sur le vrai serveur : la page a été ouverte à une étape

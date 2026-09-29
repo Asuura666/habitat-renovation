@@ -182,15 +182,19 @@ async def test_essai_prix_bout_en_bout_trouve(
     reponses = _reponses_session(
         {
             "statut": "trouve",
-            "produit_trouve": "Ciment CEM II 25kg",
-            "prix": 12.34,
-            "devise": "EUR",
-            "taxes": "TTC",
-            "unite": "sac",
-            "conditionnement": "25kg",
-            "source_url": "https://fournisseur.test/ciment",
-            "confiance": "moyenne",
             "raison": "",
+            "offres": [
+                {
+                    "produit_trouve": "Ciment CEM II 25kg",
+                    "prix": 12.34,
+                    "devise": "EUR",
+                    "taxes": "TTC",
+                    "unite": "sac",
+                    "conditionnement": "25kg",
+                    "source_url": "https://fournisseur.test/ciment",
+                    "confiance": "moyenne",
+                }
+            ],
         },
         parts=[
             _partie_outil(
@@ -236,7 +240,7 @@ async def test_essai_prix_bout_en_bout_trouve(
     assert trace.outils[0].outil == "webfetch"
     assert trace.outils[0].adresse == "https://fournisseur.test/ciment"
     assert trace.reponse_brute["info"]["structured"]["statut"] == "trouve"
-    assert len(trace.controles) == 4
+    assert len(trace.controles) == 2
     assert all(controle.ok for controle in trace.controles)
     assert trace.resultat == {
         "statut": "trouve",
@@ -310,15 +314,19 @@ async def test_essai_prix_extrait_tronque(
     reponses = _reponses_session(
         {
             "statut": "trouve",
-            "produit_trouve": "Produit",
-            "prix": 1,
-            "devise": "EUR",
-            "taxes": "HT",
-            "unite": "u",
-            "conditionnement": "",
-            "source_url": "https://fournisseur.test/produit",
-            "confiance": "faible",
             "raison": "",
+            "offres": [
+                {
+                    "produit_trouve": "Produit",
+                    "prix": 1,
+                    "devise": "EUR",
+                    "taxes": "HT",
+                    "unite": "u",
+                    "conditionnement": "",
+                    "source_url": "https://fournisseur.test/produit",
+                    "confiance": "faible",
+                }
+            ],
         },
         parts=[
             _partie_outil(
@@ -901,15 +909,19 @@ async def test_essai_prix_bug_imprevu_dans_controles_termine_la_trace(
     reponses = _reponses_session(
         {
             "statut": "trouve",
-            "produit_trouve": "Ciment",
-            "prix": 12.34,
-            "devise": "EUR",
-            "taxes": "TTC",
-            "unite": "sac",
-            "conditionnement": "25kg",
-            "source_url": "https://fournisseur.test/ciment",
-            "confiance": "moyenne",
             "raison": "",
+            "offres": [
+                {
+                    "produit_trouve": "Ciment",
+                    "prix": 12.34,
+                    "devise": "EUR",
+                    "taxes": "TTC",
+                    "unite": "sac",
+                    "conditionnement": "25kg",
+                    "source_url": "https://fournisseur.test/ciment",
+                    "confiance": "moyenne",
+                }
+            ],
         }
     )
     http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
@@ -1045,15 +1057,19 @@ async def test_essai_prix_appels_restants_echoue_mais_essai_termine(
     reponses = _reponses_session(
         {
             "statut": "trouve",
-            "produit_trouve": "Ciment",
-            "prix": 12.34,
-            "devise": "EUR",
-            "taxes": "TTC",
-            "unite": "sac",
-            "conditionnement": "25kg",
-            "source_url": "https://fournisseur.test/ciment",
-            "confiance": "moyenne",
             "raison": "",
+            "offres": [
+                {
+                    "produit_trouve": "Ciment",
+                    "prix": 12.34,
+                    "devise": "EUR",
+                    "taxes": "TTC",
+                    "unite": "sac",
+                    "conditionnement": "25kg",
+                    "source_url": "https://fournisseur.test/ciment",
+                    "confiance": "moyenne",
+                }
+            ],
         },
         parts=[
             _partie_outil(

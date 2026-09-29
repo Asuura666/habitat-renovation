@@ -142,15 +142,19 @@ def _reponses_opencode_prix_trouve(
 ) -> dict[tuple[str, str], httpx.Response]:
     structured: dict[str, Any] = {
         "statut": "trouve",
-        "produit_trouve": "Plaque std 13 (revendeur invente)",
-        "prix": float(prix),
-        "devise": "EUR",
-        "taxes": "TTC",
-        "unite": "u",
-        "conditionnement": "boîte de 10",
-        "source_url": source_url,
-        "confiance": "elevee",
         "raison": "",
+        "offres": [
+            {
+                "produit_trouve": "Plaque std 13 (revendeur invente)",
+                "prix": float(prix),
+                "devise": "EUR",
+                "taxes": "TTC",
+                "unite": "u",
+                "conditionnement": "boîte de 10",
+                "source_url": source_url,
+                "confiance": "elevee",
+            }
+        ],
     }
     info: dict[str, Any] = {
         "id": "msg_bout_en_bout_1",
