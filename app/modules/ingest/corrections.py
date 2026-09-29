@@ -118,7 +118,11 @@ from app.modules.ingest.models import (
 )
 from app.modules.ingest.prix_bl import controler_prix_bl_sans_echec
 from app.modules.ingest.rangement import ranger_document
-from app.modules.ingest.rapprochement import rapprocher_factures_du_bl
+from app.modules.ingest.rapprochement import (
+    rapprocher_factures_du_bl,
+    rapprocher_factures_voisines,
+    supprimer_liens_de_lignes,
+)
 from app.modules.ingest.rattachement_chantier import rattacher_chantier_document
 from app.modules.ingest.referentiels import (
     lire_parametre_decimal,
@@ -789,6 +793,21 @@ async def _rattacher_articles_du_document(
         )
 
 
+async def _rejouer_rapprochement_apres_correction(
+    session: AsyncSession, document: Document, statut_avant: str
+) -> None:
+    """B-04 : un BL qui participe (ou participait) à un rapprochement —
+    statut `recu` avant ou après la correction — rejoue celui des factures
+    concernées (numéro courant et blocs déjà liés), comme la validation.
+    `rapprocher_factures_du_bl` ne lève jamais et peut faire un `rollback()`
+    interne, qui expire `document` : d'où le `refresh` final (même piège que
+    `valider_document`)."""
+    if "recu" not in (statut_avant, document.statut):
+        return
+    await rapprocher_factures_du_bl(session, document.id)
+    await session.refresh(document)
+
+
 async def corriger_entete(
     session: AsyncSession,
     document_id: uuid.UUID,
@@ -797,6 +816,7 @@ async def corriger_entete(
     auteur_id: uuid.UUID,
 ) -> DocumentDetail:
     document = await _document_pour_ecriture(session, document_id)
+    statut_avant = document.statut
     valeurs_avant = _valeurs_document_pour_journal(document)
 
     changements: dict[str, str | None] = {}
@@ -864,6 +884,7 @@ async def corriger_entete(
     )
     await session.commit()
     await session.refresh(document)
+    await _rejouer_rapprochement_apres_correction(session, document, statut_avant)
     return await _charger_detail(session, document, role="admin")
 
 
@@ -917,6 +938,7 @@ async def corriger_lignes(
     auteur_id: uuid.UUID,
 ) -> DocumentDetail:
     document = await _document_pour_ecriture(session, document_id)
+    statut_avant = document.statut
     lignes_existantes = await _lignes_du_document(session, document_id)
 
     ids_connus = {ligne.id for ligne in lignes_existantes}
@@ -937,9 +959,13 @@ async def corriger_lignes(
     avant_journal = [_ligne_en_chaine(ligne) for ligne in lignes_existantes]
 
     existantes_par_id = {ligne.id: ligne for ligne in lignes_existantes}
-    for ligne in lignes_existantes:
-        if ligne.id not in ids_recus:
-            await session.delete(ligne)
+    a_supprimer = [ligne for ligne in lignes_existantes if ligne.id not in ids_recus]
+    if a_supprimer:
+        # C-01 : les liens de rapprochement partent avant les lignes (clé
+        # étrangère) ; le rejeu ci-dessous les recrée.
+        await supprimer_liens_de_lignes(session, [ligne.id for ligne in a_supprimer])
+    for ligne in a_supprimer:
+        await session.delete(ligne)
 
     nouvelles_lignes: list[Ligne] = []
     for position, saisie in enumerate(lignes):
@@ -1003,6 +1029,7 @@ async def corriger_lignes(
     )
     await session.commit()
     await session.refresh(document)
+    await _rejouer_rapprochement_apres_correction(session, document, statut_avant)
 
     # Contrôle des prix du bon (phase 3, tâche P7, spec §6.2) : une
     # correction de lignes peut changer le prix, l'unité ou le produit
@@ -1119,6 +1146,17 @@ async def archiver_document(
         )
 
     await session.commit()
+    await session.refresh(document)
+
+    # B-07 : l'archivage rejoue ce qui en dépend — pour un BL, les factures
+    # dont un bloc le cite (le bloc redevient « non reçu », R11 levée) ; pour
+    # une facture, les autres factures qui partagent un de ses numéros de BL
+    # (R12). Jamais d'échec de l'archivage (déjà commité) ; `refresh` final
+    # pour la même raison que `valider_document`.
+    if document.type == "facture":
+        await rapprocher_factures_voisines(session, document_id)
+    else:
+        await rapprocher_factures_du_bl(session, document_id)
     await session.refresh(document)
     return await _charger_detail(session, document, role="admin")
 

@@ -126,7 +126,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 
-from sqlalchemy import ColumnElement, Select, case, func, or_, select, true
+from sqlalchemy import ColumnElement, Select, and_, case, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -328,6 +328,7 @@ async def _bloquee_par_ignorance(
 def _conditions_portee(
     portee_document_id: uuid.UUID | None,
     portee_regles: Sequence[str],
+    portee_bl_ids: Sequence[uuid.UUID] = (),
 ) -> list[Any]:
     """Conditions SQL de la portée (voir docstring de module, Ruling R8) :
     `statut = 'ouverte'` toujours, `regle` ∈ `portee_regles` toujours (le
@@ -343,10 +344,38 @@ def _conditions_portee(
         blocs_de_la_facture = select(BlocFacture.id).where(
             BlocFacture.facture_id == portee_document_id
         )
+        # B-01 : R11 est portée par le BL (`document_id` = BL, sans bloc). Elle
+        # appartient à la portée de la facture qui cite ce BL (bloc ->
+        # `bl_document_id`) ou qui le citait avant ce rapprochement
+        # (`portee_bl_ids`, BL corrigé, archivé ou dont le numéro a changé),
+        # tant qu'aucune autre facture ne le cite encore.
+        bl_cites = select(BlocFacture.bl_document_id).where(
+            BlocFacture.facture_id == portee_document_id,
+            BlocFacture.bl_document_id.is_not(None),
+        )
+        autre_bloc = aliased(BlocFacture)
+        bl_anciens = (
+            select(autre_bloc.id)
+            .where(
+                autre_bloc.bl_document_id == Anomalie.document_id,
+                autre_bloc.facture_id != portee_document_id,
+            )
+            .exists()
+        )
         conditions.append(
             or_(
                 Anomalie.document_id == portee_document_id,
                 Anomalie.bloc_id.in_(blocs_de_la_facture.scalar_subquery()),
+                and_(
+                    Anomalie.regle == "R11",
+                    or_(
+                        Anomalie.document_id.in_(bl_cites.scalar_subquery()),
+                        and_(
+                            Anomalie.document_id.in_(tuple(portee_bl_ids)),
+                            ~bl_anciens,
+                        ),
+                    ),
+                ),
             )
         )
     return conditions
@@ -358,6 +387,7 @@ async def synchroniser_anomalies(
     anomalies: Sequence[AnomaliePure],
     portee_document_id: uuid.UUID | None = None,
     portee_regles: Sequence[str] | None = None,
+    portee_bl_ids: Sequence[uuid.UUID] = (),
 ) -> int:
     """Persiste `anomalies` (upsert par clé d'identité, L4-D11) et lève les
     anomalies `ouverte` de la portée qui ne sont plus produites (L4-D12).
@@ -461,7 +491,9 @@ async def synchroniser_anomalies(
 
     await session.flush()
 
-    conditions_portee = _conditions_portee(portee_document_id, portee_regles)
+    conditions_portee = _conditions_portee(
+        portee_document_id, portee_regles, portee_bl_ids
+    )
     candidates = (
         (await session.execute(select(Anomalie).where(*conditions_portee)))
         .scalars()

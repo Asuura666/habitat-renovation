@@ -79,8 +79,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -129,6 +130,8 @@ __all__ = [
     "rapprocher_facture",
     "rapprocher_facture_sans_echec",
     "rapprocher_factures_du_bl",
+    "rapprocher_factures_voisines",
+    "supprimer_liens_de_lignes",
 ]
 
 # Types de document traités comme un BL pour le rapprochement (CDC §4.5 :
@@ -741,6 +744,13 @@ async def rapprocher_facture(
     nouvelles_rapprochement_ligne: list[RapprochementLigne] = []
     nb_lignes_appariees = 0
 
+    # B-01/B-04/B-07 : BL cités par cette facture avant ce rejeu (un BL
+    # corrigé, archivé ou renuméroté n'est plus forcément candidat) : leurs
+    # anomalies R11 restent dans la portée du balayage.
+    anciens_bl_ids = tuple(
+        {bloc.bl_document_id for bloc in blocs_db if bloc.bl_document_id is not None}
+    )
+
     for bloc_db in blocs_db:
         lignes_bloc_db = lignes_par_bloc.get(bloc_db.id, [])
         numero_normalise = (
@@ -978,6 +988,7 @@ async def rapprocher_facture(
         # cet appel, son balayage de suppression ne doit donc jamais la
         # considérer (décision d'Ilane du 24/09/2026, voir ci-dessus).
         portee_regles=tuple(regles_actives),
+        portee_bl_ids=anciens_bl_ids,
     )
 
     nb_blocs_recus = sum(1 for bloc in blocs_db if bloc.statut_rapprochement == "recu")
@@ -1075,14 +1086,31 @@ async def _factures_portant_numero(
     return facture_ids
 
 
+async def supprimer_liens_de_lignes(session: AsyncSession, ligne_ids: Any) -> None:
+    """C-01 : supprime les liens `rapprochement_ligne` qui pointent sur les
+    lignes `ligne_ids` (liste d'identifiants ou sous-requête), côté BL comme
+    côté facture. À appeler **avant** de supprimer ces lignes (clé étrangère
+    sans `ON DELETE`) ; le rapprochement des factures concernées les recrée
+    ensuite (`rapprocher_factures_du_bl`)."""
+    await session.execute(
+        delete(RapprochementLigne).where(
+            or_(
+                RapprochementLigne.ligne_bl_id.in_(ligne_ids),
+                RapprochementLigne.ligne_facture_id.in_(ligne_ids),
+            )
+        )
+    )
+
+
 async def rapprocher_factures_du_bl(
     session: AsyncSession, document_id: uuid.UUID
 ) -> list[ResultatRapprochement]:
-    """Rejoue le rapprochement de chaque facture dont un bloc porte le
-    numéro du BL/enlèvement `document_id` (déclenché après la validation
-    d'un BL ou une extraction qui donne un numéro — décision du
-    contrôleur). `[]` si le document est introuvable, n'a pas de numéro, n'a
-    pas de fournisseur résolu, ou n'est pas un BL/enlèvement.
+    """Rejoue le rapprochement de chaque facture concernée par le BL/
+    enlèvement `document_id` : celles dont un bloc porte son numéro courant,
+    et celles dont un bloc pointe déjà sur lui (`bl_document_id`, y compris
+    sous un ancien numéro ou après archivage — B-04/B-07). Déclenché après
+    la validation, la correction, la relecture ou l'archivage d'un BL.
+    `[]` si le document est introuvable ou n'est pas un BL/enlèvement.
 
     Ne fait jamais échouer l'action appelante : la recherche des factures
     candidates comme chaque rapprochement individuel
@@ -1090,24 +1118,75 @@ async def rapprocher_factures_du_bl(
     journalisée et avalée."""
     try:
         bl_doc = await session.get(Document, document_id)
-        if (
-            bl_doc is None
-            or bl_doc.numero is None
-            or bl_doc.fournisseur_id is None
-            or bl_doc.type not in _TYPES_BL
-        ):
+        if bl_doc is None or bl_doc.type not in _TYPES_BL:
             return []
-        facture_ids = await _factures_portant_numero(
-            session, bl_doc.fournisseur_id, bl_doc.numero
-        )
+        facture_ids: list[uuid.UUID] = []
+        if bl_doc.numero is not None and bl_doc.fournisseur_id is not None:
+            facture_ids = await _factures_portant_numero(
+                session, bl_doc.fournisseur_id, bl_doc.numero
+            )
+        deja_liees = (
+            await session.execute(
+                select(BlocFacture.facture_id)
+                .join(Document, Document.id == BlocFacture.facture_id)
+                .where(BlocFacture.bl_document_id == document_id)
+                .order_by(Document.created_at.asc())
+            )
+        ).scalars()
+        for facture_id in deja_liees:
+            if facture_id not in facture_ids:
+                facture_ids.append(facture_id)
     except Exception as exc:
         await session.rollback()
         _journaliser_echec("recherche factures", document_id, exc)
         return []
 
+    return await _rapprocher_factures(session, facture_ids)
+
+
+async def _rapprocher_factures(
+    session: AsyncSession, facture_ids: Sequence[uuid.UUID]
+) -> list[ResultatRapprochement]:
     resultats: list[ResultatRapprochement] = []
     for facture_id in facture_ids:
         resultat = await rapprocher_facture_sans_echec(session, facture_id)
         if resultat is not None:
             resultats.append(resultat)
     return resultats
+
+
+async def rapprocher_factures_voisines(
+    session: AsyncSession, facture_id: uuid.UUID
+) -> list[ResultatRapprochement]:
+    """B-07 : après l'archivage de la facture `facture_id`, rejoue les autres
+    factures du même fournisseur qui partagent un numéro de BL avec elle (R12
+    ne compte plus une facture archivée). Même protection que
+    `rapprocher_factures_du_bl`."""
+    try:
+        facture = await session.get(Document, facture_id)
+        if (
+            facture is None
+            or facture.type != "facture"
+            or facture.fournisseur_id is None
+        ):
+            return []
+        numeros = (
+            await session.execute(
+                select(BlocFacture.numero_bl).where(
+                    BlocFacture.facture_id == facture_id,
+                    BlocFacture.numero_bl.is_not(None),
+                )
+            )
+        ).scalars()
+        facture_ids: list[uuid.UUID] = []
+        for numero in {n for n in numeros if n}:
+            for autre_id in await _factures_portant_numero(
+                session, facture.fournisseur_id, numero
+            ):
+                if autre_id != facture_id and autre_id not in facture_ids:
+                    facture_ids.append(autre_id)
+    except Exception as exc:
+        await session.rollback()
+        _journaliser_echec("recherche factures voisines", facture_id, exc)
+        return []
+    return await _rapprocher_factures(session, facture_ids)

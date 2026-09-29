@@ -88,7 +88,10 @@ from app.modules.extract.verification import (
 )
 from app.modules.ingest.models import Document, Journal, Ligne
 from app.modules.ingest.prix_bl import controler_prix_bl_sans_echec
-from app.modules.ingest.rapprochement import rapprocher_factures_du_bl
+from app.modules.ingest.rapprochement import (
+    rapprocher_factures_du_bl,
+    supprimer_liens_de_lignes,
+)
 from app.modules.ingest.rattachement_chantier import rattacher_chantier_document
 from app.modules.ingest.referentiels import (
     charger_agences,
@@ -279,8 +282,17 @@ async def _avec_reprise_doublon(
         # Les lignes supprimées avant la première tentative ont, elles
         # aussi, été annulées par le `rollback` : on les resupprime avant de
         # rejouer (un `DELETE` sans ligne à supprimer ne fait rien).
-        await session.execute(delete(Ligne).where(Ligne.document_id == document_id))
+        await _supprimer_lignes(session, document_id)
         return await executer()
+
+
+async def _supprimer_lignes(session: AsyncSession, document_id: uuid.UUID) -> None:
+    """C-01 : supprime les lignes du document après leurs liens de
+    rapprochement (clé étrangère sans `ON DELETE`) ; le rejeu du
+    rapprochement qui suit l'extraction les recrée."""
+    ids = select(Ligne.id).where(Ligne.document_id == document_id)
+    await supprimer_liens_de_lignes(session, ids)
+    await session.execute(delete(Ligne).where(Ligne.document_id == document_id))
 
 
 async def _rapprocher_si_numero(
@@ -291,10 +303,10 @@ async def _rapprocher_si_numero(
     `detecter_numero_bl` a quand même donné un numéro) peut faire
     correspondre une ou plusieurs factures déjà déposées — rejeu encapsulé
     (`rapprocher_factures_du_bl`), ne fait jamais échouer l'extraction
-    elle-même (déjà commitée). Rien si `resultat.numero` est absent (aucun
-    numéro à chercher)."""
-    if resultat.numero is not None:
-        await rapprocher_factures_du_bl(session, document_id)
+    elle-même (déjà commitée). Toujours rejoué (C-01/B-04) : une relecture qui
+    ne donne plus de numéro doit aussi défaire les liens des blocs qui
+    pointaient sur ce BL ; sans numéro ni lien, le rejeu ne fait rien."""
+    await rapprocher_factures_du_bl(session, document_id)
 
 
 async def enregistrer_extraction_bl(
@@ -331,7 +343,7 @@ async def enregistrer_extraction_bl(
     )
     # Une relance (L3-D15) comme un premier passage remplacent entièrement
     # les lignes existantes — y compris quand l'annotation s'avère illisible.
-    await session.execute(delete(Ligne).where(Ligne.document_id == document_id))
+    await _supprimer_lignes(session, document_id)
 
     try:
         extrait = analyser_bl(reponse)
