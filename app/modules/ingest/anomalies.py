@@ -325,6 +325,18 @@ async def _bloquee_par_ignorance(
     return resultat.first() is not None
 
 
+def condition_document_non_archive() -> ColumnElement[bool]:
+    """Anomalie hors document (`document_id` absent : alias, chantier) ou
+    portée par un document non archivé : un document archivé n'entre dans
+    aucun compte ni aucune liste (même garde que le bilan et le
+    rapprochement, B-07)."""
+    archives = select(Document.id).where(Document.statut == "archive")
+    return or_(
+        Anomalie.document_id.is_(None),
+        Anomalie.document_id.not_in(archives.scalar_subquery()),
+    )
+
+
 def _conditions_portee(
     portee_document_id: uuid.UUID | None,
     portee_regles: Sequence[str],
@@ -630,7 +642,11 @@ def _requete_anomalies(
         .outerjoin(Chantier, Chantier.id == CHANTIER_ID_RESOLU)
         .outerjoin(Fournisseur, Fournisseur.id == Document.fournisseur_id)
         .outerjoin(traitee_par_alias, traitee_par_alias.id == Anomalie.traitee_par)
-        .where(condition_regles_actives(exclues), *conditions)
+        .where(
+            condition_regles_actives(exclues),
+            condition_document_non_archive(),
+            *conditions,
+        )
     )
 
 
@@ -800,7 +816,11 @@ async def compter_anomalies_ouvertes(session: AsyncSession) -> tuple[int, int]:
                 func.count().filter(Anomalie.gravite == "haute"),
             )
             .select_from(Anomalie)
-            .where(condition_regles_actives(exclues), Anomalie.statut == "ouverte")
+            .where(
+                condition_regles_actives(exclues),
+                condition_document_non_archive(),
+                Anomalie.statut == "ouverte",
+            )
         )
     ).one()
     return int(resultat[0]), int(resultat[1])
@@ -819,6 +839,7 @@ async def compter_anomalies_hautes_ouvertes(session: AsyncSession) -> int:
             .select_from(Anomalie)
             .where(
                 condition_regles_actives(exclues),
+                condition_document_non_archive(),
                 Anomalie.statut == "ouverte",
                 Anomalie.gravite == "haute",
             )

@@ -570,7 +570,7 @@ async def factures_recues(session: AsyncSession) -> list[tuple[uuid.UUID, int]]:
 
 
 async def rapprocher_facture(
-    session: AsyncSession, facture_id: uuid.UUID
+    session: AsyncSession, facture_id: uuid.UUID, *, commit: bool = True
 ) -> ResultatRapprochement:
     """Rapproche une facture avec les BL déposés (L4-D3, idempotent) :
     charge la facture, ses blocs et lignes, les BL candidats (L4-D5), les
@@ -580,7 +580,9 @@ async def rapprocher_facture(
     (facture et BL) et les lignes de `rapprochement_ligne` (remplacées) ;
     évalue le moteur de règles pur puis délègue la persistance des
     anomalies à `ingest.anomalies.synchroniser_anomalies` ; journalise
-    `facture_rapprochee` (auteur `NULL`). Un seul `commit()` à la fin.
+    `facture_rapprochee` (auteur `NULL`). Un seul `commit()` à la fin, sauf
+    `commit=False` : simple `flush()`, l'appelant tient la transaction (rejeu
+    commun avec une correction, tout ou rien).
 
     Lève `FactureIntrouvable` si `facture_id` est absent ou n'est pas une
     facture. Ne fait rien et renvoie un résultat vide (tous les compteurs à
@@ -1013,7 +1015,10 @@ async def rapprocher_facture(
         )
     )
 
-    await session.commit()
+    if commit:
+        await session.commit()
+    else:
+        await session.flush()
 
     return ResultatRapprochement(
         facture_id=facture_id,
@@ -1103,7 +1108,10 @@ async def supprimer_liens_de_lignes(session: AsyncSession, ligne_ids: Any) -> No
 
 
 async def rapprocher_factures_du_bl(
-    session: AsyncSession, document_id: uuid.UUID
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    *,
+    dans_la_transaction: bool = False,
 ) -> list[ResultatRapprochement]:
     """Rejoue le rapprochement de chaque facture concernée par le BL/
     enlèvement `document_id` : celles dont un bloc porte son numéro courant,
@@ -1115,7 +1123,9 @@ async def rapprocher_factures_du_bl(
     Ne fait jamais échouer l'action appelante : la recherche des factures
     candidates comme chaque rapprochement individuel
     (`rapprocher_facture_sans_echec`) sont protégés, toute exception est
-    journalisée et avalée."""
+    journalisée et avalée. Avec `dans_la_transaction=True`, aucun commit et
+    aucune exception avalée : l'appelant a déjà des écritures en attente
+    (correction, suppression de liens) et commite ou annule le tout."""
     try:
         bl_doc = await session.get(Document, document_id)
         if bl_doc is None or bl_doc.type not in _TYPES_BL:
@@ -1137,18 +1147,30 @@ async def rapprocher_factures_du_bl(
             if facture_id not in facture_ids:
                 facture_ids.append(facture_id)
     except Exception as exc:
+        if dans_la_transaction:
+            raise
         await session.rollback()
         _journaliser_echec("recherche factures", document_id, exc)
         return []
 
-    return await _rapprocher_factures(session, facture_ids)
+    return await _rapprocher_factures(
+        session, facture_ids, dans_la_transaction=dans_la_transaction
+    )
 
 
 async def _rapprocher_factures(
-    session: AsyncSession, facture_ids: Sequence[uuid.UUID]
+    session: AsyncSession,
+    facture_ids: Sequence[uuid.UUID],
+    *,
+    dans_la_transaction: bool = False,
 ) -> list[ResultatRapprochement]:
     resultats: list[ResultatRapprochement] = []
     for facture_id in facture_ids:
+        if dans_la_transaction:
+            resultats.append(
+                await rapprocher_facture(session, facture_id, commit=False)
+            )
+            continue
         resultat = await rapprocher_facture_sans_echec(session, facture_id)
         if resultat is not None:
             resultats.append(resultat)
@@ -1156,7 +1178,10 @@ async def _rapprocher_factures(
 
 
 async def rapprocher_factures_voisines(
-    session: AsyncSession, facture_id: uuid.UUID
+    session: AsyncSession,
+    facture_id: uuid.UUID,
+    *,
+    dans_la_transaction: bool = False,
 ) -> list[ResultatRapprochement]:
     """B-07 : après l'archivage de la facture `facture_id`, rejoue les autres
     factures du même fournisseur qui partagent un numéro de BL avec elle (R12
@@ -1186,7 +1211,11 @@ async def rapprocher_factures_voisines(
                 if autre_id != facture_id and autre_id not in facture_ids:
                     facture_ids.append(autre_id)
     except Exception as exc:
+        if dans_la_transaction:
+            raise
         await session.rollback()
         _journaliser_echec("recherche factures voisines", facture_id, exc)
         return []
-    return await _rapprocher_factures(session, facture_ids)
+    return await _rapprocher_factures(
+        session, facture_ids, dans_la_transaction=dans_la_transaction
+    )

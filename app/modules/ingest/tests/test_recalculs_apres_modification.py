@@ -18,7 +18,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.extract.verification import CodeMotif
-from app.modules.ingest.anomalies import compter_anomalies_ouvertes
+from app.modules.ingest import rapprochement as ingest_rapprochement
+from app.modules.ingest.anomalies import compter_anomalies_ouvertes, lister_anomalies
 from app.modules.ingest.corrections import (
     CorrectionEntete,
     LigneSaisie,
@@ -33,6 +34,7 @@ from app.modules.ingest.models import (
     BlocFacture,
     Document,
     Fournisseur,
+    Journal,
     Ligne,
     RapprochementLigne,
     Utilisateur,
@@ -386,3 +388,176 @@ async def test_b07_archiver_une_facture_leve_r12_de_l_autre(
     await archiver_document(db_session, a.id, commentaire="erreur", auteur_id=admin.id)
 
     assert "R12" not in await _regles_ouvertes(db_session, b)
+
+
+# --------------------------------------------------------------------------
+# Correction 1, important 1 : un BL `a_verifier` lié est rejoué aussi
+# --------------------------------------------------------------------------
+
+
+async def test_bl_a_verifier_lie_corriger_le_numero_deplace_le_lien_du_bloc(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    bloc = await _creer_bloc(db_session, facture=facture, numero_bl="L0041")
+    autre_bloc = await _creer_bloc(
+        db_session, facture=facture, ordre=1, numero_bl="L0049"
+    )
+    bl = await _creer_bl(
+        db_session, fournisseur=fournisseur, numero="L0041", statut="a_verifier"
+    )
+    await _creer_ligne(db_session, document=bl, montant_ht=Decimal("10.00"))
+    await rapprocher_facture(db_session, facture.id)
+    await _rafraichir(db_session, bloc)
+    assert bloc.bl_document_id == bl.id  # un BL a_verifier est candidat
+    admin = await _admin(db_session)
+
+    await corriger_entete(
+        db_session,
+        bl.id,
+        CorrectionEntete(valeurs={"numero": "L0049"}),
+        auteur_id=admin.id,
+    )
+
+    await _rafraichir(db_session, bloc)
+    await _rafraichir(db_session, autre_bloc)
+    assert bloc.bl_document_id is None
+    assert autre_bloc.bl_document_id == bl.id
+
+
+async def test_bl_a_verifier_lie_corriger_les_lignes_rejoue_les_liens(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    bloc = await _creer_bloc(db_session, facture=facture, numero_bl="L0042")
+    await _creer_ligne(db_session, document=facture, bloc=bloc, code_brut="ART1")
+    bl = await _creer_bl(
+        db_session, fournisseur=fournisseur, numero="L0042", statut="a_verifier"
+    )
+    ligne_bl = await _creer_ligne(db_session, document=bl, code_brut="ART1")
+    await rapprocher_facture(db_session, facture.id)
+    assert await _liens(db_session) == 1
+    admin = await _admin(db_session)
+
+    await corriger_lignes(
+        db_session,
+        bl.id,
+        [_saisie(ligne_bl, id=None, qte_livree=Decimal("3"))],
+        auteur_id=admin.id,
+    )
+
+    # les liens supprimés avant les lignes sont recréés par le rejeu
+    assert await _liens(db_session) == 1
+
+
+# --------------------------------------------------------------------------
+# Correction 1, important 2 : tout ou rien si le rejeu échoue
+# --------------------------------------------------------------------------
+
+
+async def _rejeu_en_echec(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _boom(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("rejeu simulé en échec")
+
+    monkeypatch.setattr(ingest_rapprochement, "rapprocher_facture", _boom)
+
+
+async def test_rejeu_en_echec_corriger_lignes_annule_tout(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _f, _facture, bloc, bl, ligne_bl = await _facture_et_bl_rapproches(db_session)
+    admin = await _admin(db_session)
+    bl_id, ligne_bl_id = bl.id, ligne_bl.id
+    await _rejeu_en_echec(monkeypatch)
+
+    with pytest.raises(RuntimeError):
+        await corriger_lignes(db_session, bl_id, [], auteur_id=admin.id)
+
+    assert await _liens(db_session) == 1
+    lignes = (
+        (await db_session.execute(select(Ligne.id).where(Ligne.document_id == bl_id)))
+        .scalars()
+        .all()
+    )
+    assert lignes == [ligne_bl_id]
+    journal = (
+        (
+            await db_session.execute(
+                select(Journal).where(Journal.action == "lignes_corrigees")
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert journal == []
+    await _rafraichir(db_session, bloc)
+    assert bloc.statut_rapprochement == "recu"
+
+
+async def test_rejeu_en_echec_corriger_entete_annule_tout(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _f, _facture, _bloc, bl, _ligne_bl = await _facture_et_bl_rapproches(db_session)
+    admin = await _admin(db_session)
+    await _rejeu_en_echec(monkeypatch)
+
+    with pytest.raises(RuntimeError):
+        await corriger_entete(
+            db_session,
+            bl.id,
+            CorrectionEntete(valeurs={"numero": "L0999"}),
+            auteur_id=admin.id,
+        )
+
+    await _rafraichir(db_session, bl)
+    assert bl.numero == "L0001"
+
+
+async def test_rejeu_en_echec_archiver_annule_tout(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _f, _facture, bloc, bl, _ligne_bl = await _facture_et_bl_rapproches(db_session)
+    admin = await _admin(db_session)
+    await _rejeu_en_echec(monkeypatch)
+
+    with pytest.raises(RuntimeError):
+        await archiver_document(
+            db_session, bl.id, commentaire="doublon", auteur_id=admin.id
+        )
+
+    await _rafraichir(db_session, bl)
+    assert bl.statut == "recu"
+    await _rafraichir(db_session, bloc)
+    assert bloc.statut_rapprochement == "recu"
+
+
+# --------------------------------------------------------------------------
+# Correction 1, mineur : compteur et liste excluent les documents archivés
+# --------------------------------------------------------------------------
+
+
+async def test_compteur_exclut_les_anomalies_d_un_bl_archive(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    bl = await _creer_bl(db_session, fournisseur=fournisseur)
+    db_session.add(
+        Anomalie(
+            regle="R11",
+            gravite="moyenne",
+            document_id=bl.id,
+            detail={"somme": "1"},
+            statut="ouverte",
+        )
+    )
+    await db_session.commit()
+    assert (await compter_anomalies_ouvertes(db_session))[0] == 1
+    assert len(await lister_anomalies(db_session, statut="ouverte")) == 1
+
+    bl.statut = "archive"
+    await db_session.commit()
+
+    assert (await compter_anomalies_ouvertes(db_session))[0] == 0
+    assert await lister_anomalies(db_session, statut="ouverte") == []

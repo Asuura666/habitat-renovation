@@ -793,19 +793,16 @@ async def _rattacher_articles_du_document(
         )
 
 
-async def _rejouer_rapprochement_apres_correction(
-    session: AsyncSession, document: Document, statut_avant: str
-) -> None:
-    """B-04 : un BL qui participe (ou participait) à un rapprochement —
-    statut `recu` avant ou après la correction — rejoue celui des factures
-    concernées (numéro courant et blocs déjà liés), comme la validation.
-    `rapprocher_factures_du_bl` ne lève jamais et peut faire un `rollback()`
-    interne, qui expire `document` : d'où le `refresh` final (même piège que
-    `valider_document`)."""
-    if "recu" not in (statut_avant, document.statut):
-        return
-    await rapprocher_factures_du_bl(session, document.id)
-    await session.refresh(document)
+async def _rejouer_ou_annuler(session: AsyncSession, rejeu: Awaitable[Any]) -> None:
+    """B-04/B-07 : exécute le rejeu du rapprochement (appelé avec
+    `dans_la_transaction=True`) dans la transaction de la correction ; s'il
+    échoue, tout est annulé (correction, liens supprimés, journal) et
+    l'erreur remonte : jamais d'état à moitié rejoué."""
+    try:
+        await rejeu
+    except Exception:
+        await session.rollback()
+        raise
 
 
 async def corriger_entete(
@@ -816,7 +813,6 @@ async def corriger_entete(
     auteur_id: uuid.UUID,
 ) -> DocumentDetail:
     document = await _document_pour_ecriture(session, document_id)
-    statut_avant = document.statut
     valeurs_avant = _valeurs_document_pour_journal(document)
 
     changements: dict[str, str | None] = {}
@@ -882,9 +878,14 @@ async def corriger_entete(
             apres=changements,
         )
     )
+    # B-04 : rejeu des factures concernées (numéro courant et blocs déjà
+    # liés), dans la même transaction que la correction.
+    await _rejouer_ou_annuler(
+        session,
+        rapprocher_factures_du_bl(session, document_id, dans_la_transaction=True),
+    )
     await session.commit()
     await session.refresh(document)
-    await _rejouer_rapprochement_apres_correction(session, document, statut_avant)
     return await _charger_detail(session, document, role="admin")
 
 
@@ -938,7 +939,6 @@ async def corriger_lignes(
     auteur_id: uuid.UUID,
 ) -> DocumentDetail:
     document = await _document_pour_ecriture(session, document_id)
-    statut_avant = document.statut
     lignes_existantes = await _lignes_du_document(session, document_id)
 
     ids_connus = {ligne.id for ligne in lignes_existantes}
@@ -1027,9 +1027,14 @@ async def corriger_lignes(
             apres={"lignes": apres_journal},
         )
     )
+    # B-04/C-01 : rejeu des factures concernées dans la même transaction que
+    # la correction et la suppression des liens (tout ou rien).
+    await _rejouer_ou_annuler(
+        session,
+        rapprocher_factures_du_bl(session, document_id, dans_la_transaction=True),
+    )
     await session.commit()
     await session.refresh(document)
-    await _rejouer_rapprochement_apres_correction(session, document, statut_avant)
 
     # Contrôle des prix du bon (phase 3, tâche P7, spec §6.2) : une
     # correction de lignes peut changer le prix, l'unité ou le produit
@@ -1145,18 +1150,20 @@ async def archiver_document(
             portee_regles=tuple(REGLES_FACTURE),
         )
 
-    await session.commit()
-    await session.refresh(document)
-
-    # B-07 : l'archivage rejoue ce qui en dépend — pour un BL, les factures
-    # dont un bloc le cite (le bloc redevient « non reçu », R11 levée) ; pour
-    # une facture, les autres factures qui partagent un de ses numéros de BL
-    # (R12). Jamais d'échec de l'archivage (déjà commité) ; `refresh` final
-    # pour la même raison que `valider_document`.
+    # B-07 : l'archivage rejoue ce qui en dépend, dans la même transaction —
+    # pour un BL, les factures dont un bloc le cite (le bloc redevient « non
+    # reçu », R11 levée) ; pour une facture, les autres factures qui
+    # partagent un de ses numéros de BL (R12).
     if document.type == "facture":
-        await rapprocher_factures_voisines(session, document_id)
+        rejeu = rapprocher_factures_voisines(
+            session, document_id, dans_la_transaction=True
+        )
     else:
-        await rapprocher_factures_du_bl(session, document_id)
+        rejeu = rapprocher_factures_du_bl(
+            session, document_id, dans_la_transaction=True
+        )
+    await _rejouer_ou_annuler(session, rejeu)
+    await session.commit()
     await session.refresh(document)
     return await _charger_detail(session, document, role="admin")
 
