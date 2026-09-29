@@ -802,6 +802,59 @@ def test_lire_prix_internet_garde4_milliers_avec_point_accepte() -> None:
     assert resultat.statut == "trouve"
 
 
+@pytest.mark.parametrize(
+    ("prix", "texte"),
+    [
+        pytest.param(7.47, "Soit 7€47 TTC/La pièce", id="euro-colle"),
+        pytest.param(2.49, "2 €49 TTC/Le M2", id="espace-avant-euro"),
+        pytest.param(2.49, f"2{chr(0x00A0)}€49 TTC/Le M2", id="insecable-avant-euro"),
+        pytest.param(1234.5, "Palette : 1 234€50 HT", id="milliers"),
+        pytest.param(45, "Sac : 45€00", id="centimes-nuls"),
+    ],
+)
+def test_lire_prix_internet_garde4_euro_entre_euros_et_centimes_accepte(
+    prix: float, texte: str
+) -> None:
+    """29/09/2026, essai réel sur une page Brico Dépôt (« 2 €49 TTC/Le M2
+    Soit 7€47 TTC/La pièce ») : l'écriture avec « € » entre les euros et les
+    centimes, courante chez les enseignes, n'était pas reconnue -- le prix
+    était rejeté alors qu'il figurait bien sur la page ouverte."""
+    structure = _structure_trouve(prix=prix, source_url="https://fournisseur.test/ba13")
+    pages = [
+        PageLue(outil="webfetch", adresse="https://fournisseur.test/ba13", texte=texte)
+    ]
+
+    resultat = lire_prix_internet(structure, pages=pages)
+
+    assert resultat.statut == "trouve"
+
+
+@pytest.mark.parametrize(
+    "texte",
+    [
+        pytest.param("Soit 17€47 TTC", id="chiffre-avant"),
+        pytest.param("Soit 7€470 TTC", id="chiffre-apres"),
+        pytest.param("Soit 7€47cm", id="lettre-apres"),
+        pytest.param("Lot de 7 € 47 pièces", id="espace-apres-euro"),
+    ],
+)
+def test_lire_prix_internet_garde4_euro_entre_euros_et_centimes_borne(
+    texte: str,
+) -> None:
+    """Mêmes bornes que l'écriture « 7,47 » : jamais collé à d'autres
+    chiffres ni à des lettres ; un espace après « € » n'est pas accepté
+    (« 7 € 47 pièces » n'est pas un prix de 7,47 €)."""
+    structure = _structure_trouve(prix=7.47, source_url="https://fournisseur.test/ba13")
+    pages = [
+        PageLue(outil="webfetch", adresse="https://fournisseur.test/ba13", texte=texte)
+    ]
+
+    resultat = lire_prix_internet(structure, pages=pages)
+
+    assert resultat.statut == "non_verifiable"
+    assert resultat.raison == "prix absent de la page"
+
+
 def test_lire_prix_internet_tout_passe_trouve() -> None:
     structure = _structure_trouve(
         prix=12.34,
