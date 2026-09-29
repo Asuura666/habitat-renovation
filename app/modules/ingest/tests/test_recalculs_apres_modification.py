@@ -533,6 +533,48 @@ async def test_rejeu_en_echec_archiver_annule_tout(
     assert bloc.statut_rapprochement == "recu"
 
 
+async def test_rejeu_en_echec_relecture_annule_tout(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Relecture d'un BL rapproché (OCR simulé) : si le rejeu du
+    rapprochement échoue, les anciennes lignes et les anciens liens restent
+    intacts et l'erreur remonte."""
+    _f, _facture, bloc, bl, ligne_bl = await _facture_et_bl_rapproches(db_session)
+    bl_id, ligne_bl_id, bloc_id = bl.id, ligne_bl.id, bloc.id
+    reponse = {
+        "pages": [
+            {
+                "index": 0,
+                "markdown": "LIVRAISON N°L0001",
+                "images": [],
+                "dimensions": {"dpi": 200, "height": 100, "width": 100},
+            }
+        ],
+        "model": "test",
+        "document_annotation": "N/A",
+        "usage_info": {"pages_processed": 1, "doc_size_bytes": 1},
+    }
+    await _rejeu_en_echec(monkeypatch)
+
+    with pytest.raises(RuntimeError):
+        await enregistrer_extraction_bl(db_session, bl_id, reponse, relance=True)
+
+    lignes = (
+        (await db_session.execute(select(Ligne.id).where(Ligne.document_id == bl_id)))
+        .scalars()
+        .all()
+    )
+    assert lignes == [ligne_bl_id]
+    liens = (
+        (await db_session.execute(select(RapprochementLigne.ligne_bl_id)))
+        .scalars()
+        .all()
+    )
+    assert liens == [ligne_bl_id]
+    bloc_relu = await db_session.get(BlocFacture, bloc_id)
+    assert bloc_relu is not None and bloc_relu.bl_document_id == bl_id
+
+
 # --------------------------------------------------------------------------
 # Correction 1, mineur : compteur et liste excluent les documents archivés
 # --------------------------------------------------------------------------
