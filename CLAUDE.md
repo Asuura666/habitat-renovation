@@ -78,103 +78,51 @@ infra/         README.md : documentation technique d'ensemble (demande client, a
 
 ## Où en est le projet
 
-**Depuis le 27/09/2026 : lire d'abord `docs/roadmap-octobre-2026.md`.**
-Demandes d'octobre du client (phases 1 à 4), organisation git (plus aucun
-commit direct sur `main` : branches `feature/…` → PR vers `dev` ; `dev` →
-`main` seulement avec l'accord d'Ilane), deux sessions Claude Code en
-parallèle (worktrees, base de test par session, verrou commun sur les tests),
-numéros réservés (migrations, règles, réglages) et zones de conflit.
+**État au 29/09/2026.** Lire d'abord `README.md` (documentation globale à
+jour : périmètre livré, état exact des demandes du client, audit, limites),
+puis `docs/roadmap-octobre-2026.md` (demandes de la réunion du 26/09,
+organisation git, phases 1 à 4, suivi), `docs/dette.md` et, avant de toucher
+l'IA, `docs/phase-4-ia.md`.
 
-**Phase 1 (mise en production du 1er octobre)** faite sur `feature/mise-en-prod-1-octobre` le 27/09/2026 (rattachement automatique des chantiers, R18, fusion, reprise, photos rangées, comptes, journal, livraisons conformes) : recette et procédure de déploiement dans `docs/mise-en-production-1er-octobre-recette.md` (ordre : migration 0011, `rattacher-chantiers`, puis `ranger-photos`).
-
-Lots 1 (Socle), 2 (Collecte), 3 (Extraction), 4 (Rapprochement) et 5
-(Restitution) faits et **fusionnés dans `main`** (lot 4 le 18/09/2026, lot 5
-le 20/09/2026 par avance rapide jusqu'à `a550e8f`). L5-T1 à L5-T12 sont
-commitées et relues.
-
-**Refonte du front fusionnée dans `main` le 23/09/2026** (branche
-`refonte-front`, 48 commits) : les 14 écrans techniques sont remplacés par
-cinq écrans (Vue d'ensemble, À régler, Chantiers, Fournisseurs, Documents +
-page BL) plus Réglages/Journal, navigation téléphone à barre basse, aucun
-jargon visible. Quatre ajouts serveur seulement (client du chantier,
-tableau de bord du mois, téléchargement nommé + comparaison d'un BL, compte
-unique des problèmes à régler). Construite en une journée, relue tâche par
-tâche puis par une revue finale à 6 angles (85 constats, 19 confirmés, tous
-corrigés et revérifiés). **Déployée le jour même sur les deux instances**
-(démo et production, migration `0010`). Détail complet, décisions à valider
-par Ilane et points ouverts (Drive, secrets à tourner, sauvegardes/crons à
-poser) : `docs/refonte-front-recette.md`.
-
-Les derniers contrôles connus sur le lot 5 (après L5-T11) étaient verts
-après les corrections finales : 1 362 tests, Ruff, formatage, mypy,
-typecheck et build front. La revue finale et la relecture des corrections ont
-rendu un verdict vert. **Avant tout
-travail, lire
-`docs/passation-lot-5.md`** (état, décisions, questions ouvertes, méthode et
-point de départ suivant), `docs/refonte-front-recette.md`, `docs/lot-5-recette.md`
-et `docs/dette.md`, puis les passations précédentes si nécessaire. Recettes :
-`docs/lot-1-recette.md` à `docs/lot-5-recette.md`, puis
-`docs/refonte-front-recette.md`.
-
-Points à retenir :
-- La facture fournie est un scan : les factures sont lues via l'OCR Mistral
-  puis `extract/unikalo.py` (décision R16 du lot 3, à valider par Ilane).
-- **Lot 3 bloqué sur des fichiers manquants**, toujours vrai au lot 4 :
-  seules 4 photos réelles de BL sont disponibles (30 dont 10 dégradées
-  exigées par le CDC §10) ; le parseur de facture Point.P n'est pas
-  construit (aucun document disponible) — bloque aussi tout rapprochement
-  avec ce fournisseur. Marche à suivre dès réception des photos :
-  `docs/protocole-mesure-ocr.md`.
-- **Lot 4 : rapprochement, moteur de règles (R01 à R17) et écran Anomalies
-  faits.** Verdicts réels sur la facture d'août (28 blocs : 3 reçus, 4
-  « pas de bon », 21 non reçus ; 25 anomalies), **non confirmés par Ilane**
-  (Q6, détail `docs/lot-4-recette.md` §4) ; semi-remorque non construite,
-  aucun déclencheur défini (Q1) ; historique de prix jamais exercé sur des
-  données réelles (un seul mois disponible).
-- **Lot 5 : Bilan, export CSV, navigation, référentiels, journal, réglages et
-  synchronisation Drive fusionnés dans `main`.** Les quatre définitions
-  monétaires et le classement d'août restent à confirmer par Ilane. Drive
-  reste bloqué : le compte de service ne peut pas écrire sur un Drive
-  personnel, il faut un Drive partagé Google Workspace ou basculer en OAuth
-  (détail `docs/refonte-front-recette.md` §6). L'application est déployée
-  depuis le 23/09/2026 (démo et production), mais aucun cron ni sauvegarde
-  restic n'est encore posé sur ces deux instances.
-- L2-R10 (contrôle d'origine bloquant les POST via `npm run dev`) est
-  résolu depuis le lot 3 (L3-D21, proxy Vite qui réécrit `Origin`).
-- Ne jamais lancer `pre-commit install` depuis un worktree (hooks partagés).
-- **Contrôles de prix R07/R08/R09 et R06 (« Livré mais pas facturé »)
-  désactivés côté serveur depuis le 24/09/2026** (décisions d'Ilane, même
-  jour) — `CONTROLE_PRIX_ACTIF` et `CONTROLE_LIVRE_NON_FACTURE_ACTIF`,
-  détail `docs/dette.md` et `docs/refonte-front-recette.md`.
-- **Optimisations rapidité et sécurité du 25/09/2026 fusionnées dans `main`
-  et déployées le jour même** (nginx, démo puis production, dumps
-  `avant-optimisations-*` dans `~/sauvegardes-habitat/`) : documents en
-  0640/0750, signature et taille des fichiers Telegram vérifiées, en-têtes
-  nginx complétés et zone `login`, conteneurs durcis, cache immutable des
-  `/assets`, `staleTime` de 30 s côté front, N+1 des alias corrigé, suite de
-  tests accélérée. Reporté et contexte : `docs/dette.md` (« Optimisations du
-  25/09/2026 »). Le serveur actuel est un serveur perso/de dev provisoire ;
-  la cible est un serveur dédié au client (seul Ilane y aura un compte).
-- **Phase 4 IA construite sur `feature/phase-4-ia`, IA éteinte** (T1 à T9,
-  27-28/09/2026) : synthèse hebdomadaire des commentaires, explication des
-  alertes prix et prix trouvé sur internet, conteneur OpenCode (client
-  `ingest/opencode.py`) connecté à l'abonnement ChatGPT personnel d'Ilane —
-  tout est construit et testé sans lui, `IA_ACTIVE=false` par défaut. Le lot
-  Prix est fusionné dans `dev` (PR #5) et R22 (« Produit absent de la
-  grille ») porte désormais `dernier_prix` : explication et prix internet
-  traitent maintenant de vraies anomalies. **T10a fait**, sur la branche
-  `feature/phase-4-t10` : service groupé
-  `ingest.ia_prix.prix_internet_des_anomalies`, route `GET
-  /api/ia/prix-internet`, essai de bout en bout sur une vraie anomalie R22.
-  Reste T10b (3ᵉ colonne « Internet » de l'écran `/prix`). Avenant CDC §15 à
-  confirmer par Ilane. Guide d'exploitation, connexion de l'abonnement,
-  essai avant de se fier au prix internet : `docs/phase-4-ia.md`.
-- **Phase 3 (session B) : commentaires sur les lignes de bons et lot Prix
-  (grilles, contrôle au bon R19-R25, page Prix), fusionné dans `dev`
-  (PR #5)** ; contrôle éteint par défaut (réglage `prix_controle_bl_actif`) ;
-  migrations `0012`-`0013` ; détail
-  `docs/superpowers/specs/2026-09-27-prix-design.md` et `docs/dette.md`
-  (28/09/2026).
+- **Livré et en production (28/09/2026, étiquette `mise-en-prod-octobre-2026`,
+  migration `0014`)** : lots 1 à 5, refonte du front (23/09), optimisations de
+  sécurité (25/09), phases 1 à 4 d'octobre (chantiers rattachés
+  automatiquement, R18, comptes, photos rangées, commentaires sur les lignes,
+  grilles de prix, contrôle des prix des bons R19-R25, IA). En production,
+  l'IA est **éteinte** (`IA_ACTIVE=false`) et le contrôle des prix des bons
+  est **éteint** (interrupteur `prix_controle_bl_actif`) tant que les grilles
+  ne sont pas chargées. R06 à R09 restent désactivées côté serveur.
+- **Dans `dev`, pas encore en production** : Laboratoire IA (`/ia`), correctifs
+  de l'IA, Entrée enregistre un commentaire, prix internet par marque, nom et
+  format, jusqu'à cinq sources en HT (migration `0015`), dépendances à jour
+  (PR #9 à #14). La démo porte `dev` jusqu'à la PR #13, IA allumée.
+- **IA gelée par Ilane le 29/09** : aucune évolution de l'IA sans son accord ;
+  OpenCode reste en 1.18.32, modèle `gpt-5.6-sol`, compte ChatGPT d'Ilane.
+- **Audit complet du 29/09** : 0 critique, 13 importants confirmés, les autres
+  mineurs ou latents (README §20 ; mineurs dans `docs/dette.md`). Décisions
+  d'Ilane : « Conforme » strict partout, facture à somme incohérente comptée
+  avec mention et R10 dans « À régler », chantiers ne différant que par un
+  numéro jamais rattachés automatiquement. **Corrections en cours** sur
+  `feature/corrections-audit` (groupe 1, rejeu des recalculs, en relecture ;
+  groupes 2 à 5 à faire) ; puis PR vers `dev`, démo, et passage de `dev` en
+  production avec l'accord d'Ilane (sauvegarde, migration `0015`, image
+  OpenCode, API).
+- **Pas fait** : lot 6 (recette sur deux mois, formation, procès-verbal),
+  lecteur de factures Point.P, mesure de l'OCR sur 30 photos (4 disponibles),
+  Drive (bloqué : Drive partagé Workspace ou OAuth), contrôle des prix à la
+  facture, sauvegardes hors du serveur (dépôts restic locaux), serveur dédié
+  au client (le serveur actuel est provisoire), supervision (canal Telegram
+  supprimé le 28/09 ; scripts de `feature/exploitation-2` non validés).
+- **Organisation** : plus aucun commit direct sur `main` ; branches
+  `feature/…` → PR vers `dev` ; `dev` → `main` seulement avec l'accord
+  d'Ilane ; déploiements depuis l'arbre dédié `habitat_reno-prod`. Détail :
+  `docs/roadmap-octobre-2026.md` §2.
+- **Tests** : 2 699 collectés le 29/09/2026 ; ruff, mypy strict, typecheck et
+  build du front verts à chaque commit (hooks pre-commit, ne jamais utiliser
+  `--no-verify`, ne jamais lancer `pre-commit install` depuis un worktree).
+- **Décisions d'Ilane qui font foi** : `docs/roadmap-octobre-2026.md` §1.2, avenants
+  du cahier des charges §14 et §15 (le §15, IA, reste « à confirmer »), README
+  §20.3 pour l'audit.
 
 ## Méthode
 
