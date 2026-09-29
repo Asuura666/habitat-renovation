@@ -670,12 +670,20 @@ def _prix_dans_texte(prix: Decimal, texte: str) -> bool:
     décimales (`45,00`/`45.00`, déjà couverte par le premier motif) : le
     « € » est accepté collé ou après un simple espace, « EUR » doit être un
     mot entier (`EUR\\b`) pour ne pas matcher un mot qui commence pareil
-    (« 45 Euromaster »)."""
+    (« 45 Euromaster »). Le « € » est aussi reconnu entre les euros et les
+    centimes (« 7€47 », « 2 €49 »), écriture courante chez les enseignes
+    (29/09/2026, page Brico Dépôt : prix rejeté alors qu'il figurait sur la
+    page) -- espace admis avant le « € », jamais après, mêmes bornes que
+    l'écriture « 7,47 »."""
     prix_2dec = prix.quantize(Decimal("0.01"))
     entier_str, decimales_str = f"{prix_2dec:.2f}".split(".")
     motif_entier = _motif_entier(entier_str)
 
-    motifs = [rf"{_AVANT_PRIX}{motif_entier}[.,]{decimales_str}{_APRES_PRIX}"]
+    motifs = [
+        rf"{_AVANT_PRIX}{motif_entier}[.,]{decimales_str}{_APRES_PRIX}",
+        rf"{_AVANT_PRIX}{motif_entier}[{_SEPARATEURS_MILLIERS}]?€{decimales_str}"
+        rf"{_APRES_PRIX}",
+    ]
     if decimales_str == "00":
         separateur_devise = f"[{_SEPARATEURS_MILLIERS}]?"
         motifs.append(rf"{_AVANT_PRIX}{motif_entier}{separateur_devise}€")
