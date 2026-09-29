@@ -226,3 +226,13 @@ def test_formulaire_synthese_champ_date() -> None:
     composant = _lire("pages", "LaboIA.tsx")
 
     assert 'type="date"' in composant
+
+
+def test_prix_trouve_affiche_comme_sur_la_page_prix() -> None:
+    """29/09/2026 : le Laboratoire affichait « 21.2400 EUR TTC » (valeur
+    brute) ; il réutilise la fonction d'affichage de la page Prix
+    (`lib/prixInternet.ts`) -- « 21,24 € TTC (sac de 25 kg) »."""
+    composant = _lire("pages", "LaboIA.tsx")
+
+    assert "texteMontantPrixInternet" in composant
+    assert "String(resultat.prix)" not in composant
