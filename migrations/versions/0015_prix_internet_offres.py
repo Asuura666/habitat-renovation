@@ -5,7 +5,7 @@
 HT. Les lignes `trouve` déjà présentes sont reprises comme une offre unique ;
 les autres reçoivent une liste vide.
 
-Autogénérée depuis `app/modules/ingest/models.py` puis relue.
+Écrite à la main d'après la conception (spec §5), puis relue.
 
 Revision ID: 0015
 Revises: 0014

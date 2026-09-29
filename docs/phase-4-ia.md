@@ -45,7 +45,7 @@ ni un prix de grille.
   monde »**. Sans ce réglage, le contenu envoyé par l'application (textes de
   commentaires, désignations de produits) pourrait servir à l'entraînement
   d'OpenAI.
-- Le dépôt à jour sur le serveur, migration `0014` disponible
+- Le dépôt à jour sur le serveur, migration `0015` disponible
   (`alembic upgrade head` l'applique).
 
 ## 3. Installer le conteneur OpenCode
@@ -198,6 +198,31 @@ si elles étaient posées) :
 deploy/installer-taches.sh prod --desinstaller
 ```
 
+### 4.4 Mise à jour vers la recherche à plusieurs sources (29/09/2026)
+
+Ordre à respecter sur chaque instance déjà en service :
+
+1. **Sauvegarde** de la base (`deploy/backup.sh`).
+2. **Migration `0015`** (colonne `prix_internet.offres`) : `alembic upgrade
+   head`.
+3. **Reconstruire l'image OpenCode** : `deploy/opencode/Dockerfile` copie
+   `opencode.json` dans l'image, donc sans reconstruction l'agent
+   `habitat-prix` garde l'ancienne consigne (8 étapes, trois pages) et ne
+   cherche qu'une offre :
+
+   ```bash
+   docker compose -f deploy/opencode/docker-compose.yml up -d --build
+   ```
+
+4. **Puis l'API** (reconstruction et redémarrage de l'instance).
+
+Ne pas lancer la tâche `ia-prix` avant l'étape 3 : un produit cherché avec
+l'ancien agent peut être enregistré « non vérifiable » et rester dans le
+cache pendant 30 jours. Si cela est arrivé, supprimer les lignes
+`prix_internet` concernées (statut `non_verifiable`, `consulte_le` d'avant la
+reconstruction) : le produit sera cherché de nouveau à la prochaine
+exécution.
+
 ## 5. Essai avant de se fier au prix internet (document d'Ilane §16)
 
 Avant de considérer les prix trouvés sur internet comme fiables au
@@ -238,7 +263,8 @@ quotidien, essayer la recherche sur une vingtaine de produits **réels** :
    et le plus haut (`prix_ht_min`, `prix_ht_max`). L'agent cherche jusqu'à
    cinq offres de sites différents pour le même produit ; les prix TTC sont
    ramenés en HT (÷ 1,20), une offre dont les taxes sont inconnues est
-   listée mais ne compte ni dans le plus bas ni dans le plus haut. Rien n'est enregistré en base (ni cache ni historique) : seul
+   listée mais ne compte ni dans le plus bas ni dans le plus haut. Rien
+   n'est enregistré en base (ni cache ni historique) : seul
    `appel_ia` garde une trace technique (usage, durée, succès/échec), comme
    pour tout appel à l'IA.
 

@@ -35,6 +35,10 @@ def test_resume_des_offres() -> None:
     assert "jusqu'à" in source
     assert "nb_sources < 2" in source
     assert "prix_ht_min === null" in source
+    # Relecture finale, point 4 : plusieurs sources sans aucun HT connu
+    # gardent un résumé (et donc la liste des offres), jamais `null`.
+    assert "sources · taxes non précisées" in source
+    assert "nb_sources < 2 || prixInternet.prix_ht_min === null" not in source
 
 
 def test_cellule_et_avis_utilisent_offres_et_resume() -> None:

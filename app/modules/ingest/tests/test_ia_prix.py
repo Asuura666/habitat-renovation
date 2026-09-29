@@ -2051,3 +2051,36 @@ async def test_vue_ignore_les_offres_mal_formees_en_base(
     assert vue is not None
     assert vue.nb_sources == 1
     assert vue.offres[0].prix == Decimal("10.0000")
+
+
+def test_offre_vue_prix_aberrant_ecartee_sans_exception() -> None:
+    """Relecture finale, point 1 : une offre stockée à prix hors borne
+    (`0 < prix < 1 000 000`) est écartée, jamais une exception."""
+    base = {"devise": "EUR", "taxes": "TTC", "source_url": "https://a.test/p"}
+
+    assert ia_prix._offre_vue({**base, "prix": "1e100"}) is None
+    assert ia_prix._offre_vue({**base, "prix": "1000000"}) is None
+    assert ia_prix._offre_vue({**base, "prix": "Infinity"}) is None
+    assert ia_prix._offre_vue({**base, "prix": "12.50"}) is not None
+
+
+async def test_rechercher_prix_delai_300_secondes(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    delais: list[float | None] = []
+
+    async def faux_interroger(*args: Any, **kwargs: Any) -> Any:
+        delais.append(kwargs.get("delai"))
+        raise opencode.IAIndisponible("eteinte")
+
+    monkeypatch.setattr(ia_prix, "interroger", faux_interroger)
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(500))
+    )
+
+    with pytest.raises(opencode.IAIndisponible):
+        await ia_prix.rechercher_prix(
+            db_session, http, fournisseur=None, designation="P", code=None, unite=None
+        )
+
+    assert delais == [300]

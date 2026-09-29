@@ -1467,3 +1467,35 @@ def test_adresse_mal_formee_ne_leve_pas_les_autres_offres_gardees() -> None:
         "écartée : aucune page ouverte à l'adresse https://[x"
     )
     assert controles[2].ok is True
+
+
+@pytest.mark.parametrize("prix_aberrant", [1e30, float("inf"), 1_000_000, 1e100])
+def test_prix_aberrant_ecarte_sans_lever_et_prix_valide_garde(
+    prix_aberrant: float,
+) -> None:
+    """Relecture finale, point 1 : un prix non fini ou hors borne
+    (`0 < prix < 1 000 000`) écarte l'offre (« réponse incomplète »), jamais
+    une exception -- l'offre valide de la même réponse reste gardée."""
+    structure = {
+        "statut": "trouve",
+        "raison": "",
+        "offres": [
+            _offre(prix=prix_aberrant, source_url="https://a.test/p"),
+            _offre(prix=12.00, source_url="https://c.test/p"),
+        ],
+    }
+    pages = [_page("https://a.test/p", "12,00 €"), _page("https://c.test/p", "12,00 €")]
+
+    resultat = lire_prix_internet(structure, pages)
+    controles = controles_prix_internet(structure, pages)
+
+    assert [o.source_url for o in resultat.offres] == ["https://c.test/p"]
+    assert controles[1].ok is False
+    assert controles[2].ok is True
+
+
+def test_prix_aberrant_seul_non_verifiable_sans_exception() -> None:
+    resultat = lire_prix_internet(_structure_trouve(prix=1e30), pages=[])
+
+    assert resultat.statut == "non_verifiable"
+    assert resultat.raison == "réponse incomplète"

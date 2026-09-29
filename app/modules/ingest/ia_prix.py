@@ -55,6 +55,7 @@ from app.modules.extract.reponses_ia import (
     PrixInternetLu,
     ReponseIAInvalide,
     cle_tri_offre,
+    est_prix_internet_plausible,
     lire_explication,
     lire_prix_internet,
     prix_ht,
@@ -941,7 +942,7 @@ def _offre_vue(brut: Any) -> OffreVue | None:
         prix = Decimal(str(brut["prix"]))
     except (KeyError, InvalidOperation):
         return None
-    if not prix.is_finite() or prix <= 0:
+    if not est_prix_internet_plausible(prix):
         return None
     return OffreVue(
         prix=prix,

@@ -1189,3 +1189,34 @@ async def test_essai_prix_annulation_nest_pas_avalee(
     trace = lire_essai(essai_id)
     assert trace is not None
     assert trace.statut == "en_cours"
+
+
+async def test_essai_prix_delai_300_secondes_comme_la_production(
+    sessions_test: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Relecture finale, point 2 : même délai (300 s) que `rechercher_prix`."""
+    delais: list[float | None] = []
+
+    async def faux_interroger(*args: Any, **kwargs: Any) -> Any:
+        delais.append(kwargs.get("delai"))
+        raise opencode.IAIndisponible("eteinte")
+
+    monkeypatch.setattr(ia_labo, "interroger", faux_interroger)
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(500))
+    )
+    background_tasks = BackgroundTasks()
+
+    await lancer_essai_prix(
+        sessions_test,
+        http,
+        background_tasks,
+        fournisseur=None,
+        designation="Produit",
+        code=None,
+        unite=None,
+    )
+    await _executer(background_tasks)
+
+    assert delais == [300]

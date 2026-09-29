@@ -16,7 +16,12 @@ export function OffresPrixInternet({ offres }: { offres: PrixInternet["offres"] 
   }
   return (
     <details className="mt-1 text-sm">
-      <summary className="flex min-h-[44px] cursor-pointer items-center font-medium text-accent outline-none focus-visible:ring-2 focus-visible:ring-accent">
+      <summary
+        className={
+          "flex min-h-[44px] cursor-pointer items-center font-medium text-accent outline-none " +
+          "focus-visible:ring-2 focus-visible:ring-accent sm:min-h-0"
+        }
+      >
         {`Voir les ${offres.length} offres`}
       </summary>
       <ul className="flex flex-col gap-2 pb-1">
@@ -33,7 +38,10 @@ export function OffresPrixInternet({ offres }: { offres: PrixInternet["offres"] 
                   href={offre.source_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex min-h-[44px] items-center font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent sm:min-h-0"
+                  className={
+                    "inline-flex min-h-[44px] items-center font-medium text-accent underline outline-none " +
+                    "focus-visible:ring-2 focus-visible:ring-accent sm:min-h-0"
+                  }
                 >
                   {`source (${domaine})`}
                 </a>

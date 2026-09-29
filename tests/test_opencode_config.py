@@ -222,3 +222,11 @@ def test_consigne_habitat_prix_demande_cinq_offres_au_meme_conditionnement() -> 
     assert "jusqu'à cinq" in prompt
     assert "même conditionnement" in prompt
     assert "sans jamais rouvrir une page déjà lue" in prompt
+
+
+def test_consigne_habitat_prix_cinq_recherches_six_pages_pas_trois() -> None:
+    """Relecture finale, point 2 : bornes de la consigne de l'agent."""
+    prompt = _opencode_json()["agent"]["habitat-prix"]["prompt"]
+
+    assert "au plus cinq recherches et ouvre au plus six pages" in prompt
+    assert "trois recherches" not in prompt

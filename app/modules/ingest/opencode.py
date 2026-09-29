@@ -498,7 +498,7 @@ async def interroger(
        tentée (donc jamais pour `IAIndisponible`, toujours pour toute autre
        exception ou tout succès).
 
-    Délai par défaut 90 s (`delai=None`) ; `prix` passe `delai=240` (recherche
+    Délai par défaut 90 s (`delai=None`) ; `prix` passe `delai=300` (recherche
     internet, plus longue). `ErreurIA`/`IAIndisponible` ne contiennent jamais
     le mot de passe, le texte envoyé, ni la réponse ; les `logger.warning` de
     ce module (fix round 1, voir plus bas) non plus, ils ne portent jamais que
@@ -634,7 +634,7 @@ AGENTS_ATTENDUS: frozenset[str] = frozenset(
 )
 
 # Délai court (brief LABO) : un diagnostic ne doit jamais faire attendre
-# l'admin aussi longtemps qu'un appel réel à l'IA (90 s/240 s) -- une panne
+# l'admin aussi longtemps qu'un appel réel à l'IA (90 s/300 s) -- une panne
 # se traduit vite en `joignable=False`, jamais en attente silencieuse.
 _DELAI_DIAGNOSTIC_S = 10.0
 

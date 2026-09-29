@@ -416,7 +416,7 @@ async def _executer_essai_prix(
                     agent="habitat-prix",
                     texte=trace.texte_envoye,
                     schema=SCHEMA_PRIX_INTERNET,
-                    delai=240,
+                    delai=300,
                 )
             except IAIndisponible as exc:
                 await _terminer_en_echec_avant_appel(

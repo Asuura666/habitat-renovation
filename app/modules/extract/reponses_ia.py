@@ -638,15 +638,26 @@ def _est_nombre(valeur: Any) -> bool:
     return isinstance(valeur, (int, float)) and not isinstance(valeur, bool)
 
 
+PRIX_INTERNET_MAX = Decimal(1_000_000)
+"""Borne haute (exclue) d'un prix internet plausible : au-delà, l'offre est
+écartée (relecture finale du 29/09/2026 : `1e30` ou `Infinity` faisaient
+lever `InvalidOperation` à la quantification)."""
+
+
+def est_prix_internet_plausible(prix: Decimal) -> bool:
+    """`0 < prix < 1 000 000`, fini (NaN et infinis refusés)."""
+    return prix.is_finite() and 0 < prix < PRIX_INTERNET_MAX
+
+
 def _est_prix_valide(valeur: Any) -> bool:
-    """`_est_nombre` et strictement positif. Isolé dans une fonction dont
+    """`_est_nombre`, fini et dans `]0 ; 1 000 000[`. Isolé dans une fonction dont
     le paramètre est un `Any` simple (fix round 1, revue T2) : `dict.get`
     sans valeur par défaut type son retour `Any | None`, et mypy refuse
     alors `valeur > 0` (opérande `None` de l'union) même si `valeur` est en
     réalité toujours un nombre à ce stade -- un paramètre `Any` nommé,
     plutôt qu'un `and prix_brut is not None` redondant avec `_est_nombre`
     dans l'appelant, tranche le problème sans changer le comportement."""
-    return _est_nombre(valeur) and valeur > 0
+    return _est_nombre(valeur) and 0 < valeur < PRIX_INTERNET_MAX
 
 
 def _non_verifiable(structure: dict[Any, Any], raison: str) -> PrixInternetLu:

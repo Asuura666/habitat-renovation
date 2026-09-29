@@ -329,7 +329,9 @@ function ListeOffresEssai({ offres }: { offres: unknown }): ReactElement | null 
   return (
     <ul className="mt-2 flex flex-col gap-2 text-sm text-encre">
       {offres.map((brute, indice) => {
-        const offre = (typeof brute === "object" && brute !== null ? brute : {}) as Record<string, unknown>;
+        const offre = (
+          typeof brute === "object" && brute !== null ? brute : {}
+        ) as Record<string, unknown>;
         const url = texteOuNull(offre.source_url);
         const domaine = url !== null ? domaineSource(url) : null;
         return (
@@ -371,31 +373,35 @@ function ResultatEssai({
   }
   if (type === "prix") {
     if (resultat.statut === "trouve") {
-      const sourceUrl = typeof resultat.source_url === "string" ? resultat.source_url : null;
+      const sourceUrl = texteOuNull(resultat.source_url);
+      const domaine = sourceUrl !== null ? domaineSource(sourceUrl) : null;
       return (
         <div>
-        <p className="text-sm text-encre">
-          {`Prix trouvé : ${texteMontantPrixInternet({
-            prix: texteOuNull(resultat.prix),
-            taxes: texteOuNull(resultat.taxes),
-            conditionnement: texteOuNull(resultat.conditionnement),
-            unite: texteOuNull(resultat.unite),
-          })}`}
-          {sourceUrl !== null && sourceUrl.startsWith("https://") && (
-            <>
-              {" — "}
-              <a
-                href={sourceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              >
-                voir la source
-              </a>
-            </>
+          <p className="text-sm text-encre">
+            {`Prix trouvé : ${texteMontantPrixInternet({
+              prix: texteOuNull(resultat.prix),
+              taxes: texteOuNull(resultat.taxes),
+              conditionnement: texteOuNull(resultat.conditionnement),
+              unite: texteOuNull(resultat.unite),
+            })}`}
+            {sourceUrl !== null && domaine !== null && (
+              <>
+                {" — "}
+                <a
+                  href={sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  voir la source
+                </a>
+              </>
+            )}
+          </p>
+          {/* Une seule offre : déjà dite ci-dessus, la liste doublerait « Prix trouvé ». */}
+          {Array.isArray(resultat.offres) && resultat.offres.length >= 2 && (
+            <ListeOffresEssai offres={resultat.offres} />
           )}
-        </p>
-        <ListeOffresEssai offres={resultat.offres} />
         </div>
       );
     }
