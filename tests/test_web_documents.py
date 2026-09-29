@@ -167,6 +167,11 @@ def test_page_bl_controle_par_ligne_vient_du_serveur() -> None:
     ):
         assert f"case {valeur}:" in controle, valeur
     assert "Non retrouvé sur la facture" in controle
+    # « Conforme » est réservé à la livraison (pastille du haut) : la ligne
+    # dont quantité et prix correspondent s'appelle « Identique ».
+    assert "Identique" in controle
+    assert "Quantité et prix identiques à la facture" in controle
+    assert "Conforme\n        </span>" not in controle
     assert 'document.data.type !== "facture"' in page
 
 

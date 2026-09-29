@@ -193,9 +193,12 @@ function ControleLigne({ ligne }: { ligne: LigneComparee }): ReactElement {
       );
     case "conforme":
       return (
-        <span className="inline-flex items-center gap-2 text-conforme">
+        <span
+          className="inline-flex items-center gap-2 text-conforme"
+          title="Quantité et prix identiques à la facture"
+        >
           <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full bg-conforme" />
-          Conforme
+          Identique
         </span>
       );
     case "non_facture":

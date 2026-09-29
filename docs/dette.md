@@ -1451,7 +1451,8 @@ Décisions d'Ilane du 29/09/2026 (`.superpowers/sdd/corrections-audit/decisions-
   le bloc d'origine « à vérifier » (les deux blocs citent le même bon).
 - **Reste à savoir** : la colonne « Contrôle » de chaque ligne de la page du
   bon (`controle`) reste un verdict par ligne (appariée, comparée, sans
-  anomalie) ; elle ne regarde pas le statut du bon. C'est la pastille du haut
+  anomalie), libellé « Identique » (et non « Conforme », réservé à la
+  livraison) ; elle ne regarde pas le statut du bon. C'est la pastille du haut
   de page qui porte le verdict de la livraison.
 - **R10 est produite pour une facture « à vérifier »** : `rapprocher_facture`
   n'apparie toujours pas une facture non validée, mais évalue R10 seule à
