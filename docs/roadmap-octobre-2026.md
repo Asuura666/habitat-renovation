@@ -22,13 +22,13 @@ Session A = la session Claude Code principale (`/home/debian/habitat_reno`).
 Session B = une seconde session Claude Code lancée par Ilane dans un autre
 worktree (§2.2).
 
-**État des phases au 29/09/2026** (détail au §10) : socle commun, phases 1, 2
+**État des phases au 30/09/2026** (détail au §10) : socle commun, phases 1, 2
 (partie faisable) et 3 (commentaires et lot Prix) **faits et déployés en
 production le 28/09/2026** (étiquette `mise-en-prod-octobre-2026`, avant la
 date du 1er octobre) ; phase 4 : IA (synthèse, explication, prix internet)
 **faite et déployée mais éteinte en production**, allumée sur la démo, puis
 **gelée par Ilane le 29/09** ; contrôle des prix à la facture **non commencé**.
-Un audit complet a eu lieu le 29/09 ; ses corrections sont en cours.
+Un audit complet a eu lieu le 29/09 ; ses corrections (13 constats importants) sont faites, relues et **déployées en production le 30/09/2026** avec les améliorations du 29/09 (PR #17, étiquette `mise-en-prod-2026-09-30`, migration 0015).
 
 ---
 
@@ -373,7 +373,7 @@ deux mois, formation, procès-verbal). Voir `memory.md` et `docs/dette.md`.
 
 ## 10. Suivi
 
-État au 29/09/2026 (légende : [x] fait, [~] en cours ou partiel, [ ] à faire).
+État au 30/09/2026 (légende : [x] fait, [~] en cours ou partiel, [ ] à faire).
 
 - [x] Socle commun fusionné dans `dev` (S1 → S5) — PR #1, 27/09
 - [x] Session B lancée (Ilane) — commentaires faits, spec et plan du lot Prix écrits (27/09)
@@ -383,13 +383,13 @@ deux mois, formation, procès-verbal). Voir `memory.md` et `docs/dette.md`.
 - [x] Phase 3 : commentaires (session B) — dans `dev` depuis la PR #4, 28/09 ; déployés en production le 28/09
 - [x] Phase 3 : lot Prix (P0 → P6), fusionné dans `dev` (PR #5, 28/09), déployé en production le 28/09 avec le contrôle **éteint** (interrupteur `prix_controle_bl_actif`) : reste l'import des grilles réelles par Ilane, puis l'allumage
 - [x] Phase 4 : IA (synthèse, explication, prix internet) dans `dev` (PR #4, 28/09), T10 (colonne « Internet » de la page Prix, PR #6, 28/09), déployée le 28/09 ; **éteinte en production** (`IA_ACTIVE=false`), allumée sur la démo ; conteneur OpenCode installé le 28/09, compte ChatGPT d'Ilane connecté le 29/09 (modèle `gpt-5.6-sol`)
-- [x] Phase 4 : améliorations du 29/09 dans `dev` (Laboratoire IA PR #9, correctifs de l'IA PR #10, Entrée et prix « collés » PR #11, prix par marque, nom et format PR #12, prix à plusieurs sources et migration 0015 PR #13), déployées sur la démo seulement
+- [x] Phase 4 : améliorations du 29/09 dans `dev` (Laboratoire IA PR #9, correctifs de l'IA PR #10, Entrée et prix « collés » PR #11, prix par marque, nom et format PR #12, prix à plusieurs sources et migration 0015 PR #13), déployées sur la démo le 29/09, puis **en production le 30/09** (PR #17, IA toujours éteinte)
 - [x] **IA gelée par Ilane le 29/09** : plus d'évolution de l'IA sans son accord
 - [ ] Phase 4 : contrôle des prix à la facture (non IA) — non commencé
 - [ ] Phase 4 : tâches planifiées `synthese` et `ia-prix` — non posées au dernier récapitulatif ; à poser avec l'allumage de l'IA en production
 - [x] Dépendances à jour (PR #14, 29/09) : `pip-audit` et `npm audit` sans faille connue
 - [x] Audit complet du 29/09 : 60 constats, 26 importants vérifiés de façon contradictoire, **0 critique, 13 importants confirmés** ; décisions d'Ilane (« Conforme » strict, facture incohérente comptée avec mention et R10 dans « À régler », chantiers à numéro jamais rattachés automatiquement) — README §20
-- [~] Corrections de l'audit sur `feature/corrections-audit` : groupe 1 (recalculs après correction, relecture et archivage) codé, en relecture ; groupes 2 (codes répétés), 3 (« Conforme » strict, R10), 4 (chantiers à numéro), 5 (sauvegardes et restauration) à faire
-- [ ] Passage de `dev` en production après les corrections (accord d'Ilane donné : sauvegarde, migration 0015, image OpenCode, API)
-- [ ] Documentation globale (`README.md`, `CLAUDE.md`, `docs/dette.md`, `ARCHITECTURE.md`) mise à jour le 29/09/2026 — cette PR
+- [x] Corrections de l'audit (`feature/corrections-audit`, PR #16, `19b746f`) : les cinq groupes faits et relus (recalculs, codes répétés, « Conforme » strict et R10, chantiers à numéro, sauvegardes et restauration) ; essai réel de restauration isolé réussi le 30/09 ; reste ouvert : F-04 (aucune alerte si une sauvegarde manque) et les mineurs de `docs/dette.md`
+- [x] Passage de `dev` en production — PR #17 (`7f9515d`), étiquette `mise-en-prod-2026-09-30` : démo le 30/09 à 07 h 29 UTC, production à 07 h 31 UTC (coupure d'environ 15 secondes), sauvegarde préalable, migration 0014 → 0015, puis `rapprocher --tout` (démo : 4 factures, production : 1 facture, 0 échec) et `chantiers-alias-suspects` (aucun alias suspect). IA toujours éteinte et gelée, contrôle des prix toujours éteint
+- [x] Documentation globale (`README.md`, `CLAUDE.md`, `docs/dette.md`, `ARCHITECTURE.md`) mise à jour le 29/09/2026 (PR #15), puis `README.md`, `CLAUDE.md` et ce suivi mis à jour le 30/09/2026 après la mise en production
 - [ ] Lot 6 (recette sur deux mois, formation, procès-verbal) — non commencé
