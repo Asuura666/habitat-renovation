@@ -26,6 +26,7 @@ ENV_FILE="$WORK_DIR/.env"
 OVERRIDE_FILE="$WORK_DIR/docker-compose.override.yml"
 DOCS_DIR_TEST="$WORK_DIR/docs"
 RESTIC_REPO_TEST="$WORK_DIR/restic-repo"
+SAUVEGARDES_TEST="$WORK_DIR/sauvegardes"
 
 COMPOSE_ARGS=(-p "$PROJECT_NAME" --env-file "$ENV_FILE" -f "$ROOT_DIR/deploy/docker-compose.yml" -f "$OVERRIDE_FILE")
 
@@ -35,13 +36,18 @@ cleanup() {
   # --rmi local : supprime aussi l'image construite pour ce test
   # (bl_restore_test-api), jamais une image tierce nommée (postgres:18).
   docker compose "${COMPOSE_ARGS[@]}" down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
+  # Depuis la correction F-02, les documents restaurés appartiennent à
+  # l'uid 10001 (dossiers 0750) : l'utilisateur courant ne peut plus les
+  # supprimer, un conteneur root jetable s'en charge.
+  docker run --rm --entrypoint sh -v "$WORK_DIR:$WORK_DIR" "$POSTGRES_IMAGE" \
+    -c "rm -rf '$WORK_DIR'/*  '$WORK_DIR'/.[!.]*" >/dev/null 2>&1 || true
   rm -rf "$WORK_DIR"
   exit "$statut"
 }
 trap cleanup EXIT
 
 echo "test-restauration.sh : dossier de travail temporaire : $WORK_DIR"
-mkdir -p "$DOCS_DIR_TEST" "$RESTIC_REPO_TEST"
+mkdir -p "$DOCS_DIR_TEST" "$RESTIC_REPO_TEST" "$SAUVEGARDES_TEST"
 
 POSTGRES_PASSWORD_TEST="$(openssl rand -hex 20)"
 RESTIC_PASSWORD_TEST="$(openssl rand -hex 20)"
@@ -88,6 +94,21 @@ source "$ENV_FILE"
 set +a
 
 NETWORK="${PROJECT_NAME}_default"
+
+# Dossier des copies de sécurité de restore.sh : jetable, jamais le vrai
+# ~/sauvegardes-habitat.
+export HABITAT_RENO_SAUVEGARDES_DIR="$SAUVEGARDES_TEST"
+
+# Exécute une commande sh dans un conteneur root jetable qui monte le dossier
+# de travail (les documents restaurés appartiennent à l'uid 10001 et ne sont
+# plus lisibles par l'utilisateur courant).
+sh_root() {
+  docker run --rm \
+    --entrypoint sh \
+    -v "$WORK_DIR:$WORK_DIR" \
+    "$POSTGRES_IMAGE" \
+    -c "$1"
+}
 
 # Secrets jamais en argument de `docker run` (visible via `ps` pour tout
 # utilisateur du VPS) : `-e VAR` sans `=valeur` fait lire à docker la
@@ -172,6 +193,22 @@ SNAPSHOT_ID="$(
 )"
 echo "test-restauration.sh : snapshot nocturne sélectionné : $SNAPSHOT_ID"
 
+# F-01 : nom d'hôte fixe par instance (sinon la rotation ne supprime rien).
+HOTE_SNAPSHOT="$(
+  docker run --rm \
+    -u "$(id -u):$(id -g)" \
+    -e RESTIC_REPOSITORY \
+    -e RESTIC_PASSWORD \
+    -v "$RESTIC_REPOSITORY:$RESTIC_REPOSITORY" \
+    "$RESTIC_IMAGE" \
+    snapshots --tag nocturne --json --no-cache \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin)[0]["hostname"])'
+)"
+if [[ "$HOTE_SNAPSHOT" != "$PROJECT_NAME" ]]; then
+  echo "test-restauration.sh : hôte du snapshot '$HOTE_SNAPSHOT' au lieu de '$PROJECT_NAME'." >&2
+  exit 1
+fi
+
 echo "test-restauration.sh : destruction (base + fichiers docs)…"
 docker compose "${COMPOSE_ARGS[@]}" stop api
 docker run --rm \
@@ -201,8 +238,8 @@ else
   ECHEC=1
 fi
 
-if [[ -f "$DOCS_DIR_TEST/test-restauration.txt" ]]; then
-  SHA_APRES="$(sha256sum "$DOCS_DIR_TEST/test-restauration.txt" | awk '{print $1}')"
+if sh_root "test -f '$DOCS_DIR_TEST/test-restauration.txt'"; then
+  SHA_APRES="$(sh_root "sha256sum '$DOCS_DIR_TEST/test-restauration.txt'" | awk '{print $1}')"
   if [[ "$SHA_APRES" == "$SHA_AVANT" ]]; then
     echo "  - sha256 du fichier docs : identique ($SHA_APRES)."
   else
@@ -236,6 +273,29 @@ if [[ -f "$DOCUMENT_UID_10001" ]]; then
   fi
 else
   echo "  - fichier docs restauré (0640, uid 10001) : ABSENT" >&2
+  ECHEC=1
+fi
+
+# F-02 : documents rendus à l'uid/gid de l'API, dossiers 0750, fichiers 0640.
+DROITS_ATTENDUS="10001:10001 750 $DOCS_DIR_TEST
+10001:10001 640 $DOCS_DIR_TEST/test-restauration.txt
+10001:10001 640 $DOCUMENT_UID_10001"
+DROITS_OBSERVES="$(sh_root "stat -c '%u:%g %a %n' '$DOCS_DIR_TEST' '$DOCS_DIR_TEST/test-restauration.txt' '$DOCUMENT_UID_10001'")"
+if [[ "$DROITS_OBSERVES" == "$DROITS_ATTENDUS" ]]; then
+  echo "  - droits des documents : 10001:10001, 0750 / 0640."
+else
+  echo "  - droits des documents : DIFFÉRENTS" >&2
+  echo "attendus :" >&2; echo "$DROITS_ATTENDUS" >&2
+  echo "observés :" >&2; echo "$DROITS_OBSERVES" >&2
+  ECHEC=1
+fi
+
+# C-03 : copie de sécurité de la base courante, écrite avant le DROP, 600.
+COPIE_SECURITE_TEST="$(find "$SAUVEGARDES_TEST" -name 'avant-restauration-*.dump' -print -quit)"
+if [[ -n "$COPIE_SECURITE_TEST" && "$(stat -c %a "$COPIE_SECURITE_TEST")" == "600" && -s "$COPIE_SECURITE_TEST" ]]; then
+  echo "  - copie de sécurité de la base : présente, non vide, 0600."
+else
+  echo "  - copie de sécurité de la base : ABSENTE, vide ou droits incorrects (${COPIE_SECURITE_TEST:-aucun fichier})" >&2
   ECHEC=1
 fi
 

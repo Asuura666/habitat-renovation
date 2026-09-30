@@ -12,6 +12,12 @@
 #   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (seulement si RESTIC_REPOSITORY
 #   ne désigne pas un chemin local, c'est-à-dire ne commence pas par "/")
 #
+# Rotation : les instantanés sont taggés avec --host <COMPOSE_PROJECT_NAME>
+# et sauvegardent toujours les mêmes chemins (/dump, DOCS_HOST_DIR), ce qui
+# les range dans un seul groupe restic : les 30 quotidiennes et 12
+# mensuelles s'appliquent. Les instantanés antérieurs à ce changement (hôte
+# aléatoire) restent chacun leur groupe : voir docs/dette.md.
+#
 # COMPOSE_PROJECT_NAME (optionnel, défaut "habitat_reno") : nom du projet
 # compose dont on rejoint le réseau `<projet>_default` pour joindre le
 # service "postgres" par son nom.
@@ -56,13 +62,22 @@ fi
 
 PROJECT_NAME="${COMPOSE_PROJECT_NAME:-habitat_reno}"
 NETWORK="${PROJECT_NAME}_default"
+# Un dépôt par instance, un nom d'hôte restic stable par instance.
+RESTIC_HOST="$PROJECT_NAME"
 
 DUMP_DIR="$(mktemp -d)"
 cleanup() {
   rm -rf "$DUMP_DIR"
 }
 trap cleanup EXIT
-DUMP_FILE="$DUMP_DIR/bl.dump"
+# Chemin du dump VU DES CONTENEURS : fixe (/dump), jamais le dossier
+# temporaire de l'hôte. restic regroupe les instantanés par (hôte, chemins)
+# pour appliquer `forget --keep-*` : avec un chemin différent à chaque
+# passage (mktemp) et un nom d'hôte aléatoire (celui du conteneur), chaque
+# instantané formait son propre groupe et rien n'était jamais supprimé
+# (audit F-01). Le nom d'hôte est fixé par instance (--host, plus bas).
+DUMP_CONTENEUR_DIR="/dump"
+DUMP_CONTENEUR="$DUMP_CONTENEUR_DIR/bl.dump"
 
 # Secrets jamais en argument de `docker run` (visible via `ps`/
 # /proc/<pid>/cmdline pour tout utilisateur du VPS) : `-e VAR` sans
@@ -75,9 +90,9 @@ echo "backup.sh : export pg_dump (projet $PROJECT_NAME, réseau $NETWORK)…"
 docker run --rm \
   --network "$NETWORK" \
   -e PGPASSWORD \
-  -v "$DUMP_DIR:$DUMP_DIR" \
+  -v "$DUMP_DIR:$DUMP_CONTENEUR_DIR" \
   "$POSTGRES_IMAGE" \
-  pg_dump -Fc -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f "$DUMP_FILE"
+  pg_dump -Fc -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f "$DUMP_CONTENEUR"
 
 # -u : le conteneur restic écrit alors les fichiers du dépôt local (le cas
 # échéant) avec l'uid/gid de l'appelant, jamais en root (sinon les fichiers
@@ -114,7 +129,7 @@ if [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]; then
   RESTIC_ENV+=(-e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY)
 fi
 
-RESTIC_MOUNTS=(-v "$DUMP_DIR:$DUMP_DIR:ro" -v "$DOCS_HOST_DIR:$DOCS_HOST_DIR:ro")
+RESTIC_MOUNTS=(-v "$DUMP_DIR:$DUMP_CONTENEUR_DIR:ro" -v "$DOCS_HOST_DIR:$DOCS_HOST_DIR:ro")
 if [[ "$DEPOT_LOCAL" -eq 1 ]]; then
   RESTIC_MOUNTS+=(-v "$RESTIC_REPOSITORY:$RESTIC_REPOSITORY")
 fi
@@ -125,7 +140,7 @@ docker run --rm \
   "${RESTIC_ENV[@]}" \
   "${RESTIC_MOUNTS[@]}" \
   "$RESTIC_IMAGE" \
-  backup "$DUMP_DIR" "$DOCS_HOST_DIR" --tag nocturne --no-cache
+  backup "$DUMP_CONTENEUR_DIR" "$DOCS_HOST_DIR" --host "$RESTIC_HOST" --tag nocturne --no-cache
 
 FORGET_MOUNTS=()
 if [[ "$DEPOT_LOCAL" -eq 1 ]]; then
@@ -138,6 +153,6 @@ docker run --rm \
   "${RESTIC_ENV[@]}" \
   "${FORGET_MOUNTS[@]}" \
   "$RESTIC_IMAGE" \
-  forget --keep-daily 30 --keep-monthly 12 --prune --no-cache
+  forget --host "$RESTIC_HOST" --keep-daily 30 --keep-monthly 12 --prune --no-cache
 
 echo "backup.sh : terminé."
