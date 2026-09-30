@@ -41,6 +41,7 @@ organisation d'ensemble : `docs/roadmap-octobre-2026.md`.
 12. Unicité de l'identifiant Telegram garantie par le verrou des comptes (pas de nouvelle migration : les numéros 0012+ sont réservés à la phase 3).
 13. Un bon dont l'alerte « Chantier à confirmer » a été réglée par un humain garde ce choix si une correction le fait retomber en alerte (une anomalie ne se rouvre jamais).
 14. La création et la modification manuelles d'un chantier passent sous le même verrou que la création automatique.
+15. (audit B-05, 29/09/2026, décision d'Ilane) Deux noms qui ne diffèrent que par un ou plusieurs nombres (« Lot 12 » / « Lot 13 ») ne sont **jamais** rattachés automatiquement, quelle que soit la ressemblance : le chantier voisin est seulement proposé (R18 « Chantier à confirmer » sur un bon, alias en attente sur une facture), sans alias appris. Une légende voisine numérotée ne confirme pas non plus le chantier du nom lu. Les alias déjà appris ne sont pas modifiés : `python -m app.cli chantiers-alias-suspects` les liste (lecture seule).
 
 ## 3. Relectures
 

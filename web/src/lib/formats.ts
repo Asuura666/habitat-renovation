@@ -100,6 +100,18 @@ export function estMontantNul(valeur: string | null): boolean {
   return valeur !== null && /^-?0+(?:\.0+)?$/.test(valeur);
 }
 
+/** Mention « dont X € sur des factures à vérifier » à côté de « Facturé »
+ * (décision d'Ilane du 29/09/2026) : une facture dont la somme est
+ * incohérente reste comptée dans « Facturé » tant qu'elle n'est pas
+ * corrigée. Le montant vient du serveur (`facture_a_verifier`) ; `undefined`
+ * quand il est nul, pour ne rien afficher. */
+export function mentionFactureAVerifier(valeur: string | null | undefined): string | undefined {
+  if (valeur === null || valeur === undefined || estMontantNul(valeur)) {
+    return undefined;
+  }
+  return `dont ${formaterMontant(valeur)} sur des factures à vérifier`;
+}
+
 /** Pourcentage déjà exprimé en points par le serveur (`"30.56"` =
  * 30,56 %), au format français et arrondi au dixième (« 30,6 % », maquette
  * `ARegler`) — revue finale, constats ECRAN-1/COUVERTURE-5 : la chaîne brute

@@ -627,6 +627,9 @@ class MontantsBilanReponse(BaseModel):
     nb_anomalies_ouvertes: int
     conforme: Decimal
     a_verifier: Decimal
+    # Part de `facture_ht` portée par des factures « à vérifier » (somme
+    # incohérente...) : « dont X € sur des factures à vérifier ».
+    facture_a_verifier: Decimal
 
 
 class LigneBilanChantierReponse(BaseModel):
@@ -674,6 +677,8 @@ class LigneBilanBlReponse(BaseModel):
     statut_rapprochement: str | None
     bl_document_id: uuid.UUID | None
     facture_id: uuid.UUID
+    # Catégorie calculée par le serveur (définition unique de « Conforme »).
+    categorie: Literal["conforme", "a_verifier", "sans_bon"]
     montants: MontantsBilanReponse
 
 
@@ -696,6 +701,7 @@ class LigneLivraisonReponse(BaseModel):
     chantier: str | None
     fournisseur_id: uuid.UUID | None
     fournisseur: str | None
+    categorie: Literal["conforme", "a_verifier", "sans_bon"]
     montants: MontantsBilanReponse
 
 
@@ -720,6 +726,7 @@ class TotauxMoisReponse(BaseModel):
     en_ecart: Decimal
     non_justifie: Decimal
     conforme: Decimal
+    facture_a_verifier: Decimal
 
 
 class ChantierTableauReponse(BaseModel):
@@ -853,6 +860,10 @@ class LigneCompareeReponse(BaseModel):
     controle: Literal[
         "conforme", "ecart", "non_facture", "non_controle", "pas_encore_facture"
     ]
+    # Groupe de plusieurs lignes de bon : livré du groupe détaillé sur la
+    # ligne de tête (« 10 + 10 »), lignes suivantes « incluses ».
+    detail_livre: str | None = None
+    inclus_dans_precedente: bool = False
 
 
 class ComparaisonBlReponse(BaseModel):
@@ -878,6 +889,11 @@ class ComparaisonBlReponse(BaseModel):
     montant_facture_ht: Decimal | None
     lignes: list[LigneCompareeReponse]
     nb_problemes: int
+    # Verdict d'ensemble du bon, calculé par le serveur (définition unique de
+    # « Conforme », `ingest.bilan`) : la page l'affiche tel quel.
+    categorie: Literal["conforme", "a_verifier", "pas_encore_facture"]
+    # Cause en mots simples d'un « À vérifier » sans problème ouvert.
+    raison_a_verifier: str | None = None
 
 
 class JournalReponse(BaseModel):

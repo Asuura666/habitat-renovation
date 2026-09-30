@@ -116,6 +116,15 @@ class LigneRapprochee:
     facture: LigneControlee
     bl: LigneControlee | None
     methode: str | None  # "code" | "libelle" | None
+    # B-06 : plusieurs lignes de même code d'un côté ou de l'autre du bloc
+    # se comparent sur leurs quantités totales. La ligne « tête » du groupe
+    # (première ligne de facture) porte les lignes réunies de chaque côté ;
+    # les autres lignes de facture du groupe sont `secondaire=True` (leur
+    # quantité est déjà comptée dans la comparaison de la tête : ni R03, ni
+    # R04, ni R05 sur elles). Vides et `False` hors groupe.
+    groupe_facture: tuple[LigneControlee, ...] = ()
+    groupe_bl: tuple[LigneControlee, ...] = ()
+    secondaire: bool = False
 
 
 @dataclass(frozen=True)

@@ -2067,6 +2067,13 @@ export interface components {
             lignes: components["schemas"]["LigneCompareeReponse"][];
             /** Nb Problemes */
             nb_problemes: number;
+            /**
+             * Categorie
+             * @enum {string}
+             */
+            categorie: "conforme" | "a_verifier" | "pas_encore_facture";
+            /** Raison A Verifier */
+            raison_a_verifier?: string | null;
         };
         /**
          * CompteCreationRequete
@@ -2751,6 +2758,11 @@ export interface components {
              * Format: uuid
              */
             facture_id: string;
+            /**
+             * Categorie
+             * @enum {string}
+             */
+            categorie: "conforme" | "a_verifier" | "sans_bon";
             montants: components["schemas"]["MontantsBilanReponse"];
         };
         /**
@@ -2860,6 +2872,13 @@ export interface components {
              * @enum {string}
              */
             controle: "conforme" | "ecart" | "non_facture" | "non_controle" | "pas_encore_facture";
+            /** Detail Livre */
+            detail_livre?: string | null;
+            /**
+             * Inclus Dans Precedente
+             * @default false
+             */
+            inclus_dans_precedente: boolean;
         };
         /**
          * LigneDocumentReponse
@@ -3008,6 +3027,11 @@ export interface components {
             fournisseur_id: string | null;
             /** Fournisseur */
             fournisseur: string | null;
+            /**
+             * Categorie
+             * @enum {string}
+             */
+            categorie: "conforme" | "a_verifier" | "sans_bon";
             montants: components["schemas"]["MontantsBilanReponse"];
         };
         /**
@@ -3090,6 +3114,8 @@ export interface components {
             conforme: string;
             /** A Verifier */
             a_verifier: string;
+            /** Facture A Verifier */
+            facture_a_verifier: string;
         };
         /**
          * MotifReponse
@@ -3461,6 +3487,8 @@ export interface components {
             non_justifie: string;
             /** Conforme */
             conforme: string;
+            /** Facture A Verifier */
+            facture_a_verifier: string;
         };
         /**
          * TraceEssaiReponse

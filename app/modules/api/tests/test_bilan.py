@@ -1161,6 +1161,11 @@ async def test_get_bilan_livraisons_admin_200(
     assert ligne["fournisseur_id"] == str(fournisseur.id)
     assert ligne["fournisseur"] == fournisseur.nom
     assert ligne["montants"]["facture_ht"] == "100.00"
+    # Catégorie calculée par le serveur (définition unique de « Conforme »,
+    # décision d'Ilane du 29/09/2026) : ce bloc « reçu » n'a pas de bon
+    # validé dans ce scénario, il est donc « à vérifier », jamais « conforme ».
+    assert ligne["categorie"] == "a_verifier"
+    assert ligne["montants"]["facture_a_verifier"] == "0"
 
 
 async def test_get_bilan_livraisons_filtre_chantier_et_fournisseur_transmis(

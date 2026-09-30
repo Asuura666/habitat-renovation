@@ -3,6 +3,17 @@
 # bascule DOCS_HOST_DIR vers le contenu restauré (par renommages, sans
 # jamais supprimer l'existant), puis redémarre l'API et vérifie /health.
 #
+# Ordre (audit F-02, C-02, C-03) : TOUS les contrôles ont lieu avant la
+# première destruction : dossier des sauvegardes utilisable, parent de
+# DOCS_HOST_DIR présent, snapshot lisible (restic restore), dump et documents
+# présents dans le snapshot, dump valide (`pg_restore --list` dans un
+# conteneur jetable). Puis : arrêt de l'API, copie de sécurité de la base
+# COURANTE (pg_dump -Fc horodaté, droits 600, dans le dossier des
+# sauvegardes), et seulement ensuite DROP DATABASE. La bascule des
+# documents se fait dans un conteneur root jetable (deploy/basculer-
+# documents.sh) : documents rendus à l'uid/gid 10001 de l'API (dossiers
+# 0750, fichiers 0640), sans exiger que l'opérateur soit root.
+#
 # Usage : deploy/restore.sh <identifiant-snapshot> --confirmer
 #
 # Opération destructive pour la base (recréée) : refuse de s'exécuter sans
@@ -26,6 +37,8 @@
 # COMPOSE_PROJECT_NAME (optionnel, défaut "habitat_reno") : nom du projet
 # compose à arrêter/redémarrer (service "api") et dont on rejoint le réseau
 # `<projet>_default`.
+# HABITAT_RENO_SAUVEGARDES_DIR (optionnel, défaut $HOME/sauvegardes-habitat) :
+# dossier des copies de sécurité de la base courante, créé au besoin (0700).
 # COMPOSE_OVERRIDE_FILE (optionnel) : fichier compose additionnel (-f) pour
 # adapter les ports publiés (utilisé par test-restauration.sh).
 set -euo pipefail
@@ -120,6 +133,29 @@ if [[ ! -d "$DOCS_HOST_DIR_PARENT" ]]; then
   exit 1
 fi
 
+# Dossier des copies de sécurité de la base courante : vérifié ici, avant
+# tout appel à docker, pour ne jamais découvrir après le DROP qu'il n'est pas
+# utilisable.
+SAUVEGARDES_DIR="${HABITAT_RENO_SAUVEGARDES_DIR:-}"
+if [[ -z "$SAUVEGARDES_DIR" ]]; then
+  if [[ -z "${HOME:-}" ]]; then
+    echo "restore.sh : dossier des sauvegardes indéterminé (HOME et HABITAT_RENO_SAUVEGARDES_DIR absents). Rien n'a été modifié." >&2
+    exit 1
+  fi
+  SAUVEGARDES_DIR="$HOME/sauvegardes-habitat"
+fi
+if [[ "$SAUVEGARDES_DIR" != /* ]]; then
+  echo "restore.sh : le dossier des sauvegardes doit être un chemin absolu ($SAUVEGARDES_DIR). Rien n'a été modifié." >&2
+  exit 1
+fi
+if [[ ! -e "$SAUVEGARDES_DIR" ]]; then
+  (umask 077 && mkdir -p -- "$SAUVEGARDES_DIR") || true
+fi
+if [[ ! -d "$SAUVEGARDES_DIR" || ! -w "$SAUVEGARDES_DIR" ]]; then
+  echo "restore.sh : dossier des sauvegardes inutilisable ($SAUVEGARDES_DIR : absent ou non inscriptible), la copie de sécurité de la base ne pourrait pas être écrite. Rien n'a été modifié." >&2
+  exit 1
+fi
+
 PROJECT_NAME="${COMPOSE_PROJECT_NAME:-habitat_reno}"
 NETWORK="${PROJECT_NAME}_default"
 
@@ -143,6 +179,7 @@ fi
 HORODATAGE="$(date -u +%Y%m%d-%H%M%S)"
 DOCS_HOST_DIR_ANCIEN="${DOCS_HOST_DIR}.avant-restauration-${HORODATAGE}"
 DOCS_HOST_DIR_NOUVEAU="${DOCS_HOST_DIR}.restaure-${HORODATAGE}"
+COPIE_SECURITE="$SAUVEGARDES_DIR/avant-restauration-${POSTGRES_DB}-${HORODATAGE}.dump"
 
 # Diagnostic clair en cas d'échec à mi-parcours (ex. pg_restore) : affiche
 # l'étape en cours (ETAPE_COURANTE, mise à jour juste avant chaque section
@@ -158,7 +195,8 @@ on_error() {
   echo "restore.sh : état laissé : base '$POSTGRES_DB' possiblement vide/partielle si l'étape" >&2
   echo "restore.sh :   « recréation de la base » ou une étape suivante a été atteinte (elle est" >&2
   echo "restore.sh :   recréée AVANT pg_restore, donc jamais restaurée à l'ancien état par ce" >&2
-  echo "restore.sh :   script) ; API arrêtée si l'étape « arrêt de l'API » ou une étape suivante" >&2
+  echo "restore.sh :   script ; l'ancienne base est dans la copie de sécurité $COPIE_SECURITE" >&2
+  echo "restore.sh :   si elle a pu être écrite) ; API arrêtée si l'étape « arrêt de l'API » ou une étape suivante" >&2
   echo "restore.sh :   a été atteinte ; documents inchangés sauf si l'étape « bascule des" >&2
   echo "restore.sh :   documents » a été atteinte ou est en cours (vérifier alors l'existence de" >&2
   echo "restore.sh :   $DOCS_HOST_DIR_ANCIEN et $DOCS_HOST_DIR_NOUVEAU, résidus possibles d'une" >&2
@@ -203,15 +241,22 @@ docker run --rm \
   "$RESTIC_IMAGE" \
   restore "$SNAPSHOT" --target "$RESTORE_DIR" --no-cache
 
-DUMP_FILE="$(find "$RESTORE_DIR" -type f -name '*.dump' -print -quit)"
+# Dump : emplacement fixe des sauvegardes récentes (/dump/bl.dump), sinon
+# recherche dans l'ancien format (dossier temporaire aléatoire), en ignorant
+# le dossier des documents : un document nommé « *.dump » ne doit pas être
+# pris pour la base.
+DUMP_FILE="$RESTORE_DIR/dump/bl.dump"
+if [[ ! -f "$DUMP_FILE" ]]; then
+  DUMP_FILE="$(find "$RESTORE_DIR" -path "$RESTORE_DIR$DOCS_HOST_DIR" -prune -o -type f -name '*.dump' -print -quit)"
+fi
 if [[ -z "$DUMP_FILE" ]]; then
-  echo "restore.sh : aucun fichier .dump trouvé dans le snapshot restauré." >&2
+  echo "restore.sh : aucun fichier .dump trouvé dans le snapshot restauré. Rien n'a été modifié." >&2
   exit 1
 fi
 
 RESTORED_DOCS_DIR="$RESTORE_DIR$DOCS_HOST_DIR"
 if [[ ! -d "$RESTORED_DOCS_DIR" ]]; then
-  echo "restore.sh : dossier docs absent du snapshot restauré ($RESTORED_DOCS_DIR)." >&2
+  echo "restore.sh : dossier docs absent du snapshot restauré ($RESTORED_DOCS_DIR). Rien n'a été modifié." >&2
   exit 1
 fi
 
@@ -231,9 +276,78 @@ if compgen -G "${DOCS_HOST_DIR}.avant-restauration-*" >/dev/null; then
   echo "restore.sh : ancien(s) contenu(s) ${DOCS_HOST_DIR}.avant-restauration-* d'une restauration précédente déjà présents (non bloquant ; à supprimer à la main une fois vérifiés, cf. RESTAURATION.md)." >&2
 fi
 
-ETAPE_COURANTE="arrêt de l'API"
+# Dernier contrôle avant destruction : le dump du snapshot est lisible par
+# pg_restore (`--list` ne touche à aucune base).
+ETAPE_COURANTE="validation du dump (rien touché sur la base/les documents en place)"
+echo "restore.sh : validation du dump (pg_restore --list)…"
+docker run --rm \
+  -v "$RESTORE_DIR:$RESTORE_DIR:ro" \
+  "$POSTGRES_IMAGE" \
+  pg_restore --list "$DUMP_FILE" >/dev/null
+
+# Le « stop api » reste AVANT la copie de sécurité : sinon l'API pourrait
+# écrire entre l'instantané du dump et le DROP, et ces écritures ne seraient
+# dans aucune copie. Les sorties `exit 1` qui suivent (un `exit` explicite ne
+# déclenche pas le trap ERR) disent donc que l'API est arrêtée et donnent la
+# commande exacte pour la relancer.
+REDEMARRER_API="docker compose"
+for ARG in "${COMPOSE_ARGS[@]}"; do
+  REDEMARRER_API+=" $(printf '%q' "$ARG")"
+done
+REDEMARRER_API+=" start api"
+
+ETAPE_COURANTE="arrêt de l'API (base et documents encore intacts)"
 echo "restore.sh : arrêt de l'API…"
 docker compose "${COMPOSE_ARGS[@]}" stop api
+
+# Copie de sécurité de la base COURANTE avant de la supprimer : si la
+# restauration tourne mal, ou si le mauvais snapshot a été choisi, l'état
+# précédent reste récupérable. Le dump sort sur stdout et est redirigé côté
+# hôte sous `umask 077` : le fichier naît en 0600 (jamais lisible par un
+# autre utilisateur, même un instant). Il est ensuite validé
+# (`pg_restore --list`) ; en cas d'échec il est supprimé (jamais laissé
+# partiel) et rien n'est détruit. Une copie existante n'est jamais écrasée
+# ni supprimée. Base absente (reprise après un échec entre DROP et CREATE) :
+# pas de copie, message clair.
+ETAPE_COURANTE="copie de sécurité de la base courante (base encore intacte, API arrêtée)"
+BASE_EXISTE="$(
+  docker run --rm \
+    --network "$NETWORK" \
+    -e PGPASSWORD \
+    "$POSTGRES_IMAGE" \
+    psql -h postgres -U "$POSTGRES_USER" -d postgres -tA -v ON_ERROR_STOP=1 \
+    -c "SELECT 1 FROM pg_database WHERE datname = '$POSTGRES_DB';"
+)"
+if [[ "$BASE_EXISTE" == "1" ]]; then
+  if [[ -e "$COPIE_SECURITE" ]]; then
+    echo "restore.sh : la copie de sécurité $COPIE_SECURITE existe déjà ; elle n'est jamais écrasée. Relancer dans une seconde. Base non touchée, mais l'API est ARRÊTÉE : la redémarrer avec : $REDEMARRER_API" >&2
+    exit 1
+  fi
+  echo "restore.sh : copie de sécurité de la base courante -> $COPIE_SECURITE…"
+  if ! (
+    umask 077
+    set -o noclobber
+    docker run --rm \
+      --network "$NETWORK" \
+      -e PGPASSWORD \
+      "$POSTGRES_IMAGE" \
+      pg_dump -Fc -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" > "$COPIE_SECURITE"
+  ); then
+    rm -f -- "$COPIE_SECURITE"
+    echo "restore.sh : la copie de sécurité a échoué (fichier partiel supprimé). Base non touchée, mais l'API est ARRÊTÉE : la redémarrer avec : $REDEMARRER_API" >&2
+    exit 1
+  fi
+  if ! docker run --rm -i \
+    "$POSTGRES_IMAGE" \
+    pg_restore --list < "$COPIE_SECURITE" >/dev/null; then
+    rm -f -- "$COPIE_SECURITE"
+    echo "restore.sh : la copie de sécurité est invalide (supprimée). Base non touchée, mais l'API est ARRÊTÉE : la redémarrer avec : $REDEMARRER_API" >&2
+    exit 1
+  fi
+  chmod 600 -- "$COPIE_SECURITE"
+else
+  echo "restore.sh : base $POSTGRES_DB absente (reprise après un échec entre DROP et CREATE ?) : aucune copie de sécurité créée ; conserver la PREMIÈRE copie avant-restauration-* existante."
+fi
 
 ETAPE_COURANTE="recréation de la base (base droppée/recréée, pas encore restaurée)"
 echo "restore.sh : recréation de la base $POSTGRES_DB…"
@@ -261,16 +375,20 @@ docker run --rm \
 # puisque même système de fichiers que DOCS_HOST_DIR) : l'ancien contenu
 # devient DOCS_HOST_DIR_ANCIEN (conservé, à supprimer à la main après
 # vérification — voir RESTAURATION.md), le nouveau prend la place de
-# DOCS_HOST_DIR.
+# DOCS_HOST_DIR. Le tout dans un conteneur root jetable qui monte le
+# PARENT de DOCS_HOST_DIR et le dossier restauré (lecture seule) : voir
+# basculer-documents.sh (droits 10001, 0750/0640). Le montage du parent
+# tient au fait que les renommages se font dans ce dossier.
 ETAPE_COURANTE="bascule des documents (voir $DOCS_HOST_DIR_ANCIEN / $DOCS_HOST_DIR_NOUVEAU)"
 echo "restore.sh : préparation du contenu restauré dans $DOCS_HOST_DIR_NOUVEAU…"
-cp -a "$RESTORED_DOCS_DIR" "$DOCS_HOST_DIR_NOUVEAU"
-
-echo "restore.sh : bascule de $DOCS_HOST_DIR (ancien contenu conservé dans $DOCS_HOST_DIR_ANCIEN)…"
-if [[ -e "$DOCS_HOST_DIR" ]]; then
-  mv -- "$DOCS_HOST_DIR" "$DOCS_HOST_DIR_ANCIEN"
-fi
-mv -- "$DOCS_HOST_DIR_NOUVEAU" "$DOCS_HOST_DIR"
+echo "restore.sh : bascule de $DOCS_HOST_DIR (ancien contenu conservé dans $DOCS_HOST_DIR_ANCIEN, documents rendus à l'uid/gid 10001)…"
+docker run --rm \
+  --entrypoint sh \
+  -v "$DOCS_HOST_DIR_PARENT:$DOCS_HOST_DIR_PARENT" \
+  -v "$RESTORE_DIR:$RESTORE_DIR:ro" \
+  -v "$SCRIPT_DIR/basculer-documents.sh:/basculer-documents.sh:ro" \
+  "$POSTGRES_IMAGE" \
+  /basculer-documents.sh "$RESTORED_DOCS_DIR" "$DOCS_HOST_DIR_NOUVEAU" "$DOCS_HOST_DIR" "$DOCS_HOST_DIR_ANCIEN"
 
 ETAPE_COURANTE="redémarrage de l'API (base et documents déjà restaurés/basculés)"
 echo "restore.sh : redémarrage de l'API…"

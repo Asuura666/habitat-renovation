@@ -5680,6 +5680,26 @@
      "nb_problemes": {
       "type": "integer",
       "title": "Nb Problemes"
+     },
+     "categorie": {
+      "type": "string",
+      "enum": [
+       "conforme",
+       "a_verifier",
+       "pas_encore_facture"
+      ],
+      "title": "Categorie"
+     },
+     "raison_a_verifier": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Raison A Verifier"
      }
     },
     "type": "object",
@@ -5690,7 +5710,8 @@
      "numero_facture",
      "montant_facture_ht",
      "lignes",
-     "nb_problemes"
+     "nb_problemes",
+     "categorie"
     ],
     "title": "ComparaisonBlReponse",
     "description": "`GET /api/documents/{id}/comparaison` (Task 3, refonte front) —\nmêmes attributs qu'`ingest.comparaison_bl.ComparaisonBl`.\n`facture_id`/`numero_facture`/`montant_facture_ht` valent `None` quand\naucun bloc de facture ne cite ce BL (`bloc_facture.bl_document_id`,\nmême principe que `LigneBilanBlReponse.bl_document_id`).\n\n`nb_problemes` (tour de correction 1, Task 8) : nombre d'anomalies\nouvertes concernant ce BL, au sens large — pas seulement la somme des\n`regles_ouvertes` des `lignes` (voir le docstring de\n`ingest.comparaison_bl.ComparaisonBl`). C'est ce champ, jamais un calcul\nfront, qui doit fonder le nombre de problèmes affiché et déterminer si\nle BL peut être présenté comme « Conforme »."
@@ -7385,6 +7406,15 @@
       "format": "uuid",
       "title": "Facture Id"
      },
+     "categorie": {
+      "type": "string",
+      "enum": [
+       "conforme",
+       "a_verifier",
+       "sans_bon"
+      ],
+      "title": "Categorie"
+     },
      "montants": {
       "$ref": "#/components/schemas/MontantsBilanReponse"
      }
@@ -7397,6 +7427,7 @@
      "statut_rapprochement",
      "bl_document_id",
      "facture_id",
+     "categorie",
      "montants"
     ],
     "title": "LigneBilanBlReponse",
@@ -7736,6 +7767,22 @@
        "pas_encore_facture"
       ],
       "title": "Controle"
+     },
+     "detail_livre": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Detail Livre"
+     },
+     "inclus_dans_precedente": {
+      "type": "boolean",
+      "title": "Inclus Dans Precedente",
+      "default": false
      }
     },
     "type": "object",
@@ -8294,6 +8341,15 @@
       ],
       "title": "Fournisseur"
      },
+     "categorie": {
+      "type": "string",
+      "enum": [
+       "conforme",
+       "a_verifier",
+       "sans_bon"
+      ],
+      "title": "Categorie"
+     },
      "montants": {
       "$ref": "#/components/schemas/MontantsBilanReponse"
      }
@@ -8310,6 +8366,7 @@
      "chantier",
      "fournisseur_id",
      "fournisseur",
+     "categorie",
      "montants"
     ],
     "title": "LigneLivraisonReponse",
@@ -8543,6 +8600,11 @@
       "type": "string",
       "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
       "title": "A Verifier"
+     },
+     "facture_a_verifier": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Facture A Verifier"
      }
     },
     "type": "object",
@@ -8553,7 +8615,8 @@
      "non_justifie",
      "nb_anomalies_ouvertes",
      "conforme",
-     "a_verifier"
+     "a_verifier",
+     "facture_a_verifier"
     ],
     "title": "MontantsBilanReponse",
     "description": "Les quatre montants d'un périmètre de bilan (L5-D3) plus le nombre\nd'anomalies ouvertes qui s'y rattachent — mêmes attributs\nqu'`ingest.bilan.MontantsBilan`. Les quatre montants ne forment pas une\npartition (L5-D3) : c'est au front de le dire en toutes lettres, jamais\ncalculé ni recalculé ici."
@@ -9518,6 +9581,11 @@
       "type": "string",
       "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
       "title": "Conforme"
+     },
+     "facture_a_verifier": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Facture A Verifier"
      }
     },
     "type": "object",
@@ -9526,7 +9594,8 @@
      "rapproche",
      "en_ecart",
      "non_justifie",
-     "conforme"
+     "conforme",
+     "facture_a_verifier"
     ],
     "title": "TotauxMoisReponse",
     "description": "Les quatre montants du bilan du mois plus `conforme` — mêmes\nattributs qu'`ingest.tableau_de_bord.TotauxMois`."

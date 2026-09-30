@@ -14,12 +14,12 @@ toujours un 1er du mois, quel que soit le jour transmis par l'appelant.
 `totaux` (L5-D3, `ingest.bilan.MontantsBilan`) : simple somme des montants
 des lignes de `bilan_par_chantier(mois=mois, agence=None)` — les quatre
 montants existants ne changent pas de définition ici. `conforme` est la
-somme des `MontantsBilan.conforme` des chantiers (revue finale de la
-refonte du front, constat SERVEUR-2) : calculé bloc par bloc par
-`ingest.bilan` (blocs reçus sans anomalie ouverte de quantité/prix), plus
-jamais par la formule `rapproche - en_ecart` de la spec §6.2, qui supposait
-à tort que tout bloc en écart était reçu (R07-R09 s'évaluent quel que soit
-l'état du BL).
+somme des `MontantsBilan.conforme` des chantiers : définition unique et
+stricte d'`ingest.bilan._sous_requete_categories` (décision d'Ilane du
+29/09/2026 : bon validé, comparé sans écart, aucun autre problème ouvert),
+la même que la liste des livraisons et la page du bon. `facture_a_verifier`
+est la part de `facture_ht` portée par des factures « à vérifier » (B-09,
+mention « dont X € sur des factures à vérifier »).
 
 `nb_bl_factures`/`nb_bl_recus`/`nb_bl_manquants` : comptés directement sur
 la sous-requête `_sous_requete_blocs`/`_conditions_base` d'`ingest.bilan`
@@ -181,13 +181,16 @@ NB_PRIORITES_MAX = 4
 @dataclass(frozen=True)
 class TotauxMois:
     """Les quatre montants du bilan du mois (L5-D3, somme sur tous les
-    chantiers) plus `conforme` -- voir docstring de module."""
+    chantiers) plus `conforme` et `facture_a_verifier` (part de « Facturé »
+    portée par des factures « à vérifier », B-09) -- voir docstring de
+    module."""
 
     facture_ht: Decimal
     rapproche: Decimal
     en_ecart: Decimal
     non_justifie: Decimal
     conforme: Decimal
+    facture_a_verifier: Decimal
 
 
 @dataclass(frozen=True)
@@ -286,7 +289,14 @@ def _etat_chantier(
         return "prix"
     if "quantites" in categories:
         return "quantites"
-    if ligne.montants.nb_anomalies_ouvertes > 0:
+    # Un chantier n'est « conforme » que si tous ses blocs du mois le sont
+    # (définition unique d'`ingest.bilan`, comptés côté serveur) : un bon ou
+    # une facture à vérifier, un bloc sans bon, même à 0 € ou sans anomalie
+    # ouverte, le met « à voir » -- jamais décidé sur un montant.
+    if (
+        ligne.montants.nb_anomalies_ouvertes > 0
+        or ligne.montants.nb_blocs_non_conformes > 0
+    ):
         return "a_voir"
     return "conforme"
 
@@ -430,6 +440,9 @@ async def tableau_de_bord(session: AsyncSession, *, mois: date) -> TableauDeBord
         en_ecart=_somme([ligne.montants.en_ecart for ligne in lignes_bilan]),
         non_justifie=_somme([ligne.montants.non_justifie for ligne in lignes_bilan]),
         conforme=_somme([ligne.montants.conforme for ligne in lignes_bilan]),
+        facture_a_verifier=_somme(
+            [ligne.montants.facture_a_verifier for ligne in lignes_bilan]
+        ),
     )
 
     nb_bl_factures, nb_bl_recus, nb_bl_manquants = await _compter_blocs(
