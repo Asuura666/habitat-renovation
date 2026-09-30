@@ -194,3 +194,80 @@ async def test_deux_lignes_de_facture_un_bon_qte_bl_comptee_une_fois(
     colonnes = csv_bilan_detail(lignes).splitlines()
     indice = colonnes[0].split(";").index("Quantité BL appariée")
     assert [ligne.split(";")[indice] for ligne in colonnes[1:]] == ["20,00", ""]
+
+
+async def test_page_du_bon_groupe_10_plus_10_contre_20_meme_nombre_des_deux_cotes(
+    db_session: AsyncSession,
+) -> None:
+    """Constat final 1 : sur la ligne de tête, le livré du groupe (20, détail
+    « 10 + 10 ») fait face au facturé du groupe (20) ; la suivante n'affiche
+    plus de verdict contradictoire (« incluse dans la ligne précédente »)."""
+    _facture, bl, _ligne_facture, _lignes_bl = await _scenario(db_session, "20")
+
+    lignes = (await comparer_bl(db_session, bl.id)).lignes
+    tete, suite = lignes
+    assert tete.qte_livree == Decimal("20")
+    assert tete.detail_livre == "10 + 10"
+    assert tete.qte_facturee == Decimal("20")
+    assert tete.controle == "conforme"
+    assert tete.inclus_dans_precedente is False
+    assert suite.qte_livree == Decimal("10")
+    assert suite.detail_livre is None
+    assert suite.qte_facturee is None
+    assert suite.inclus_dans_precedente is True
+
+
+async def test_page_du_bon_groupe_10_plus_10_contre_25_ecart_sur_la_tete(
+    db_session: AsyncSession,
+) -> None:
+    _facture, bl, _ligne_facture, _lignes_bl = await _scenario(db_session, "25")
+
+    tete, suite = (await comparer_bl(db_session, bl.id)).lignes
+    assert tete.qte_livree == Decimal("20")
+    assert tete.detail_livre == "10 + 10"
+    assert tete.qte_facturee == Decimal("25")
+    assert tete.controle == "ecart"
+    assert tete.inclus_dans_precedente is False
+    assert suite.inclus_dans_precedente is True
+    assert suite.qte_facturee is None
+
+
+async def test_page_du_bon_ligne_seule_inchangee(db_session: AsyncSession) -> None:
+    """Un bon à une seule ligne par groupe n'a ni détail ni « incluse »."""
+    fournisseur = await _creer_fournisseur(db_session)
+    article = await _creer_article(
+        db_session,
+        fournisseur=fournisseur,
+        code="X1",
+        unite_cdt="kg",
+        unite_fact="kg",
+        ratio=Decimal("1"),
+    )
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    bloc = await _creer_bloc(db_session, facture=facture, numero_bl="L0009")
+    await _creer_ligne(
+        db_session,
+        document=facture,
+        bloc=bloc,
+        code_brut="X1",
+        article=article,
+        qte_totale=Decimal("10"),
+        unite_brut="kg",
+        pu_ht=Decimal("2.00"),
+        montant_ht=Decimal("20.00"),
+    )
+    bl = await _creer_bl(db_session, fournisseur=fournisseur, numero="L0009")
+    await _creer_ligne(
+        db_session,
+        document=bl,
+        code_brut="X1",
+        article=article,
+        qte_totale=Decimal("10"),
+        unite_brut="kg",
+    )
+    await rapprocher_facture(db_session, facture.id)
+
+    (ligne,) = (await comparer_bl(db_session, bl.id)).lignes
+    assert ligne.qte_livree == Decimal("10")
+    assert ligne.detail_livre is None
+    assert ligne.inclus_dans_precedente is False

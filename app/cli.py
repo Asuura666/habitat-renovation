@@ -1276,7 +1276,9 @@ def _construire_parser() -> argparse.ArgumentParser:
         "chantiers-alias-suspects",
         help=(
             "Liste (lecture seule, rien n'est modifié) les noms appris dont "
-            "les nombres diffèrent de ceux du chantier (« … 13 » sur « … 12 »)"
+            "les nombres diffèrent de ceux du chantier (« … 13 » sur « … 12 »). "
+            "Diagnostic manuel, ne pas planifier : la sortie contient des "
+            "noms de chantier"
         ),
     )
 

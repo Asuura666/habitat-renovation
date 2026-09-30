@@ -6,6 +6,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RESTORE_SCRIPT = REPO_ROOT / "deploy" / "restore.sh"
 
@@ -413,3 +415,23 @@ def test_restauration_md_documente_le_retour_arriere_exact() -> None:
     assert "pg_restore --no-owner" in doc
     assert "première" in doc and "copie de sécurité" in doc
     assert ".restaure-*" in doc and "sudo rm -rf" in doc
+
+
+@pytest.mark.parametrize("variable", ["FAUX_PGDUMP_RC", "FAUX_LISTE_COPIE_RC"])
+def test_restore_dit_que_l_api_est_arretee_et_comment_la_redemarrer(
+    tmp_path: Path, variable: str
+) -> None:
+    """Constat final 4 : une sortie de la phase « copie de sécurité » arrive
+    après l'arrêt de l'API ; le message le dit et donne la commande exacte."""
+    env, appels_docker = _environnement_restore(tmp_path)
+    _preparer_faux_docker_complet(tmp_path, env)
+    env[variable] = "1"
+
+    resultat = _executer_restore("abcd1234", env)
+
+    assert resultat.returncode != 0
+    assert any("stop api" in a for a in _appels(appels_docker))
+    assert "Base non touchée" in resultat.stderr
+    assert "API est ARRÊTÉE" in resultat.stderr
+    assert "docker compose" in resultat.stderr
+    assert "start api" in resultat.stderr

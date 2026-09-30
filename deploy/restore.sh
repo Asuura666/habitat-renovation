@@ -285,6 +285,17 @@ docker run --rm \
   "$POSTGRES_IMAGE" \
   pg_restore --list "$DUMP_FILE" >/dev/null
 
+# Le « stop api » reste AVANT la copie de sécurité : sinon l'API pourrait
+# écrire entre l'instantané du dump et le DROP, et ces écritures ne seraient
+# dans aucune copie. Les sorties `exit 1` qui suivent (un `exit` explicite ne
+# déclenche pas le trap ERR) disent donc que l'API est arrêtée et donnent la
+# commande exacte pour la relancer.
+REDEMARRER_API="docker compose"
+for ARG in "${COMPOSE_ARGS[@]}"; do
+  REDEMARRER_API+=" $(printf '%q' "$ARG")"
+done
+REDEMARRER_API+=" start api"
+
 ETAPE_COURANTE="arrêt de l'API (base et documents encore intacts)"
 echo "restore.sh : arrêt de l'API…"
 docker compose "${COMPOSE_ARGS[@]}" stop api
@@ -309,7 +320,7 @@ BASE_EXISTE="$(
 )"
 if [[ "$BASE_EXISTE" == "1" ]]; then
   if [[ -e "$COPIE_SECURITE" ]]; then
-    echo "restore.sh : la copie de sécurité $COPIE_SECURITE existe déjà ; elle n'est jamais écrasée. Relancer dans une seconde. Base non touchée." >&2
+    echo "restore.sh : la copie de sécurité $COPIE_SECURITE existe déjà ; elle n'est jamais écrasée. Relancer dans une seconde. Base non touchée, mais l'API est ARRÊTÉE : la redémarrer avec : $REDEMARRER_API" >&2
     exit 1
   fi
   echo "restore.sh : copie de sécurité de la base courante -> $COPIE_SECURITE…"
@@ -323,14 +334,14 @@ if [[ "$BASE_EXISTE" == "1" ]]; then
       pg_dump -Fc -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" > "$COPIE_SECURITE"
   ); then
     rm -f -- "$COPIE_SECURITE"
-    echo "restore.sh : la copie de sécurité a échoué (fichier partiel supprimé). Base non touchée." >&2
+    echo "restore.sh : la copie de sécurité a échoué (fichier partiel supprimé). Base non touchée, mais l'API est ARRÊTÉE : la redémarrer avec : $REDEMARRER_API" >&2
     exit 1
   fi
   if ! docker run --rm -i \
     "$POSTGRES_IMAGE" \
     pg_restore --list < "$COPIE_SECURITE" >/dev/null; then
     rm -f -- "$COPIE_SECURITE"
-    echo "restore.sh : la copie de sécurité est invalide (supprimée). Base non touchée." >&2
+    echo "restore.sh : la copie de sécurité est invalide (supprimée). Base non touchée, mais l'API est ARRÊTÉE : la redémarrer avec : $REDEMARRER_API" >&2
     exit 1
   fi
   chmod 600 -- "$COPIE_SECURITE"

@@ -5689,6 +5689,17 @@
        "pas_encore_facture"
       ],
       "title": "Categorie"
+     },
+     "raison_a_verifier": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Raison A Verifier"
      }
     },
     "type": "object",
@@ -7756,6 +7767,22 @@
        "pas_encore_facture"
       ],
       "title": "Controle"
+     },
+     "detail_livre": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Detail Livre"
+     },
+     "inclus_dans_precedente": {
+      "type": "boolean",
+      "title": "Inclus Dans Precedente",
+      "default": false
      }
     },
     "type": "object",

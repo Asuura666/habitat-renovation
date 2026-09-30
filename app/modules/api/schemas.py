@@ -860,6 +860,10 @@ class LigneCompareeReponse(BaseModel):
     controle: Literal[
         "conforme", "ecart", "non_facture", "non_controle", "pas_encore_facture"
     ]
+    # Groupe de plusieurs lignes de bon : livré du groupe détaillé sur la
+    # ligne de tête (« 10 + 10 »), lignes suivantes « incluses ».
+    detail_livre: str | None = None
+    inclus_dans_precedente: bool = False
 
 
 class ComparaisonBlReponse(BaseModel):
@@ -888,6 +892,8 @@ class ComparaisonBlReponse(BaseModel):
     # Verdict d'ensemble du bon, calculé par le serveur (définition unique de
     # « Conforme », `ingest.bilan`) : la page l'affiche tel quel.
     categorie: Literal["conforme", "a_verifier", "pas_encore_facture"]
+    # Cause en mots simples d'un « À vérifier » sans problème ouvert.
+    raison_a_verifier: str | None = None
 
 
 class JournalReponse(BaseModel):

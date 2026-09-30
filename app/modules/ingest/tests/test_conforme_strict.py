@@ -384,3 +384,26 @@ async def test_etat_chantier_blocs_sans_bon_sans_anomalie_ouverte_pas_conforme(
     await _creer_anomalie(db_session, regle="R01", bloc_id=bloc.id, statut="ignoree")
 
     assert await _etat_du_chantier(db_session, chantier) == "a_voir"
+
+
+async def test_page_du_bon_dit_pourquoi_a_verifier_sans_probleme(
+    db_session: AsyncSession,
+) -> None:
+    """Constat final 6 : pastille « À vérifier » avec 0 problème, la raison
+    (« bon à valider » / « facture à vérifier ») vient du serveur."""
+    _bloc, bl = await _livraison(db_session, numero="R1", statut_bl="a_verifier")
+    assert bl is not None
+    comparaison = await comparer_bl(db_session, bl.id)
+    assert comparaison.categorie == "a_verifier"
+    assert comparaison.nb_problemes == 0
+    assert comparaison.raison_a_verifier == "bon à valider"
+
+    _bloc, bl = await _livraison(db_session, numero="R2", statut_facture="a_verifier")
+    assert bl is not None
+    comparaison = await comparer_bl(db_session, bl.id)
+    assert comparaison.categorie == "a_verifier"
+    assert comparaison.raison_a_verifier == "facture à vérifier"
+
+    _bloc, bl = await _livraison(db_session, numero="R3")
+    assert bl is not None
+    assert (await comparer_bl(db_session, bl.id)).raison_a_verifier is None

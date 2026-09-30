@@ -175,6 +175,26 @@ def test_page_bl_controle_par_ligne_vient_du_serveur() -> None:
     assert 'document.data.type !== "facture"' in page
 
 
+def test_page_bl_groupe_de_lignes_sans_verdict_contradictoire() -> None:
+    """Constat final 1 : le livré du groupe est détaillé (« 10 + 10 »), les
+    lignes suivantes disent qu'elles sont incluses dans la précédente."""
+    page = (WEB / "pages" / "PageBl.tsx").read_text()
+
+    assert "ligne.detail_livre" in page
+    assert "ligne.inclus_dans_precedente" in page
+    assert "Incluse dans la ligne précédente" in page
+    controle = page.split("function ControleLigne", 1)[1].split("\nfunction ", 1)[0]
+    assert "inclus_dans_precedente" in controle
+
+
+def test_page_bl_pastille_dit_pourquoi_a_verifier() -> None:
+    """Constat final 6 : la raison vient du serveur (`raison_a_verifier`)."""
+    page = (WEB / "pages" / "PageBl.tsx").read_text()
+
+    assert "raison_a_verifier" in page
+    assert "raisonAVerifier" in page
+
+
 def test_documents_liste_contrat() -> None:
     page = (WEB / "pages" / "DocumentsListe.tsx").read_text()
 

@@ -103,10 +103,12 @@ function PastilleDocument({
   statut,
   nbProblemes,
   categorie,
+  raisonAVerifier,
 }: {
   statut: string;
   nbProblemes: number;
   categorie: ComparaisonBl["categorie"] | undefined;
+  raisonAVerifier: string | null | undefined;
 }): ReactElement {
   const libelleStatut = libelleStatutDocument(statut);
   const pasEncoreFacture = categorie === "pas_encore_facture" && nbProblemes === 0;
@@ -120,6 +122,10 @@ function PastilleDocument({
     texte = `${libelleStatut} · Conforme`;
   } else if (categorie === "a_verifier") {
     texte = `${libelleStatut} · À vérifier`;
+    if (raisonAVerifier) {
+      // Cause calculée par le serveur (`raison_a_verifier`), jamais déduite ici.
+      texte = `${texte} (${raisonAVerifier})`;
+    }
   }
   const classes =
     nbProblemes > 0
@@ -183,6 +189,16 @@ function PhotoBl({ id, numero }: { id: string; numero: string }): ReactElement {
  * `regles_ouvertes` sont traduits par `titreRegle`, jamais affichés bruts
  * (spec §5). Toujours un libellé, jamais la couleur seule. */
 function ControleLigne({ ligne }: { ligne: LigneComparee }): ReactElement {
+  if (ligne.inclus_dans_precedente) {
+    // Ligne suivante d'un groupe : le facturé et le verdict sont portés par
+    // la ligne de tête (calculé par le serveur), pas de verdict contradictoire.
+    return (
+      <span className="inline-flex items-center gap-2 text-encre-2">
+        <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full bg-encre-2" />
+        Incluse dans la ligne précédente
+      </span>
+    );
+  }
   switch (ligne.controle) {
     case "ecart":
       return (
@@ -228,6 +244,17 @@ function ControleLigne({ ligne }: { ligne: LigneComparee }): ReactElement {
   }
 }
 
+function QuantiteLivree({ ligne }: { ligne: LigneComparee }): ReactElement {
+  return (
+    <>
+      {formaterQuantite(ligne.qte_livree)}
+      {ligne.detail_livre !== null && ligne.detail_livre !== undefined && (
+        <span className="block text-xs text-encre-2">({ligne.detail_livre})</span>
+      )}
+    </>
+  );
+}
+
 function ArticleLigne({ ligne }: { ligne: LigneComparee }): ReactElement {
   return (
     <>
@@ -258,7 +285,9 @@ function TableauLivreFacture({ lignes }: { lignes: LigneComparee[] }): ReactElem
             <dl className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1 text-xs text-encre-2">
               <div>
                 <dt>Livré</dt>
-                <dd className="font-mono text-sm text-encre">{formaterQuantite(ligne.qte_livree)}</dd>
+                <dd className="font-mono text-sm text-encre">
+                  <QuantiteLivree ligne={ligne} />
+                </dd>
               </div>
               <div>
                 <dt>Facturé</dt>
@@ -296,7 +325,7 @@ function TableauLivreFacture({ lignes }: { lignes: LigneComparee[] }): ReactElem
                   <ArticleLigne ligne={ligne} />
                 </td>
                 <td className="py-2 pr-3 text-right font-mono text-encre">
-                  {formaterQuantite(ligne.qte_livree)}
+                  <QuantiteLivree ligne={ligne} />
                 </td>
                 <td className="py-2 pr-3 text-right font-mono text-encre">
                   {formaterQuantite(ligne.qte_facturee)}
@@ -571,6 +600,7 @@ export function PageBl(): ReactElement {
           statut={donnees.statut}
           nbProblemes={nbProblemes}
           categorie={comparaison.data?.categorie}
+          raisonAVerifier={comparaison.data?.raison_a_verifier}
         />
       </header>
 

@@ -2072,6 +2072,8 @@ export interface components {
              * @enum {string}
              */
             categorie: "conforme" | "a_verifier" | "pas_encore_facture";
+            /** Raison A Verifier */
+            raison_a_verifier?: string | null;
         };
         /**
          * CompteCreationRequete
@@ -2870,6 +2872,13 @@ export interface components {
              * @enum {string}
              */
             controle: "conforme" | "ecart" | "non_facture" | "non_controle" | "pas_encore_facture";
+            /** Detail Livre */
+            detail_livre?: string | null;
+            /**
+             * Inclus Dans Precedente
+             * @default false
+             */
+            inclus_dans_precedente: boolean;
         };
         /**
          * LigneDocumentReponse

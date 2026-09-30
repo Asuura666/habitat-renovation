@@ -55,7 +55,11 @@ facture` sont la somme des lignes de facture du groupe, montrée une fois
 (première ligne de bon du groupe), et `regles_ouvertes`/`controle` tiennent
 compte des anomalies ouvertes sur n'importe quelle ligne du groupe (l'écart
 R03/R04 est porté par la ligne de tête). `pu_facture` n'est montré que si
-toutes les lignes du groupe ont le même prix.
+toutes les lignes du groupe ont le même prix. Un groupe de plusieurs lignes de
+bon montre sur sa ligne de tête le livré du groupe (somme, détail « 10 + 10 »)
+face au facturé du groupe ; les suivantes sont marquées
+`inclus_dans_precedente` (le front y écrit « incluse dans la ligne
+précédente » au lieu d'un verdict).
 
 `controle` d'une ligne (revue finale, constats SERVEUR-6/ECRAN-3) : verdict
 calculé ici, affiché tel quel par la page BL -- jamais déduit par le front
@@ -149,6 +153,12 @@ class LigneComparee:
     montant_facture: Decimal | None
     regles_ouvertes: list[str]
     controle: Controle
+    # Groupe de plusieurs lignes de bon (constat final 1) : sur la ligne de
+    # tête, `qte_livree` est la somme du groupe et `detail_livre` la montre
+    # (« 10 + 10 ») ; sur les suivantes `inclus_dans_precedente` vaut vrai
+    # (quantité de la ligne conservée, facturé et verdict portés par la tête).
+    detail_livre: str | None = None
+    inclus_dans_precedente: bool = False
 
 
 @dataclass(frozen=True)
@@ -168,6 +178,10 @@ class ComparaisonBl:
     lignes: list[LigneComparee]
     nb_problemes: int
     categorie: CategorieBon
+    # Constat final 6 : quand la pastille dit « À vérifier » sans problème
+    # ouvert, la cause en mots simples (« bon à valider », « facture à
+    # vérifier »), sinon `None`.
+    raison_a_verifier: str | None = None
 
 
 def _controle(
@@ -325,9 +339,13 @@ async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> Comparai
                 else:
                     par_code[cle] = ligne.id
     membres_par_groupe: dict[uuid.UUID, dict[uuid.UUID, Ligne]] = {}
+    bons_par_groupe: dict[uuid.UUID, list[Ligne]] = {}
     factures_par_groupe: dict[uuid.UUID, dict[uuid.UUID, Ligne]] = {}
     for ligne_bl, ligne_facture, _methode in liens:
         racine = groupes.racine(ligne_bl.id)
+        bons_du_groupe = bons_par_groupe.setdefault(racine, [])
+        if ligne_bl not in bons_du_groupe:
+            bons_du_groupe.append(ligne_bl)
         membres_par_groupe.setdefault(racine, {})[ligne_bl.id] = ligne_bl
         membres_par_groupe[racine][ligne_facture.id] = ligne_facture
         factures_par_groupe.setdefault(racine, {})[ligne_facture.id] = ligne_facture
@@ -366,6 +384,19 @@ async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> Comparai
         # Le total facturé du groupe n'est montré qu'une fois (première
         # ligne de BL du groupe) ; les suivantes gardent le verdict.
         montrer = groupe is not None and groupe not in groupes_deja_montres
+        bons_du_groupe = (
+            sorted(bons_par_groupe[groupe], key=lambda ligne: ligne.ordre)
+            if groupe is not None
+            else []
+        )
+        plusieurs_bons = len(bons_du_groupe) > 1
+        qte_livree = ligne_bl.qte_totale
+        detail_livre: str | None = None
+        if plusieurs_bons and montrer:
+            qte_livree = _somme_optionnelle([b.qte_totale for b in bons_du_groupe])
+            detail_livre = " + ".join(
+                f"{b.qte_totale:f}" for b in bons_du_groupe if b.qte_totale is not None
+            )
         if groupe is not None:
             groupes_deja_montres.add(groupe)
         regles_ouvertes: list[str] = []
@@ -381,7 +412,7 @@ async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> Comparai
                 ordre=ligne_bl.ordre,
                 code=ligne_bl.code_brut,
                 article=ligne_bl.article_brut,
-                qte_livree=ligne_bl.qte_totale,
+                qte_livree=qte_livree,
                 qte_facturee=(
                     _somme_optionnelle([f.qte_totale for f in lignes_facture_groupe])
                     if montrer
@@ -399,10 +430,13 @@ async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> Comparai
                     lignes_facture=lignes_facture_groupe,
                     regles_ouvertes=regles_ouvertes,
                 ),
+                detail_livre=detail_livre,
+                inclus_dans_precedente=plusieurs_bons and not montrer,
             )
         )
 
     categorie: CategorieBon = "pas_encore_facture"
+    raison_a_verifier: str | None = None
     ids_blocs_du_bon = (
         (
             await session.execute(
@@ -426,6 +460,21 @@ async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> Comparai
             if tous_conformes and not ids_anomalies_ouvertes and categories
             else "a_verifier"
         )
+        if categorie == "a_verifier" and not ids_anomalies_ouvertes:
+            if document.statut == "a_verifier":
+                raison_a_verifier = "bon à valider"
+            elif (
+                await session.execute(
+                    select(BlocFacture.id)
+                    .join(Document, Document.id == BlocFacture.facture_id)
+                    .where(
+                        BlocFacture.id.in_(ids_blocs_du_bon),
+                        Document.statut == "a_verifier",
+                    )
+                    .limit(1)
+                )
+            ).first():
+                raison_a_verifier = "facture à vérifier"
 
     return ComparaisonBl(
         document_id=document_id,
@@ -436,4 +485,5 @@ async def comparer_bl(session: AsyncSession, document_id: uuid.UUID) -> Comparai
         lignes=lignes,
         nb_problemes=len(ids_anomalies_ouvertes),
         categorie=categorie,
+        raison_a_verifier=raison_a_verifier,
     )
