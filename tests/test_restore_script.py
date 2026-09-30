@@ -130,14 +130,18 @@ if [[ "$1" == "run" ]]; then
     mkdir -p "$target/dump" "$target$FAUX_DOCS"
     echo dump > "$target/dump/bl.dump"
     echo pdf > "$target$FAUX_DOCS/a.pdf"
-  elif [[ "$joined" == *" pg_restore --list "* ]]; then
+  elif [[ "$joined" == *" pg_restore --list"* ]]; then
+    # 1er appel : validation du dump du snapshot ; 2e : de la copie de sécurité.
+    if [[ "$(grep -c 'pg_restore --list' "$APPELS_DOCKER")" -ge 2 ]]; then
+      exit "${FAUX_LISTE_COPIE_RC:-0}"
+    fi
     exit "${FAUX_LISTE_RC:-0}"
+  elif [[ "$joined" == *" pg_database "* ]]; then
+    [[ -n "${FAUX_BASE_ABSENTE:-}" ]] || echo 1
   elif [[ "$joined" == *" pg_dump "* ]]; then
+    # La copie de sécurité sort sur stdout (redirigée côté hôte en 0600).
+    echo dump
     [[ "${FAUX_PGDUMP_RC:-0}" -eq 0 ]] || exit "$FAUX_PGDUMP_RC"
-    while [[ $# -gt 0 ]]; do
-      if [[ "$1" == "-f" ]]; then echo dump > "$2"; fi
-      shift
-    done
   fi
 fi
 exit 0
@@ -208,7 +212,11 @@ def test_restore_valide_le_dump_et_copie_la_base_avant_le_drop(
     copies = sorted(sauvegardes.glob("avant-restauration-base_fictive-*.dump"))
     assert len(copies) == 1
     assert copies[0].stat().st_mode & 0o777 == 0o600
-    assert str(copies[0]) in appels[copie]
+    # Créée d'emblée en 0600 côté hôte (sortie de pg_dump redirigée sous
+    # umask 077), puis validée par un second `pg_restore --list`.
+    assert " -f " not in appels[copie]
+    assert appels[copie + 1 :][0].count("pg_restore --list") == 1
+    assert copie < destruction
 
 
 def test_restore_ne_detruit_rien_si_le_dump_est_invalide(tmp_path: Path) -> None:
@@ -336,3 +344,72 @@ def test_restore_sans_confirmer_ne_touche_a_rien(tmp_path: Path) -> None:
     assert resultat.returncode == 1
     assert "--confirmer" in resultat.stderr
     assert not appels_docker.exists()
+
+
+def _copies(tmp_path: Path) -> list[Path]:
+    return sorted((tmp_path / "sauvegardes").glob("avant-restauration-*.dump"))
+
+
+def test_restore_ne_detruit_pas_la_base_si_la_copie_de_securite_est_invalide(
+    tmp_path: Path,
+) -> None:
+    env, appels_docker = _environnement_restore(tmp_path)
+    _preparer_faux_docker_complet(tmp_path, env)
+    env["FAUX_LISTE_COPIE_RC"] = "1"
+
+    resultat = _executer_restore("abcd1234", env)
+
+    assert resultat.returncode != 0
+    assert not any("DROP DATABASE" in a for a in _appels(appels_docker))
+    assert _copies(tmp_path) == []  # copie partielle supprimée
+
+
+def test_restore_supprime_la_copie_partielle_si_pg_dump_echoue(
+    tmp_path: Path,
+) -> None:
+    env, appels_docker = _environnement_restore(tmp_path)
+    _preparer_faux_docker_complet(tmp_path, env)
+    env["FAUX_PGDUMP_RC"] = "1"
+
+    resultat = _executer_restore("abcd1234", env)
+
+    assert resultat.returncode != 0
+    assert _copies(tmp_path) == []
+    assert not any("DROP DATABASE" in a for a in _appels(appels_docker))
+
+
+def test_restore_reprise_base_absente_sans_copie_et_sans_toucher_aux_anciennes(
+    tmp_path: Path,
+) -> None:
+    env, appels_docker = _environnement_restore(tmp_path)
+    _preparer_faux_docker_complet(tmp_path, env)
+    env["FAUX_BASE_ABSENTE"] = "1"
+    sauvegardes = tmp_path / "sauvegardes"
+    sauvegardes.mkdir()
+    ancienne = sauvegardes / "avant-restauration-base_fictive-20200101-000000.dump"
+    ancienne.write_text("première copie", encoding="utf-8")
+
+    resultat = _executer_restore("abcd1234", env)
+
+    assert resultat.returncode == 0, resultat.stderr
+    appels = _appels(appels_docker)
+    assert not any(" pg_dump " in a for a in appels)
+    assert any("DROP DATABASE" in a for a in appels)
+    assert "absente" in resultat.stdout
+    assert "aucune copie de sécurité" in resultat.stdout
+    assert _copies(tmp_path) == [ancienne]
+    assert ancienne.read_text(encoding="utf-8") == "première copie"
+
+
+def test_test_restauration_lit_les_documents_10001_par_le_conteneur_root() -> None:
+    script = (REPO_ROOT / "deploy" / "test-restauration.sh").read_text(encoding="utf-8")
+    assert 'if [[ -f "$DOCUMENT_UID_10001" ]]' not in script
+    assert "if sh_root \"test -f '$DOCUMENT_UID_10001'\"; then" in script
+
+
+def test_restauration_md_documente_le_retour_arriere_exact() -> None:
+    doc = (REPO_ROOT / "deploy" / "RESTAURATION.md").read_text(encoding="utf-8")
+    assert "Retour arrière avec la copie de sécurité" in doc
+    assert "pg_restore --no-owner" in doc
+    assert "première" in doc and "copie de sécurité" in doc
+    assert ".restaure-*" in doc and "sudo rm -rf" in doc

@@ -262,7 +262,8 @@ nettoyage habituel (`trap ... EXIT`) : si une étape échoue (ex. `pg_restore`
   `pg_restore` laisse donc une base vide ou partiellement restaurée, pas
   l'ancienne base, qui reste dans la copie de sécurité
   `avant-restauration-<base>-<horodatage>.dump`, restaurable avec
-  `pg_restore --no-owner` dans une base recréée) ; `DOCS_HOST_DIR` inchangé si l'échec est survenu avant
+  `pg_restore --no-owner` dans une base recréée : voir « Retour arrière
+  avec la copie de sécurité » ci-dessous) ; `DOCS_HOST_DIR` inchangé si l'échec est survenu avant
   la bascule des documents, ou déjà basculé s'il est survenu après ;
 - les chemins à vérifier manuellement :
   `<DOCS_HOST_DIR>.avant-restauration-<horodatage>` (ancien contenu,
@@ -279,6 +280,57 @@ nettoyage habituel (`trap ... EXIT`) : si une étape échoue (ex. `pg_restore`
   `.avant-restauration-*` (ancien contenu d'une restauration précédente
   déjà réussie, volontairement conservé) n'empêche pas de relancer ; il est
   seulement signalé, à supprimer à la main une fois vérifié.
+
+### Retour arrière avec la copie de sécurité
+
+Si la restauration a échoué ou si le mauvais snapshot a été choisi, remettre
+la base d'AVANT dans l'instance avec la copie
+`avant-restauration-<base>-<horodatage>.dump`. **Garder la première copie
+de sécurité** : une relance de `restore.sh` après un échec écrit une
+nouvelle copie, celle de la base partielle ou vide (si la base est absente,
+la relance n'en écrit aucune, et l'affiche). La copie utile est donc la
+plus ancienne (`ls -1 "$SAUVEGARDES_DIR"/avant-restauration-<base>-*`), ne
+jamais la supprimer avant validation.
+
+```bash
+# Depuis /home/debian/habitat_reno, sans sudo. Production ; démonstration :
+# ENV=.env.demo et PROJET=habitat_demo à la place.
+ENV=/home/debian/habitat_reno/.env.prod
+PROJET=habitat_prod
+P="-p $PROJET --env-file $ENV -f deploy/docker-compose.yml -f deploy/docker-compose.vps.yml"
+COPIE=/home/debian/sauvegardes-habitat/avant-restauration-<base>-<horodatage>.dump
+# (ou $HABITAT_RENO_SAUVEGARDES_DIR/... si cette variable était positionnée)
+
+# Le mot de passe est lu par le shell, jamais affiché ni passé en argument :
+# `-e PGPASSWORD` sans valeur fait lire la variable de cet environnement.
+set -a; source "$ENV"; set +a
+export PGPASSWORD="$POSTGRES_PASSWORD"
+
+docker compose $P stop api
+docker run --rm --network "${PROJET}_default" -e PGPASSWORD postgres:18 \
+  psql -h postgres -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 \
+  -c "DROP DATABASE IF EXISTS \"$POSTGRES_DB\";" \
+  -c "CREATE DATABASE \"$POSTGRES_DB\" OWNER \"$POSTGRES_USER\";"
+docker run --rm --network "${PROJET}_default" -e PGPASSWORD \
+  -v "$COPIE:$COPIE:ro" postgres:18 \
+  pg_restore --exit-on-error --no-owner -h postgres -U "$POSTGRES_USER" \
+  -d "$POSTGRES_DB" "$COPIE"
+docker compose $P start api
+```
+
+Puis vérifier `/health` et les écrans. Les documents ne sont pas concernés
+par ce retour arrière : si la bascule a eu lieu, l'ancien contenu est dans
+`<DOCS_HOST_DIR>.avant-restauration-<horodatage>` (le remettre en place par
+deux renommages, avec `sudo` ou un conteneur root jetable).
+
+**Suppression d'un résidu** (`.restaure-*` ou `.avant-restauration-*`) :
+ces dossiers appartiennent à l'uid 10001 (voire root) et ne sont pas
+supprimables par l'opérateur. Après inspection, avec `sudo` :
+`sudo rm -rf <dossier>` ; sans `sudo`, avec un conteneur root jetable qui
+monte le parent :
+`docker run --rm -v <parent>:<parent> postgres:18 rm -rf <parent>/<dossier>`
+(par exemple `<parent>/documents.restaure-<horodatage>`). Un résidu
+`.restaure-*` bloque la relance tant qu'il existe.
 
 Sur le VPS de développement actuel, Traefik ne démarre jamais (nginx
 occupe déjà 80/443) : `restore.sh` ne touche qu'au service `api`

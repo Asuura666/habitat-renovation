@@ -291,17 +291,52 @@ docker compose "${COMPOSE_ARGS[@]}" stop api
 
 # Copie de sécurité de la base COURANTE avant de la supprimer : si la
 # restauration tourne mal, ou si le mauvais snapshot a été choisi, l'état
-# précédent reste récupérable. Écrite avec l'uid de l'appelant, droits 600.
+# précédent reste récupérable. Le dump sort sur stdout et est redirigé côté
+# hôte sous `umask 077` : le fichier naît en 0600 (jamais lisible par un
+# autre utilisateur, même un instant). Il est ensuite validé
+# (`pg_restore --list`) ; en cas d'échec il est supprimé (jamais laissé
+# partiel) et rien n'est détruit. Une copie existante n'est jamais écrasée
+# ni supprimée. Base absente (reprise après un échec entre DROP et CREATE) :
+# pas de copie, message clair.
 ETAPE_COURANTE="copie de sécurité de la base courante (base encore intacte, API arrêtée)"
-echo "restore.sh : copie de sécurité de la base courante -> $COPIE_SECURITE…"
-docker run --rm \
-  "${RESTIC_USER_ARGS[@]}" \
-  --network "$NETWORK" \
-  -e PGPASSWORD \
-  -v "$SAUVEGARDES_DIR:$SAUVEGARDES_DIR" \
-  "$POSTGRES_IMAGE" \
-  pg_dump -Fc -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f "$COPIE_SECURITE"
-chmod 600 -- "$COPIE_SECURITE"
+BASE_EXISTE="$(
+  docker run --rm \
+    --network "$NETWORK" \
+    -e PGPASSWORD \
+    "$POSTGRES_IMAGE" \
+    psql -h postgres -U "$POSTGRES_USER" -d postgres -tA -v ON_ERROR_STOP=1 \
+    -c "SELECT 1 FROM pg_database WHERE datname = '$POSTGRES_DB';"
+)"
+if [[ "$BASE_EXISTE" == "1" ]]; then
+  if [[ -e "$COPIE_SECURITE" ]]; then
+    echo "restore.sh : la copie de sécurité $COPIE_SECURITE existe déjà ; elle n'est jamais écrasée. Relancer dans une seconde. Base non touchée." >&2
+    exit 1
+  fi
+  echo "restore.sh : copie de sécurité de la base courante -> $COPIE_SECURITE…"
+  if ! (
+    umask 077
+    set -o noclobber
+    docker run --rm \
+      --network "$NETWORK" \
+      -e PGPASSWORD \
+      "$POSTGRES_IMAGE" \
+      pg_dump -Fc -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" > "$COPIE_SECURITE"
+  ); then
+    rm -f -- "$COPIE_SECURITE"
+    echo "restore.sh : la copie de sécurité a échoué (fichier partiel supprimé). Base non touchée." >&2
+    exit 1
+  fi
+  if ! docker run --rm -i \
+    "$POSTGRES_IMAGE" \
+    pg_restore --list < "$COPIE_SECURITE" >/dev/null; then
+    rm -f -- "$COPIE_SECURITE"
+    echo "restore.sh : la copie de sécurité est invalide (supprimée). Base non touchée." >&2
+    exit 1
+  fi
+  chmod 600 -- "$COPIE_SECURITE"
+else
+  echo "restore.sh : base $POSTGRES_DB absente (reprise après un échec entre DROP et CREATE ?) : aucune copie de sécurité créée ; conserver la PREMIÈRE copie avant-restauration-* existante."
+fi
 
 ETAPE_COURANTE="recréation de la base (base droppée/recréée, pas encore restaurée)"
 echo "restore.sh : recréation de la base $POSTGRES_DB…"

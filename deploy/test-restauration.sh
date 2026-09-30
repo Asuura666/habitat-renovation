@@ -257,13 +257,9 @@ fi
 # 25/09/2026, régression de "backup.sh --group-add" si elle réapparaît).
 # Lu par le même conteneur root que pour SHA_AVANT_10001 : l'utilisateur
 # courant du script n'a toujours pas accès à ce fichier 0640/uid 10001.
-if [[ -f "$DOCUMENT_UID_10001" ]]; then
+if sh_root "test -f '$DOCUMENT_UID_10001'"; then
   SHA_APRES_10001="$(
-    docker run --rm \
-      --entrypoint sh \
-      -v "$DOCS_DIR_TEST:$DOCS_DIR_TEST" \
-      "$POSTGRES_IMAGE" \
-      -c "sha256sum '$DOCUMENT_UID_10001' | awk '{print \$1}'"
+    sh_root "sha256sum '$DOCUMENT_UID_10001'" | awk '{print $1}'
   )"
   if [[ "$SHA_APRES_10001" == "$SHA_AVANT_10001" ]]; then
     echo "  - sha256 du fichier docs (0640, uid 10001) : identique ($SHA_APRES_10001)."
