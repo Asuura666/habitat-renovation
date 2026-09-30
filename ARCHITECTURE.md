@@ -6,11 +6,18 @@ quelques lignes d'explication et de ses sources (`fichier:ligne`). Il ne
 remplace ni le cahier des charges (`docs/cahier-des-charges.md`, qui fait
 foi) ni la documentation technique détaillée (`infra/README.md`).
 
-- **État décrit** : branche `refonte-front` au commit `ee28162`, constats
-  sur le VPS du 24/09/2026.
-- **Principe directeur** : l'IA (OCR Mistral) extrait et normalise, elle ne
-  décide jamais. Les anomalies (« problèmes » à l'écran) viennent de règles
-  déterministes R01 à R17, et chacune porte une justification chiffrée.
+- **État décrit** : rédigé le 24/09/2026 (branche `refonte-front` au commit
+  `ee28162`, constats sur le VPS du 24/09/2026), **mis à jour le 29/09/2026**
+  sur `dev` (commit `28e1600`) pour les phases 1 à 4 d'octobre : §3 (modules),
+  §4 (tables et migrations jusqu'à 0015), §7 (routes du front), §8 (règles R01
+  à R25) et §9 sont à jour ; les schémas et constats des §2, §4.1, §4.2, §5 et
+  §6 décrivent l'état du 24/09/2026 et sont complétés par des encadrés
+  « Mise à jour du 29/09/2026 ». Vue d'ensemble à jour : `README.md`.
+- **Principe directeur** : l'IA (OCR Mistral, puis, en phase 4, un assistant
+  interne qui résume, explique et cherche à titre indicatif) extrait,
+  normalise et commente, elle ne décide jamais. Les anomalies (« problèmes » à
+  l'écran) viennent de règles déterministes R01 à R25, et chacune porte une
+  justification chiffrée.
 
 ## Sommaire
 
@@ -175,6 +182,20 @@ posé.
   aujourd'hui celui de la production. `deploy/test-restauration.sh` utilise
   8451, celui de la démonstration.
 
+**Mise à jour du 29/09/2026.** Ce schéma et ces constats datent du 24/09.
+Depuis : les tâches planifiées sont des **minuteries systemd utilisateur**
+(`deploy/installer-taches.sh` : rangement des photos, sauvegarde, contrôles
+différés ; `synthese` et `ia-prix` pour l'IA, non posées par défaut), et non
+une crontab ; les sauvegardes restic sont posées, dans des **dépôts locaux**
+provisoires (`~/sauvegardes-habitat/`), avec une alerte d'échec Telegram
+(`deploy/alerte-echec.sh`) ; un **projet Compose supplémentaire `habitat_ia`**
+porte le conteneur OpenCode (réseau interne, aucun port publié), rattaché à
+l'API par `deploy/docker-compose.ia.yml` quand l'IA est allumée (démo :
+allumée ; production : éteinte) ; l'IA appelle OpenAI par le compte ChatGPT
+d'Ilane et Exa pour la recherche web. `drive-sync` n'est toujours pas
+planifiée (Drive bloqué). Le canal de supervision Telegram a été supprimé le
+28/09. Schéma à jour : `README.md` §6.1.
+
 Sources : `deploy/docker-compose.yml:1-115`,
 `deploy/docker-compose.vps.yml:1-24`, `deploy/docker-compose.dev.yml:1-14`,
 `deploy/nginx/habitat.conf:1-55`, `Dockerfile:1-40`,
@@ -200,12 +221,12 @@ flowchart TB
     cli["app/cli.py - commandes"]
   end
 
-  ingest["ingest - seul orchestrateur : models.py, /tg/webhook, services"]
+  ingest["ingest - seul orchestrateur : models.py, /tg/webhook, services, IA"]
 
   subgraph purs["Modules purs - dataclasses, sans base ni réseau"]
-    extract["extract - bl, unikalo, verification, confiance, ocr"]
-    normalize["normalize - fournisseur, chantier, article, unites, appariement"]
-    rules["rules - engine, modeles, R01 à R17"]
+    extract["extract - bl, unikalo, verification, confiance, ocr, grille_excel, reponses_ia"]
+    normalize["normalize - fournisseur, chantier, article, unites, appariement, prix, texte"]
+    rules["rules - engine, modeles, R01 à R25"]
   end
 
   messaging["messaging - Protocol Messagerie, client Telegram httpx"]
@@ -242,6 +263,19 @@ importer `ingest`. Il enchaîne extraction, normalisation, rapprochement et
 règles. `api` et `jobs` sont des couches d'entrée : elles n'importent que
 `ingest` et `app.core`. Un routeur valide, appelle un service et sérialise,
 sans aucune règle métier.
+
+**Ajouts d'octobre (mise à jour du 29/09/2026).** Tous dans `ingest`, sauf
+mention contraire : `rattachement_chantier` et `fusion_chantier` (chantiers
+automatiques, R18, fusion), `rangement` (photos rangées), `commentaires`,
+`grilles` et `prix_bl` (grilles de prix, contrôle des prix d'un bon, R19 à R25),
+`opencode` (seul module qui parle au moteur d'IA), `ia_synthese`, `ia_prix` (avis
+sur les alertes de prix, prix internet à plusieurs sources) et `ia_labo`
+(Laboratoire IA). Côté modules purs : `extract/grille_excel.py` (lecture des
+grilles Excel), `extract/reponses_ia.py` (schémas et gardes contre l'invention
+des réponses de l'IA), `normalize/prix.py` (produit, prix net, unités) et
+`normalize/texte.py` (ressemblance). Côté `api` : routeurs `comptes`,
+`commentaires`, `grilles`, `prix`, `ia`. Les frontières sont inchangées et
+toujours vérifiées par le même test.
 
 Interdits, vérifiés par `tests/test_frontieres.py` (analyse `ast` de
 `app/modules`, imports placés dans les fonctions compris) :
@@ -285,8 +319,9 @@ Sources : `app/main.py:26-89`, `app/modules/api/__init__.py:3-37`,
 ## 4. Modèle de données
 
 `app/modules/ingest/models.py` est la source de vérité unique du schéma. Il
-déclare 15 tables : les 14 du CDC plus `jeton_session`. Le schéma est
-découpé ici en deux vues.
+déclare **23 tables** au 29/09/2026 : les 15 du 24/09/2026 (les 14 du CDC plus
+`jeton_session`) et 8 ajoutées en octobre (§4.4). Les vues 4.1 et 4.2
+décrivent l'état du 24/09/2026 (tête `0010`).
 
 ### 4.1 Cœur métier
 
@@ -534,15 +569,35 @@ ajouts. Le fuseau d'affichage est Europe/Paris, et tout est stocké en UTC.
 | 0007 `anomalie_chantier` | `chantier_id` et `alias_id`, clé d'unicité à six colonnes |
 | 0008 `anomalie_bloc_origine` | Données seules : `bloc_id` complété pour R07, R08, R09, R13, R17 |
 | 0009 `drive_sync` | Suivi de la synchronisation Drive sur `document` |
-| 0010 `chantier_client` | `chantier.client` (tête actuelle) |
+| 0010 `chantier_client` | `chantier.client` |
+| 0011 `chantier_auto` | `document.legende`, `chantier.a_completer`, `chantier.fusionne_dans_id`, réglage `seuil_ressemblance_chantier_pct` (avenant du 27/09) |
+| 0012 `commentaire` | Table `commentaire` (append-only) |
+| 0013 `grilles_prix` | `grille_import`, `grille_prix` (historique inaltérable par déclencheurs PostgreSQL), `anomalie.ligne_id` en cascade |
+| 0014 `ia` | `appel_ia`, `synthese_commentaires`, `synthese_action`, `explication_alerte`, `prix_internet` |
+| 0015 `prix_internet_offres` | `prix_internet.offres` (JSONB, jusqu'à cinq offres) et reprise des prix déjà trouvés (tête actuelle) |
 
-`tests/test_migrations.py` vérifie que `upgrade head` crée les 15 tables et
-que `alembic check` ne voit aucune dérive. `app/core/db.py` impose pour cela
+`tests/test_migrations.py` vérifie que `upgrade head` crée les tables et que
+`alembic check` ne voit aucune dérive ; il vérifie aussi que la chaîne 0001 à
+0015 est linéaire, avec une seule tête. En production, la révision appliquée
+au 29/09/2026 est la `0014` ; la `0015` est appliquée sur la démo. `app/core/db.py` impose pour cela
 une convention de nommage des contraintes.
+
+### 4.4 Tables ajoutées en octobre 2026
+
+| Table | Rôle | Migration |
+| --- | --- | --- |
+| `commentaire` | Commentaire d'un compte sur une ligne de bon ; jamais modifié ni supprimé ; `document_id` en cascade, `ligne_id` en `SET NULL` | 0012 |
+| `grille_import` | Trace d'un import Excel de grille (fichier, empreinte, date d'effet, comptes de lignes, auteur) | 0013 |
+| `grille_prix` | Historique des prix d'un fournisseur : une ligne par changement (prix catalogue HT, remise, prix net, unité, date d'effet, source saisie, import ou validation) ; UPDATE, DELETE et TRUNCATE refusés par des déclencheurs ; index du prix en vigueur | 0013 |
+| `appel_ia` | Journal technique de chaque appel à l'IA (usage, statut, durée, erreur), jamais le texte ; écrit dans une session à part | 0014 |
+| `synthese_commentaires` | Synthèse d'une semaine (`semaine_debut` unique, statut `ok` ou `vide`) | 0014 |
+| `synthese_action` | Action à cocher d'une synthèse (faite par qui, quand) | 0014 |
+| `explication_alerte` | Explication d'une alerte de prix, identifiée par l'empreinte du détail | 0014 |
+| `prix_internet` | Une ligne par recherche de prix public ; colonne JSONB `offres` (jusqu'à cinq offres avec prix, HT ou TTC, unité, conditionnement, source), les colonnes d'origine portant l'offre la moins chère en HT | 0014, 0015 |
 
 Sources : `app/modules/ingest/models.py:1-622`, `app/core/db.py:1-49`,
 `app/core/fuseau.py:1-9`, `migrations/versions/0001_schema_initial.py` à
-`0010_chantier_client.py`, `tests/test_migrations.py:48-66`.
+`0015_prix_internet_offres.py`, `tests/test_migrations.py:48-66`.
 
 ---
 
@@ -890,8 +945,12 @@ flowchart TB
     aregler["/a-regler et /a-regler/:id - liste et détail d'un problème"]
     chantiers["/chantiers et /chantiers/:chantierId"]
     fournisseurs["/fournisseurs et /fournisseurs/:fournisseurId"]
+    livraisons["/livraisons - bons conformes et autres états"]
+    prix["/prix - prix à vérifier, et /fournisseurs/:id/prix - grille d'un fournisseur"]
+    comptes["/comptes - gestion des comptes"]
     reglages["/reglages - seuils administrables"]
     journal["/journal - lecture du journal"]
+    labo["/ia - Laboratoire IA"]
   end
 
   subgraph ouvert["Admin et agent"]
@@ -903,16 +962,24 @@ flowchart TB
   gabarit --> aregler
   gabarit --> chantiers
   gabarit --> fournisseurs
+  gabarit --> prix
+  gabarit -.-> livraisons
   gabarit -->|"seule entrée de l'agent"| documents
   gabarit -.->|"liens discrets admin"| reglages
   gabarit -.-> journal
+  gabarit -.-> comptes
+  reglages -.-> labo
   documents --> page_bl
   anciennes["Anciennes URL : anomalies, a-traiter, bilan, factures, bl, chantiers/referentiel, chantiers/:c/:f"] -.->|"RedirectionAncienneUrl"| gabarit
 ```
 
-L'admin a cinq entrées : Vue d'ensemble, À régler (avec la pastille du
-nombre de problèmes), Chantiers, Fournisseurs et Documents. Réglages et
-Journal sont des liens discrets. L'agent ne voit que Documents. Les gardes
+L'admin a cinq entrées d'origine : Vue d'ensemble, À régler (avec la pastille
+du nombre de problèmes), Chantiers, Fournisseurs et Documents, auxquelles
+s'ajoute Prix depuis le 28/09 (la barre basse du téléphone compte alors six
+entrées). Comptes, Journal et Réglages sont des liens discrets ; le
+Laboratoire IA (`/ia`) s'ouvre depuis Réglages (« Essayer l'IA »), et
+`/livraisons` depuis les montants « Conforme ». La page BL porte les
+commentaires par ligne (phase 3). L'agent ne voit que Documents. Les gardes
 ne décident que de la navigation : le rôle vient de `GET /api/moi`, et c'est
 l'API qui contrôle les droits (`admin_requis`). Sur un grand écran,
 `/a-regler/:id` affiche le détail dans un panneau à droite ; en dessous,
@@ -1004,37 +1071,57 @@ n'évalue rien tant qu'elle n'est pas `recu`. Aucun chemin ne repasse une
 facture en `recu` : `valider_document` ne traite que les BL et enlèvements.
 Une facture `recu` n'a donc aucun motif, et R10 renvoie toujours `None`
 (voir `docs/dette.md`, « une facture à vérifier ne se corrige pas depuis
-l'application »).
+l'application »). **Audit du 29/09/2026** (constat B-09) : décision d'Ilane, R10
+doit être réellement produite et apparaître dans « À régler », la facture
+restant comptée dans « Facturé » avec la mention « dont X euros sur des
+factures à vérifier » ; correction à faire (`README.md` §20).
+
+**Autres points d'entrée (octobre 2026).** `REGLES_CHANTIER` (`evaluer_chantier` :
+R18, au rattachement d'un chantier) et `REGLES_PRIX_BL` (R19 à R25, évaluées
+après la lecture d'un bon et après la correction de ses lignes par
+`ingest/prix_bl.py`, chacune derrière son interrupteur de réglage et
+l'interrupteur général `prix_controle_bl_actif`).
 
 ### 8.2 Catalogue
 
-| Règle | Intitulé | Famille à l'écran | Gravité | État au 24/09/2026 |
+| Règle | Intitulé | Famille à l'écran | Gravité | État au 29/09/2026 |
 | --- | --- | --- | --- | --- |
 | R01 | BL facturé non reçu | bl | haute | active, à chaque rapprochement |
 | R02 | BL facturé « pas de bon » | bl | haute | active |
 | R03 | Quantité facturée > quantité BL | quantites | haute | active |
 | R04 | Quantité facturée < quantité BL | quantites | moyenne | active |
 | R05 | Ligne facturée absente du BL | quantites | haute | active |
-| R06 | Ligne BL non facturée après 45 j | quantites | basse | désactivée par `CONTROLE_LIVRE_NON_FACTURE_ACTIF`, et dépend de `controles-differes`, non planifiée |
+| R06 | Ligne BL non facturée après 45 j | quantites | basse | désactivée par `CONTROLE_LIVRE_NON_FACTURE_ACTIF` ; dépend de `controles-differes` |
 | R07 | Prix hors historique, écart de plus de 5 % et jusqu'à 15 % | prix | moyenne | désactivée par `CONTROLE_PRIX_ACTIF` |
 | R08 | Prix hors historique fort, plus de 15 % | prix | haute | désactivée par `CONTROLE_PRIX_ACTIF` |
 | R09 | Remise absente | prix | moyenne | désactivée par `CONTROLE_PRIX_ACTIF` |
-| R10 | Incohérence arithmétique de la facture | autre | haute | active dans le code, inatteignable en pratique : une facture incohérente reste à vérifier et n'est jamais rapprochée |
+| R10 | Incohérence arithmétique de la facture | autre | haute | active dans le code, inatteignable en pratique : une facture incohérente reste à vérifier et n'est jamais rapprochée ; correction décidée le 29/09, à faire |
 | R11 | Incohérence arithmétique du BL | autre | moyenne | active |
 | R12 | Doublon de facturation | autre | haute | active |
 | R13 | Avoir sans origine | autre | moyenne | active |
-| R14 | Chantier non résolu après 48 h | rattacher | moyenne | dépend de `controles-differes`, non planifiée |
-| R15 | BL sans confirmation après 24 h | autre | basse | dépend de `controles-differes`, non planifiée |
-| R16 | Chantier silencieux depuis 7 j | autre | basse | dépend de `controles-differes`, non planifiée |
+| R14 | Chantier non résolu après 48 h | rattacher | moyenne | dépend de `controles-differes` (minuterie `controles` posée le 27/09) |
+| R15 | BL sans confirmation après 24 h | autre | basse | dépend de `controles-differes` |
+| R16 | Chantier silencieux depuis 7 j | autre | basse | dépend de `controles-differes` |
 | R17 | Conditionnement inhabituel | autre | moyenne | active |
+| R18 | Chantier à confirmer (nom lu et légende en désaccord) | rattacher | moyenne | active, `evaluer_chantier` |
+| R19 | Plus cher que la grille | prix | haute | active si le contrôle des prix des bons est allumé (éteint en production) |
+| R20 | Plus cher que la dernière fois (dernier prix facturé) | prix | haute | idem |
+| R21 | Moins cher que la grille | prix | basse | idem |
+| R22 | Produit absent de la grille (porte `dernier_prix`) | prix | basse | idem ; déclenche la recherche de prix internet si l'IA est allumée |
+| R23 | Produit reconnu seulement par son nom | prix | basse | idem |
+| R24 | Unités différentes, prix non comparable | prix | moyenne | idem |
+| R25 | Grille ancienne | prix | basse | idem |
 
-Deux points d'entrée : `REGLES_FACTURE` (`evaluer_facture`, lancé à chaque
-rapprochement) et `REGLES_SUIVI` (`evaluer_suivi` : R06, R14, R15, R16,
-lancé seulement par `python -m app.cli controles-differes`, qu'aucun cron
-n'appelle aujourd'hui). La famille vient de `CATEGORIES_REGLE`, seule table
+Quatre points d'entrée : `REGLES_FACTURE` (`evaluer_facture`, lancé à chaque
+rapprochement), `REGLES_SUIVI` (`evaluer_suivi` : R06, R14, R15, R16, lancé
+seulement par `python -m app.cli controles-differes`, appelé chaque nuit par la
+minuterie `controles` depuis le 27/09), `REGLES_CHANTIER` (R18) et
+`REGLES_PRIX_BL` (R19 à R25) (§8.1). La famille vient de `CATEGORIES_REGLE`, seule table
 règle vers catégorie. Elle fonde l'état d'un chantier au tableau de bord et
-le montant « en écart » du bilan. Les seuils sont les 9 réglages de
-`ingest/parametres.py` ; ceux d'une règle désactivée sont masqués. Les
+le montant « en écart » du bilan. Les seuils et interrupteurs sont les réglages de
+`ingest/parametres.py` (9 au 24/09, 22 au 29/09 avec le seuil de
+ressemblance des chantiers, la durée d'ignorance et les réglages du contrôle des
+prix) ; ceux d'une règle désactivée sont masqués. Les
 délais de suivi sont comparés en « strictement supérieur ».
 
 Sources : `app/modules/rules/engine.py:1-38`,
@@ -1063,8 +1150,15 @@ Sources : `app/modules/rules/engine.py:1-38`,
   décisions, questions ouvertes.
 - `docs/lot-1-recette.md` à `docs/lot-5-recette.md` et
   `docs/refonte-front-recette.md` : recettes.
-- `docs/dette.md` (dette assumée, désactivations R06 à R09) et
-  `docs/evolutions-proposees.md`.
+- `docs/dette.md` (dette assumée, désactivations R06 à R09, audit du
+  29/09/2026) et `docs/evolutions-proposees.md`.
+- `README.md` : documentation globale à jour au 29/09/2026 (périmètre livré,
+  état des demandes du client, IA, audit, limites) ;
+  `docs/roadmap-octobre-2026.md` (demandes du 26/09, phases 1 à 4, suivi) ;
+  `docs/phase-4-ia.md` et `docs/superpowers/specs/2026-09-27-phase-4-ia-design.md`
+  (IA), `docs/superpowers/specs/2026-09-27-prix-design.md` (lot Prix),
+  `docs/superpowers/specs/2026-09-29-prix-internet-plusieurs-sources-design.md`
+  (prix internet à plusieurs sources), `docs/deploiement-octobre-2026.md`.
 - `docs/deploiement-et-tests.md`, `docs/exploitation-lot-4.md` et
   `docs/exploitation-lot-5.md` : instances, commandes, crontab prévue.
 - `docs/protocole-mesure-ocr.md` : mesure OCR à la réception des photos.
