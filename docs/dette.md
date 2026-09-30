@@ -1479,3 +1479,31 @@ Décisions d'Ilane du 29/09/2026 (`.superpowers/sdd/corrections-audit/decisions-
 - **Les lettres ne sont pas traitées** : « Bât A » / « Bât B » (ressemblance 94) se rattachent encore d'office ; seule la différence de nombres force « à confirmer » (décision d'Ilane, point 3).
 - **Choix prudent** : « Les Pins » / « Les Pins 2 » (un nombre d'un seul côté) passe aussi « à confirmer » quand le score atteint le seuil, ce qui ajoute quelques R18.
 - **Alias déjà appris** : jamais revus automatiquement ; diagnostic `chantiers-alias-suspects` (lecture seule), correction manuelle par Ilane. Les chiffres dans les mots (« m2 ») comptent comme des nombres.
+
+## Sauvegardes et restauration (audit du 30/09/2026, groupe 5)
+
+- **Corrigé (F-02, C-02, C-03)** : `restore.sh` fait tous ses contrôles avant
+  la première destruction (dossier des copies de sécurité, parent de
+  `DOCS_HOST_DIR`, snapshot, dump validé par `pg_restore --list`), écrit une
+  copie de sécurité de la base courante (600, `~/sauvegardes-habitat/`) avant
+  le `DROP`, et bascule les documents dans un conteneur root jetable
+  (`deploy/basculer-documents.sh`) : uid/gid 10001, 0750/0640, sans exiger
+  que l'opérateur soit root. **Ne couvre pas** : la copie de sécurité n'est
+  jamais purgée (à supprimer à la main après validation) ; l'espace disque
+  n'est pas vérifié ; l'ancien `.avant-restauration-*` reste à l'uid 10001
+  (suppression par `sudo` ou conteneur). Les tests sans Docker
+  (`tests/test_restore_script.py`, `tests/test_sauvegarde_scripts.py`) lisent
+  l'ordre des appels avec un faux `docker` ; seul `deploy/test-restauration.sh`
+  prouve les droits réels (à rejouer, y compris avec un parent possédé par
+  root, ce qu'il ne reproduit pas).
+- **Corrigé (F-01)** : le dump est monté sous `/dump` et `--host` vaut le nom
+  du projet compose : la rétention 30 quotidiennes + 12 mensuelles s'applique
+  enfin. **Reste** : les instantanés antérieurs (hôte aléatoire, un groupe
+  chacun) ne sont pas purgés ; les supprimer à la main
+  (`restic forget <id> --prune`) une fois quelques semaines de sauvegardes
+  récentes en place.
+- **Reste (F-04)** : aucune alerte quand une sauvegarde ne tourne pas du tout
+  (timer désactivé, machine éteinte, dépôt restic plein) : `alerte-echec.sh`
+  ne prévient que d'un échec du service, jamais d'un passage manquant. À
+  prévoir : contrôle d'âge du dernier instantané (hors de ce passage, les
+  scripts de supervision de `feature/exploitation-2` n'en font pas partie).

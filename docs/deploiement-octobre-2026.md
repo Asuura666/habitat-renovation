@@ -344,7 +344,24 @@ prévenir d'abord. Restauration complète base **et** documents depuis
 l'instantané restic relevé au §4.2, selon `deploy/RESTAURATION.md` et
 `docs/deploiement-et-tests.md` §11.3, avec l'ancien code
 (`git -C /home/debian/habitat_reno-prod switch --detach e95f7c4`, puis image
-`avant-octobre`).
+`avant-octobre`). Commandes exactes de l'instance (`$I`, `$P` du §4), sans
+`sudo` :
+
+```bash
+# I=demo (ou prod) et P comme au §4 ; depuis l'arbre de déploiement
+docker compose $P stop api    # optionnel : restore.sh l'arrête lui-même
+HABITAT_RENO_ENV_FILE=/home/debian/habitat_reno/.env.$I \
+COMPOSE_PROJECT_NAME=habitat_$I \
+COMPOSE_OVERRIDE_FILE=deploy/docker-compose.vps.yml \
+  ./deploy/restore.sh <identifiant-snapshot> --confirmer
+```
+
+Le script contrôle tout avant de détruire, écrit une copie de sécurité de la
+base courante dans `~/sauvegardes-habitat/` (à garder jusqu'à validation),
+puis rend les documents à l'uid 10001. Il ne remplace pas l'image : la
+remettre avant (`docker tag habitat_${I}-api:avant-octobre
+habitat_${I}-api:latest`, `docker compose $P create --no-build api` si
+besoin).
 
 Un problème **mineur** (un écran, un libellé) se corrige plutôt par un
 correctif sur `dev` puis un nouveau déploiement.
