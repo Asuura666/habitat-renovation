@@ -41,7 +41,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
 import httpx
@@ -51,10 +51,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.extract.reponses_ia import (
     SCHEMA_EXPLICATION,
     SCHEMA_PRIX_INTERNET,
+    OffreLue,
     PrixInternetLu,
     ReponseIAInvalide,
+    cle_tri_offre,
+    est_prix_internet_plausible,
     lire_explication,
     lire_prix_internet,
+    prix_ht,
 )
 from app.modules.ingest.anomalies import (
     AnomalieIntrouvable,
@@ -438,13 +442,28 @@ async def expliquer_alertes(session: AsyncSession, http: httpx.AsyncClient) -> B
 # Prix trouvé sur internet (§6)
 # --------------------------------------------------------------------------
 
+# 29/09/2026, essai sur dix vrais produits Unikalo : l'IA refusait des prix
+# trouvés parce que la page n'affichait pas le code article envoyé -- un
+# code interne au fournisseur habituel, qu'aucun autre site n'affiche. Le
+# produit s'identifie par sa marque, son nom et son format ; le code n'est
+# qu'un indice (même correction dans la consigne de l'agent `habitat-prix`,
+# `deploy/opencode/opencode.json`).
 _CONSIGNE_PRIX = (
     "Trouve le prix public actuel de ce produit sur internet, en euros, chez "
-    "le fabricant ou un revendeur identifiable. Ouvre la page du produit "
-    "avec webfetch avant de donner un prix. Vérifie la référence, le "
-    "conditionnement et l'unité. Indique si le prix est HT ou TTC. Si tu ne "
-    "peux pas vérifier, réponds prix_non_verifiable avec la raison. Ne donne "
-    "jamais un prix estimé."
+    "le fabricant ou un revendeur identifiable. Identifie le produit par sa "
+    "marque, son nom et son format (contenance, dimensions, poids, "
+    "conditionnement) : ils doivent correspondre exactement. Le code article "
+    "est celui du fournisseur habituel : il n'apparaît presque jamais "
+    "ailleurs, et son absence de la page n'est pas une raison de refuser, pas "
+    "plus qu'une référence fabricant ou un code EAN différents. Cherche "
+    "jusqu'à cinq offres de sites différents pour ce même produit au même "
+    "format, chacune avec son prix pour le même conditionnement (jamais un "
+    "prix au mètre à côté d'un prix à la pièce), et ouvre la page de chacune "
+    "avec webfetch. Une seule offre sûre vaut mieux que plusieurs douteuses. "
+    "Ouvre la page du produit avec webfetch avant de donner un prix. Indique "
+    "si le prix est "
+    "HT ou TTC. Si tu ne peux pas vérifier, réponds prix_non_verifiable avec "
+    "la raison. Ne donne jamais un prix estimé."
 )
 
 
@@ -452,13 +471,14 @@ def _texte_prix(
     *, fournisseur: str | None, designation: str, code: str | None, unite: str | None
 ) -> str:
     """Texte envoyé à l'agent `habitat-prix` (§6.1/§6.2) : fournisseur
-    habituel, désignation, référence, unité -- **jamais** le prix du bon
+    habituel, désignation, code article chez ce fournisseur, unité --
+    **jamais** le prix du bon
     (`prix_bon`), qui n'apparaît nulle part dans ce texte : la recherche ne
     doit pas être orientée par le prix qu'on cherche à vérifier."""
     lignes = [
         f"Fournisseur habituel : {fournisseur or _TIRET}",
         f"Désignation : {designation}",
-        f"Référence : {code or _TIRET}",
+        f"Code article chez le fournisseur habituel : {code or _TIRET}",
         f"Unité : {unite or _TIRET}",
         _CONSIGNE_PRIX,
     ]
@@ -476,7 +496,7 @@ async def rechercher_prix(
 ) -> tuple[PrixInternetLu, str | None]:
     """Une recherche de prix internet pour un produit (§6.2), partagée par
     `chercher_prix_internet` (avec cache et enregistrement) et par l'essai
-    (`essayer_prix_internet`, sans l'un ni l'autre). Délai de 240 s (recherche
+    (`essayer_prix_internet`, sans l'un ni l'autre). Délai de 300 s (recherche
     internet, plus longue que les autres usages de l'IA).
 
     Écart mineur avec le brief T6 (signature `-> PrixInternetLu`) : cette
@@ -496,7 +516,7 @@ async def rechercher_prix(
         agent="habitat-prix",
         texte=texte,
         schema=SCHEMA_PRIX_INTERNET,
-        delai=240,
+        delai=300,
     )
     return lire_prix_internet(reponse.structure, reponse.pages), reponse.modele
 
@@ -532,9 +552,23 @@ def _ligne_prix_echec(
         source_url=None,
         confiance=None,
         raison=raison,
+        offres=[],
         modele=None,
         consulte_le=consulte_le,
     )
+
+
+def _offre_json(offre: OffreLue) -> dict[str, Any]:
+    return {
+        "prix": str(offre.prix),
+        "devise": offre.devise,
+        "taxes": offre.taxes,
+        "unite": offre.unite,
+        "conditionnement": offre.conditionnement,
+        "produit_trouve": offre.produit_trouve,
+        "source_url": offre.source_url,
+        "confiance": offre.confiance,
+    }
 
 
 async def chercher_prix_internet(
@@ -702,6 +736,7 @@ async def chercher_prix_internet(
                 source_url=resultat.source_url,
                 confiance=resultat.confiance,
                 raison=resultat.raison,
+                offres=[_offre_json(o) for o in resultat.offres],
                 modele=modele,
                 consulte_le=datetime.now(UTC),
             )
@@ -810,6 +845,21 @@ class ExplicationVue:
 
 
 @dataclass(frozen=True)
+class OffreVue:
+    """Une offre affichée (tâche 3, spec prix internet à plusieurs sources)."""
+
+    prix: Decimal
+    devise: str | None
+    taxes: str | None
+    prix_ht: Decimal | None
+    unite: str | None
+    conditionnement: str | None
+    produit_trouve: str | None
+    source_url: str | None
+    confiance: str | None
+
+
+@dataclass(frozen=True)
 class PrixInternetVue:
     """Dernier résultat de prix internet affiché pour une anomalie -- une
     ligne `echec` n'est jamais montrée (§5.3/§6.4 : seul `trouve` ou
@@ -826,6 +876,10 @@ class PrixInternetVue:
     confiance: str | None
     raison: str | None
     consulte_le: datetime
+    offres: tuple[OffreVue, ...] = ()
+    prix_ht_min: Decimal | None = None
+    prix_ht_max: Decimal | None = None
+    nb_sources: int = 0
 
 
 @dataclass(frozen=True)
@@ -857,6 +911,8 @@ def _vue_prix_internet(ligne: PrixInternet) -> PrixInternetVue:
     """`PrixInternet` (ligne de base) -> `PrixInternetVue` (dataclass
     affichée) -- factorise la construction partagée par `avis_ia_anomalie`
     et `prix_internet_des_anomalies` (brief T10a)."""
+    offres = _offres_de_la_ligne(ligne)
+    hts = [o.prix_ht for o in offres if o.prix_ht is not None]
     return PrixInternetVue(
         statut=ligne.statut,
         prix=ligne.prix,
@@ -869,7 +925,60 @@ def _vue_prix_internet(ligne: PrixInternet) -> PrixInternetVue:
         confiance=ligne.confiance,
         raison=ligne.raison,
         consulte_le=ligne.consulte_le,
+        offres=offres,
+        prix_ht_min=min(hts) if hts else None,
+        prix_ht_max=max(hts) if hts else None,
+        nb_sources=len(offres),
     )
+
+
+def _offre_vue(brut: Any) -> OffreVue | None:
+    """Une offre stockée (dict à 8 clés) -> `OffreVue`, ou `None` si elle est
+    inutilisable (pas un dict, prix absent, non décimal ou non positif) : une
+    offre corrompue en base ne doit jamais faire échouer toute la vue."""
+    if not isinstance(brut, dict):
+        return None
+    try:
+        prix = Decimal(str(brut["prix"]))
+    except (KeyError, InvalidOperation):
+        return None
+    if not est_prix_internet_plausible(prix):
+        return None
+    return OffreVue(
+        prix=prix,
+        devise=brut.get("devise"),
+        taxes=brut.get("taxes"),
+        prix_ht=prix_ht(prix, brut.get("taxes")),
+        unite=brut.get("unite"),
+        conditionnement=brut.get("conditionnement"),
+        produit_trouve=brut.get("produit_trouve"),
+        source_url=brut.get("source_url"),
+        confiance=brut.get("confiance"),
+    )
+
+
+def _offres_de_la_ligne(ligne: PrixInternet) -> tuple[OffreVue, ...]:
+    """Offres valides de la ligne, triées comme à la lecture
+    (`cle_tri_offre`). Une ligne `trouve` sans offre valide (écrite avant la
+    migration 0015, ou offres corrompues) est reconstituée comme une offre
+    unique depuis ses colonnes, lue par le même code."""
+    valides = [o for o in map(_offre_vue, ligne.offres or []) if o is not None]
+    if not valides and ligne.statut == "trouve" and ligne.prix is not None:
+        colonnes = _offre_vue(
+            {
+                "prix": ligne.prix,
+                "devise": ligne.devise,
+                "taxes": ligne.taxes,
+                "unite": ligne.unite,
+                "conditionnement": ligne.conditionnement,
+                "produit_trouve": ligne.produit_trouve,
+                "source_url": ligne.source_url,
+                "confiance": ligne.confiance,
+            }
+        )
+        valides = [colonnes] if colonnes is not None else []
+    valides.sort(key=lambda o: cle_tri_offre(o.prix_ht))
+    return tuple(valides)
 
 
 async def _dernieres_vues_prix_internet(

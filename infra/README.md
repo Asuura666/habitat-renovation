@@ -632,9 +632,10 @@ Lancées dans le conteneur `api` : `python -m app.cli <commande>`.
 | `utilisateur-creer --email --nom --role {admin,agent} --agence [--telegram-id]` | Crée un compte ; mot de passe saisi deux fois, sans écho (12 caractères au moins). Seul moyen de créer un compte. |
 | `utilisateur-desactiver --email` | Désactive un compte ; l'accès est coupé dès la requête suivante |
 | `fournisseur-definir --nom [--siret] [--tva] [--alias …] [--agence …]` | Crée ou met à jour un fournisseur. Un fournisseur n'est jamais créé à partir du texte OCR d'un BL. Exception : le dépôt d'une facture crée le fournisseur « Unikalo » (nom exact écrit dans le code, `ingest/factures.py`) s'il est absent. Il faut donc le définir sous ce nom exact, sinon le premier dépôt de facture crée un second fournisseur. |
-| `rapprocher --facture <uuid>` ou `--tout` | Rejoue le rapprochement. `--tout` : toutes les factures au statut « reçu », de la plus ancienne à la plus récente (les factures « à vérifier » sont ignorées), une transaction chacune ; code 1 si au moins un échec. `--facture` : code 2 si la facture est introuvable. |
+| `rapprocher --facture <uuid>` ou `--tout` | Rejoue le rapprochement. `--tout` : toutes les factures au statut « reçu », de la plus ancienne à la plus récente (les factures « à vérifier » sont rejouées aussi, pour R10 seulement, depuis `87ba8aa` ; les archivées sont ignorées), une transaction chacune ; code 1 si au moins un échec. `--facture` : code 2 si la facture est introuvable. |
 | `controles-differes` | Évalue R14, R15, R16, et R06 seulement si `CONTROLE_LIVRE_NON_FACTURE_ACTIF` est vraie ; idempotente, prévue chaque jour |
 | `drive-sync [--limite 1..1000]` | Copie vers le Drive les documents en attente (100 par défaut) ; sortie 0, 1 (au moins un échec) ou 2 (configuration Drive absente ou invalide) |
+| `chantiers-alias-suspects` | Lecture seule : liste les noms de chantier appris dont les nombres diffèrent de ceux du chantier (« … 13 » sur « … 12 », audit B-05) : libellé, chantier, date, nombre de documents. Ne modifie rien ; à relire par Ilane après déploiement. Diagnostic manuel, à ne pas planifier : la sortie contient des noms de chantier (données du client). |
 | `bl-non-recus <facture.pdf>` | Liste les BL d'une facture avec l'indicateur « photo reçue », sans écriture en base, mais avec un appel payant à Mistral OCR sur le PDF (le document part chez ce tiers). Le fichier doit être lisible depuis le conteneur : seul `/srv/docs` y est monté. |
 | `rapport-ocr <dossier> --sortie <md> [--seuil] [--appeler-ocr]` | Mesure le taux d'erreur OCR sur des photos annotées (`docs/protocole-mesure-ocr.md`) |
 
@@ -804,7 +805,7 @@ commit, un journal ou un ticket.
 Les paramètres des scripts de `deploy/` se passent à l'appel, pas dans le
 fichier : `HABITAT_RENO_ENV_FILE` (fichier d'environnement, `.env` par défaut),
 `COMPOSE_PROJECT_NAME` (projet, `habitat_reno` par défaut) et
-`COMPOSE_OVERRIDE_FILE` (surcouche, pour `restore.sh`).
+`COMPOSE_OVERRIDE_FILE` (surcouche, pour `restore.sh`) ; `restore.sh` lit aussi `HABITAT_RENO_SAUVEGARDES_DIR` (copie de sécurité de la base, défaut `~/sauvegardes-habitat`).
 
 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `MISTRAL_API_KEY` et
 `GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON` sont typés `SecretStr` : ils
@@ -826,12 +827,20 @@ un journal de cette valeur exposerait ce mot de passe (dette à noter).
   chiffré par restic.
 - `deploy/restore.sh <snapshot> --confirmer` exige un snapshot précis
   (`latest` est refusé). Avant d'agir, il vérifie les variables, le chemin,
-  l'existence du conteneur `api` et le contenu du snapshot. Il ne vérifie ni
-  les droits d'écriture du parent de `DOCS_HOST_DIR` ni l'espace disque.
-  Il arrête ensuite l'API, recrée la base (`DROP`/`CREATE` puis
-  `pg_restore`), bascule les documents par copie puis renommage dans le
-  dossier parent (l'ancien contenu est gardé dans
+  l'existence du conteneur `api`, le contenu du snapshot, un dossier de
+  copies de sécurité utilisable et la validité du dump (`pg_restore --list`),
+  le tout avant la première destruction ; il ne vérifie pas l'espace disque.
+  Il arrête ensuite l'API, écrit une copie de sécurité de la base courante
+  (`pg_dump -Fc`, 600, `~/sauvegardes-habitat/`), recrée la base
+  (`DROP`/`CREATE` puis `pg_restore`), bascule les documents par copie puis
+  renommage dans le dossier parent (l'ancien contenu est gardé dans
   `.avant-restauration-<horodatage>`), redémarre l'API et attend `/health`.
+  La copie, le `chown` (uid/gid 10001, dossiers 0750, fichiers 0640) et les
+  renommages se font dans un conteneur root jetable
+  (`deploy/basculer-documents.sh`) : aucun `sudo` n'est nécessaire.
+- La rotation s'applique réellement depuis la correction F-01 : dump monté
+  sous le chemin fixe `/dump` et `--host <projet compose>` fixe, donc un seul
+  groupe restic par instance.
 - `deploy/test-restauration.sh` fait un aller-retour complet sur un projet
   isolé avec un dépôt restic jetable. Aller-retour réussi le 17/09/2026 sur
   la version `fee9b77`/`768bf66` des scripts. La version actuelle (`1cf403b`,
@@ -858,16 +867,15 @@ Pièges :
   `COMPOSE_OVERRIDE_FILE=deploy/docker-compose.vps.yml` (§9) ;
 - `test-restauration.sh` utilise le port `127.0.0.1:8451`, pris par la
   démonstration : il ne peut pas tourner tant qu'elle est en service ;
-- droits sur l'hôte : `/home/debian/habitat-data/prod`, parent des documents
-  de production, appartient à root (755). Lancé par `debian`, `restore.sh`
-  échoue à la bascule des documents (`cp -a` puis `mv` dans ce parent),
-  **après** avoir recréé et restauré la base, et l'API reste arrêtée. De
-  plus, restic tourne avec l'uid de l'appelant (`-u $(id -u):$(id -g)`) : les
-  documents restaurés appartiendraient à l'uid 1000 et non plus à l'uid 10001
-  de l'image, qui ne pourrait plus écrire de nouveaux documents dans un
-  dossier en 755. `test-restauration.sh` ne détecte aucun de ces deux cas,
-  car son dossier temporaire appartient à l'appelant, et
-  `deploy/RESTAURATION.md` ne prévoit aucun `chown` (§9) ;
+- droits sur l'hôte (corrigé après l'audit du 30/09/2026) :
+  `/home/debian/habitat-data/prod`, parent des documents de production,
+  appartient à root (755), et restic tourne avec l'uid de l'appelant.
+  Auparavant `restore.sh` échouait à la bascule des documents **après** le
+  `DROP` de la base et laissait des documents à l'uid 1000. La bascule se
+  fait maintenant dans un conteneur root jetable qui rend les documents à
+  l'uid/gid 10001 (0750/0640) ; `test-restauration.sh` vérifie ces droits,
+  mais son dossier temporaire appartient à l'appelant : l'essai réel sur un
+  parent possédé par root reste à faire ;
 - `backup.sh` n'enregistre pas le SHA Git dans le snapshot. L'association SHA,
   révision Alembic et snapshot se consigne à la main avant chaque déploiement.
 
@@ -1137,7 +1145,8 @@ interne des tâches ne sera donc pas dans le dépôt remis.
   `/home/debian` est traversable (751), tout compte local qui connaît un
   chemin peut lire les originaux. Cible : 750/640 avec un groupe dédié. Le
   parent de production, `/home/debian/habitat-data/prod`, appartient en plus
-  à root, ce qui bloque la restauration (§5.7).
+  à root ; la restauration s'en accommode depuis le 30/09/2026 (conteneur
+  root jetable, §5.7).
 
 ---
 
@@ -1215,12 +1224,10 @@ Consigner avant chaque déploiement le SHA déployé et la révision Alembic.
 
 **Sauvegarder et restaurer une instance** (une fois restic configuré ; ces
 appels sont déduits des scripts et n'ont pas encore été exercés sur les
-instances). Sur ce VPS, lancer la restauration en root (`sudo
-HABITAT_RENO_ENV_FILE=… COMPOSE_PROJECT_NAME=… COMPOSE_OVERRIDE_FILE=…
-./deploy/restore.sh …`), ou rendre le parent de `DOCS_HOST_DIR` inscriptible
-puis appliquer `chown -R 10001:10001` sur `DOCS_HOST_DIR` après la bascule :
-lancée par `debian` telle quelle, elle échoue après avoir remplacé la base
-(§5.7). `deploy/RESTAURATION.md` ne prévoit aucun `chown`.
+instances). Lancer par `debian`, sans `sudo` : la restauration contrôle tout
+avant de détruire, écrit une copie de sécurité de la base courante dans
+`~/sauvegardes-habitat/`, puis rend les documents à l'uid/gid 10001 dans un
+conteneur root jetable (§5.7).
 
 ```bash
 HABITAT_RENO_ENV_FILE=/home/debian/habitat_reno/.env.prod \
@@ -1274,8 +1281,9 @@ Autres procédures, à ne pas recopier ici (mêmes options à remplacer) :
   de remote Git configuré, pas de `pip-audit`.
 - Restauration jamais exercée vers ou depuis un stockage distant, ni sur un
   VPS jetable avant la mise en production (CDC §9). La version actuelle des
-  scripts (23/09/2026) n'a pas été rejouée. Sur les instances, `restore.sh`
-  lancé par `debian` échouerait après avoir remplacé la base (§5.7, §9).
+  scripts (23/09/2026) n'a pas été rejouée ; la correction du 30/09/2026
+  (droits, copie de sécurité, contrôles avant destruction) n'a pas encore été
+  essayée sur des ports libres (§5.7, §9).
 
 **Services externes**
 

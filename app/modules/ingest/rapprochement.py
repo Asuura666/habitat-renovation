@@ -79,8 +79,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -107,9 +108,13 @@ from app.modules.ingest.models import (
 )
 from app.modules.ingest.parametres import PARAMETRES_DEFAUT
 from app.modules.ingest.referentiels import lire_parametre_decimal
+from app.modules.ingest.regroupement_lignes import construire_lignes_rapprochees
 from app.modules.normalize.appariement import LigneAApparier, apparier_lignes
 from app.modules.normalize.unites import convertir_en_unite_fact, unite_implicite
 from app.modules.rules.engine import REGLES_FACTURE, evaluer_facture
+from app.modules.rules.modeles import (
+    Anomalie as AnomalieRegle,
+)
 from app.modules.rules.modeles import (
     ArticleControle,
     BlocControle,
@@ -117,10 +122,10 @@ from app.modules.rules.modeles import (
     FactureControlee,
     HistoriqueArticle,
     LigneControlee,
-    LigneRapprochee,
     Parametres,
 )
 from app.modules.rules.rules.R02 import mention_pas_de_bon
+from app.modules.rules.rules.R10 import R10
 
 __all__ = [
     "FactureIntrouvable",
@@ -129,6 +134,8 @@ __all__ = [
     "rapprocher_facture",
     "rapprocher_facture_sans_echec",
     "rapprocher_factures_du_bl",
+    "rapprocher_factures_voisines",
+    "supprimer_liens_de_lignes",
 ]
 
 # Types de document traités comme un BL pour le rapprochement (CDC §4.5 :
@@ -544,7 +551,9 @@ async def _lignes_negatives_sans_origine(
 
 
 async def factures_recues(session: AsyncSession) -> list[tuple[uuid.UUID, int]]:
-    """`(id, numero_interne)` de chaque facture `recu`, du plus ancien au
+    """`(id, numero_interne)` de chaque facture `recu` ou `a_verifier` (la
+    seconde n'est pas rapprochée mais voit R10 évaluée, B-09 : reprise des
+    factures déjà en base sans R10), du plus ancien au
     plus récent (`Document.created_at` croissant) — matière de `rapprocher
     --tout` (CLI, décision du contrôleur de la tâche L4-T11 : « traite les
     factures reçues de la plus ancienne à la plus récente »).
@@ -555,7 +564,10 @@ async def factures_recues(session: AsyncSession) -> list[tuple[uuid.UUID, int]]:
     révéler de donnée du document source."""
     resultat = await session.execute(
         select(Document.id, Document.numero_interne)
-        .where(Document.type == "facture", Document.statut == "recu")
+        .where(
+            Document.type == "facture",
+            Document.statut.in_(("recu", "a_verifier")),
+        )
         .order_by(Document.created_at.asc())
     )
     return [(id_, numero_interne) for id_, numero_interne in resultat.all()]
@@ -566,8 +578,36 @@ async def factures_recues(session: AsyncSession) -> list[tuple[uuid.UUID, int]]:
 # --------------------------------------------------------------------------
 
 
+async def _evaluer_r10_facture_a_verifier(
+    session: AsyncSession, facture_doc: Document
+) -> int:
+    """R10 seule, sur une facture « à vérifier » (CDC §5 : « R10 d'abord »).
+    Le motif `somme_incoherente` posé à l'extraction porte l'écart chiffré ;
+    R10 applique la tolérance de l'admin. La portée du balayage se limite à
+    R10 : aucune autre règle n'a été recalculée. Une correction qui
+    supprime le motif lève l'alerte au prochain passage. Renvoie le nombre
+    d'anomalies R10 ouvertes (0 ou 1). Ne commite pas. R10 désactivée : rien
+    n'est évalué ni balayé, renvoie 0."""
+    if "R10" not in REGLES_FACTURE - regles_desactivees():
+        # Règle désactivée : ni évaluation ni balayage (comme le moteur
+        # complet de `rapprocher_facture`).
+        return 0
+    anomalies: tuple[AnomalieRegle, ...] = ()
+    anomalie = R10(
+        _document_controle(facture_doc, None), await _charger_parametres(session)
+    )
+    if anomalie is not None:
+        anomalies = (anomalie,)
+    return await synchroniser_anomalies(
+        session,
+        anomalies=anomalies,
+        portee_document_id=facture_doc.id,
+        portee_regles=("R10",),
+    )
+
+
 async def rapprocher_facture(
-    session: AsyncSession, facture_id: uuid.UUID
+    session: AsyncSession, facture_id: uuid.UUID, *, commit: bool = True
 ) -> ResultatRapprochement:
     """Rapproche une facture avec les BL déposés (L4-D3, idempotent) :
     charge la facture, ses blocs et lignes, les BL candidats (L4-D5), les
@@ -577,25 +617,41 @@ async def rapprocher_facture(
     (facture et BL) et les lignes de `rapprochement_ligne` (remplacées) ;
     évalue le moteur de règles pur puis délègue la persistance des
     anomalies à `ingest.anomalies.synchroniser_anomalies` ; journalise
-    `facture_rapprochee` (auteur `NULL`). Un seul `commit()` à la fin.
+    `facture_rapprochee` (auteur `NULL`). Un seul `commit()` à la fin, sauf
+    `commit=False` : simple `flush()`, l'appelant tient la transaction (rejeu
+    commun avec une correction, tout ou rien).
 
     Lève `FactureIntrouvable` si `facture_id` est absent ou n'est pas une
-    facture. Ne fait rien et renvoie un résultat vide (tous les compteurs à
-    zéro, rien écrit) si la facture n'est pas `recu` (document « à
-    vérifier » : CDC §5, ordre d'exécution — R10/R11 d'abord, les règles de
-    rapprochement n'exécutent pas tant que l'admin n'a pas corrigé)."""
+    facture. Si la facture n'est pas `recu` (document « à vérifier » : CDC §5,
+    ordre d'exécution — R10/R11 d'abord, les règles de rapprochement
+    n'exécutent pas tant que l'admin n'a pas corrigé), ne rapproche rien
+    (compteurs de blocs à zéro) mais évalue R10 seule (B-09,
+    `_evaluer_r10_facture_a_verifier`) : `nb_anomalies` vaut 1 si son alerte
+    est ouverte."""
     facture_doc = await session.get(Document, facture_id)
     if facture_doc is None or facture_doc.type != "facture":
         raise FactureIntrouvable(str(facture_id))
 
     if facture_doc.statut != "recu":
+        # B-09 (décision d'Ilane du 29/09/2026) : une facture « à vérifier »
+        # n'est toujours pas rapprochée, mais R10 (somme incohérente) doit
+        # produire son alerte chiffrée, visible dans « À régler » ; la
+        # facture reste comptée dans « Facturé » (mention « dont X € sur des
+        # factures à vérifier »).
+        nb_anomalies = 0
+        if facture_doc.statut == "a_verifier":
+            nb_anomalies = await _evaluer_r10_facture_a_verifier(session, facture_doc)
+            if commit:
+                await session.commit()
+            else:
+                await session.flush()
         return ResultatRapprochement(
             facture_id=facture_id,
             nb_blocs=0,
             nb_blocs_recus=0,
             nb_blocs_pas_de_bon=0,
             nb_lignes_appariees=0,
-            nb_anomalies=0,
+            nb_anomalies=nb_anomalies,
         )
 
     blocs_db = (
@@ -741,6 +797,13 @@ async def rapprocher_facture(
     nouvelles_rapprochement_ligne: list[RapprochementLigne] = []
     nb_lignes_appariees = 0
 
+    # B-01/B-04/B-07 : BL cités par cette facture avant ce rejeu (un BL
+    # corrigé, archivé ou renuméroté n'est plus forcément candidat) : leurs
+    # anomalies R11 restent dans la portée du balayage.
+    anciens_bl_ids = tuple(
+        {bloc.bl_document_id for bloc in blocs_db if bloc.bl_document_id is not None}
+    )
+
     for bloc_db in blocs_db:
         lignes_bloc_db = lignes_par_bloc.get(bloc_db.id, [])
         numero_normalise = (
@@ -797,48 +860,21 @@ async def rapprocher_facture(
             ],
         )
 
-        bl_controlee_par_id = {
-            controlee.id: controlee for controlee in lignes_controlees_bl
-        }
-        cles_bl_matchees: set[uuid.UUID] = set()
-        lignes_rapprochees: list[LigneRapprochee] = []
-        for ligne_controlee_facture, appariement in zip(
-            lignes_controlees_facture, appariements, strict=True
-        ):
-            bl_controlee = (
-                bl_controlee_par_id.get(appariement.cle_bl)
-                if appariement.cle_bl is not None
-                else None
-            )
-            lignes_rapprochees.append(
-                LigneRapprochee(
-                    facture=ligne_controlee_facture,
-                    bl=bl_controlee,
-                    methode=appariement.methode,
+        construction = construire_lignes_rapprochees(
+            lignes_controlees_facture, lignes_controlees_bl, appariements
+        )
+        lignes_rapprochees = list(construction.lignes)
+        cles_bl_matchees = construction.cles_bl_couvertes
+        nb_lignes_appariees += len(construction.liens)
+        for lien in construction.liens:
+            nouvelles_rapprochement_ligne.append(
+                RapprochementLigne(
+                    ligne_facture_id=lien.ligne_facture_id,
+                    ligne_bl_id=lien.ligne_bl_id,
+                    methode=lien.methode,
+                    ecart_qte=lien.ecart_qte,
                 )
             )
-            methode = appariement.methode
-            # `methode` est toujours renseigné quand `bl_controlee` ne l'est
-            # pas (contrat de `apparier_lignes`) : la garde ci-dessous est
-            # défensive, jamais un `assert` (S101) sur une donnée qui reste
-            # sous le contrôle d'un module tiers.
-            if bl_controlee is not None and methode is not None:
-                cles_bl_matchees.add(bl_controlee.id)
-                nb_lignes_appariees += 1
-                ecart_qte: Decimal | None = None
-                if (
-                    ligne_controlee_facture.qte_fact is not None
-                    and bl_controlee.qte_fact is not None
-                ):
-                    ecart_qte = ligne_controlee_facture.qte_fact - bl_controlee.qte_fact
-                nouvelles_rapprochement_ligne.append(
-                    RapprochementLigne(
-                        ligne_facture_id=ligne_controlee_facture.id,
-                        ligne_bl_id=bl_controlee.id,
-                        methode=methode,
-                        ecart_qte=ecart_qte,
-                    )
-                )
 
         lignes_bl_non_facturees = tuple(
             controlee
@@ -978,6 +1014,7 @@ async def rapprocher_facture(
         # cet appel, son balayage de suppression ne doit donc jamais la
         # considérer (décision d'Ilane du 24/09/2026, voir ci-dessus).
         portee_regles=tuple(regles_actives),
+        portee_bl_ids=anciens_bl_ids,
     )
 
     nb_blocs_recus = sum(1 for bloc in blocs_db if bloc.statut_rapprochement == "recu")
@@ -1002,7 +1039,10 @@ async def rapprocher_facture(
         )
     )
 
-    await session.commit()
+    if commit:
+        await session.commit()
+    else:
+        await session.flush()
 
     return ResultatRapprochement(
         facture_id=facture_id,
@@ -1075,39 +1115,131 @@ async def _factures_portant_numero(
     return facture_ids
 
 
+async def supprimer_liens_de_lignes(session: AsyncSession, ligne_ids: Any) -> None:
+    """C-01 : supprime les liens `rapprochement_ligne` qui pointent sur les
+    lignes `ligne_ids` (liste d'identifiants ou sous-requête), côté BL comme
+    côté facture. À appeler **avant** de supprimer ces lignes (clé étrangère
+    sans `ON DELETE`) ; le rapprochement des factures concernées les recrée
+    ensuite (`rapprocher_factures_du_bl`)."""
+    await session.execute(
+        delete(RapprochementLigne).where(
+            or_(
+                RapprochementLigne.ligne_bl_id.in_(ligne_ids),
+                RapprochementLigne.ligne_facture_id.in_(ligne_ids),
+            )
+        )
+    )
+
+
 async def rapprocher_factures_du_bl(
-    session: AsyncSession, document_id: uuid.UUID
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    *,
+    dans_la_transaction: bool = False,
 ) -> list[ResultatRapprochement]:
-    """Rejoue le rapprochement de chaque facture dont un bloc porte le
-    numéro du BL/enlèvement `document_id` (déclenché après la validation
-    d'un BL ou une extraction qui donne un numéro — décision du
-    contrôleur). `[]` si le document est introuvable, n'a pas de numéro, n'a
-    pas de fournisseur résolu, ou n'est pas un BL/enlèvement.
+    """Rejoue le rapprochement de chaque facture concernée par le BL/
+    enlèvement `document_id` : celles dont un bloc porte son numéro courant,
+    et celles dont un bloc pointe déjà sur lui (`bl_document_id`, y compris
+    sous un ancien numéro ou après archivage — B-04/B-07). Déclenché après
+    la validation, la correction, la relecture ou l'archivage d'un BL.
+    `[]` si le document est introuvable ou n'est pas un BL/enlèvement.
 
     Ne fait jamais échouer l'action appelante : la recherche des factures
     candidates comme chaque rapprochement individuel
     (`rapprocher_facture_sans_echec`) sont protégés, toute exception est
-    journalisée et avalée."""
+    journalisée et avalée. Avec `dans_la_transaction=True`, aucun commit et
+    aucune exception avalée : l'appelant a déjà des écritures en attente
+    (correction, suppression de liens) et commite ou annule le tout."""
     try:
         bl_doc = await session.get(Document, document_id)
-        if (
-            bl_doc is None
-            or bl_doc.numero is None
-            or bl_doc.fournisseur_id is None
-            or bl_doc.type not in _TYPES_BL
-        ):
+        if bl_doc is None or bl_doc.type not in _TYPES_BL:
             return []
-        facture_ids = await _factures_portant_numero(
-            session, bl_doc.fournisseur_id, bl_doc.numero
-        )
+        facture_ids: list[uuid.UUID] = []
+        if bl_doc.numero is not None and bl_doc.fournisseur_id is not None:
+            facture_ids = await _factures_portant_numero(
+                session, bl_doc.fournisseur_id, bl_doc.numero
+            )
+        deja_liees = (
+            await session.execute(
+                select(BlocFacture.facture_id)
+                .join(Document, Document.id == BlocFacture.facture_id)
+                .where(BlocFacture.bl_document_id == document_id)
+                .order_by(Document.created_at.asc())
+            )
+        ).scalars()
+        for facture_id in deja_liees:
+            if facture_id not in facture_ids:
+                facture_ids.append(facture_id)
     except Exception as exc:
+        if dans_la_transaction:
+            raise
         await session.rollback()
         _journaliser_echec("recherche factures", document_id, exc)
         return []
 
+    return await _rapprocher_factures(
+        session, facture_ids, dans_la_transaction=dans_la_transaction
+    )
+
+
+async def _rapprocher_factures(
+    session: AsyncSession,
+    facture_ids: Sequence[uuid.UUID],
+    *,
+    dans_la_transaction: bool = False,
+) -> list[ResultatRapprochement]:
     resultats: list[ResultatRapprochement] = []
     for facture_id in facture_ids:
+        if dans_la_transaction:
+            resultats.append(
+                await rapprocher_facture(session, facture_id, commit=False)
+            )
+            continue
         resultat = await rapprocher_facture_sans_echec(session, facture_id)
         if resultat is not None:
             resultats.append(resultat)
     return resultats
+
+
+async def rapprocher_factures_voisines(
+    session: AsyncSession,
+    facture_id: uuid.UUID,
+    *,
+    dans_la_transaction: bool = False,
+) -> list[ResultatRapprochement]:
+    """B-07 : après l'archivage de la facture `facture_id`, rejoue les autres
+    factures du même fournisseur qui partagent un numéro de BL avec elle (R12
+    ne compte plus une facture archivée). Même protection que
+    `rapprocher_factures_du_bl`."""
+    try:
+        facture = await session.get(Document, facture_id)
+        if (
+            facture is None
+            or facture.type != "facture"
+            or facture.fournisseur_id is None
+        ):
+            return []
+        numeros = (
+            await session.execute(
+                select(BlocFacture.numero_bl).where(
+                    BlocFacture.facture_id == facture_id,
+                    BlocFacture.numero_bl.is_not(None),
+                )
+            )
+        ).scalars()
+        facture_ids: list[uuid.UUID] = []
+        for numero in {n for n in numeros if n}:
+            for autre_id in await _factures_portant_numero(
+                session, facture.fournisseur_id, numero
+            ):
+                if autre_id != facture_id and autre_id not in facture_ids:
+                    facture_ids.append(autre_id)
+    except Exception as exc:
+        if dans_la_transaction:
+            raise
+        await session.rollback()
+        _journaliser_echec("recherche factures voisines", facture_id, exc)
+        return []
+    return await _rapprocher_factures(
+        session, facture_ids, dans_la_transaction=dans_la_transaction
+    )

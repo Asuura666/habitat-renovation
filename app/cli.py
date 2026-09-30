@@ -208,7 +208,10 @@ from app.modules.ingest.rapprochement import (
     rapprocher_facture,
     rapprocher_facture_sans_echec,
 )
-from app.modules.ingest.rattachement_chantier import reprendre_chantiers
+from app.modules.ingest.rattachement_chantier import (
+    lister_alias_suspects,
+    reprendre_chantiers,
+)
 from app.modules.ingest.referentiels import definir_fournisseur
 from app.modules.ingest.router import DELAI_OCR_BL
 from app.modules.ingest.suivi import controles_differes
@@ -558,7 +561,8 @@ async def _rapprocher_facture(*, facture_id: uuid.UUID) -> int:
 
 async def _rapprocher_tout() -> int:
     """Implémentation de `rapprocher --tout` (L4-T11, décision du
-    contrôleur) : traite les factures `recu` de la plus ancienne à la plus
+    contrôleur) : traite les factures `recu` ou `a_verifier` (R10 seule pour la
+    seconde) de la plus ancienne à la plus
     récente (`ingest.rapprochement.factures_recues`), une transaction par
     facture via `rapprocher_facture_sans_echec` (déjà commité : journalise
     l'échec, absorbe l'exception, ne fait jamais échouer la boucle) — compte
@@ -734,6 +738,35 @@ async def _rattacher_chantiers() -> int:
         f"bons rattachés : {bilan.bons_rattaches} · "
         f"bons en alerte : {bilan.bons_en_alerte}"
     )
+    return 0
+
+
+async def _chantiers_alias_suspects() -> int:
+    """Implémentation de `chantiers-alias-suspects` (B-05) : liste, en LECTURE
+    SEULE, les alias appris dont les nombres diffèrent de ceux du chantier
+    (`ingest.rattachement_chantier.lister_alias_suspects`), pour relecture.
+    Aucune donnée n'est modifiée ; toujours code 0."""
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            suspects = await lister_alias_suspects(session)
+    finally:
+        await engine.dispose()
+
+    if not suspects:
+        print("Aucun alias suspect.")
+        return 0
+    print(f"{len(suspects)} alias suspect(s) :")
+    for suspect in suspects:
+        date = suspect.appris_le.date().isoformat() if suspect.appris_le else "?"
+        print(
+            f"- « {suspect.libelle} » -> chantier « {suspect.chantier} » · "
+            f"appris le {date} · "
+            f"{suspect.nb_documents} "
+            f"{_accord(suspect.nb_documents, 'document', 'documents')}"
+        )
     return 0
 
 
@@ -957,6 +990,9 @@ _ENTETE_CSV_ESSAI = (
     "confiance",
     "raison",
     "duree_s",
+    "nb_sources",
+    "prix_ht_min",
+    "prix_ht_max",
 )
 
 
@@ -1027,10 +1063,20 @@ def _champs_csv_essai(ligne: LigneEssai) -> list[str]:
             resultat.confiance or "",
             _champ_texte_csv(resultat.raison or ""),
         ]
+    if resultat is None:
+        offres_csv = ["", "", ""]
+    else:
+        hts = [o.prix_ht for o in resultat.offres if o.prix_ht is not None]
+        offres_csv = [
+            str(len(resultat.offres)),
+            str(min(hts)) if hts else "",
+            str(max(hts)) if hts else "",
+        ]
     return [
         _champ_texte_csv(ligne.produit.designation),
         *champs,
         f"{ligne.duree_s:.1f}",
+        *offres_csv,
     ]
 
 
@@ -1227,6 +1273,16 @@ def _construire_parser() -> argparse.ArgumentParser:
     )
 
     sous_parsers.add_parser(
+        "chantiers-alias-suspects",
+        help=(
+            "Liste (lecture seule, rien n'est modifié) les noms appris dont "
+            "les nombres diffèrent de ceux du chantier (« … 13 » sur « … 12 »). "
+            "Diagnostic manuel, ne pas planifier : la sortie contient des "
+            "noms de chantier"
+        ),
+    )
+
+    sous_parsers.add_parser(
         "ranger-photos",
         help=(
             "(Re)construit le rangement des photos de bon sous "
@@ -1329,6 +1385,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_drive_sync(limite=args.limite))
     if args.commande == "rattacher-chantiers":
         return asyncio.run(_rattacher_chantiers())
+    if args.commande == "chantiers-alias-suspects":
+        return asyncio.run(_chantiers_alias_suspects())
     if args.commande == "ranger-photos":
         return asyncio.run(_ranger_photos())
     if args.commande == "synthese-commentaires":

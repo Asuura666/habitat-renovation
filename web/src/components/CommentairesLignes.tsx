@@ -9,6 +9,7 @@ import {
   cleCommentaires,
   lireCommentaires,
 } from "../api/commentaires";
+import { gererEntreeCommentaire } from "../lib/entreeClavier";
 import { formaterDateHeure, formaterQuantite, TIRET } from "../lib/formats";
 import { EtatVide } from "../ui";
 
@@ -67,9 +68,19 @@ function FormulaireAjoutCommentaire({
     onSuccess: onEnregistre,
   });
 
+  const envoiPossible = texte.trim() !== "" && !mutation.isPending;
+
   function soumettre(evenement: FormEvent<HTMLFormElement>): void {
     evenement.preventDefault();
     mutation.mutate();
+  }
+
+  /** Entrée sur ordinateur (`lib/entreeClavier.ts`) : mêmes conditions que
+   * le bouton « Enregistrer ». */
+  function enregistrerAuClavier(): void {
+    if (envoiPossible) {
+      mutation.mutate();
+    }
   }
 
   return (
@@ -81,6 +92,7 @@ function FormulaireAjoutCommentaire({
         id={`commentaire-${ligneId}`}
         value={texte}
         onChange={(evenement) => setTexte(evenement.target.value)}
+        onKeyDown={(evenement) => gererEntreeCommentaire(evenement, enregistrerAuClavier, setTexte)}
         maxLength={LONGUEUR_COMMENTAIRE_MAX}
         rows={2}
         autoFocus
@@ -89,6 +101,9 @@ function FormulaireAjoutCommentaire({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-encre-2">
           {texte.length}/{LONGUEUR_COMMENTAIRE_MAX} caractères
+          <span className="hidden [@media(hover:hover)_and_(pointer:fine)]:inline">
+            {" · Entrée pour enregistrer, Maj+Entrée pour aller à la ligne"}
+          </span>
         </p>
         <div className="flex gap-3">
           <button
@@ -100,7 +115,7 @@ function FormulaireAjoutCommentaire({
           </button>
           <button
             type="submit"
-            disabled={texte.trim() === "" || mutation.isPending}
+            disabled={!envoiPossible}
             className="inline-flex min-h-[44px] items-center rounded-md bg-accent px-4 text-sm font-medium text-white outline-none hover:bg-accent-fonce focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Enregistrer

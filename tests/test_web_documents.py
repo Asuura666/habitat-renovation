@@ -87,7 +87,13 @@ def test_page_bl_verdict_conforme_fonde_sur_le_serveur() -> None:
     assert "comparaison.data?.nb_problemes ?? 0" in page
     assert "lignes.reduce" not in page
     assert "Pas encore facturé" in page
-    assert "factureConnue" in page
+    # Décision d'Ilane du 29/09/2026 : « Conforme » est calculé par le
+    # serveur (`categorie`, définition unique) -- la page n'a plus de règle
+    # propre (ni `facture_id`, ni comparaison chargée, ni statut du bon).
+    assert "comparaison.data?.categorie" in page
+    assert 'categorie === "conforme"' in page
+    assert "factureConnue" not in page
+    assert "comparaisonChargee" not in page
 
 
 def test_page_bl_invalide_la_comparaison_apres_une_correction() -> None:
@@ -161,7 +167,32 @@ def test_page_bl_controle_par_ligne_vient_du_serveur() -> None:
     ):
         assert f"case {valeur}:" in controle, valeur
     assert "Non retrouvé sur la facture" in controle
+    # « Conforme » est réservé à la livraison (pastille du haut) : la ligne
+    # dont quantité et prix correspondent s'appelle « Identique ».
+    assert "Identique" in controle
+    assert "Quantité et prix identiques à la facture" in controle
+    assert "Conforme\n        </span>" not in controle
     assert 'document.data.type !== "facture"' in page
+
+
+def test_page_bl_groupe_de_lignes_sans_verdict_contradictoire() -> None:
+    """Constat final 1 : le livré du groupe est détaillé (« 10 + 10 »), les
+    lignes suivantes disent qu'elles sont incluses dans la précédente."""
+    page = (WEB / "pages" / "PageBl.tsx").read_text()
+
+    assert "ligne.detail_livre" in page
+    assert "ligne.inclus_dans_precedente" in page
+    assert "Incluse dans la ligne précédente" in page
+    controle = page.split("function ControleLigne", 1)[1].split("\nfunction ", 1)[0]
+    assert "inclus_dans_precedente" in controle
+
+
+def test_page_bl_pastille_dit_pourquoi_a_verifier() -> None:
+    """Constat final 6 : la raison vient du serveur (`raison_a_verifier`)."""
+    page = (WEB / "pages" / "PageBl.tsx").read_text()
+
+    assert "raison_a_verifier" in page
+    assert "raisonAVerifier" in page
 
 
 def test_documents_liste_contrat() -> None:

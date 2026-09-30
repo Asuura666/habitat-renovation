@@ -1432,3 +1432,244 @@ phase :
   de déploiement, §14 de la spec) ; l'ordre conseillé au déploiement est
   d'importer les grilles, de vérifier la page Grille fournisseur, puis
   d'allumer le contrôle et de relancer un recontrôle des bons existants.
+
+## « Conforme » strict et facture à somme incohérente (29/09/2026, audit B-02/B-03/B-09/D-01)
+
+Décisions d'Ilane du 29/09/2026 (`.superpowers/sdd/corrections-audit/decisions-ilane.md`, points 1 et 2).
+
+- **Une seule définition de « Conforme », calculée par le serveur**
+  (`ingest.bilan._sous_requete_categories`). Une livraison (bloc de facture)
+  est « conforme » seulement si son bon est **validé**, si le rapprochement l'a
+  trouvé, si sa facture n'est pas « à vérifier » et si **aucune anomalie
+  ouverte** (toute règle : R10, R11, R12, R13, R17, quantité, prix...) ne porte
+  sur ce bloc ni sur le bon qu'il cite. Sinon « à vérifier » (ou « sans bon »
+  quand le bon n'est jamais venu). Reprise par le montant « Conforme » (bilan à
+  cinq niveaux, accueil, fiches chantier et fournisseur), la liste des
+  livraisons (`categorie`), la page du bon (`categorie` de la comparaison) et
+  l'état d'un chantier de l'accueil. Le front n'a plus de règle propre
+  (`categorieLivraison` supprimée). Un doublon de facturation (R12) rend aussi
+  le bloc d'origine « à vérifier » (les deux blocs citent le même bon).
+- **Reste à savoir** : la colonne « Contrôle » de chaque ligne de la page du
+  bon (`controle`) reste un verdict par ligne (appariée, comparée, sans
+  anomalie), libellé « Identique » (et non « Conforme », réservé à la
+  livraison) ; elle ne regarde pas le statut du bon. C'est la pastille du haut
+  de page qui porte le verdict de la livraison.
+- **R10 est produite pour une facture « à vérifier »** : `rapprocher_facture`
+  n'apparie toujours pas une facture non validée, mais évalue R10 seule à
+  partir du motif `somme_incoherente` posé à l'extraction (la tolérance de
+  l'admin s'applique). L'alerte apparaît dans « À régler » (elle s'ajoute à la
+  facture elle-même, listée dans « À traiter » : le compte unique compte donc
+  les deux). Elle est levée au rejeu suivant si le motif disparaît (une
+  correction ou une validation de facture rejoue la facture elle-même, dans
+  la transaction de l'écriture : `corrections._rejouer_apres_ecriture` ;
+  **mais** aucune route ne corrige ni ne valide une facture aujourd'hui,
+  `corrections.py` est réservé aux bons : en pratique l'alerte tombe par
+  archivage, par un changement de tolérance suivi de `rapprocher --tout`
+  (les factures « à vérifier » y sont traitées), ou quand la correction de
+  facture sera construite). Ce qui
+  précède corrige la formule inexacte de la section précédente : R10 n'était
+  jamais produite avant cette date.
+- **« Facturé » garde ces factures**, avec la mention « dont X € sur des
+  factures à vérifier » (champ `facture_a_verifier` de l'accueil, des fiches
+  chantier et fournisseur). Les exports CSV du bilan (colonnes fixées par le
+  CDC) n'ont pas cette mention.
+
+## Rattachement des chantiers : nombres différents (29/09/2026, audit B-05)
+
+- **Les lettres ne sont pas traitées** : « Bât A » / « Bât B » (ressemblance 94) se rattachent encore d'office ; seule la différence de nombres force « à confirmer » (décision d'Ilane, point 3).
+- **Choix prudent** : « Les Pins » / « Les Pins 2 » (un nombre d'un seul côté) passe aussi « à confirmer » quand le score atteint le seuil, ce qui ajoute quelques R18.
+- **Alias déjà appris** : jamais revus automatiquement ; diagnostic `chantiers-alias-suspects` (lecture seule), correction manuelle par Ilane. Les chiffres dans les mots (« m2 ») comptent comme des nombres.
+
+## Sauvegardes et restauration (audit du 30/09/2026, groupe 5)
+
+- **Corrigé (F-02, C-02, C-03)** : `restore.sh` fait tous ses contrôles avant
+  la première destruction (dossier des copies de sécurité, parent de
+  `DOCS_HOST_DIR`, snapshot, dump validé par `pg_restore --list`), écrit une
+  copie de sécurité de la base courante (600, `~/sauvegardes-habitat/`) avant
+  le `DROP`, et bascule les documents dans un conteneur root jetable
+  (`deploy/basculer-documents.sh`) : uid/gid 10001, 0750/0640, sans exiger
+  que l'opérateur soit root. **Ne couvre pas** : la copie de sécurité n'est
+  jamais purgée (à supprimer à la main après validation) ; l'espace disque
+  n'est pas vérifié ; l'ancien `.avant-restauration-*` reste à l'uid 10001
+  (suppression par `sudo` ou conteneur). Les tests sans Docker
+  (`tests/test_restore_script.py`, `tests/test_sauvegarde_scripts.py`) lisent
+  l'ordre des appels avec un faux `docker` ; seul `deploy/test-restauration.sh`
+  prouve les droits réels (à rejouer, y compris avec un parent possédé par
+  root, ce qu'il ne reproduit pas).
+- **Corrigé (F-01)** : le dump est monté sous `/dump` et `--host` vaut le nom
+  du projet compose : la rétention 30 quotidiennes + 12 mensuelles s'applique
+  enfin. **Reste** : les instantanés antérieurs (hôte aléatoire, un groupe
+  chacun) ne sont pas purgés ; les supprimer à la main
+  (`restic forget <id> --prune`) une fois quelques semaines de sauvegardes
+  récentes en place.
+- **Reste (F-04)** : aucune alerte quand une sauvegarde ne tourne pas du tout
+  (timer désactivé, machine éteinte, dépôt restic plein) : `alerte-echec.sh`
+  ne prévient que d'un échec du service, jamais d'un passage manquant. À
+  prévoir : contrôle d'âge du dernier instantané (hors de ce passage, les
+  scripts de supervision de `feature/exploitation-2` n'en font pas partie).
+
+## Audit du 29/09/2026
+
+Audit complet de `dev` (copie figée au commit `8ccd872`), six angles (A
+sécurité, B métier, C données, D API et écrans, E intégrations, F
+exploitation et tests), puis vérification contradictoire des 26 constats
+classés « importants » (méthode et bilan : `README.md` §20). Résultat : **0
+critique, 13 importants confirmés**. Ces 13 ne sont pas listés ici : ils ont
+des corrections en cours (branche `feature/corrections-audit`, plan en cinq
+groupes, `README.md` §20.4). Cette section ne liste que les constats
+**mineurs ou latents**, sans répéter ce qui est déjà décrit plus haut. « V » =
+vérifié par un vérificateur contradictoire (gravité révisée) ; « NV » = classé
+mineur par l'auditeur, non revérifié un par un. Rien de ce qui suit ne bloque
+la mise en production.
+
+### Rétrogradés en mineurs ou latents après vérification (V)
+
+- **A-01** — Mineur aujourd'hui (latent), **bloquant pour la bascule sur le
+  serveur dédié** : le compose de base sous Traefik n'a ni limite de taille de
+  corps ni limitation de débit (`deploy/docker-compose.yml:85-117`) ; seul nginx
+  les pose (`deploy/nginx/habitat.conf:38`). À faire : `buffering` et `ratelimit`
+  Traefik.
+- **A-02** — Mineur : l'agent de prix de l'IA peut ouvrir n'importe quelle
+  adresse par `webfetch`, sans filtrage des destinations
+  (`deploy/opencode/opencode.json`, `deploy/opencode/docker-compose.yml`) ;
+  portée réelle limitée (requêtes GET, aucune donnée sensible dans l'agent). À
+  faire avant d'allumer l'IA en production : règle de pare-feu sur le réseau
+  `habitat_ia` (passerelle de l'hôte, plages privées et link-local) ; arrêter
+  aussi le petit serveur HTTP orphelin repéré sur l'hôte.
+- **B-08** — Mineur aujourd'hui, important dès l'activation des prix : les
+  références de prix (R20, historique R07-R09) incluent les factures archivées
+  et « à vérifier » (`ingest/prix_bl.py:339-355`, `ingest/rapprochement.py:236-250`).
+  À corriger avant d'allumer le contrôle des prix.
+- **B-09 (mention)** — la phrase de « Revue finale du lot 4 » qui dit qu'une
+  facture « à vérifier » l'est « typiquement parce que sa somme est incohérente
+  (règle R10) » est inexacte : R10 n'est jamais produite pour une facture « à
+  vérifier » (`ingest/rapprochement.py:585-595`). Correction du comportement
+  décidée par Ilane le 29/09 (groupe 3).
+- **C-03** — Mineur (important tant qu'aucune sauvegarde récente n'existe) :
+  `restore.sh` supprime la base courante avant d'avoir validé la sauvegarde et
+  sans copie de sécurité (`deploy/restore.sh:236-255`).
+- **C-04** — Mineur : listes et contrôles qui chargent l'entité `Document` avec
+  ses colonnes JSON lourdes (`ingest/lecture.py:574-593`, `ingest/suivi.py:256-262`),
+  page Documents rafraîchie toutes les 15 s (`web/src/pages/DocumentsListe.tsx:506`).
+- **D-02** — Mineur : erreurs de validation affichées « erreur 422 » sans texte
+  utile ; champ de commentaire d'archivage sans limite de 500 caractères ;
+  espaces insécables dans un nombre saisi refusés
+  (`web/src/api/client.ts:88-101`, `web/src/pages/DocumentDetail.tsx:197-200,1278`).
+- **D-03** — Mineur : sur téléphone, les montants supérieurs à environ cent
+  mille euros dépassent de leur tuile d'accueil
+  (`web/src/ui/Chiffre.tsx:57`, `web/src/pages/VueEnsemble.tsx:450`).
+- **E-01** — Mineur (important le jour où l'IA sera allumée en production) : une
+  panne de l'IA consomme les trois essais de chaque alerte et le plafond du
+  jour (`ingest/ia_prix.py:376-424,690-712`). Correction soumise à l'accord
+  d'Ilane (IA gelée).
+- **E-02** (avec C-08) — Mineur : l'OCR Mistral n'a ni reprise ni limite de
+  concurrence ; une rafale de photos peut donner des documents « à vérifier »
+  (`ingest/mistral.py:108-117`, `ingest/router.py:186-215`). À surveiller en
+  comptant les documents en échec d'OCR.
+- **E-03** — Mineur : un bon resté « reçu » (traitement interrompu pendant
+  l'OCR) ne peut pas être relancé depuis l'écran
+  (`ingest/corrections.py:1167-1169`) ; le cas est rare (un déploiement pendant
+  une lecture).
+- **E-04** — Mineur, latent (Drive non planifié) : une seule transaction garde
+  des verrous de lignes pendant tous les envois (`jobs/drive_sync.py:84-176`) ;
+  à corriger, ou limiter à 10 documents par passage, avant de poser la tâche.
+- **F-01** — Mineur : la rotation des sauvegardes ne supprime rien (le chemin du
+  dump et le nom d'hôte changent à chaque passage, `deploy/backup.sh:57-145`) ;
+  la rétention de 30 jours et 12 mois promise n'est pas tenue, impact disque
+  faible.
+
+### Autres mineurs (NV)
+
+- **A-03** — Sessions : jetons stockés en clair (donc présents dans les
+  sauvegardes), jamais purgés, expiration glissante sans plafond absolu
+  (`ingest/models.py:712`, `core/auth.py:231-235`).
+- **A-04** — Aucune trace des connexions ni des échecs de connexion
+  (`core/auth.py:256-291`).
+- **A-05** — Fichiers et réponses de l'API sans `Cache-Control` restrictif
+  (`api/documents.py:143-149`, `api/factures.py:184`, `deploy/nginx/habitat.conf:40-51`).
+- **A-06** — Webhook Telegram : un en-tête de secret non ASCII provoque une
+  erreur 500 non authentifiée (`messaging/telegram.py:141-149`).
+- **A-07** — Traefik : socket Docker monté en lecture seule
+  (`deploy/docker-compose.yml:21`) ; sans objet tant que Traefik est désactivé.
+- **B-10** — Export CSV détaillé : prix unitaire arrondi à 2 décimales et
+  anomalies de bloc comptées sur chaque ligne (`ingest/export.py:270-297`,
+  `ingest/bilan.py:1372-1385`).
+- **B-11** — Correspondance de produit : une désignation de grille courte
+  (sous-ensemble de mots) peut l'emporter sur la désignation exacte
+  (`normalize/prix.py:84-135`).
+- **B-12** — R09 : le critère « au moins 3 occurrences » ne tient pas compte de
+  la proportion (règle désactivée) (`ingest/rapprochement.py:270-290`,
+  `rules/rules/R09.py:45`).
+- **C-05** — Une facture et un BL du même fournisseur partagent l'unicité du
+  numéro ; un numéro identique donne une erreur 500 au dépôt de la facture
+  (`ingest/models.py:273`, `ingest/factures.py:297-311,495-503`).
+- **C-06** — Aucun index sur les clés étrangères ni sur `journal`
+  (`migrations/versions/0001_schema_initial.py`) ; sans effet au volume actuel.
+- **C-07** — Liste Documents limitée aux 100 derniers bons, sans pagination
+  (`ingest/lecture.py:520-522,592-593`, `web/src/api/documents.ts:19`).
+- **C-09** — Tables qui ne font que grossir, sans purge : `jeton_session`,
+  `telegram_update`, `appel_ia`, `journal`, `prix_internet`
+  (`ingest/models.py:610-841`).
+- **D-04** — Page blanche si `GET /api/moi` échoue autrement que par un 401
+  (`web/src/routes/RouteProtegee.tsx:27-33`).
+- **D-05** — Invalidations TanStack incomplètes : alertes de prix après une
+  saisie de grille ou un changement de réglage
+  (`web/src/api/invalidations.ts:29-38`).
+- **D-06** — « Article à valider » : jargon (unités, ratio) et validation à vide
+  possible (`web/src/pages/ProblemeDetail.tsx:911-950`).
+- **D-07** — Restes de règles métier dans le front : état d'une livraison
+  (sera traité avec le groupe 3 de corrections), seuil de confiance faible
+  (`web/src/components/TableauLivraisons.tsx:47-55`, `web/src/pages/DocumentDetail.tsx:100-104`).
+- **D-08** — « Valider » un bon avec des lignes modifiées mais non enregistrées :
+  le serveur valide les anciennes valeurs (`web/src/pages/DocumentDetail.tsx:1194-1211`).
+- **D-09** — Champs d'édition des lignes à environ 34 px de haut sur téléphone,
+  sous la cible de 44 px (`web/src/pages/DocumentDetail.tsx:617,672-715`).
+- **D-10** — Prix unitaires affichés avec deux décimales seulement
+  (`web/src/lib/formats.ts:83-91`).
+- **E-05** — Drive bloqué : une notification Telegram par document, sans limite
+  de débit, puis perdue (`jobs/drive_sync.py:151-186`).
+- **E-06** — Synthèse IA : le texte libre des commentaires et le libellé d'une
+  ligne partent tels quels chez le fournisseur d'IA ; la promesse « jamais de
+  nom de chantier ni de client » ne tient que pour les champs structurés
+  (`ingest/ia_synthese.py:147-177`). À faire connaître aux employés ou à
+  filtrer ; à inscrire au registre des traitements.
+- **E-07** — Facture et photo : l'OCR est appelé avant la détection d'un
+  doublon (`ingest/factures.py:346-362`, `ingest/depot_telegram.py:508-521`).
+- **E-08** — Telegram : ni reprise sur 429 ou erreur réseau, ni limite de 4096
+  caractères, ni sonde de santé du webhook (`messaging/telegram.py:433-502`).
+- **E-09** — Webhook : l'update est marqué « vu » avant les contrôles suivants ;
+  une panne de base ensuite perd le message (`ingest/router.py:178-184`).
+- **E-10** — Prix internet : la garde « prix présent dans la page » ne rattache
+  pas le prix au produit demandé (`extract/reponses_ia.py:742-835`) ; le prix
+  reste indicatif, avec sa source.
+- **E-11** — Suppression de session OpenCode : délai jusqu'à 300 s ajouté après
+  un délai déjà dépassé (`ingest/opencode.py:566-570`).
+- **F-05** — Déployer avec la procédure du §4 sans la surcouche IA fait perdre
+  l'IA à l'API sans message (`docs/deploiement-octobre-2026.md:108-158`).
+- **F-06** — Aucune limite de mémoire sur `api` et `postgres`, journaux Docker
+  non fixés dans le compose (`deploy/docker-compose.yml:30-36,124-140`).
+- **F-07** — `/health` et le démarrage ne vérifient pas que le schéma est à la
+  dernière révision (`app/main.py:68-75`).
+- **F-08** — Après un arrêt, production et démo rattrapent leurs tâches en même
+  temps (`deploy/installer-taches.sh:76-96,204-205`).
+- **F-09** — Alerte d'échec fragile : lecture du fichier d'environnement sans
+  guillemets, aucun secours si Telegram est injoignable ou si le bot de la démo
+  est invalide (`deploy/alerte-echec.sh:23-38`).
+- **F-10** — `tests/test_frontieres.py` ne couvre pas toutes les règles de
+  frontière de `CLAUDE.md` (`tests/test_frontieres.py:46-54,171-199`).
+- **F-11** — Aucune intégration continue : les fusions GitHub ne passent par
+  aucun contrôle en ligne (`.github/` absent ; les hooks locaux en tiennent
+  lieu).
+
+### Constatés pendant l'exploitation du 28/09/2026
+
+- **Supervision Telegram supprimée** : le canal de supervision a été supprimé
+  par Ilane le 28/09 ; décision : aucune supervision pour l'instant. Les
+  messages « expéditeur non rattaché », « échec du dépôt », « Document n° … »
+  et les alertes d'échec des minuteries ne se retrouvent que dans les journaux
+  (`docker compose … logs api`, `journalctl --user -u habitat-prod-*`). Pour la
+  rétablir : Ilane démarre une conversation privée avec le bot et renseigne son
+  identifiant dans `TELEGRAM_CHAT_SUPERVISION_ID` de `.env.prod`, puis recrée
+  l'API.
+- **Bot Telegram de la démo invalide** (jeton refusé par Telegram) : la démo ne
+  reçoit aucun dépôt.

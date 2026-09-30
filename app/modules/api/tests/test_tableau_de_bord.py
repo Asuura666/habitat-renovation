@@ -155,11 +155,23 @@ async def _creer_facture(
 async def _creer_bloc(
     db_session: AsyncSession, *, facture: Document, numero_bl: str = "L0001"
 ) -> BlocFacture:
+    # « Conforme » strict (décision d'Ilane du 29/09/2026) : le bon existe et
+    # est validé.
+    bon = Document(
+        type="bl",
+        source="telegram",
+        statut="recu",
+        fichier_path=f"chemin-invente-{uuid.uuid4()}.jpg",
+        date_doc=date(2020, 1, 1),
+    )
+    db_session.add(bon)
+    await db_session.flush()
     bloc = BlocFacture(
         facture_id=facture.id,
         ordre=0,
         numero_bl=numero_bl,
         statut_rapprochement="recu",
+        bl_document_id=bon.id,
     )
     db_session.add(bloc)
     await db_session.commit()
@@ -281,6 +293,7 @@ async def test_get_tableau_de_bord_admin_200(
     assert reponse.status_code == 200
     corps = reponse.json()
     assert corps["totaux"]["conforme"] == "100.00"
+    assert corps["totaux"]["facture_a_verifier"] == "0"
     assert isinstance(corps["totaux"]["conforme"], str)
     assert len(corps["chantiers"]) == 1
     assert corps["chantiers"][0]["etat"] == "a_rattacher"

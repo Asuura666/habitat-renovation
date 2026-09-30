@@ -72,8 +72,9 @@ _CONSIGNE_SYNTHESE = (
     "Voici les commentaires laissés cette semaine par l'équipe sur des "
     "lignes de bons de livraison. Résume-les en quelques phrases simples "
     "pour le dirigeant, puis propose au plus dix actions concrètes à "
-    "mener ; chaque action cite les références [cN] des commentaires sur "
-    "lesquels elle s'appuie. Tu ne décides rien : un humain choisira."
+    "mener ; chaque action cite, sans crochets (c1, c2, ...), les "
+    "références des commentaires sur lesquels elle s'appuie. Tu ne décides "
+    "rien : un humain choisira."
 )
 
 
@@ -166,6 +167,68 @@ def _texte_synthese(commentaires: Sequence[_CommentaireEnvoye], nb_total: int) -
             f"{commentaire.texte}"
         )
     return "\n".join(lignes)
+
+
+# --------------------------------------------------------------------------
+# Chargement des commentaires d'une semaine -- factorisé (tâche LABO,
+# Laboratoire IA) pour être partagé par `generer_synthese` (production) et
+# `ingest.ia_labo.lancer_essai_synthese` (essai) : même sélection, même
+# numérotation `c1..cN`, jamais deux implémentations.
+# --------------------------------------------------------------------------
+
+
+async def _commentaires_de_la_semaine(
+    session: AsyncSession, debut_dt: datetime, fin_dt: datetime
+) -> tuple[list[_CommentaireEnvoye], dict[str, Commentaire], int]:
+    """Commentaires d'une semaine (bornes déjà calculées, `_bornes_semaine_
+    paris`), prêts pour `_texte_synthese` : `nb_total` est le nombre réel de
+    commentaires de la semaine (peut dépasser `_COMMENTAIRES_MAX`, auquel cas
+    seuls les plus récents figurent dans la liste renvoyée -- `_texte_synthese`
+    le signale). Listes vides et `nb_total=0` si la semaine n'a aucun
+    commentaire, sans requête supplémentaire."""
+    nb_total = (
+        await session.execute(
+            select(func.count())
+            .select_from(Commentaire)
+            .where(Commentaire.created_at >= debut_dt, Commentaire.created_at < fin_dt)
+        )
+    ).scalar_one()
+    if nb_total == 0:
+        return [], {}, 0
+
+    lignes_recentes = (
+        await session.execute(
+            select(Commentaire, Document.numero, Fournisseur.nom)
+            .join(Document, Document.id == Commentaire.document_id)
+            .outerjoin(Fournisseur, Fournisseur.id == Document.fournisseur_id)
+            .where(Commentaire.created_at >= debut_dt, Commentaire.created_at < fin_dt)
+            .order_by(Commentaire.created_at.desc())
+            .limit(_COMMENTAIRES_MAX)
+        )
+    ).all()
+    # Plus ancien au plus récent (numérotation c1..cN, brief T4 étape 4) :
+    # la requête ci-dessus est triée en sens inverse pour que `LIMIT` garde
+    # les plus récents plutôt que les plus anciens.
+    lignes_db = list(reversed(lignes_recentes))
+
+    commentaires_envoyes: list[_CommentaireEnvoye] = []
+    commentaire_par_reference: dict[str, Commentaire] = {}
+    for indice, (commentaire, numero_bon, fournisseur_nom) in enumerate(
+        lignes_db, start=1
+    ):
+        reference = f"c{indice}"
+        commentaire_par_reference[reference] = commentaire
+        commentaires_envoyes.append(
+            _CommentaireEnvoye(
+                reference=reference,
+                jour=commentaire.created_at.astimezone(FUSEAU_PARIS).date(),
+                fournisseur=fournisseur_nom or "fournisseur inconnu",
+                numero_bon=numero_bon,
+                ligne_libelle=commentaire.ligne_libelle,
+                texte=commentaire.texte,
+            )
+        )
+    return commentaires_envoyes, commentaire_par_reference, nb_total
 
 
 # --------------------------------------------------------------------------
@@ -336,49 +399,13 @@ async def generer_synthese(
     semaine_fin = semaine_debut + timedelta(days=6)
     debut_dt, fin_dt = _bornes_semaine_paris(semaine_debut)
 
-    nb_total = (
-        await session.execute(
-            select(func.count())
-            .select_from(Commentaire)
-            .where(Commentaire.created_at >= debut_dt, Commentaire.created_at < fin_dt)
-        )
-    ).scalar_one()
-
+    (
+        commentaires_envoyes,
+        commentaire_par_reference,
+        nb_total,
+    ) = await _commentaires_de_la_semaine(session, debut_dt, fin_dt)
     if nb_total == 0:
         return await _enregistrer_synthese_vide(session, semaine_debut, semaine_fin)
-
-    lignes_recentes = (
-        await session.execute(
-            select(Commentaire, Document.numero, Fournisseur.nom)
-            .join(Document, Document.id == Commentaire.document_id)
-            .outerjoin(Fournisseur, Fournisseur.id == Document.fournisseur_id)
-            .where(Commentaire.created_at >= debut_dt, Commentaire.created_at < fin_dt)
-            .order_by(Commentaire.created_at.desc())
-            .limit(_COMMENTAIRES_MAX)
-        )
-    ).all()
-    # Plus ancien au plus récent (numérotation c1..cN, brief T4 étape 4) :
-    # la requête ci-dessus est triée en sens inverse pour que `LIMIT` garde
-    # les plus récents plutôt que les plus anciens.
-    lignes_db = list(reversed(lignes_recentes))
-
-    commentaires_envoyes: list[_CommentaireEnvoye] = []
-    commentaire_par_reference: dict[str, Commentaire] = {}
-    for indice, (commentaire, numero_bon, fournisseur_nom) in enumerate(
-        lignes_db, start=1
-    ):
-        reference = f"c{indice}"
-        commentaire_par_reference[reference] = commentaire
-        commentaires_envoyes.append(
-            _CommentaireEnvoye(
-                reference=reference,
-                jour=commentaire.created_at.astimezone(FUSEAU_PARIS).date(),
-                fournisseur=fournisseur_nom or "fournisseur inconnu",
-                numero_bon=numero_bon,
-                ligne_libelle=commentaire.ligne_libelle,
-                texte=commentaire.texte,
-            )
-        )
 
     texte_envoye = _texte_synthese(commentaires_envoyes, nb_total)
 

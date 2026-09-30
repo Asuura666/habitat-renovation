@@ -3,7 +3,8 @@
 Préparé le 28/09/2026 (session A) pour être relu par Ilane **avant** toute
 action. Rien de ce document n'a été exécuté. Il complète
 `docs/deploiement-et-tests.md` (procédure générale, §10 mise à jour, §11
-retour arrière) avec ce qui est propre à ce déploiement.
+retour arrière) avec ce qui est propre à ce déploiement. La livraison des corrections
+d'audit a sa propre page courte : `docs/deploiement-corrections-audit.md`.
 
 ---
 
@@ -164,12 +165,20 @@ Si la migration échoue : **laisser l'API arrêtée** et passer au §7.
 ```bash
 docker compose $P exec -T api python -m app.cli rattacher-chantiers
 docker compose $P exec -T api python -m app.cli ranger-photos
+docker compose $P exec -T api python -m app.cli rapprocher --tout
 ```
 
 `rattacher-chantiers` rattache les noms en attente et les bons sans chantier
 (création « à compléter » si besoin, signalée dans « À régler ») ; il garde
 le verrou des chantiers le temps de sa passe (quasi instantané aujourd'hui).
 `ranger-photos` crée les liens `bl/<année>/<mois>/…` (aucune copie).
+`rapprocher --tout` (ajouté le 29/09/2026, audit) rejoue le rapprochement de
+toutes les factures reçues et évalue R10 (« total incohérent ») sur les
+factures « à vérifier » déjà en base, qui n'en avaient jamais eu : sans cette
+passe, elles restent sans alerte R10 (un total faux passait inaperçu) jusqu'à
+leur prochain rejeu. Idempotent ; une ligne par facture, puis une synthèse
+(« N factures traitées, 0 échec »). À lancer après le redémarrage de l'API du
+§4.3 (le code corrigé doit tourner) et après `rattacher-chantiers`.
 
 ### 4.5 Vérifier
 
@@ -277,6 +286,7 @@ dépôts sur la production avec un vrai bon, avec l'accord du client).
 - [ ] Comptes : créer, modifier, changer un mot de passe, retirer puis rétablir l'accès ; impossible de se retirer soi-même ou de retirer le dernier admin.
 - [ ] Photos rangées : `ls /home/debian/habitat-data/<instance>/docs/bl/2026/` (liens `<jour>_<déposant>_<chantier>_n<numéro>`).
 - [ ] Seuil de ressemblance réglable dans Réglages (90 % par défaut).
+- [ ] Après `rapprocher --tout` : une facture « à vérifier » à total incohérent affiche son alerte R10 dans « À régler ».
 
 ### 6.2 Phase 3 — commentaires et prix
 
@@ -335,7 +345,24 @@ prévenir d'abord. Restauration complète base **et** documents depuis
 l'instantané restic relevé au §4.2, selon `deploy/RESTAURATION.md` et
 `docs/deploiement-et-tests.md` §11.3, avec l'ancien code
 (`git -C /home/debian/habitat_reno-prod switch --detach e95f7c4`, puis image
-`avant-octobre`).
+`avant-octobre`). Commandes exactes de l'instance (`$I`, `$P` du §4), sans
+`sudo` :
+
+```bash
+# I=demo (ou prod) et P comme au §4 ; depuis l'arbre de déploiement
+docker compose $P stop api    # optionnel : restore.sh l'arrête lui-même
+HABITAT_RENO_ENV_FILE=/home/debian/habitat_reno/.env.$I \
+COMPOSE_PROJECT_NAME=habitat_$I \
+COMPOSE_OVERRIDE_FILE=deploy/docker-compose.vps.yml \
+  ./deploy/restore.sh <identifiant-snapshot> --confirmer
+```
+
+Le script contrôle tout avant de détruire, écrit une copie de sécurité de la
+base courante dans `~/sauvegardes-habitat/` (à garder jusqu'à validation),
+puis rend les documents à l'uid 10001. Il ne remplace pas l'image : la
+remettre avant (`docker tag habitat_${I}-api:avant-octobre
+habitat_${I}-api:latest`, `docker compose $P create --no-build api` si
+besoin).
 
 Un problème **mineur** (un écran, un libellé) se corrige plutôt par un
 correctif sur `dev` puis un nouveau déploiement.
@@ -346,6 +373,13 @@ correctif sur `dev` puis un nouveau déploiement.
 
 - Consigner : date, étiquette, révision, instantanés restic, dans le journal
   d'exploitation (`memory.md` §0).
+- **Alias de chantier suspects** (audit B-05, 29/09/2026) : lancer, en lecture
+  seule, `docker compose $P exec -T api python -m app.cli chantiers-alias-suspects`.
+  Elle liste les noms appris par ressemblance dont les nombres diffèrent de
+  ceux du chantier (« … 13 » appris sur « … 12 ») : libellé, chantier, date,
+  nombre de documents concernés. Elle ne modifie rien : ces alias continuent
+  de rattacher d'office tant qu'ils existent ; Ilane relit la liste et décide
+  (fusion ou correction depuis l'application).
 - Roadmap §10 : cocher les déploiements ; `docs/dette.md` : ce qui a été
   constaté.
 - Supprimer les images `avant-octobre` et les dumps `avant-octobre-*` une

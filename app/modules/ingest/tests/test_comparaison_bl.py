@@ -632,6 +632,7 @@ async def test_comparer_bl_controle_par_ligne(db_session: AsyncSession) -> None:
         db_session,
         document=bl,
         ordre=2,
+        code_brut="ECO1",
         article_brut="Éco-participation inventée",
         qte_totale=Decimal("1"),
         type_ligne="eco",
@@ -641,6 +642,7 @@ async def test_comparer_bl_controle_par_ligne(db_session: AsyncSession) -> None:
         document=facture,
         bloc=bloc,
         ordre=1,
+        code_brut="ECO1",
         article_brut="Éco-participation inventée",
         montant_ht=Decimal("1.10"),
         type_ligne="eco",
@@ -712,3 +714,119 @@ async def test_lister_anomalies_du_bl_meme_perimetre_que_nb_problemes(
 
     assert {anomalie.id for anomalie in listees} == attendues
     assert comparaison.nb_problemes == len(attendues)
+
+
+# --------------------------------------------------------------------------
+# Lignes de facture groupées (B-06, cas 2/1 et 2/2) : affichage déterministe,
+# verdict porté par n'importe quelle ligne du groupe
+# --------------------------------------------------------------------------
+
+
+async def _bon_facture(
+    db_session: AsyncSession, *, numero: str
+) -> tuple[Document, Document, BlocFacture]:
+    bl = await _creer_document_bl(db_session, numero=numero)
+    fournisseur = await _creer_fournisseur(db_session, nom=f"Four {numero}")
+    facture = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero=f"F{numero}"
+    )
+    bloc = await _creer_bloc(
+        db_session, facture=facture, numero_bl=numero, bl_document_id=bl.id
+    )
+    return bl, facture, bloc
+
+
+@pytest.mark.parametrize("ecart_sur", [None, "tete", "secondaire"])
+async def test_comparer_bl_une_ligne_de_bon_deux_lignes_de_facture(
+    db_session: AsyncSession, ecart_sur: str | None
+) -> None:
+    """2/1 : le bon porte 10 sur une ligne, la facture la répartit en 6 + 4.
+    L'affichage additionne les deux lignes de facture (quantité, montant),
+    jamais l'une tirée au sort ; l'écart de groupe, posé sur la ligne de
+    tête OU sur la secondaire, rend la ligne « ecart »."""
+    bl, facture, bloc = await _bon_facture(db_session, numero="L4001")
+    ligne_bl = await _creer_ligne(
+        db_session, document=bl, ordre=0, qte_totale=Decimal("10")
+    )
+    tete = await _creer_ligne(
+        db_session,
+        document=facture,
+        bloc=bloc,
+        ordre=0,
+        qte_totale=Decimal("6"),
+        pu_ht=Decimal("10.00"),
+        montant_ht=Decimal("60.00"),
+    )
+    secondaire = await _creer_ligne(
+        db_session,
+        document=facture,
+        bloc=bloc,
+        ordre=1,
+        qte_totale=Decimal("4"),
+        pu_ht=Decimal("10.00"),
+        montant_ht=Decimal("40.00"),
+    )
+    await _creer_rapprochement(db_session, ligne_facture=tete, ligne_bl=ligne_bl)
+    await _creer_rapprochement(db_session, ligne_facture=secondaire, ligne_bl=ligne_bl)
+    if ecart_sur is not None:
+        await _creer_anomalie(
+            db_session,
+            regle="R03",
+            ligne_id=(tete if ecart_sur == "tete" else secondaire).id,
+        )
+
+    ligne = (await comparer_bl(db_session, bl.id)).lignes[0]
+
+    assert ligne.qte_facturee == Decimal("10")
+    assert ligne.montant_facture == Decimal("100.00")
+    assert ligne.pu_facture == Decimal("10.00")
+    assert ligne.controle == ("conforme" if ecart_sur is None else "ecart")
+    assert ligne.regles_ouvertes == ([] if ecart_sur is None else ["R03"])
+
+
+@pytest.mark.parametrize("ecart_sur", [None, "tete"])
+async def test_comparer_bl_deux_lignes_de_bon_deux_lignes_de_facture(
+    db_session: AsyncSession, ecart_sur: str | None
+) -> None:
+    """2/2 : chaque ligne de bon est reliée à une ligne de facture, mais
+    l'écart porte sur le total du groupe (posé sur la tête) : la ligne de
+    bon reliée à la ligne de facture secondaire n'est pas « identique »."""
+    bl, facture, bloc = await _bon_facture(db_session, numero="L4002")
+    bl_a = await _creer_ligne(
+        db_session, document=bl, ordre=0, qte_totale=Decimal("10")
+    )
+    bl_b = await _creer_ligne(
+        db_session, document=bl, ordre=1, qte_totale=Decimal("10")
+    )
+    f_a = await _creer_ligne(
+        db_session,
+        document=facture,
+        bloc=bloc,
+        ordre=0,
+        qte_totale=Decimal("10"),
+        pu_ht=Decimal("5.00"),
+        montant_ht=Decimal("50.00"),
+    )
+    f_b = await _creer_ligne(
+        db_session,
+        document=facture,
+        bloc=bloc,
+        ordre=1,
+        qte_totale=Decimal("15"),
+        pu_ht=Decimal("5.00"),
+        montant_ht=Decimal("75.00"),
+    )
+    await _creer_rapprochement(db_session, ligne_facture=f_a, ligne_bl=bl_a)
+    await _creer_rapprochement(db_session, ligne_facture=f_b, ligne_bl=bl_b)
+    if ecart_sur is not None:
+        await _creer_anomalie(db_session, regle="R03", ligne_id=f_a.id)
+
+    lignes = (await comparer_bl(db_session, bl.id)).lignes
+
+    attendu = "conforme" if ecart_sur is None else "ecart"
+    assert [ligne.controle for ligne in lignes] == [attendu, attendu]
+    # Le total du groupe est montré une seule fois (sur la première ligne).
+    assert lignes[0].qte_facturee == Decimal("25")
+    assert lignes[0].montant_facture == Decimal("125.00")
+    assert lignes[1].qte_facturee is None
+    assert lignes[1].montant_facture is None

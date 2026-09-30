@@ -16,6 +16,7 @@ ressemblance des désignations de produits (page Prix).
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from difflib import SequenceMatcher
 
@@ -56,3 +57,23 @@ def ressemblance(a: str | None, b: str | None) -> int:
     appariement = SequenceMatcher(None, fa, fb, autojunk=False)
     communs = sum(bloc.size for bloc in appariement.get_matching_blocks())
     return (200 * communs) // (len(fa) + len(fb))
+
+
+_NOMBRE_RE = re.compile(r"\d+")
+
+
+def _nombres(texte: str | None) -> list[str]:
+    """Nombres du libellé normalisé (suites de chiffres, zéros de tête
+    ignorés : « 03 » = « 3 »), triés : l'ordre ne compte pas."""
+    return sorted(
+        (m.lstrip("0") or "0") for m in _NOMBRE_RE.findall(normaliser_libelle(texte))
+    )
+
+
+def nombres_differents(a: str | None, b: str | None) -> bool:
+    """Vrai si les deux libellés ne portent pas les mêmes nombres (« Lot 12 »
+    / « Lot 13 », « Les Pins » / « Les Pins 2 »). Une ressemblance élevée ne
+    prouve pas qu'il s'agit du même chantier quand seul un numéro change
+    (B-05, décision d'Ilane du 29/09/2026) : le rattachement automatique
+    s'en sert pour refuser de rattacher d'office."""
+    return _nombres(a) != _nombres(b)

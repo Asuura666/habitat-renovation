@@ -17,6 +17,10 @@ API utilisée (extrait réel de l'OpenAPI d'OpenCode 1.18.32,
   1}}`) -> `{"info": AssistantMessage, "parts": [Part, ...]}` — `info.error`
   (un des schémas `ProviderAuthError`/`APIError`/`UnknownError`/...) signale
   un échec fournisseur ; `info.structured` porte la sortie JSON demandée ;
+- `GET {url}/session/{id}/message?limit=1[&before=curseur]` -> `[{"info",
+  "parts"}]` et l'en-tête `X-Next-Cursor` : relecture des étapes de la
+  recherche de prix, seul agent qui a des outils (voir
+  `_parties_de_toutes_les_etapes`) ;
 - `DELETE {url}/session/{id}` -> tenté systématiquement, échec ignoré.
 
 Authentification HTTP Basic, utilisateur `opencode`, mot de passe
@@ -55,6 +59,13 @@ logger = logging.getLogger(__name__)
 _UTILISATEUR_BASIC = "opencode"
 _DELAI_DEFAUT_S = 90.0
 _OUTILS_PAGE = ("webfetch", "websearch")
+# Seul l'agent de la recherche de prix a des outils (`opencode.json`) : pour
+# lui seul, les pages lues se relisent sur toutes les étapes.
+_USAGES_AVEC_OUTILS = frozenset({"prix"})
+# Borne de la relecture des étapes : `steps: 8` pour `habitat-prix`, plus
+# une éventuelle nouvelle tentative de la sortie structurée -- large marge.
+_ETAPES_LUES_MAX = 20
+_DELAI_ETAPES_S = 10.0
 # Codes journalisés dans `appel_ia.erreur` pour une exception qui n'est pas
 # une `ErreurIA` (fix round 1) : `_creer_session`/`_envoyer_message` ne
 # lèvent normalement que des `ErreurIA`, mais un bug imprévu ou une
@@ -74,9 +85,15 @@ class ErreurIA(Exception):
     texte envoyé, la réponse de l'IA, ni l'exception httpx brute (toujours
     levée `from None`)."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self, code: str, message: str, *, brut: Mapping[str, Any] | None = None
+    ) -> None:
         super().__init__(message)
         self.code = code
+        # `info.error` brut d'OpenCode quand il existe (Laboratoire IA,
+        # tâche LABO) : affiché à l'admin seulement (jamais journalisé, jamais
+        # dans `message` ci-dessus) -- voir `ia_labo.py`.
+        self.brut = brut
 
 
 class IAIndisponible(Exception):
@@ -96,19 +113,35 @@ class ReponseIA:
     demandé (`info.structured`), encore non gardé — chaque appelant le
     passe à la fonction `lire_...` de `extract.reponses_ia` qui va avec son
     usage. `pages` : les pages effectivement lues par l'IA (outils
-    `webfetch`/`websearch` terminés). `modele` : `providerID/modelID`
-    quand les deux sont présents, sinon `None`."""
+    `webfetch`/`websearch` terminés), sur toutes ses étapes pour la
+    recherche de prix. `modele` : `providerID/modelID` quand les deux sont
+    présents, sinon `None`."""
 
     structure: Any
     pages: tuple[PageLue, ...]
     modele: str | None
     duree_ms: int
+    # JSON complet renvoyé par `POST /session/{id}/message` (`info` + `parts`,
+    # Laboratoire IA, tâche LABO) : jamais lu par les appelants de
+    # production, seulement par `ia_labo.py` pour l'écran d'essai admin
+    # (« réponse brute »), jamais journalisé.
+    brut: Mapping[str, Any]
 
 
 def ia_active() -> bool:
     """Seule lecture de `Settings.ia_active` de tout le code (même principe
     qu'`ingest.commun.controle_prix_actif` pour `CONTROLE_PRIX_ACTIF`)."""
     return get_settings().ia_active
+
+
+def ia_appels_max_jour() -> int:
+    """Seule lecture de `Settings.ia_appels_max_jour` hors `interroger`
+    lui-même (même principe qu'`ia_active` ci-dessus) : `ingest.ia_labo`
+    l'utilise pour afficher les appels restants du jour à l'admin (brief
+    LABO) -- jamais un import direct de `app.core.config.get_settings`
+    ailleurs, qui échapperait au remplacement de `get_settings` posé par les
+    tests (`monkeypatch.setattr(opencode, "get_settings", ...)`)."""
+    return get_settings().ia_appels_max_jour
 
 
 def _debut_jour_paris() -> datetime:
@@ -283,6 +316,66 @@ def _pages_lues(parts: Any) -> tuple[PageLue, ...]:
     return tuple(page for page in pages if page is not None)
 
 
+async def _parties_de_toutes_les_etapes(
+    http: httpx.AsyncClient,
+    url: str,
+    auth: httpx.BasicAuth,
+    session_id: str,
+) -> list[Any]:
+    """Parties de toutes les étapes de l'IA, de la première à la dernière,
+    ou une liste vide si l'historique ne se lit pas du tout.
+
+    Constaté le 29/09/2026 sur OpenCode 1.18.32 : chaque étape de l'agent
+    (une recherche, une page ouverte, puis la sortie structurée) est un
+    message distinct, et `POST /session/{id}/message` ne renvoie que le
+    dernier -- les pages lues aux étapes précédentes n'y figurent pas. La
+    liste complète des messages ne se lit pas non plus : OpenCode refuse
+    (400) toute page qui contient la demande de départ, parce qu'elle porte
+    le `format` demandé. Les étapes se relisent donc une par une, de la plus
+    récente à la plus ancienne (`limit=1`, curseur `X-Next-Cursor` repassé
+    en `before`), jusqu'à ce refus, une page sans curseur ou la borne
+    `_ETAPES_LUES_MAX`. Seuls les messages de rôle `assistant` comptent.
+    Aucune exception ne remonte : un échec arrête simplement la relecture."""
+    etapes: list[list[Any]] = []
+    curseur: str | None = None
+    for _ in range(_ETAPES_LUES_MAX):
+        params = (
+            {"limit": "1"} if curseur is None else {"limit": "1", "before": curseur}
+        )
+        try:
+            reponse = await http.get(
+                f"{url}/session/{session_id}/message",
+                params=params,
+                auth=auth,
+                timeout=_DELAI_ETAPES_S,
+            )
+        except httpx.HTTPError:
+            break
+        if reponse.status_code != 200:
+            break
+        try:
+            messages = reponse.json()
+        except ValueError:
+            break
+        if not isinstance(messages, list):
+            break
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            info = message.get("info")
+            parts = message.get("parts")
+            if (
+                isinstance(info, dict)
+                and info.get("role") == "assistant"
+                and isinstance(parts, list)
+            ):
+                etapes.append(parts)
+        curseur = reponse.headers.get("X-Next-Cursor")
+        if not curseur:
+            break
+    return [partie for parts in reversed(etapes) for partie in parts]
+
+
 async def _envoyer_message(
     http: httpx.AsyncClient,
     url: str,
@@ -293,10 +386,16 @@ async def _envoyer_message(
     texte: str,
     schema: Mapping[str, Any],
     delai: float,
-) -> tuple[Any, tuple[PageLue, ...], str | None]:
+    toutes_les_etapes: bool,
+) -> tuple[Any, tuple[PageLue, ...], str | None, dict[str, Any]]:
     """`POST {url}/session/{id}/message` en sortie structurée -> `(structure,
-    pages, modele)`. Lève `ErreurIA` sur `info.error` ou `info.structured`
-    absent/`None` (brief T3 étape 5)."""
+    pages, modele, corps)` -- `corps` (`info` + `parts`) est le JSON complet
+    renvoyé, porté jusqu'à `ReponseIA.brut` (Laboratoire IA, tâche LABO).
+    Lève `ErreurIA` sur `info.error` ou `info.structured` absent/`None`
+    (brief T3 étape 5) ; `info.error` est alors porté par `ErreurIA.brut`.
+    `toutes_les_etapes` : les pages sont relevées sur toutes les étapes
+    (`_parties_de_toutes_les_etapes`) ; si l'historique ne se lit pas, elles
+    le sont sur le dernier message seul."""
     corps_requete = {
         "agent": agent,
         "parts": [{"type": "text", "text": texte}],
@@ -314,13 +413,22 @@ async def _envoyer_message(
 
     erreur_info = info.get("error")
     if erreur_info is not None:
-        raise ErreurIA(_code_erreur_info(erreur_info), "OpenCode a renvoyé une erreur")
+        raise ErreurIA(
+            _code_erreur_info(erreur_info),
+            "OpenCode a renvoyé une erreur",
+            brut=erreur_info if isinstance(erreur_info, dict) else None,
+        )
 
     structure = info.get("structured")
     if structure is None:
         raise ErreurIA("sans_sortie", "Réponse d'OpenCode sans sortie structurée")
 
-    return structure, _pages_lues(corps.get("parts")), _modele_info(info)
+    parts = corps.get("parts")
+    if toutes_les_etapes:
+        parts = (
+            await _parties_de_toutes_les_etapes(http, url, auth, session_id) or parts
+        )
+    return structure, _pages_lues(parts), _modele_info(info), corps
 
 
 async def _journaliser_appel(
@@ -390,7 +498,7 @@ async def interroger(
        tentée (donc jamais pour `IAIndisponible`, toujours pour toute autre
        exception ou tout succès).
 
-    Délai par défaut 90 s (`delai=None`) ; `prix` passe `delai=240` (recherche
+    Délai par défaut 90 s (`delai=None`) ; `prix` passe `delai=300` (recherche
     internet, plus longue). `ErreurIA`/`IAIndisponible` ne contiennent jamais
     le mot de passe, le texte envoyé, ni la réponse ; les `logger.warning` de
     ce module (fix round 1, voir plus bas) non plus, ils ne portent jamais que
@@ -425,7 +533,7 @@ async def interroger(
 
     debut = time.monotonic()
     session_id: str | None = None
-    resultat: tuple[Any, tuple[PageLue, ...], str | None] | None = None
+    resultat: tuple[Any, tuple[PageLue, ...], str | None, dict[str, Any]] | None = None
     # Toujours bindés avant le `try` (fix round 1) : aucune exception, connue
     # ou non, ne peut jamais laisser ces deux variables non définies au
     # moment de la journalisation ci-dessous.
@@ -443,6 +551,7 @@ async def interroger(
             texte=texte,
             schema=schema,
             delai=delai_effectif,
+            toutes_les_etapes=usage in _USAGES_AVEC_OUTILS,
         )
     except ErreurIA as erreur:
         code_erreur = erreur.code
@@ -504,5 +613,149 @@ async def interroger(
             "état interne incohérent (ni exception ni résultat) -- ne "
             "devrait jamais arriver"
         )
-    structure, pages, modele = resultat
-    return ReponseIA(structure=structure, pages=pages, modele=modele, duree_ms=duree_ms)
+    structure, pages, modele, brut = resultat
+    return ReponseIA(
+        structure=structure, pages=pages, modele=modele, duree_ms=duree_ms, brut=brut
+    )
+
+
+# --------------------------------------------------------------------------
+# Diagnostic (Laboratoire IA, tâche LABO) : état d'OpenCode pour l'écran
+# d'essai admin -- jamais une ligne `appel_ia`, jamais de modèle sollicité
+# (contrairement à `interroger` ci-dessus), aucune exception ne remonte.
+# --------------------------------------------------------------------------
+
+# Les trois agents configurés par `deploy/opencode/opencode.json` (spec
+# §3.1) : seuls ceux-là ont un sens pour l'application, un agent
+# supplémentaire éventuellement configuré côté OpenCode n'intéresse pas ce
+# diagnostic.
+AGENTS_ATTENDUS: frozenset[str] = frozenset(
+    {"habitat-synthese", "habitat-explication", "habitat-prix"}
+)
+
+# Délai court (brief LABO) : un diagnostic ne doit jamais faire attendre
+# l'admin aussi longtemps qu'un appel réel à l'IA (90 s/300 s) -- une panne
+# se traduit vite en `joignable=False`, jamais en attente silencieuse.
+_DELAI_DIAGNOSTIC_S = 10.0
+
+_OUTIL_RECHERCHE_WEB = "websearch"
+_FOURNISSEUR_ABONNEMENT = "openai"
+
+
+@dataclass(frozen=True)
+class DiagnosticIA:
+    """État d'OpenCode pour l'écran « État de l'IA » du Laboratoire IA
+    (brief LABO). Quand `ia_active` est faux, seuls `ia_active` et
+    `url_configuree` sont renseignés (aucune requête n'est faite) ; les
+    autres champs portent alors leur valeur « non vérifiée » (`False`/
+    `None`/vide), jamais une valeur inventée."""
+
+    ia_active: bool
+    url_configuree: bool
+    joignable: bool
+    # Code HTTP (`"200"`, `"404"`...) sur une requête qui a abouti, nom de la
+    # classe d'exception (`"ConnectError"`...) sur un échec réseau/délai,
+    # `None` si l'IA est éteinte (rien n'a été tenté).
+    joignable_detail: str | None
+    agents: frozenset[str]
+    abonnement_connecte: bool
+    recherche_web: bool
+
+
+async def _sonder(
+    http: httpx.AsyncClient, url: str, auth: httpx.BasicAuth
+) -> tuple[bool, str, Any]:
+    """`GET url` best-effort (brief LABO : « aucune exception ne remonte »)
+    -> `(ok, detail, corps)`. `ok` est vrai pour tout statut HTTP < 400 dont
+    le corps est un JSON lisible ; `detail` porte le code HTTP en texte dans
+    tous les cas où une réponse a été reçue, sinon le nom de la classe
+    d'exception. `corps` vaut `None` quand il n'a pas pu être décodé ou
+    obtenu."""
+    try:
+        reponse = await http.get(url, auth=auth, timeout=_DELAI_DIAGNOSTIC_S)
+    except httpx.HTTPError as erreur:
+        return False, type(erreur).__name__, None
+    if reponse.status_code >= 400:
+        return False, str(reponse.status_code), None
+    try:
+        return True, str(reponse.status_code), reponse.json()
+    except ValueError:
+        return False, str(reponse.status_code), None
+
+
+def _agents_presents(corps: Any) -> frozenset[str]:
+    """Noms d'agent présents dans la réponse de `GET {url}/agent`, sous l'une
+    ou l'autre forme raisonnable de cette route (un objet `{nom: config}`, ou
+    une liste de configurations portant chacune un champ `name`) -- ne lève
+    jamais, une forme inattendue donne simplement un ensemble vide (un
+    diagnostic n'est jamais bloquant)."""
+    if isinstance(corps, dict):
+        return frozenset(cle for cle in corps if isinstance(cle, str))
+    if isinstance(corps, list):
+        noms: set[str] = set()
+        for element in corps:
+            if isinstance(element, dict):
+                nom = element.get("name")
+                if isinstance(nom, str):
+                    noms.add(nom)
+        return frozenset(noms)
+    return frozenset()
+
+
+async def diagnostic_ia(http: httpx.AsyncClient) -> DiagnosticIA:
+    """État d'OpenCode pour le Laboratoire IA (brief LABO) : IA allumée,
+    URL configurée, OpenCode joignable, agents présents parmi
+    `AGENTS_ATTENDUS`, abonnement ChatGPT connecté (`GET /provider`,
+    `"openai"` dans `connected`), recherche web disponible (`GET
+    /experimental/tool/ids`, `"websearch"` présent). Jamais de ligne
+    `appel_ia`, jamais de modèle sollicité : uniquement des points de
+    configuration/diagnostic d'OpenCode, jamais `POST /session/.../message`.
+    Aucune exception ne remonte : toute panne se traduit en `joignable=False`
+    avec son détail."""
+    settings = get_settings()
+    url_configuree = bool(settings.opencode_url)
+
+    if not ia_active():
+        return DiagnosticIA(
+            ia_active=False,
+            url_configuree=url_configuree,
+            joignable=False,
+            joignable_detail=None,
+            agents=frozenset(),
+            abonnement_connecte=False,
+            recherche_web=False,
+        )
+
+    url = _url_opencode(settings)
+    auth = _authentification(settings)
+
+    joignable, detail_agents, corps_agents = await _sonder(http, f"{url}/agent", auth)
+    agents = (
+        _agents_presents(corps_agents) & AGENTS_ATTENDUS if joignable else frozenset()
+    )
+
+    _ok_provider, _detail_provider, corps_provider = await _sonder(
+        http, f"{url}/provider", auth
+    )
+    abonnement_connecte = False
+    if isinstance(corps_provider, dict):
+        connectes = corps_provider.get("connected")
+        if isinstance(connectes, list):
+            abonnement_connecte = _FOURNISSEUR_ABONNEMENT in connectes
+
+    _ok_outils, _detail_outils, corps_outils = await _sonder(
+        http, f"{url}/experimental/tool/ids", auth
+    )
+    recherche_web = (
+        isinstance(corps_outils, list) and _OUTIL_RECHERCHE_WEB in corps_outils
+    )
+
+    return DiagnosticIA(
+        ia_active=True,
+        url_configuree=url_configuree,
+        joignable=joignable,
+        joignable_detail=detail_agents,
+        agents=agents,
+        abonnement_connecte=abonnement_connecte,
+        recherche_web=recherche_web,
+    )

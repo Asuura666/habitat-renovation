@@ -14,7 +14,7 @@ import base64
 import json
 from collections.abc import Callable
 from datetime import datetime, time, timedelta
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 import pytest
@@ -26,7 +26,14 @@ from app.core.fuseau import FUSEAU_PARIS
 from app.modules.extract.reponses_ia import PageLue
 from app.modules.ingest import opencode
 from app.modules.ingest.models import AppelIA, Fournisseur
-from app.modules.ingest.opencode import ErreurIA, IAIndisponible, interroger
+from app.modules.ingest.opencode import (
+    AGENTS_ATTENDUS,
+    DiagnosticIA,
+    ErreurIA,
+    IAIndisponible,
+    diagnostic_ia,
+    interroger,
+)
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
 
@@ -724,3 +731,615 @@ async def test_interroger_journal_defaillant_sur_echec_ne_masque_pas_lorigine(
         )
 
     assert exc_info.value.code == "http_401"
+
+
+# --------------------------------------------------------------------------
+# `ReponseIA.brut` / `ErreurIA.brut` (Laboratoire IA, tâche LABO)
+# --------------------------------------------------------------------------
+
+
+async def test_interroger_reponse_brut_porte_info_et_parts(
+    db_session: AsyncSession,
+) -> None:
+    reponses = _reponse_nominale()
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+
+    resultat = await interroger(
+        db_session,
+        http,
+        usage="synthese",
+        agent="habitat-synthese",
+        texte=TEXTE_ENVOYE_INVENTE,
+        schema=SCHEMA_INVENTE,
+    )
+
+    assert isinstance(resultat.brut, dict)
+    assert resultat.brut["info"]["structured"] == {
+        "resume": "résumé inventé",
+        "actions": [],
+    }
+    assert len(resultat.brut["parts"]) == 4
+
+
+async def test_interroger_erreur_ia_porte_info_error_brut(
+    db_session: AsyncSession,
+) -> None:
+    erreur_info = {
+        "name": "ProviderAuthError",
+        "data": {
+            "providerID": "fournisseur-invente",
+            "message": "message d'erreur inventé",
+        },
+    }
+    info = _info_minimal(error=erreur_info)
+    reponses = {
+        ("POST", "/session"): httpx.Response(200, json={"id": "ses_test_1"}),
+        ("POST", "/session/ses_test_1/message"): httpx.Response(
+            200, json={"info": info, "parts": []}
+        ),
+        ("DELETE", "/session/ses_test_1"): httpx.Response(200, json=True),
+    }
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+
+    with pytest.raises(ErreurIA) as exc_info:
+        await interroger(
+            db_session,
+            http,
+            usage="explication",
+            agent="habitat-explication",
+            texte=TEXTE_ENVOYE_INVENTE,
+            schema=SCHEMA_INVENTE,
+        )
+
+    assert exc_info.value.brut == erreur_info
+    # Jamais dans le message (même principe que le mot de passe/le texte
+    # envoyé, brief T-LABO).
+    assert "message d'erreur inventé" not in str(exc_info.value)
+
+
+async def test_interroger_erreur_sans_info_error_brut_none(
+    db_session: AsyncSession,
+) -> None:
+    """`ErreurIA.brut` reste `None` quand l'échec ne vient pas d'`info.error`
+    (ex. un statut HTTP 401 avant même d'atteindre `info`)."""
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(401, json={"message": "non autorisé"})
+        )
+    )
+
+    with pytest.raises(ErreurIA) as exc_info:
+        await interroger(
+            db_session,
+            http,
+            usage="prix",
+            agent="habitat-prix",
+            texte=TEXTE_ENVOYE_INVENTE,
+            schema=SCHEMA_INVENTE,
+        )
+
+    assert exc_info.value.brut is None
+
+
+# --------------------------------------------------------------------------
+# Pages lues sur toutes les étapes (recherche de prix)
+#
+# Constaté le 29/09/2026 sur OpenCode 1.18.32 : chaque étape de l'agent est
+# un message distinct, `POST /session/{id}/message` ne renvoie que le
+# dernier (celui de la sortie structurée), et la liste des messages échoue
+# en 400 dès qu'elle contient la demande de départ (qui porte le `format`).
+# Les étapes se relisent donc une par une (`limit=1`, curseur `before`), de
+# la plus récente à la plus ancienne, jusqu'à ce refus.
+# --------------------------------------------------------------------------
+
+_CHEMIN_MESSAGES = "/session/ses_test_1/message"
+
+
+def _message_assistant(id_message: str, parts: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"info": _info_minimal(id=id_message), "parts": parts}
+
+
+def _partie_sortie_structuree(id_partie: str) -> dict[str, Any]:
+    return _partie_outil(
+        id_partie=id_partie,
+        outil="StructuredOutput",
+        statut="completed",
+        entree={"statut": "trouve"},
+        output="sortie inventée",
+        title="",
+        metadata={},
+        time={"start": 1, "end": 2},
+    )
+
+
+def _partie_page(
+    id_partie: str, outil: str, adresse: str, texte: str
+) -> dict[str, Any]:
+    cle = "url" if outil == "webfetch" else "query"
+    return _partie_outil(
+        id_partie=id_partie,
+        outil=outil,
+        statut="completed",
+        entree={cle: adresse},
+        output=texte,
+        title="titre inventé",
+        metadata={},
+        time={"start": 1, "end": 2},
+    )
+
+
+def _reponses_message_final(
+    parts: list[dict[str, Any]],
+) -> dict[tuple[str, str], httpx.Response]:
+    info = _info_minimal(id="msg_test_3", structured={"statut": "trouve"})
+    return {
+        ("POST", "/session"): httpx.Response(200, json={"id": "ses_test_1"}),
+        ("POST", _CHEMIN_MESSAGES): httpx.Response(
+            200, json={"info": info, "parts": parts}
+        ),
+        ("DELETE", "/session/ses_test_1"): httpx.Response(200, json=True),
+    }
+
+
+def _refus_opencode() -> httpx.Response:
+    """Forme de la réponse réelle d'OpenCode 1.18.32 à la page qui contient
+    la demande de départ (contenu inventé)."""
+    return httpx.Response(
+        400,
+        json={
+            "name": "BadRequest",
+            "data": {"message": "Expected OutputFormatJsonSchema", "kind": "Body"},
+        },
+    )
+
+
+async def test_interroger_prix_relit_les_pages_des_etapes_precedentes(
+    db_session: AsyncSession,
+) -> None:
+    requetes: list[httpx.Request] = []
+    reponses = _reponses_message_final([_partie_sortie_structuree("prt_9")])
+    pages_par_curseur: dict[str | None, Callable[[], httpx.Response]] = {
+        None: lambda: httpx.Response(
+            200,
+            json=[
+                _message_assistant("msg_test_3", [_partie_sortie_structuree("prt_9")])
+            ],
+            headers={"X-Next-Cursor": "curseur-1"},
+        ),
+        "curseur-1": lambda: httpx.Response(
+            200,
+            json=[
+                _message_assistant(
+                    "msg_test_2",
+                    [
+                        _partie_page(
+                            "prt_5",
+                            "webfetch",
+                            "https://exemple.invalid/fiche-produit",
+                            "fiche produit inventée",
+                        )
+                    ],
+                )
+            ],
+            headers={"X-Next-Cursor": "curseur-2"},
+        ),
+        "curseur-2": lambda: httpx.Response(
+            200,
+            json=[
+                _message_assistant(
+                    "msg_test_1",
+                    [
+                        _partie_page(
+                            "prt_2",
+                            "websearch",
+                            "requête inventée",
+                            "résultats inventés",
+                        )
+                    ],
+                )
+            ],
+            headers={"X-Next-Cursor": "curseur-3"},
+        ),
+        # La demande de départ : OpenCode 1.18.32 refuse de la renvoyer.
+        "curseur-3": _refus_opencode,
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requetes.append(request)
+        if request.method == "GET" and request.url.path == _CHEMIN_MESSAGES:
+            assert request.url.params["limit"] == "1"
+            return pages_par_curseur[request.url.params.get("before")]()
+        return _handler_json(reponses)(request)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    resultat = await interroger(
+        db_session,
+        http,
+        usage="prix",
+        agent="habitat-prix",
+        texte=TEXTE_ENVOYE_INVENTE,
+        schema=SCHEMA_INVENTE,
+    )
+
+    # Dans l'ordre où l'IA les a lues, de la première étape à la dernière.
+    assert resultat.pages == (
+        PageLue(
+            outil="websearch", adresse="requête inventée", texte="résultats inventés"
+        ),
+        PageLue(
+            outil="webfetch",
+            adresse="https://exemple.invalid/fiche-produit",
+            texte="fiche produit inventée",
+        ),
+    )
+    assert [(r.method, r.url.path, r.url.params.get("before")) for r in requetes] == [
+        ("POST", "/session", None),
+        ("POST", _CHEMIN_MESSAGES, None),
+        ("GET", _CHEMIN_MESSAGES, None),
+        ("GET", _CHEMIN_MESSAGES, "curseur-1"),
+        ("GET", _CHEMIN_MESSAGES, "curseur-2"),
+        ("GET", _CHEMIN_MESSAGES, "curseur-3"),
+        ("DELETE", "/session/ses_test_1", None),
+    ]
+    for requete in requetes:
+        assert requete.headers["authorization"] == _AUTORISATION_ATTENDUE
+    lignes = (await db_session.execute(select(AppelIA))).scalars().all()
+    assert [(ligne.statut, ligne.erreur) for ligne in lignes] == [("ok", None)]
+
+
+async def test_interroger_prix_ignore_la_demande_de_depart_si_opencode_la_renvoie(
+    db_session: AsyncSession,
+) -> None:
+    """Si une version corrigée d'OpenCode renvoie la demande de départ (rôle
+    `user`, dernière page, sans curseur), elle n'est jamais prise pour une
+    étape de l'IA et la lecture s'arrête là."""
+    reponses = _reponses_message_final([_partie_sortie_structuree("prt_9")])
+    demande = {
+        "info": {"id": "msg_test_0", "sessionID": "ses_test_1", "role": "user"},
+        "parts": [
+            _partie_page("prt_0", "webfetch", "https://exemple.invalid/piege", "piège")
+        ],
+    }
+    pages_par_curseur: dict[str | None, httpx.Response] = {
+        None: httpx.Response(
+            200,
+            json=[
+                _message_assistant(
+                    "msg_test_3",
+                    [
+                        _partie_page(
+                            "prt_5", "webfetch", "https://exemple.invalid/lue", "lue"
+                        ),
+                        _partie_sortie_structuree("prt_9"),
+                    ],
+                )
+            ],
+            headers={"X-Next-Cursor": "curseur-1"},
+        ),
+        "curseur-1": httpx.Response(200, json=[demande]),
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == _CHEMIN_MESSAGES:
+            return pages_par_curseur[request.url.params.get("before")]
+        return _handler_json(reponses)(request)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    resultat = await interroger(
+        db_session,
+        http,
+        usage="prix",
+        agent="habitat-prix",
+        texte=TEXTE_ENVOYE_INVENTE,
+        schema=SCHEMA_INVENTE,
+    )
+
+    assert resultat.pages == (
+        PageLue(outil="webfetch", adresse="https://exemple.invalid/lue", texte="lue"),
+    )
+
+
+@pytest.mark.parametrize(
+    "echec_lecture",
+    [
+        pytest.param(_refus_opencode, id="refus-400"),
+        pytest.param(
+            lambda: httpx.Response(200, json={"inattendu": True}), id="pas-une-liste"
+        ),
+        pytest.param(
+            lambda: httpx.Response(200, content=b"pas du json"), id="json-illisible"
+        ),
+    ],
+)
+async def test_interroger_prix_historique_illisible_garde_le_dernier_message(
+    db_session: AsyncSession,
+    echec_lecture: Callable[[], httpx.Response],
+) -> None:
+    """Si l'historique ne se lit pas du tout, les pages du dernier message
+    (renvoyé par `POST /session/{id}/message`) restent seules retenues : le
+    comportement d'avant la correction, jamais une erreur de l'appel."""
+    reponses = _reponse_nominale()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == _CHEMIN_MESSAGES:
+            return echec_lecture()
+        return _handler_json(reponses)(request)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    resultat = await interroger(
+        db_session,
+        http,
+        usage="prix",
+        agent="habitat-prix",
+        texte=TEXTE_ENVOYE_INVENTE,
+        schema=SCHEMA_INVENTE,
+    )
+
+    assert [page.adresse for page in resultat.pages] == [
+        "https://exemple.invalid/page-lue",
+        "requête inventée",
+    ]
+
+
+async def test_interroger_prix_historique_injoignable_garde_le_dernier_message(
+    db_session: AsyncSession,
+) -> None:
+    reponses = _reponse_nominale()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == _CHEMIN_MESSAGES:
+            raise httpx.ConnectError("connexion refusée (inventée)")
+        return _handler_json(reponses)(request)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    resultat = await interroger(
+        db_session,
+        http,
+        usage="prix",
+        agent="habitat-prix",
+        texte=TEXTE_ENVOYE_INVENTE,
+        schema=SCHEMA_INVENTE,
+    )
+
+    assert len(resultat.pages) == 2
+
+
+async def test_interroger_prix_lecture_des_etapes_bornee(
+    db_session: AsyncSession,
+) -> None:
+    """Un serveur qui renverrait toujours un curseur ne fait jamais tourner la
+    lecture sans fin : elle s'arrête à `_ETAPES_LUES_MAX` pages."""
+    reponses = _reponses_message_final([_partie_sortie_structuree("prt_9")])
+    lectures: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == _CHEMIN_MESSAGES:
+            lectures.append(request)
+            return httpx.Response(
+                200,
+                json=[_message_assistant("msg_test_3", [])],
+                headers={"X-Next-Cursor": f"curseur-{len(lectures)}"},
+            )
+        return _handler_json(reponses)(request)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    await interroger(
+        db_session,
+        http,
+        usage="prix",
+        agent="habitat-prix",
+        texte=TEXTE_ENVOYE_INVENTE,
+        schema=SCHEMA_INVENTE,
+    )
+
+    assert len(lectures) == opencode._ETAPES_LUES_MAX
+
+
+@pytest.mark.parametrize("usage", ["synthese", "explication"])
+async def test_interroger_sans_outils_ne_relit_pas_les_etapes(
+    db_session: AsyncSession,
+    usage: Literal["synthese", "explication"],
+) -> None:
+    """La synthèse et l'explication n'ont aucun outil (`opencode.json`) :
+    aucune relecture de l'historique, trois requêtes seulement."""
+    requetes: list[httpx.Request] = []
+    reponses = _reponse_nominale()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requetes.append(request)
+        return _handler_json(reponses)(request)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    await interroger(
+        db_session,
+        http,
+        usage=usage,
+        agent=f"habitat-{usage}",
+        texte=TEXTE_ENVOYE_INVENTE,
+        schema=SCHEMA_INVENTE,
+    )
+
+    assert [r.method for r in requetes] == ["POST", "POST", "DELETE"]
+
+
+# --------------------------------------------------------------------------
+# diagnostic_ia (Laboratoire IA, tâche LABO)
+# --------------------------------------------------------------------------
+
+
+def _reponses_diagnostic(
+    *,
+    agents: dict[str, Any] | None = None,
+    connected: list[str] | None = None,
+    outils: list[str] | None = None,
+) -> dict[tuple[str, str], httpx.Response]:
+    agents_effectifs = (
+        agents
+        if agents is not None
+        else {
+            "habitat-synthese": {},
+            "habitat-explication": {},
+            "habitat-prix": {},
+            "un-autre-agent": {},
+        }
+    )
+    connected_effectifs = connected if connected is not None else ["opencode", "openai"]
+    outils_effectifs = (
+        outils if outils is not None else ["bash", "websearch", "webfetch"]
+    )
+    return {
+        ("GET", "/agent"): httpx.Response(200, json=agents_effectifs),
+        ("GET", "/provider"): httpx.Response(
+            200,
+            json={"all": [], "connected": connected_effectifs, "default": "openai"},
+        ),
+        ("GET", "/experimental/tool/ids"): httpx.Response(200, json=outils_effectifs),
+    }
+
+
+async def test_diagnostic_ia_eteinte_aucune_requete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("aucune requête ne doit être faite, IA éteinte")
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(
+        opencode, "get_settings", lambda: _SettingsIAFake(ia_active=False)
+    )
+
+    resultat = await diagnostic_ia(http)
+
+    assert resultat == DiagnosticIA(
+        ia_active=False,
+        url_configuree=True,
+        joignable=False,
+        joignable_detail=None,
+        agents=frozenset(),
+        abonnement_connecte=False,
+        recherche_web=False,
+    )
+
+
+async def test_diagnostic_ia_eteinte_sans_url_configuree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        opencode,
+        "get_settings",
+        lambda: _SettingsIAFake(ia_active=False, opencode_url=None),
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("aucune requête, IA éteinte")
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    resultat = await diagnostic_ia(http)
+
+    assert resultat.url_configuree is False
+
+
+async def test_diagnostic_ia_active_nominal(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(opencode, "get_settings", lambda: _SettingsIAFake())
+    reponses = _reponses_diagnostic()
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+
+    resultat = await diagnostic_ia(http)
+
+    assert resultat.ia_active is True
+    assert resultat.url_configuree is True
+    assert resultat.joignable is True
+    assert resultat.joignable_detail == "200"
+    assert resultat.agents == AGENTS_ATTENDUS
+    assert resultat.abonnement_connecte is True
+    assert resultat.recherche_web is True
+
+
+async def test_diagnostic_ia_abonnement_non_connecte(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(opencode, "get_settings", lambda: _SettingsIAFake())
+    reponses = _reponses_diagnostic(connected=["opencode"])
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+
+    resultat = await diagnostic_ia(http)
+
+    assert resultat.abonnement_connecte is False
+
+
+async def test_diagnostic_ia_recherche_web_absente(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(opencode, "get_settings", lambda: _SettingsIAFake())
+    reponses = _reponses_diagnostic(outils=["bash", "webfetch"])
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+
+    resultat = await diagnostic_ia(http)
+
+    assert resultat.recherche_web is False
+
+
+async def test_diagnostic_ia_agents_partiels(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(opencode, "get_settings", lambda: _SettingsIAFake())
+    reponses = _reponses_diagnostic(agents={"habitat-synthese": {}})
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+
+    resultat = await diagnostic_ia(http)
+
+    assert resultat.agents == {"habitat-synthese"}
+
+
+async def test_diagnostic_ia_injoignable_ne_leve_pas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Brief LABO : « aucune exception ne remonte » -- une panne réseau se
+    traduit en `joignable=False` avec le nom de l'exception, jamais une
+    exception qui remonte à l'appelant."""
+    monkeypatch.setattr(opencode, "get_settings", lambda: _SettingsIAFake())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("panne réseau inventée", request=request)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    resultat = await diagnostic_ia(http)
+
+    assert resultat.joignable is False
+    assert resultat.joignable_detail == "ConnectError"
+    assert resultat.agents == frozenset()
+    assert resultat.abonnement_connecte is False
+    assert resultat.recherche_web is False
+
+
+async def test_diagnostic_ia_statut_http_erreur(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(opencode, "get_settings", lambda: _SettingsIAFake())
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(500))
+    )
+
+    resultat = await diagnostic_ia(http)
+
+    assert resultat.joignable is False
+    assert resultat.joignable_detail == "500"
+
+
+# --------------------------------------------------------------------------
+# ia_appels_max_jour (Laboratoire IA, tâche LABO) -- même principe qu'ia_active
+# --------------------------------------------------------------------------
+
+
+def test_ia_appels_max_jour_lit_les_reglages(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        opencode, "get_settings", lambda: _SettingsIAFake(ia_appels_max_jour=17)
+    )
+
+    assert opencode.ia_appels_max_jour() == 17

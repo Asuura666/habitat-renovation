@@ -45,7 +45,7 @@ ni un prix de grille.
   monde »**. Sans ce réglage, le contenu envoyé par l'application (textes de
   commentaires, désignations de produits) pourrait servir à l'entraînement
   d'OpenAI.
-- Le dépôt à jour sur le serveur, migration `0014` disponible
+- Le dépôt à jour sur le serveur, migration `0015` disponible
   (`alembic upgrade head` l'applique).
 
 ## 3. Installer le conteneur OpenCode
@@ -107,6 +107,22 @@ La sortie doit montrer un fournisseur `openai` connecté. Ne jamais lire,
 copier ou coller le contenu du fichier `auth.json` (secret, même règle que
 tout autre jeton du projet) : `auth login`/`auth list` suffisent pour tout
 l'usage courant.
+
+**Puis redémarrer OpenCode** (constaté le 29/09/2026) : la connexion est
+écrite par un conteneur à part (`run --rm`), et le serveur déjà lancé ne la
+relit pas — tant qu'il n'est pas redémarré, il ne connaît que ses modèles
+gratuits et chaque essai échoue (« Model not found: openai/… », réponse
+500) :
+
+```bash
+docker compose -f deploy/opencode/docker-compose.yml restart opencode
+```
+
+La page « Essayer l'IA » (Réglages) montre ensuite le voyant « Abonnement
+ChatGPT connecté » au vert. Les trois agents utilisent `openai/gpt-5.6-sol`
+(`deploy/opencode/opencode.json`, choix d'Ilane du 29/09/2026) ; changer de
+modèle = modifier ce fichier, puis reconstruire le conteneur (`up -d
+--build`).
 
 ## 4. Allumer l'IA sur une instance
 
@@ -182,6 +198,35 @@ si elles étaient posées) :
 deploy/installer-taches.sh prod --desinstaller
 ```
 
+### 4.4 Mise à jour vers la recherche à plusieurs sources (29/09/2026)
+
+Ordre à respecter sur chaque instance déjà en service :
+
+1. **Sauvegarde** de la base (`deploy/backup.sh`).
+2. **Migration `0015`** (colonne `prix_internet.offres`) : `alembic upgrade
+   head`.
+3. **Reconstruire l'image OpenCode** : `deploy/opencode/Dockerfile` copie
+   `opencode.json` dans l'image, donc sans reconstruction l'agent
+   `habitat-prix` garde l'ancienne consigne (8 étapes, trois pages) et ne
+   cherche qu'une offre :
+
+   ```bash
+   docker compose -f deploy/opencode/docker-compose.yml up -d --build
+   ```
+
+4. **Puis l'API** (reconstruction et redémarrage de l'instance).
+5. **Reprise des factures** (correction d'audit du 29/09/2026) : `docker
+   compose $P $C exec -T api python -m app.cli rapprocher --tout`, une fois
+   l'API redémarrée, pour que les factures « à vérifier » déjà en base
+   reçoivent leur alerte R10 (voir `docs/deploiement-octobre-2026.md` §4.4).
+
+Ne pas lancer la tâche `ia-prix` avant l'étape 3 : un produit cherché avec
+l'ancien agent peut être enregistré « non vérifiable » et rester dans le
+cache pendant 30 jours. Si cela est arrivé, supprimer les lignes
+`prix_internet` concernées (statut `non_verifiable`, `consulte_le` d'avant la
+reconstruction) : le produit sera cherché de nouveau à la prochaine
+exécution.
+
 ## 5. Essai avant de se fier au prix internet (document d'Ilane §16)
 
 Avant de considérer les prix trouvés sur internet comme fiables au
@@ -218,7 +263,12 @@ quotidien, essayer la recherche sur une vingtaine de produits **réels** :
 3. `essai-prix-resultat.csv` contient une ligne par produit : désignation,
    statut (`trouve`/`prix_non_verifiable`/`echec`), prix, taxes (HT/TTC),
    unité, conditionnement, produit trouvé, source, confiance, raison,
-   durée. Rien n'est enregistré en base (ni cache ni historique) : seul
+   durée, puis le nombre d'offres (`nb_sources`) et le prix HT le plus bas
+   et le plus haut (`prix_ht_min`, `prix_ht_max`). L'agent cherche jusqu'à
+   cinq offres de sites différents pour le même produit ; les prix TTC sont
+   ramenés en HT (÷ 1,20), une offre dont les taxes sont inconnues est
+   listée mais ne compte ni dans le plus bas ni dans le plus haut. Rien
+   n'est enregistré en base (ni cache ni historique) : seul
    `appel_ia` garde une trace technique (usage, durée, succès/échec), comme
    pour tout appel à l'IA.
 
@@ -312,6 +362,34 @@ jour : `docs/superpowers/specs/2026-09-27-phase-4-ia-design.md` §9.
 
 ## 9. Limites connues
 
+- **Trois pièges d'OpenCode 1.18.32, constatés le 29/09/2026 sur le vrai
+  serveur** (les deux premiers expliquent les premiers essais ratés du
+  Laboratoire IA : synthèse en `StructuredOutputError`, recherche de prix
+  qui tournait jusqu'au délai) :
+  1. la réponse au format JSON passe par un outil interne,
+     `StructuredOutput` ; la permission `"*": "deny"` des agents le retirait
+     aussi. Chaque agent l'autorise désormais explicitement
+     (`deploy/opencode/opencode.json`, vérifié par
+     `tests/test_opencode_config.py`) ;
+  2. chaque étape de l'agent prix (une recherche, une page ouverte, la
+     réponse) est un message à part, et `POST /session/{id}/message` ne
+     renvoie que le dernier. Les pages lues aux étapes précédentes étaient
+     donc invisibles, et le contrôle « la page source a vraiment été
+     ouverte » aurait rejeté tout prix trouvé. Elles se relisent maintenant
+     une étape à la fois (`ingest/opencode.py`,
+     `_parties_de_toutes_les_etapes`) ;
+  3. OpenCode ne sait pas renvoyer la demande de départ (400 « Expected
+     OutputFormatJsonSchema ») dès qu'elle porte un format JSON : la liste
+     complète des messages échoue, d'où cette relecture une étape à la fois,
+     qui s'arrête sur ce refus. **À revoir à chaque mise à jour d'OpenCode**
+     (image épinglée sur 1.18.32).
+
+  Une fois ces pièges levés, l'agent prix répondait sans rien chercher. Sa
+  consigne exige maintenant au moins une recherche, au plus trois
+  recherches et trois pages. Essai réel du 29/09/2026 : une plaque BA13 est
+  trouvée à 13,79 € TTC chez un revendeur identifié, les quatre contrôles
+  sont verts. Un mastic Unikalo sans prix public ressort en « non
+  vérifiable », avec sa raison.
 - **Conteneur `read_only` non activé, par choix délibéré**
   (`deploy/opencode/docker-compose.yml`) : confirmé en direct (fix round 1,
   essai sur l'image construite) — OpenCode écrit un `.gitignore` dans

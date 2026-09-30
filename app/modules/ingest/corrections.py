@@ -118,7 +118,12 @@ from app.modules.ingest.models import (
 )
 from app.modules.ingest.prix_bl import controler_prix_bl_sans_echec
 from app.modules.ingest.rangement import ranger_document
-from app.modules.ingest.rapprochement import rapprocher_factures_du_bl
+from app.modules.ingest.rapprochement import (
+    rapprocher_facture,
+    rapprocher_factures_du_bl,
+    rapprocher_factures_voisines,
+    supprimer_liens_de_lignes,
+)
 from app.modules.ingest.rattachement_chantier import rattacher_chantier_document
 from app.modules.ingest.referentiels import (
     lire_parametre_decimal,
@@ -789,6 +794,34 @@ async def _rattacher_articles_du_document(
         )
 
 
+async def _rejouer_ou_annuler(session: AsyncSession, rejeu: Awaitable[Any]) -> None:
+    """B-04/B-07 : exécute le rejeu du rapprochement (appelé avec
+    `dans_la_transaction=True`) dans la transaction de la correction ; s'il
+    échoue, tout est annulé (correction, liens supprimés, journal) et
+    l'erreur remonte : jamais d'état à moitié rejoué."""
+    try:
+        await rejeu
+    except Exception:
+        await session.rollback()
+        raise
+
+
+async def _rejouer_apres_ecriture(session: AsyncSession, document: Document) -> None:
+    """I1 : rejeu qui suit une correction, une validation ou une relecture,
+    dans la transaction de l'écriture (tout ou rien, `_rejouer_ou_annuler`).
+    Un bon rejoue les factures qui le citent ; une facture se rejoue
+    elle-même (`rapprocher_facture`) : R10 est levée dès que la somme est
+    juste et les blocs sont rapprochés -- `rapprocher_factures_du_bl` ne
+    renvoie rien pour une facture."""
+    if document.type == "facture":
+        rejeu: Awaitable[Any] = rapprocher_facture(session, document.id, commit=False)
+    else:
+        rejeu = rapprocher_factures_du_bl(
+            session, document.id, dans_la_transaction=True
+        )
+    await _rejouer_ou_annuler(session, rejeu)
+
+
 async def corriger_entete(
     session: AsyncSession,
     document_id: uuid.UUID,
@@ -862,6 +895,9 @@ async def corriger_entete(
             apres=changements,
         )
     )
+    # B-04 : rejeu des factures concernées (numéro courant et blocs déjà
+    # liés), dans la même transaction que la correction.
+    await _rejouer_apres_ecriture(session, document)
     await session.commit()
     await session.refresh(document)
     return await _charger_detail(session, document, role="admin")
@@ -937,9 +973,13 @@ async def corriger_lignes(
     avant_journal = [_ligne_en_chaine(ligne) for ligne in lignes_existantes]
 
     existantes_par_id = {ligne.id: ligne for ligne in lignes_existantes}
-    for ligne in lignes_existantes:
-        if ligne.id not in ids_recus:
-            await session.delete(ligne)
+    a_supprimer = [ligne for ligne in lignes_existantes if ligne.id not in ids_recus]
+    if a_supprimer:
+        # C-01 : les liens de rapprochement partent avant les lignes (clé
+        # étrangère) ; le rejeu ci-dessous les recrée.
+        await supprimer_liens_de_lignes(session, [ligne.id for ligne in a_supprimer])
+    for ligne in a_supprimer:
+        await session.delete(ligne)
 
     nouvelles_lignes: list[Ligne] = []
     for position, saisie in enumerate(lignes):
@@ -1001,6 +1041,9 @@ async def corriger_lignes(
             apres={"lignes": apres_journal},
         )
     )
+    # B-04/C-01 : rejeu des factures concernées dans la même transaction que
+    # la correction et la suppression des liens (tout ou rien).
+    await _rejouer_apres_ecriture(session, document)
     await session.commit()
     await session.refresh(document)
 
@@ -1048,6 +1091,10 @@ async def valider_document(
             apres={"statut": "recu"},
         )
     )
+    if document.type == "facture":
+        # I1 : la validation d'une facture la rapproche (et lève R10) dans la
+        # même transaction ; pour un bon, le rejeu suit le commit (ci-dessous).
+        await _rejouer_apres_ecriture(session, document)
     await session.commit()
     await session.refresh(document)
 
@@ -1118,6 +1165,19 @@ async def archiver_document(
             portee_regles=tuple(REGLES_FACTURE),
         )
 
+    # B-07 : l'archivage rejoue ce qui en dépend, dans la même transaction —
+    # pour un BL, les factures dont un bloc le cite (le bloc redevient « non
+    # reçu », R11 levée) ; pour une facture, les autres factures qui
+    # partagent un de ses numéros de BL (R12).
+    if document.type == "facture":
+        rejeu = rapprocher_factures_voisines(
+            session, document_id, dans_la_transaction=True
+        )
+    else:
+        rejeu = rapprocher_factures_du_bl(
+            session, document_id, dans_la_transaction=True
+        )
+    await _rejouer_ou_annuler(session, rejeu)
     await session.commit()
     await session.refresh(document)
     return await _charger_detail(session, document, role="admin")

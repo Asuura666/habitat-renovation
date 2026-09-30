@@ -33,7 +33,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
-from .texte import normaliser_libelle, ressemblance
+from .texte import nombres_differents, normaliser_libelle, ressemblance
 
 # `(?=$|[:\s])` : ne retire « chantier » que comme mot entier (fin de
 # chaîne, « : » ou espace juste après), jamais comme simple préfixe d'un
@@ -92,6 +92,10 @@ class Correspondance:
     chantier_id: uuid.UUID | None = None  # RECONNU
     score: int | None = None  # RECONNU / AMBIGU : meilleur score
     candidats: tuple[uuid.UUID, ...] = ()  # AMBIGU : triés par str(uuid)
+    # AMBIGU « voisin numéroté » (B-05) : les candidats ne diffèrent du nom
+    # cherché que par des nombres. Ce n'est pas un ex æquo : « à confirmer »,
+    # et cela ne confirme jamais un chantier reconnu par ailleurs.
+    voisin_numerote: bool = False
 
 
 class TypeDecision(StrEnum):
@@ -123,34 +127,59 @@ def reconnaitre_chantier(
     ou meilleur score < `seuil` -> `INCONNU` ; un seul chantier au meilleur
     score -> `RECONNU` ; plusieurs chantiers différents à égalité ->
     `AMBIGU` (candidats triés par `str(uuid)`, comparaison indépendante de
-    l'ordre d'insertion)."""
+    l'ordre d'insertion). Un nom connu qui ne porte pas les mêmes nombres
+    n'est jamais `RECONNU` (voir plus bas, B-05)."""
     decompose = decomposer_chantier(brut)
     if decompose is None:
         return Correspondance(EtatCorrespondance.VIDE)
+    # B-05 : un nom connu qui ne porte pas les mêmes nombres que le nom lu
+    # (« Lot 12 » / « Lot 13 ») n'est jamais rattaché d'office, quelle que
+    # soit la ressemblance : il est seulement proposé (AMBIGU -> « à
+    # confirmer »), sauf si un nom connu de mêmes nombres atteint le seuil.
     meilleurs: dict[uuid.UUID, int] = {}
+    voisins: dict[uuid.UUID, int] = {}
     for nom in noms:
         score = ressemblance(decompose.libelle, nom.libelle)
-        if score > meilleurs.get(nom.chantier_id, -1):
-            meilleurs[nom.chantier_id] = score
-    if not meilleurs:
-        return Correspondance(EtatCorrespondance.INCONNU, libelle=decompose.libelle)
-    meilleur = max(meilleurs.values())
-    if meilleur < seuil:
-        return Correspondance(EtatCorrespondance.INCONNU, libelle=decompose.libelle)
-    gagnants = sorted((cid for cid, s in meilleurs.items() if s == meilleur), key=str)
-    if len(gagnants) == 1:
-        return Correspondance(
-            EtatCorrespondance.RECONNU,
-            libelle=decompose.libelle,
-            chantier_id=gagnants[0],
-            score=meilleur,
+        cible = (
+            voisins if nombres_differents(decompose.libelle, nom.libelle) else meilleurs
         )
-    return Correspondance(
-        EtatCorrespondance.AMBIGU,
-        libelle=decompose.libelle,
-        score=meilleur,
-        candidats=tuple(gagnants),
-    )
+        if score > cible.get(nom.chantier_id, -1):
+            cible[nom.chantier_id] = score
+    # Un chantier qui a au moins un nom de mêmes nombres n'est pas un « voisin
+    # numéroté » : on le retire des voisins. Sinon un autre de ses noms (aux
+    # nombres différents) le proposerait à confirmer alors que son nom de
+    # mêmes nombres est déjà sous le seuil (il n'est alors ni rattaché ni
+    # proposé : INCONNU, comme avant B-05).
+    for cid in meilleurs:
+        voisins.pop(cid, None)
+    if meilleurs and max(meilleurs.values()) >= seuil:
+        meilleur = max(meilleurs.values())
+        gagnants = sorted(
+            (cid for cid, s in meilleurs.items() if s == meilleur), key=str
+        )
+        if len(gagnants) == 1:
+            return Correspondance(
+                EtatCorrespondance.RECONNU,
+                libelle=decompose.libelle,
+                chantier_id=gagnants[0],
+                score=meilleur,
+            )
+        return Correspondance(
+            EtatCorrespondance.AMBIGU,
+            libelle=decompose.libelle,
+            score=meilleur,
+            candidats=tuple(gagnants),
+        )
+    proches = {cid: s for cid, s in voisins.items() if s >= seuil}
+    if proches:
+        return Correspondance(
+            EtatCorrespondance.AMBIGU,
+            libelle=decompose.libelle,
+            score=max(proches.values()),
+            candidats=tuple(sorted(proches, key=str)),
+            voisin_numerote=True,
+        )
+    return Correspondance(EtatCorrespondance.INCONNU, libelle=decompose.libelle)
 
 
 def correspondance_exacte(brut: str | None, chantier_id: uuid.UUID) -> Correspondance:
@@ -200,7 +229,9 @@ def decider_chantier(lu: Correspondance, legende: Correspondance) -> DecisionCha
                     (legende.chantier_id,) if legende.chantier_id else (),
                 ),
             )
-        if legende.etat is AMBIGU and lu_id not in legende.candidats:
+        if legende.etat is AMBIGU and (
+            legende.voisin_numerote or lu_id not in legende.candidats
+        ):
             return DecisionChantier(
                 TypeDecision.ALERTE,
                 candidats=_sans_doublon((lu_id,), legende.candidats),

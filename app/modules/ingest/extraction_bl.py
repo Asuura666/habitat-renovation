@@ -86,9 +86,13 @@ from app.modules.extract.verification import (
     motif_en_json,
     verifier_bl,
 )
+from app.modules.ingest.commun import logger
 from app.modules.ingest.models import Document, Journal, Ligne
 from app.modules.ingest.prix_bl import controler_prix_bl_sans_echec
-from app.modules.ingest.rapprochement import rapprocher_factures_du_bl
+from app.modules.ingest.rapprochement import (
+    rapprocher_factures_du_bl,
+    supprimer_liens_de_lignes,
+)
 from app.modules.ingest.rattachement_chantier import rattacher_chantier_document
 from app.modules.ingest.referentiels import (
     charger_agences,
@@ -170,8 +174,20 @@ async def _numero_interne_doublon(
     return resultat.scalars().first()
 
 
+async def _terminer(session: AsyncSession, commit: bool) -> None:
+    """Fin d'écriture : `commit()`, ou simple `flush()` quand l'appelant tient
+    la transaction (relecture, `enregistrer_extraction_bl(relance=True)`)."""
+    if commit:
+        await session.commit()
+    else:
+        await session.flush()
+
+
 async def _enregistrer_annotation_illisible(
-    session: AsyncSession, document: Document, reponse: dict[str, Any]
+    session: AsyncSession,
+    document: Document,
+    reponse: dict[str, Any],
+    commit: bool = True,
 ) -> ResultatExtraction:
     """`AnnotationIllisible` (L3-D3/L3-D10) : aucune extraction n'est
     possible, seul le numéro éventuellement détecté par le motif
@@ -246,7 +262,7 @@ async def _enregistrer_annotation_illisible(
         )
     )
 
-    await session.commit()
+    await _terminer(session, commit)
 
     return ResultatExtraction(
         numero=document.numero,
@@ -279,8 +295,17 @@ async def _avec_reprise_doublon(
         # Les lignes supprimées avant la première tentative ont, elles
         # aussi, été annulées par le `rollback` : on les resupprime avant de
         # rejouer (un `DELETE` sans ligne à supprimer ne fait rien).
-        await session.execute(delete(Ligne).where(Ligne.document_id == document_id))
+        await _supprimer_lignes(session, document_id)
         return await executer()
+
+
+async def _supprimer_lignes(session: AsyncSession, document_id: uuid.UUID) -> None:
+    """C-01 : supprime les lignes du document après leurs liens de
+    rapprochement (clé étrangère sans `ON DELETE`) ; le rejeu du
+    rapprochement qui suit l'extraction les recrée."""
+    ids = select(Ligne.id).where(Ligne.document_id == document_id)
+    await supprimer_liens_de_lignes(session, ids)
+    await session.execute(delete(Ligne).where(Ligne.document_id == document_id))
 
 
 async def _rapprocher_si_numero(
@@ -291,10 +316,10 @@ async def _rapprocher_si_numero(
     `detecter_numero_bl` a quand même donné un numéro) peut faire
     correspondre une ou plusieurs factures déjà déposées — rejeu encapsulé
     (`rapprocher_factures_du_bl`), ne fait jamais échouer l'extraction
-    elle-même (déjà commitée). Rien si `resultat.numero` est absent (aucun
-    numéro à chercher)."""
-    if resultat.numero is not None:
-        await rapprocher_factures_du_bl(session, document_id)
+    elle-même (déjà commitée). Toujours rejoué (C-01/B-04) : une relecture qui
+    ne donne plus de numéro doit aussi défaire les liens des blocs qui
+    pointaient sur ce BL ; sans numéro ni lien, le rejeu ne fait rien."""
+    await rapprocher_factures_du_bl(session, document_id)
 
 
 async def enregistrer_extraction_bl(
@@ -329,30 +354,89 @@ async def enregistrer_extraction_bl(
     tolerance = await lire_parametre_decimal(
         session, CLE_TOLERANCE_TOTAL_HT, TOLERANCE_TOTAL_DEFAUT
     )
-    # Une relance (L3-D15) comme un premier passage remplacent entièrement
-    # les lignes existantes — y compris quand l'annotation s'avère illisible.
-    await session.execute(delete(Ligne).where(Ligne.document_id == document_id))
+    if relance:
+        return await _enregistrer_relecture(
+            session, document, document_id, reponse, seuil, tolerance
+        )
 
+    # Premier passage : rien à défaire, chaque écriture commite (le rejeu du
+    # rapprochement qui suit est encapsulé, ne fait jamais échouer la lecture).
+    await _supprimer_lignes(session, document_id)
+    resultat = await _ecrire_extraction(
+        session, document, document_id, reponse, seuil, tolerance, relance, True
+    )
+    await _rapprocher_si_numero(session, document_id, resultat)
+    await controler_prix_bl_sans_echec(session, document_id)
+    return resultat
+
+
+async def _ecrire_extraction(
+    session: AsyncSession,
+    document: Document,
+    document_id: uuid.UUID,
+    reponse: dict[str, Any],
+    seuil: Decimal,
+    tolerance: Decimal,
+    relance: bool,
+    commit: bool,
+) -> ResultatExtraction:
     try:
         extrait = analyser_bl(reponse)
     except AnnotationIllisible:
-        resultat = await _avec_reprise_doublon(
+        return await _avec_reprise_doublon(
             session,
             document_id,
-            lambda: _enregistrer_annotation_illisible(session, document, reponse),
+            lambda: _enregistrer_annotation_illisible(
+                session, document, reponse, commit
+            ),
         )
-        await _rapprocher_si_numero(session, document_id, resultat)
-        await controler_prix_bl_sans_echec(session, document_id)
-        return resultat
-
-    resultat = await _avec_reprise_doublon(
+    return await _avec_reprise_doublon(
         session,
         document_id,
         lambda: _extraire_et_committer(
-            session, document, document_id, extrait, reponse, seuil, tolerance, relance
+            session,
+            document,
+            document_id,
+            extrait,
+            reponse,
+            seuil,
+            tolerance,
+            relance,
+            commit,
         ),
     )
-    await _rapprocher_si_numero(session, document_id, resultat)
+
+
+async def _enregistrer_relecture(
+    session: AsyncSession,
+    document: Document,
+    document_id: uuid.UUID,
+    reponse: dict[str, Any],
+    seuil: Decimal,
+    tolerance: Decimal,
+) -> ResultatExtraction:
+    """Relecture d'un BL (`relance=True`) : suppression des liens et des
+    anciennes lignes, nouvelles lignes, statut et rejeu du rapprochement des
+    factures concernées sont commités **ensemble** (l'appel OCR, lui, a eu
+    lieu avant, hors transaction). Si l'une de ces étapes échoue, tout est
+    annulé -- anciennes lignes et anciens liens intacts --, un message est
+    journalisé (jamais le contenu OCR) et l'erreur remonte : l'utilisateur
+    peut relancer."""
+    try:
+        await _supprimer_lignes(session, document_id)
+        resultat = await _ecrire_extraction(
+            session, document, document_id, reponse, seuil, tolerance, True, False
+        )
+        await rapprocher_factures_du_bl(session, document_id, dans_la_transaction=True)
+        await session.commit()
+    except Exception as exc:
+        await session.rollback()
+        logger.error(
+            "relecture du BL %s annulée (état précédent conservé) : %s",
+            document_id,
+            type(exc).__name__,
+        )
+        raise
     await controler_prix_bl_sans_echec(session, document_id)
     return resultat
 
@@ -366,6 +450,7 @@ async def _extraire_et_committer(
     seuil: Decimal,
     tolerance: Decimal,
     relance: bool,
+    commit: bool = True,
 ) -> ResultatExtraction:
     """Résolution des référentiels, calcul des motifs, écriture des colonnes
     et des lignes, puis commit (finding 3, fix round 1) : isolé du reste
@@ -542,7 +627,7 @@ async def _extraire_et_committer(
         )
     )
 
-    await session.commit()
+    await _terminer(session, commit)
 
     return ResultatExtraction(
         numero=document.numero,

@@ -310,12 +310,18 @@ async def _construire_jeu_non_trivial(
     facture_1a = await _creer_facture(
         db_session, fournisseur=fournisseur_1, numero="F1A"
     )
+    # « Conforme » strict (décision d'Ilane du 29/09/2026) : le bon doit
+    # exister et être validé.
+    bl_1a = await _creer_document_bl(
+        db_session, chantier_id=chantier.id, fournisseur_id=fournisseur_1.id
+    )
     bloc_1a = await _creer_bloc(
         db_session,
         facture=facture_1a,
         chantier_id=chantier.id,
         numero_bl="BL-1A",
         statut_rapprochement="recu",
+        bl_document_id=bl_1a.id,
     )
     await _creer_ligne(
         db_session, document=facture_1a, bloc=bloc_1a, montant_ht=Decimal("100.00")

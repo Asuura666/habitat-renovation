@@ -242,15 +242,26 @@ export function Reglages(): ReactElement {
       <EnTetePage
         titre="Réglages"
         actions={
-          // Task 11 (spec §3) : l'écran « Comptes » (gestion des comptes par
-          // un admin) est accessible depuis Réglages, en plus du lien
-          // discret de la navigation (`Gabarit.tsx`).
-          <Link
-            to="/comptes"
-            className="inline-flex min-h-[44px] items-center rounded-lg border border-bordure bg-surface px-4 py-2 text-sm font-medium text-encre outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
-          >
-            Gérer les comptes
-          </Link>
+          <>
+            {/* Task 11 (spec §3) : l'écran « Comptes » (gestion des comptes
+                par un admin) est accessible depuis Réglages, en plus du lien
+                discret de la navigation (`Gabarit.tsx`). */}
+            <Link
+              to="/comptes"
+              className="inline-flex min-h-[44px] items-center rounded-lg border border-bordure bg-surface px-4 py-2 text-sm font-medium text-encre outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+            >
+              Gérer les comptes
+            </Link>
+            {/* Laboratoire IA (tâche LABO, phase 4 IA, brief) : essai des
+                trois usages de l'IA avant de s'y fier, accessible depuis
+                Réglages. */}
+            <Link
+              to="/ia"
+              className="inline-flex min-h-[44px] items-center rounded-lg border border-bordure bg-surface px-4 py-2 text-sm font-medium text-encre outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+            >
+              Essayer l'IA
+            </Link>
+          </>
         }
       />
       <p className="text-sm text-encre-2">

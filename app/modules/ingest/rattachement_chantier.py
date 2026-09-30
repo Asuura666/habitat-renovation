@@ -100,7 +100,7 @@ from app.modules.normalize.chantier import (
     nom_pour_creation,
     reconnaitre_chantier,
 )
-from app.modules.normalize.texte import normaliser_libelle
+from app.modules.normalize.texte import nombres_differents, normaliser_libelle
 from app.modules.rules.engine import REGLES_CHANTIER, evaluer_chantier
 from app.modules.rules.modeles import ChantierIncertainControle
 
@@ -783,3 +783,70 @@ async def choisir_chantier_document(
     )
     await session.commit()
     return effectif
+
+
+@dataclass(frozen=True)
+class AliasSuspect:
+    """Alias appris dont les nombres diffèrent de ceux du chantier (B-05)."""
+
+    libelle: str
+    chantier: str
+    appris_le: datetime | None
+    nb_documents: int
+
+
+async def lister_alias_suspects(session: AsyncSession) -> list[AliasSuspect]:
+    """Diagnostic en LECTURE SEULE (B-05) : alias rattachés à un chantier dont
+    les nombres diffèrent de ceux du nom du chantier (« … 13 » appris sur
+    « … 12 » par l'ancienne ressemblance). Rien n'est modifié : Ilane relit
+    la liste. `nb_documents` = documents du même fournisseur, rattachés à ce
+    chantier, dont le nom lu décomposé est ce libellé."""
+    alias_list = (
+        (
+            await session.execute(
+                select(ChantierAlias)
+                .where(ChantierAlias.chantier_id.is_not(None))
+                .order_by(ChantierAlias.created_at.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    resultat: list[AliasSuspect] = []
+    for alias in alias_list:
+        if alias.chantier_id is None:
+            continue
+        effectif = await chantier_effectif(session, alias.chantier_id)
+        nom = (
+            await session.execute(
+                select(Chantier.nom_canonique).where(Chantier.id == effectif)
+            )
+        ).scalar_one_or_none()
+        if nom is None or not nombres_differents(alias.libelle_brut, nom):
+            continue
+        noms_lus = (
+            (
+                await session.execute(
+                    select(Document.chantier_brut).where(
+                        Document.fournisseur_id == alias.fournisseur_id,
+                        Document.chantier_id == effectif,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        nb = 0
+        for brut in noms_lus:
+            decompose = decomposer_chantier(brut)
+            if decompose is not None and decompose.libelle == alias.libelle_brut:
+                nb += 1
+        resultat.append(
+            AliasSuspect(
+                libelle=alias.libelle_brut,
+                chantier=nom,
+                appris_le=alias.created_at,
+                nb_documents=nb,
+            )
+        )
+    return resultat

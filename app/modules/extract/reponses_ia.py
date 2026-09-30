@@ -25,9 +25,10 @@ sortie structurée par `ingest/opencode.py`, T3) et sa fonction de lecture :
   peut ni inventer ni recalculer un montant, elle ne fait que le commenter
   (aucune exception, y compris pour les petits nombres : cf. brief T2).
 - Prix trouvé sur internet (§6.2) : `SCHEMA_PRIX_INTERNET`,
-  `lire_prix_internet`, quatre gardes en cascade (réponse complète, source
-  réellement ouverte par l'IA dans cette session, prix relu dans le texte
-  de cette page) : jamais de prix estimé.
+  `lire_prix_internet`, une liste de 1 à 5 offres (depuis le 29/09/2026) ;
+  chaque offre passe trois gardes (réponse complète, source réellement
+  ouverte par l'IA dans cette session, prix relu dans le texte de cette
+  page) et est ramenée en HT (`prix_ht`) : jamais de prix estimé.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ from __future__ import annotations
 import re
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
@@ -48,6 +49,33 @@ class ReponseIAInvalide(Exception):
     """Réponse de l'IA hors contrat (schéma, garde) : message court en
     français, jamais le texte de la réponse elle-même (pas de secret ni de
     contenu client dans un message d'erreur)."""
+
+
+# --------------------------------------------------------------------------
+# Détail d'un contrôle anti-invention (Laboratoire IA, tâche LABO) : chaque
+# fonction `controles_...` ci-dessous détaille, contrôle par contrôle, ce que
+# sa fonction `lire_...` correspondante vérifie déjà -- jamais une seconde
+# implémentation des gardes (les deux s'appuient sur les mêmes fonctions
+# privées), seulement une vue plus détaillée pour l'écran d'essai admin.
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Controle:
+    """Un contrôle anti-invention appliqué à une réponse de l'IA, tel
+    qu'affiché à l'admin sur le Laboratoire IA. `nom` : ce qui est vérifié,
+    en français courant (ex. « La page source a vraiment été ouverte »).
+    `detail` : le verdict précis pour cette réponse (ex. « page https://…
+    lue » / « aucune page ouverte à cette adresse »). Un contrôle qui n'a pas
+    pu être évalué parce qu'un contrôle précédent a déjà échoué porte
+    `ok=False` et `detail="non vérifié (contrôle précédent en échec)"`."""
+
+    nom: str
+    ok: bool
+    detail: str
+
+
+_CONTROLE_NON_EVALUE = "non vérifié (contrôle précédent en échec)"
 
 
 # --------------------------------------------------------------------------
@@ -126,6 +154,18 @@ def _tronquer(texte: str, longueur_max: int) -> str:
     return coupe.rstrip() + "…"
 
 
+def _reference_normalisee(reference: Any) -> str | None:
+    """Référence de commentaire citée par l'IA, ramenée à la forme `cN` :
+    espaces et crochets autour retirés, minuscules -- `None` si ce n'est pas
+    un texte. 29/09/2026, essai réel : la consigne envoyée demandait « les
+    références [cN] » (avec crochets), celle de l'agent « c1, c2 » ; une
+    réponse citant « [c1] » voyait toutes ses actions écartées. La référence
+    normalisée reste vérifiée contre les références réellement envoyées."""
+    if not isinstance(reference, str):
+        return None
+    return reference.strip().strip("[]").strip().lower()
+
+
 def lire_synthese(structure: Any, references_valides: Collection[str]) -> SyntheseLue:
     """Lit et garde une réponse `SCHEMA_SYNTHESE`. Une action est écartée
     silencieusement (jamais l'ensemble de la synthèse) si elle est mal
@@ -160,9 +200,10 @@ def lire_synthese(structure: Any, references_valides: Collection[str]) -> Synthe
             continue
 
         references: list[str] = []
-        for reference in commentaires_bruts:
+        for reference_citee in commentaires_bruts:
+            reference = _reference_normalisee(reference_citee)
             if (
-                isinstance(reference, str)
+                reference is not None
                 and reference in references_valides_figees
                 and reference not in references
             ):
@@ -178,6 +219,98 @@ def lire_synthese(structure: Any, references_valides: Collection[str]) -> Synthe
         )
 
     return SyntheseLue(resume=resume, actions=tuple(actions))
+
+
+_NOM_FORME_SYNTHESE = "La réponse a la forme attendue (résumé et actions)"
+_NOM_RESUME_SYNTHESE = "Le résumé n'est pas vide"
+
+
+def controles_synthese(
+    structure: Any, references_valides: Collection[str]
+) -> tuple[Controle, ...]:
+    """Détail, contrôle par contrôle, de ce que vérifie `lire_synthese` sur
+    la même entrée (Laboratoire IA) : forme de la réponse, résumé non vide,
+    puis une ligne par action brute -- gardée (toutes ses références valides,
+    ou certaines retirées) ou écartée (sans texte, aucune référence valide,
+    au-delà des `_ACTIONS_MAX` premières). Jamais de seconde implémentation
+    des gardes : mêmes conditions que `lire_synthese`, lues sur la même
+    entrée."""
+    if not isinstance(structure, dict):
+        return (Controle(_NOM_FORME_SYNTHESE, False, "réponse de l'IA invalide"),)
+
+    resume_brut = structure.get("resume")
+    actions_brutes = structure.get("actions")
+    if not isinstance(resume_brut, str) or not isinstance(actions_brutes, list):
+        return (
+            Controle(
+                _NOM_FORME_SYNTHESE,
+                False,
+                "champ « resume » ou « actions » manquant ou invalide",
+            ),
+        )
+    controles: list[Controle] = [
+        Controle(_NOM_FORME_SYNTHESE, True, "réponse bien formée")
+    ]
+
+    resume = resume_brut.strip()
+    if not resume:
+        controles.append(Controle(_NOM_RESUME_SYNTHESE, False, "résumé vide"))
+        return tuple(controles)
+    controles.append(
+        Controle(_NOM_RESUME_SYNTHESE, True, f"{len(resume)} caractère(s)")
+    )
+
+    references_valides_figees = frozenset(references_valides)
+    for indice, action_brute in enumerate(actions_brutes, start=1):
+        nom = f"Action {indice} de la réponse"
+        if indice > _ACTIONS_MAX:
+            controles.append(
+                Controle(nom, False, f"au-delà des {_ACTIONS_MAX} premières, écartée")
+            )
+            continue
+        if not isinstance(action_brute, dict):
+            controles.append(Controle(nom, False, "action mal formée, écartée"))
+            continue
+        texte_brut = action_brute.get("texte")
+        commentaires_bruts = action_brute.get("commentaires")
+        if not isinstance(texte_brut, str) or not isinstance(commentaires_bruts, list):
+            controles.append(Controle(nom, False, "action mal formée, écartée"))
+            continue
+        if not texte_brut.strip():
+            controles.append(Controle(nom, False, "sans texte, écartée"))
+            continue
+
+        references_valides_de_laction = [
+            reference
+            for reference in commentaires_bruts
+            if _reference_normalisee(reference) in references_valides_figees
+        ]
+        references_inconnues = [
+            reference
+            for reference in commentaires_bruts
+            if _reference_normalisee(reference) not in references_valides_figees
+        ]
+        if not references_valides_de_laction:
+            citees = (
+                "citées : "
+                + ", ".join(str(reference) for reference in commentaires_bruts)
+                if commentaires_bruts
+                else "aucune citée"
+            )
+            controles.append(
+                Controle(nom, False, f"aucune référence valide ({citees}), écartée")
+            )
+            continue
+
+        if references_inconnues:
+            detail = "gardée, références inconnues retirées : " + ", ".join(
+                str(reference) for reference in references_inconnues
+            )
+        else:
+            detail = "gardée, toutes les références citées sont valides"
+        controles.append(Controle(nom, True, detail))
+
+    return tuple(controles)
 
 
 # --------------------------------------------------------------------------
@@ -309,6 +442,72 @@ def lire_explication(structure: Any, detail: Mapping[str, Any]) -> str:
     return explication
 
 
+_NOM_FORME_EXPLICATION = "La réponse a la forme attendue (texte)"
+_NOM_LONGUEUR_EXPLICATION = (
+    f"Le texte n'est ni vide ni trop long ({_EXPLICATION_MAX} caractères au plus)"
+)
+
+
+def controles_explication(
+    structure: Any, detail: Mapping[str, Any]
+) -> tuple[Controle, ...]:
+    """Détail, contrôle par contrôle, de ce que vérifie `lire_explication`
+    sur la même entrée (Laboratoire IA) : forme de la réponse, longueur, puis
+    un contrôle par nombre écrit dans l'explication -- même garde que
+    `lire_explication` (`_nombre_valide_dans_detail`, lecture fusionnée ou
+    par parties), jamais une seconde implémentation."""
+    if not isinstance(structure, dict):
+        return (Controle(_NOM_FORME_EXPLICATION, False, "réponse de l'IA invalide"),)
+
+    explication_brute = structure.get("explication")
+    if not isinstance(explication_brute, str):
+        return (
+            Controle(
+                _NOM_FORME_EXPLICATION,
+                False,
+                "champ « explication » manquant ou invalide",
+            ),
+        )
+    controles: list[Controle] = [
+        Controle(_NOM_FORME_EXPLICATION, True, "réponse bien formée")
+    ]
+
+    explication = explication_brute.strip()
+    if not explication:
+        controles.append(Controle(_NOM_LONGUEUR_EXPLICATION, False, "texte vide"))
+        return tuple(controles)
+    if len(explication) > _EXPLICATION_MAX:
+        controles.append(
+            Controle(
+                _NOM_LONGUEUR_EXPLICATION,
+                False,
+                f"{len(explication)} caractères, plus de {_EXPLICATION_MAX}",
+            )
+        )
+        return tuple(controles)
+    controles.append(
+        Controle(_NOM_LONGUEUR_EXPLICATION, True, f"{len(explication)} caractère(s)")
+    )
+
+    nombres_detail = _nombres_de_valeur(detail)
+    for correspondance in _NOMBRE_RE.finditer(explication):
+        brut = correspondance.group()
+        valide = _nombre_valide_dans_detail(brut, nombres_detail)
+        controles.append(
+            Controle(
+                nom=f"Le nombre « {brut} » écrit par l'IA",
+                ok=valide,
+                detail=(
+                    f"{brut} figure dans les données"
+                    if valide
+                    else f"{brut} absent des données"
+                ),
+            )
+        )
+
+    return tuple(controles)
+
+
 # --------------------------------------------------------------------------
 # Prix trouvé sur internet (§6.2) -- quatre gardes en cascade
 # --------------------------------------------------------------------------
@@ -316,31 +515,46 @@ def lire_explication(structure: Any, detail: Mapping[str, Any]) -> str:
 SCHEMA_PRIX_INTERNET: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": [
-        "statut",
-        "produit_trouve",
-        "prix",
-        "devise",
-        "taxes",
-        "unite",
-        "conditionnement",
-        "source_url",
-        "confiance",
-        "raison",
-    ],
+    "required": ["statut", "raison", "offres"],
     "properties": {
         "statut": {"type": "string", "enum": ["trouve", "prix_non_verifiable"]},
-        "produit_trouve": {"type": "string"},
-        "prix": {"type": "number"},
-        "devise": {"type": "string"},
-        "taxes": {"type": "string", "enum": ["HT", "TTC", "inconnu"]},
-        "unite": {"type": "string"},
-        "conditionnement": {"type": "string"},
-        "source_url": {"type": "string"},
-        "confiance": {"type": "string", "enum": ["faible", "moyenne", "elevee"]},
         "raison": {"type": "string"},
+        "offres": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": [
+                    "produit_trouve",
+                    "prix",
+                    "devise",
+                    "taxes",
+                    "unite",
+                    "conditionnement",
+                    "source_url",
+                    "confiance",
+                ],
+                "properties": {
+                    "produit_trouve": {"type": "string"},
+                    "prix": {"type": "number"},
+                    "devise": {"type": "string"},
+                    "taxes": {"type": "string", "enum": ["HT", "TTC", "inconnu"]},
+                    "unite": {"type": "string"},
+                    "conditionnement": {"type": "string"},
+                    "source_url": {"type": "string"},
+                    "confiance": {
+                        "type": "string",
+                        "enum": ["faible", "moyenne", "elevee"],
+                    },
+                },
+            },
+        },
     },
 }
+
+OFFRES_MAX = 5
+TVA_PRIX_INTERNET = Decimal("1.20")
+_CENTIME = Decimal("0.01")
 
 _RAISON_MAX = 300
 _CONFIANCES_VALIDES = frozenset({"faible", "moyenne", "elevee"})
@@ -354,8 +568,48 @@ _TAXES_VALIDES = frozenset({"HT", "TTC"})
 _SEPARATEURS_PRIX = _SEPARATEURS_MILLIERS + "."
 
 
+def prix_ht(prix: Decimal, taxes: str | None) -> Decimal | None:
+    """Prix ramené en HT pour comparer des offres entre elles et au prix
+    facturé (HT) : `HT` tel quel, `TTC` ÷ 1,20 (TVA 20 %), au centime ;
+    `None` quand le site ne dit ni HT ni TTC (décision d'Ilane du
+    29/09/2026 : une telle offre reste listée mais ne compte ni dans le plus
+    bas ni dans l'écart)."""
+    if taxes == "HT":
+        return prix.quantize(_CENTIME, rounding=ROUND_HALF_UP)
+    if taxes == "TTC":
+        return (prix / TVA_PRIX_INTERNET).quantize(_CENTIME, rounding=ROUND_HALF_UP)
+    return None
+
+
+def cle_tri_offre(prix_ht_offre: Decimal | None) -> tuple[bool, Decimal]:
+    """Clé de tri des offres, partagée avec la vue (`ingest.ia_prix`) : `prix_ht`
+    croissant, offres sans HT (`None`) à la fin ; `sorted` étant stable,
+    l'ordre d'origine (celui de l'IA) départage les égalités."""
+    return (prix_ht_offre is None, prix_ht_offre or Decimal(0))
+
+
+@dataclass(frozen=True)
+class OffreLue:
+    """Une offre gardée (§6.2) : page ouverte, prix relu dans son texte."""
+
+    prix: Decimal
+    devise: str
+    taxes: Literal["HT", "TTC"] | None
+    prix_ht: Decimal | None
+    unite: str | None
+    conditionnement: str | None
+    produit_trouve: str
+    source_url: str
+    confiance: str
+
+
 @dataclass(frozen=True)
 class PrixInternetLu:
+    """Résultat de la lecture. Les champs à plat reprennent l'offre la moins
+    chère en HT (à défaut la première gardée) ; `offres` liste les offres
+    gardées, triées par `prix_ht` croissant (`None` à la fin, ordre de l'IA
+    à égalité)."""
+
     statut: Literal["trouve", "non_verifiable"]
     prix: Decimal | None
     devise: str | None
@@ -366,6 +620,7 @@ class PrixInternetLu:
     source_url: str | None
     confiance: str | None
     raison: str | None
+    offres: tuple[OffreLue, ...] = ()
 
 
 def _texte_ou_none(valeur: Any) -> str | None:
@@ -383,21 +638,36 @@ def _est_nombre(valeur: Any) -> bool:
     return isinstance(valeur, (int, float)) and not isinstance(valeur, bool)
 
 
+PRIX_INTERNET_MAX = Decimal(1_000_000)
+"""Borne haute (exclue) d'un prix internet plausible : au-delà, l'offre est
+écartée (relecture finale du 29/09/2026 : `1e30` ou `Infinity` faisaient
+lever `InvalidOperation` à la quantification)."""
+
+
+def est_prix_internet_plausible(prix: Decimal) -> bool:
+    """`0 < prix < 1 000 000`, fini (NaN et infinis refusés)."""
+    return prix.is_finite() and 0 < prix < PRIX_INTERNET_MAX
+
+
 def _est_prix_valide(valeur: Any) -> bool:
-    """`_est_nombre` et strictement positif. Isolé dans une fonction dont
+    """`_est_nombre`, fini et dans `]0 ; 1 000 000[`. Isolé dans une fonction dont
     le paramètre est un `Any` simple (fix round 1, revue T2) : `dict.get`
     sans valeur par défaut type son retour `Any | None`, et mypy refuse
     alors `valeur > 0` (opérande `None` de l'union) même si `valeur` est en
     réalité toujours un nombre à ce stade -- un paramètre `Any` nommé,
     plutôt qu'un `and prix_brut is not None` redondant avec `_est_nombre`
     dans l'appelant, tranche le problème sans changer le comportement."""
-    return _est_nombre(valeur) and valeur > 0
+    return _est_nombre(valeur) and 0 < valeur < PRIX_INTERNET_MAX
 
 
 def _non_verifiable(structure: dict[Any, Any], raison: str) -> PrixInternetLu:
-    """Résultat `non_verifiable` : `produit_trouve`/`source_url` gardés
-    quand présents (utiles à l'humain même sans prix fiable), `prix` et le
-    reste toujours `None` (§6.2, dernier paragraphe)."""
+    """Résultat `non_verifiable` : `produit_trouve`/`source_url` de la
+    première offre gardés quand présents (utiles à l'humain même sans prix
+    fiable), `prix` et le reste toujours `None` (§6.2, dernier paragraphe)."""
+    offres = structure.get("offres")
+    premiere = offres[0] if isinstance(offres, list) and offres else None
+    if not isinstance(premiere, dict):
+        premiere = {}
     return PrixInternetLu(
         statut="non_verifiable",
         prix=None,
@@ -405,19 +675,23 @@ def _non_verifiable(structure: dict[Any, Any], raison: str) -> PrixInternetLu:
         taxes=None,
         unite=None,
         conditionnement=None,
-        produit_trouve=_texte_ou_none(structure.get("produit_trouve")),
-        source_url=_texte_ou_none(structure.get("source_url")),
+        produit_trouve=_texte_ou_none(premiere.get("produit_trouve")),
+        source_url=_texte_ou_none(premiere.get("source_url")),
         confiance=None,
         raison=raison,
     )
 
 
-def _normaliser_adresse(adresse: str) -> str:
+def _normaliser_adresse(adresse: str) -> str | None:
     """Adresse comparable pour la garde 3 : schéma et hôte en minuscules,
     barre oblique finale du chemin et fragment ignorés (§6.2 : « à la barre
-    oblique finale près »)."""
+    oblique finale près »). `None` pour une adresse illisible (`urlsplit`
+    lève `ValueError`, ex. `https://[x`) : jamais une page ouverte."""
     sans_fragment, _, _ = adresse.partition("#")
-    decoupee = urlsplit(sans_fragment)
+    try:
+        decoupee = urlsplit(sans_fragment)
+    except ValueError:
+        return None
     chemin = decoupee.path.rstrip("/")
     return urlunsplit(
         (decoupee.scheme.lower(), decoupee.netloc.lower(), chemin, decoupee.query, "")
@@ -426,8 +700,11 @@ def _normaliser_adresse(adresse: str) -> str:
 
 def _page_ouverte(adresse: str, pages: Sequence[PageLue]) -> PageLue | None:
     """La page `webfetch` (jamais `websearch`) dont l'adresse normalisée
-    correspond à `adresse`, ou `None` si aucune (garde 3)."""
+    correspond à `adresse`, ou `None` si aucune (garde 3) ou si `adresse`
+    est illisible."""
     cible = _normaliser_adresse(adresse)
+    if cible is None:
+        return None
     for page in pages:
         if page.outil == "webfetch" and _normaliser_adresse(page.adresse) == cible:
             return page
@@ -472,12 +749,20 @@ def _prix_dans_texte(prix: Decimal, texte: str) -> bool:
     décimales (`45,00`/`45.00`, déjà couverte par le premier motif) : le
     « € » est accepté collé ou après un simple espace, « EUR » doit être un
     mot entier (`EUR\\b`) pour ne pas matcher un mot qui commence pareil
-    (« 45 Euromaster »)."""
+    (« 45 Euromaster »). Le « € » est aussi reconnu entre les euros et les
+    centimes (« 7€47 », « 2 €49 »), écriture courante chez les enseignes
+    (29/09/2026, page Brico Dépôt : prix rejeté alors qu'il figurait sur la
+    page) -- espace admis avant le « € », jamais après, mêmes bornes que
+    l'écriture « 7,47 »."""
     prix_2dec = prix.quantize(Decimal("0.01"))
     entier_str, decimales_str = f"{prix_2dec:.2f}".split(".")
     motif_entier = _motif_entier(entier_str)
 
-    motifs = [rf"{_AVANT_PRIX}{motif_entier}[.,]{decimales_str}{_APRES_PRIX}"]
+    motifs = [
+        rf"{_AVANT_PRIX}{motif_entier}[.,]{decimales_str}{_APRES_PRIX}",
+        rf"{_AVANT_PRIX}{motif_entier}[{_SEPARATEURS_MILLIERS}]?€{decimales_str}"
+        rf"{_APRES_PRIX}",
+    ]
     if decimales_str == "00":
         separateur_devise = f"[{_SEPARATEURS_MILLIERS}]?"
         motifs.append(rf"{_AVANT_PRIX}{motif_entier}{separateur_devise}€")
@@ -488,75 +773,199 @@ def _prix_dans_texte(prix: Decimal, texte: str) -> bool:
     return any(re.search(motif, texte, re.IGNORECASE) for motif in motifs)
 
 
-def lire_prix_internet(structure: Any, pages: Sequence[PageLue]) -> PrixInternetLu:
-    """Lit et garde une réponse `SCHEMA_PRIX_INTERNET`. Seule une
-    `structure` qui n'est pas un dict est un échec de contrat (exception) :
-    toute autre réponse douteuse (statut inconnu, champ manquant, source
-    non ouverte par l'IA, prix introuvable dans la page) donne un résultat
-    `non_verifiable`, jamais une exception -- la recherche sur internet est
-    par nature incertaine (§6.2)."""
-    if not isinstance(structure, dict):
-        raise ReponseIAInvalide("réponse de l'IA invalide")
+_NOM_GARDE_STATUT = "L'IA annonce un prix, pas « non vérifiable »"
+_NOM_AUCUNE_OFFRE = "Au moins une offre"
+_DETAIL_INCOMPLETE = (
+    "écartée : champ manquant ou invalide (prix, devise, source ou confiance)"
+)
 
+
+def _domaine(adresse: Any) -> str | None:
+    if not isinstance(adresse, str):
+        return None
+    try:
+        hote = urlsplit(adresse).hostname or ""
+    except ValueError:
+        return None
+    return hote.removeprefix("www.") or None
+
+
+def _nom_offre(indice: int, offre_brute: Any) -> str:
+    domaine = (
+        _domaine(offre_brute.get("source_url"))
+        if isinstance(offre_brute, dict)
+        else None
+    )
+    return f"Offre {indice} — {domaine}" if domaine else f"Offre {indice}"
+
+
+def _evaluer_offre(
+    offre_brute: Any, pages: Sequence[PageLue]
+) -> tuple[OffreLue | None, str, str]:
+    """Gardes 2 à 4 du §6.2 sur une offre -> `(offre gardée ou None,
+    raison courte, détail pour le Laboratoire)`."""
+    if not isinstance(offre_brute, dict):
+        return None, "réponse incomplète", _DETAIL_INCOMPLETE
+    prix_brut = offre_brute.get("prix")
+    devise_brute = offre_brute.get("devise")
+    source_url = _texte_ou_none(offre_brute.get("source_url"))
+    produit_trouve = _texte_ou_none(offre_brute.get("produit_trouve"))
+    confiance = offre_brute.get("confiance")
+    if (
+        not _est_prix_valide(prix_brut)
+        or not isinstance(devise_brute, str)
+        or devise_brute.strip().upper() != "EUR"
+        or source_url is None
+        or not source_url.startswith("https://")
+        or produit_trouve is None
+        or confiance not in _CONFIANCES_VALIDES
+    ):
+        return None, "réponse incomplète", _DETAIL_INCOMPLETE
+    page = _page_ouverte(source_url, pages)
+    if page is None:
+        return (
+            None,
+            "source non ouverte",
+            f"écartée : aucune page ouverte à l'adresse {source_url}",
+        )
+    prix = Decimal(str(prix_brut)).quantize(Decimal("0.0001"))
+    if not _prix_dans_texte(prix, page.texte):
+        return (
+            None,
+            "prix absent de la page",
+            "écartée : prix absent du texte de la page lue",
+        )
+    taxes_brut = offre_brute.get("taxes")
+    taxes: Literal["HT", "TTC"] | None = (
+        taxes_brut if taxes_brut in _TAXES_VALIDES else None
+    )
+    offre = OffreLue(
+        prix=prix,
+        devise="EUR",
+        taxes=taxes,
+        prix_ht=prix_ht(prix, taxes),
+        unite=_texte_ou_none(offre_brute.get("unite")),
+        conditionnement=_texte_ou_none(offre_brute.get("conditionnement")),
+        produit_trouve=produit_trouve,
+        source_url=source_url,
+        confiance=str(confiance),
+    )
+    return offre, "", f"gardée : page {source_url} lue, prix retrouvé"
+
+
+def _gardes_prix_internet(
+    structure: dict[Any, Any], pages: Sequence[PageLue]
+) -> tuple[PrixInternetLu, tuple[Controle, ...]]:
+    """Évalue les gardes du §6.2 une seule fois -- `lire_prix_internet`
+    (résultat) et `controles_prix_internet` (détail affiché à l'admin,
+    Laboratoire IA) s'appuient toutes les deux sur cette fonction, jamais sur
+    deux implémentations distinctes des gardes. Le statut est contrôlé une
+    fois, puis chaque offre (5 au plus, de pages différentes) passe les
+    gardes 2 à 4 : une offre en échec est écartée, les autres restent."""
     statut_brut = structure.get("statut")
 
-    # Garde 1. `raison` est coupée brutalement à `_RAISON_MAX` caractères
-    # (jamais `_tronquer` : pas de règle « … sans couper un mot » pour ce
-    # champ, le brief ne la décrit que pour `resume`/le texte d'une action
-    # de la synthèse).
+    # `raison` est coupée brutalement à `_RAISON_MAX` caractères (jamais
+    # `_tronquer` : pas de règle « … sans couper un mot » pour ce champ).
     if statut_brut == "prix_non_verifiable":
         raison_brute = _texte_ou_none(structure.get("raison"))
         raison = (
             raison_brute[:_RAISON_MAX] if raison_brute is not None else "non vérifiable"
         )
-        return _non_verifiable(structure, raison)
+        return _non_verifiable(structure, raison), (
+            Controle(_NOM_GARDE_STATUT, False, "l'IA répond « prix non vérifiable »"),
+        )
 
     if statut_brut != "trouve":
-        return _non_verifiable(structure, "réponse incomplète")
+        return _non_verifiable(structure, "réponse incomplète"), (
+            Controle(
+                _NOM_GARDE_STATUT, False, "réponse de l'IA sans statut exploitable"
+            ),
+        )
 
-    # Garde 2.
-    prix_brut = structure.get("prix")
-    devise_brute = structure.get("devise")
-    source_url = _texte_ou_none(structure.get("source_url"))
-    produit_trouve = _texte_ou_none(structure.get("produit_trouve"))
-    confiance = structure.get("confiance")
+    controles: list[Controle] = [
+        Controle(_NOM_GARDE_STATUT, True, "l'IA répond « trouvé »")
+    ]
+    offres_brutes = structure.get("offres")
+    if not isinstance(offres_brutes, list):
+        offres_brutes = []
 
-    reponse_complete = (
-        _est_prix_valide(prix_brut)
-        and isinstance(devise_brute, str)
-        and devise_brute.strip().upper() == "EUR"
-        and source_url is not None
-        and source_url.startswith("https://")
-        and produit_trouve is not None
-        and confiance in _CONFIANCES_VALIDES
-    )
-    if not reponse_complete or source_url is None:
-        return _non_verifiable(structure, "réponse incomplète")
+    gardees: list[OffreLue] = []
+    adresses_gardees: set[str] = set()
+    premiere_raison: str | None = None
+    for indice, offre_brute in enumerate(offres_brutes, start=1):
+        nom = _nom_offre(indice, offre_brute)
+        if len(gardees) >= OFFRES_MAX:
+            controles.append(
+                Controle(
+                    nom, False, f"écartée : au-delà des {OFFRES_MAX} offres gardées"
+                )
+            )
+            continue
+        offre, raison_courte, detail = _evaluer_offre(offre_brute, pages)
+        if offre is None:
+            if premiere_raison is None:
+                premiere_raison = raison_courte
+            controles.append(Controle(nom, False, detail))
+            continue
+        adresse = _normaliser_adresse(offre.source_url) or offre.source_url
+        if adresse in adresses_gardees:
+            controles.append(
+                Controle(nom, False, "écartée : même page qu'une offre déjà gardée")
+            )
+            continue
+        adresses_gardees.add(adresse)
+        gardees.append(offre)
+        controles.append(Controle(nom, True, detail))
 
-    # Garde 3.
-    page = _page_ouverte(source_url, pages)
-    if page is None:
-        return _non_verifiable(structure, "source non ouverte")
+    if not offres_brutes:
+        controles.append(
+            Controle(_NOM_AUCUNE_OFFRE, False, "aucune offre dans la réponse")
+        )
 
-    # Garde 4.
-    prix_decimal = Decimal(str(prix_brut)).quantize(Decimal("0.0001"))
-    if not _prix_dans_texte(prix_decimal, page.texte):
-        return _non_verifiable(structure, "prix absent de la page")
+    if not gardees:
+        return _non_verifiable(structure, premiere_raison or "aucune offre"), tuple(
+            controles
+        )
 
-    taxes_brut = structure.get("taxes")
-    taxes: Literal["HT", "TTC"] | None = (
-        taxes_brut if taxes_brut in _TAXES_VALIDES else None
-    )
-
-    return PrixInternetLu(
+    triees = sorted(gardees, key=lambda o: cle_tri_offre(o.prix_ht))
+    m = triees[0]
+    resultat = PrixInternetLu(
         statut="trouve",
-        prix=prix_decimal,
+        prix=m.prix,
         devise="EUR",
-        taxes=taxes,
-        unite=_texte_ou_none(structure.get("unite")),
-        conditionnement=_texte_ou_none(structure.get("conditionnement")),
-        produit_trouve=produit_trouve,
-        source_url=source_url,
-        confiance=confiance,
+        taxes=m.taxes,
+        unite=m.unite,
+        conditionnement=m.conditionnement,
+        produit_trouve=m.produit_trouve,
+        source_url=m.source_url,
+        confiance=m.confiance,
         raison=None,
+        offres=tuple(triees),
     )
+    return resultat, tuple(controles)
+
+
+def lire_prix_internet(structure: Any, pages: Sequence[PageLue]) -> PrixInternetLu:
+    """Lit et garde une réponse `SCHEMA_PRIX_INTERNET`. Seule une
+    `structure` qui n'est pas un dict est un échec de contrat (exception) :
+    toute autre réponse douteuse (statut inconnu, ancien format sans
+    `offres`, source non ouverte par l'IA, prix introuvable dans la page)
+    donne un résultat `non_verifiable` ou écarte l'offre concernée, jamais
+    une exception -- la recherche sur internet est par nature incertaine
+    (§6.2)."""
+    if not isinstance(structure, dict):
+        raise ReponseIAInvalide("réponse de l'IA invalide")
+    resultat, _controles = _gardes_prix_internet(structure, pages)
+    return resultat
+
+
+def controles_prix_internet(
+    structure: Any, pages: Sequence[PageLue]
+) -> tuple[Controle, ...]:
+    """Détail des gardes de `lire_prix_internet` (statut, puis une ligne par
+    offre) sur la même entrée (Laboratoire IA) -- s'appuie sur
+    `_gardes_prix_internet`, jamais sur une seconde implémentation."""
+    if not isinstance(structure, dict):
+        return (Controle(_NOM_GARDE_STATUT, False, "réponse de l'IA invalide"),)
+    _resultat, controles = _gardes_prix_internet(structure, pages)
+    return controles

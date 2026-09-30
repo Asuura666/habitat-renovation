@@ -108,3 +108,93 @@ export function lirePrixInternet(anomalieIds: string[]): Promise<PrixInternetLot
     url: `/api/ia/prix-internet?${parametres.toString()}`,
   });
 }
+
+/**
+ * Laboratoire IA (tâche LABO, admin) : teste les trois usages de l'IA avant
+ * de s'y fier, sans jamais rien enregistrer (`ingest.ia_labo`). Mêmes
+ * attributs que les dataclasses d'`ingest.ia_labo` (`TraceEssai`,
+ * `OutilTrace`, `LigneAppelIA`) et `ingest.opencode.DiagnosticIA` — voir
+ * `app/modules/api/schemas.py`.
+ */
+export type EtatLabo = components["schemas"]["EtatLaboReponse"];
+export type ControleEssai = components["schemas"]["ControleReponse"];
+export type OutilEssai = components["schemas"]["OutilTraceReponse"];
+export type TraceEssai = components["schemas"]["TraceEssaiReponse"];
+export type TraceEssaiResume = components["schemas"]["TraceEssaiResumeReponse"];
+export type AppelIALigne = components["schemas"]["AppelIALigneReponse"];
+export type EssaiLance = components["schemas"]["EssaiLanceReponse"];
+
+/** `GET /api/ia/labo/etat` (admin) : diagnostic d'OpenCode et appels du
+ * jour/plafond — rafraîchi toutes les 30 s (`refetchInterval`), même rythme
+ * que le reste de l'écran hors essai en cours. */
+export const CLE_ETAT_LABO = ["ia", "labo", "etat"] as const;
+export function lireEtatLabo(): Promise<EtatLabo> {
+  return appelerApi<EtatLabo>("/api/ia/labo/etat");
+}
+
+/** `POST /api/ia/labo/essais/prix` (admin) : lance un essai de recherche de
+ * prix internet, `202` + l'identifiant de l'essai (`ingest.ia_labo
+ * .lancer_essai_prix`) — rien n'est enregistré, l'appel compte dans le
+ * plafond du jour. */
+export function lancerEssaiPrixLabo(corps: {
+  fournisseur?: string;
+  designation: string;
+  code?: string;
+  unite?: string;
+}): Promise<EssaiLance> {
+  return appelerApi<EssaiLance>("/api/ia/labo/essais/prix", {
+    method: "POST",
+    json: corps,
+  });
+}
+
+/** `POST /api/ia/labo/essais/explication` (admin) : lance un essai
+ * d'explication d'une alerte prix — 404 si l'anomalie est inconnue ou hors
+ * catégorie « prix » (`ingest.ia_labo.lancer_essai_explication`). */
+export function lancerEssaiExplicationLabo(anomalieId: string): Promise<EssaiLance> {
+  return appelerApi<EssaiLance>("/api/ia/labo/essais/explication", {
+    method: "POST",
+    json: { anomalie_id: anomalieId },
+  });
+}
+
+/** `POST /api/ia/labo/essais/synthese` (admin) : lance un essai de synthèse
+ * hebdomadaire des commentaires — 422 si `semaineDebut` n'est pas un lundi
+ * (`ingest.ia_labo.lancer_essai_synthese`). */
+export function lancerEssaiSyntheseLabo(semaineDebut: string): Promise<EssaiLance> {
+  return appelerApi<EssaiLance>("/api/ia/labo/essais/synthese", {
+    method: "POST",
+    json: { semaine_debut: semaineDebut },
+  });
+}
+
+/** Clé de requête TanStack Query propre à chaque essai (même principe que
+ * `cleAvisIA`) : un déroulé par identifiant, jamais partagé entre deux
+ * essais différents. */
+export function cleEssaiLabo(essaiId: string): readonly [string, string, string, string] {
+  return ["ia", "labo", "essai", essaiId] as const;
+}
+
+/** `GET /api/ia/labo/essais/{id}` (admin) : la trace complète d'un essai —
+ * 404 si l'essai est inconnu ou a été chassé (au-delà des 20 derniers). À
+ * interroger toutes les 2 s tant que l'essai est `en_cours` (`refetchInterval`
+ * conditionnel côté appelant, `pages/LaboIA.tsx`). */
+export function lireEssaiLabo(essaiId: string): Promise<TraceEssai> {
+  return appelerApi<TraceEssai>("/api/ia/labo/essais/{essai_id}", {
+    url: `/api/ia/labo/essais/${essaiId}`,
+  });
+}
+
+/** `GET /api/ia/labo/essais` (admin) : les derniers essais (résumé), les
+ * plus récents d'abord. */
+export const CLE_DERNIERS_ESSAIS_LABO = ["ia", "labo", "essais"] as const;
+export function listerDerniersEssaisLabo(): Promise<TraceEssaiResume[]> {
+  return appelerApi<TraceEssaiResume[]>("/api/ia/labo/essais");
+}
+
+/** `GET /api/ia/labo/appels` (admin) : les 50 derniers appels à l'IA (essais
+ * compris), les plus récents d'abord. */
+export const CLE_JOURNAL_APPELS_LABO = ["ia", "labo", "appels"] as const;
+export function listerJournalAppelsLabo(): Promise<AppelIALigne[]> {
+  return appelerApi<AppelIALigne[]>("/api/ia/labo/appels");
+}

@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from uuid import UUID
 
+from app.modules.rules.agregation import detail_groupe, lignes_a_comparer
 from app.modules.rules.modeles import (
     Anomalie,
     ArticleControle,
@@ -29,12 +30,14 @@ def R04(
     rapprochee: LigneRapprochee,
     articles: Mapping[UUID, ArticleControle],
 ) -> Anomalie | None:
-    """`None` si la ligne n'est pas appariée à une ligne de BL, ou si
+    """`None` si la ligne n'est pas appariée à une ligne de BL (ou est
+    secondaire d'un groupe de même code, B-06), ou si
     `ecart_qte_fact` ne renvoie pas un écart strictement négatif (égalité
     exacte -> ni R03 ni R04 ; écart positif -> matière de R03)."""
-    if rapprochee.bl is None:
+    comparees = lignes_a_comparer(rapprochee)
+    if comparees is None:
         return None
-    facture, bl = rapprochee.facture, rapprochee.bl
+    facture, bl = comparees
     ecart = ecart_qte_fact(facture, bl)
     if ecart is None or ecart >= 0:
         return None
@@ -42,7 +45,10 @@ def R04(
     return Anomalie(
         regle="R04",
         gravite=Gravite.MOYENNE,
-        detail=detail_ecart_qte(facture, bl, articles, ecart),
+        detail={
+            **detail_ecart_qte(facture, bl, articles, ecart),
+            **detail_groupe(rapprochee),
+        },
         bloc_id=bloc.id,
         ligne_id=facture.id,
         article_id=facture.article_id,

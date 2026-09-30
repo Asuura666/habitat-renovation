@@ -33,7 +33,15 @@ import {
 } from "../api/referentiels";
 import { cleTableauDeBord, obtenirTableauDeBord } from "../api/tableauDeBord";
 import { type LivraisonAffichee, TableauLivraisons } from "../components/TableauLivraisons";
-import { estMontantNul, formaterDate, formaterMontant, libelleMois, lireMois, moisApi } from "../lib/formats";
+import {
+  estMontantNul,
+  formaterDate,
+  formaterMontant,
+  libelleMois,
+  lireMois,
+  mentionFactureAVerifier,
+  moisApi,
+} from "../lib/formats";
 import {
   Bouton,
   Carte,
@@ -666,6 +674,7 @@ export function FicheChantier(): ReactElement {
         <Chiffre
           libelle={libelleAvecPeriode("Facturé", moisParam)}
           valeur={formaterMontant(ligneBilan?.montants.facture_ht ?? null)}
+          sousTexte={mentionFactureAVerifier(ligneBilan?.montants.facture_a_verifier)}
         />
         <Chiffre
           libelle={libelleAvecPeriode("Conforme", moisParam)}

@@ -627,6 +627,9 @@ class MontantsBilanReponse(BaseModel):
     nb_anomalies_ouvertes: int
     conforme: Decimal
     a_verifier: Decimal
+    # Part de `facture_ht` portée par des factures « à vérifier » (somme
+    # incohérente...) : « dont X € sur des factures à vérifier ».
+    facture_a_verifier: Decimal
 
 
 class LigneBilanChantierReponse(BaseModel):
@@ -674,6 +677,8 @@ class LigneBilanBlReponse(BaseModel):
     statut_rapprochement: str | None
     bl_document_id: uuid.UUID | None
     facture_id: uuid.UUID
+    # Catégorie calculée par le serveur (définition unique de « Conforme »).
+    categorie: Literal["conforme", "a_verifier", "sans_bon"]
     montants: MontantsBilanReponse
 
 
@@ -696,6 +701,7 @@ class LigneLivraisonReponse(BaseModel):
     chantier: str | None
     fournisseur_id: uuid.UUID | None
     fournisseur: str | None
+    categorie: Literal["conforme", "a_verifier", "sans_bon"]
     montants: MontantsBilanReponse
 
 
@@ -720,6 +726,7 @@ class TotauxMoisReponse(BaseModel):
     en_ecart: Decimal
     non_justifie: Decimal
     conforme: Decimal
+    facture_a_verifier: Decimal
 
 
 class ChantierTableauReponse(BaseModel):
@@ -853,6 +860,10 @@ class LigneCompareeReponse(BaseModel):
     controle: Literal[
         "conforme", "ecart", "non_facture", "non_controle", "pas_encore_facture"
     ]
+    # Groupe de plusieurs lignes de bon : livré du groupe détaillé sur la
+    # ligne de tête (« 10 + 10 »), lignes suivantes « incluses ».
+    detail_livre: str | None = None
+    inclus_dans_precedente: bool = False
 
 
 class ComparaisonBlReponse(BaseModel):
@@ -878,6 +889,11 @@ class ComparaisonBlReponse(BaseModel):
     montant_facture_ht: Decimal | None
     lignes: list[LigneCompareeReponse]
     nb_problemes: int
+    # Verdict d'ensemble du bon, calculé par le serveur (définition unique de
+    # « Conforme », `ingest.bilan`) : la page l'affiche tel quel.
+    categorie: Literal["conforme", "a_verifier", "pas_encore_facture"]
+    # Cause en mots simples d'un « À vérifier » sans problème ouvert.
+    raison_a_verifier: str | None = None
 
 
 class JournalReponse(BaseModel):
@@ -1122,9 +1138,29 @@ class ExplicationAlerteReponse(BaseModel):
     cree_le: datetime
 
 
+class OffrePrixInternetReponse(BaseModel):
+    """Une offre vérifiée sur un site — mêmes attributs
+    qu'`ingest.ia_prix.OffreVue` (`prix_ht` : `None` si les taxes sont
+    inconnues)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    prix: Decimal
+    devise: str | None
+    taxes: str | None
+    prix_ht: Decimal | None
+    unite: str | None
+    conditionnement: str | None
+    produit_trouve: str | None
+    source_url: str | None
+    confiance: str | None
+
+
 class PrixInternetReponse(BaseModel):
     """Dernier prix trouvé sur internet pour le produit d'une anomalie —
-    mêmes attributs qu'`ingest.ia_prix.PrixInternetVue`."""
+    mêmes attributs qu'`ingest.ia_prix.PrixInternetVue` : les champs à plat
+    décrivent l'offre la moins chère ; `offres` les liste toutes (la moins
+    chère en HT d'abord), `prix_ht_min`/`prix_ht_max` bornent le HT connu."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1139,6 +1175,10 @@ class PrixInternetReponse(BaseModel):
     confiance: str | None
     raison: str | None
     consulte_le: datetime
+    offres: list[OffrePrixInternetReponse]
+    prix_ht_min: Decimal | None
+    prix_ht_max: Decimal | None
+    nb_sources: int
 
 
 class AvisIAReponse(BaseModel):
@@ -1163,6 +1203,149 @@ class PrixInternetLotReponse(BaseModel):
 
     ia_active: bool
     prix: dict[str, PrixInternetReponse | None]
+
+
+# --------------------------------------------------------------------------
+# Laboratoire IA (tâche LABO) : schémas construits à partir des dataclasses
+# d'`ingest.ia_labo` (`TraceEssai`, `OutilTrace`, `LigneAppelIA`) et
+# `ingest.opencode` (`DiagnosticIA`), consommés par `api/ia.py`.
+# --------------------------------------------------------------------------
+
+
+class ControleReponse(BaseModel):
+    """Un contrôle anti-invention -- mêmes attributs
+    qu'`extract.reponses_ia.Controle`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    nom: str
+    ok: bool
+    detail: str
+
+
+class OutilTraceReponse(BaseModel):
+    """Une recherche ou une page ouverte par l'IA pendant un essai -- mêmes
+    attributs qu'`ingest.ia_labo.OutilTrace`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    outil: str
+    adresse: str
+    extrait: str
+
+
+class TraceEssaiReponse(BaseModel):
+    """Réponse de `GET /api/ia/labo/essais/{id}` -- mêmes attributs
+    qu'`ingest.ia_labo.TraceEssai`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    type: Literal["prix", "explication", "synthese"]
+    statut: Literal["en_cours", "fini", "erreur"]
+    debut: datetime
+    fin: datetime | None
+    duree_ms: int | None
+    agent: str
+    texte_envoye: str
+    # `schema_` (jamais `schema`) : `BaseModel.schema()` est une méthode
+    # historique de Pydantic (dépréciée en v2, encore présente) -- un champ
+    # nommé `schema` écraserait son type et ferait échouer mypy strict.
+    # `alias="schema"` restitue le nom attendu côté JSON (`model_validate`
+    # lit `TraceEssai.schema` malgré l'alias, `from_attributes=True`), sans
+    # toucher au nom de l'attribut Python de la dataclass source.
+    schema_: dict[str, Any] = Field(alias="schema")
+    modele: str | None
+    outils: list[OutilTraceReponse]
+    reponse_brute: Any
+    controles: list[ControleReponse]
+    resultat: dict[str, Any] | None
+    erreur: dict[str, Any] | None
+    appels_restants: int | None
+
+
+class TraceEssaiResumeReponse(BaseModel):
+    """Une ligne de `GET /api/ia/labo/essais` (résumé, sans le texte envoyé
+    ni la réponse brute -- trop volumineux pour une liste)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    type: Literal["prix", "explication", "synthese"]
+    statut: Literal["en_cours", "fini", "erreur"]
+    debut: datetime
+    fin: datetime | None
+    duree_ms: int | None
+    erreur: dict[str, Any] | None
+
+
+class EtatLaboReponse(BaseModel):
+    """Réponse de `GET /api/ia/labo/etat` -- diagnostic (`ingest.opencode
+    .DiagnosticIA`) et appels du jour/plafond, construite à la main par le
+    routeur (deux sources combinées, jamais une seule dataclass)."""
+
+    ia_active: bool
+    url_configuree: bool
+    joignable: bool
+    joignable_detail: str | None
+    agents: list[str]
+    abonnement_connecte: bool
+    recherche_web: bool
+    appels_aujourdhui: int
+    appels_max_jour: int
+
+
+class AppelIALigneReponse(BaseModel):
+    """Une ligne de `GET /api/ia/labo/appels` -- mêmes attributs
+    qu'`ingest.ia_labo.LigneAppelIA`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    usage: str
+    statut: str
+    erreur: str | None
+    duree_ms: int
+    created_at: datetime
+
+
+class EssaiPrixRequete(BaseModel):
+    """Corps de `POST /api/ia/labo/essais/prix`. `designation` nettoyée des
+    espaces de tête/fin (fix round 1, revue LABO) : `min_length=1` seul
+    laissait passer une chaîne blanche (« un espace » a une longueur de 1),
+    envoyée telle quelle à l'IA -- même principe que `ChantierCreationRequete
+    ._nom_non_blanc`."""
+
+    fournisseur: str | None = None
+    designation: str = Field(min_length=1, max_length=300)
+    code: str | None = None
+    unite: str | None = None
+
+    @field_validator("designation")
+    @classmethod
+    def _designation_non_blanche(cls, valeur: str) -> str:
+        nettoyee = valeur.strip()
+        if not nettoyee:
+            raise ValueError("désignation requise")
+        return nettoyee
+
+
+class EssaiExplicationRequete(BaseModel):
+    """Corps de `POST /api/ia/labo/essais/explication`."""
+
+    anomalie_id: uuid.UUID
+
+
+class EssaiSyntheseRequete(BaseModel):
+    """Corps de `POST /api/ia/labo/essais/synthese`."""
+
+    semaine_debut: date
+
+
+class EssaiLanceReponse(BaseModel):
+    """Réponse `202` des trois routes `POST /api/ia/labo/essais/...`."""
+
+    id: uuid.UUID
 
 
 # --------------------------------------------------------------------------

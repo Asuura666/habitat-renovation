@@ -97,7 +97,7 @@ from app.core.config import get_settings
 from app.core.db import creer_sessionmaker
 from app.modules.extract.bl import OPTIONS_OCR_BL
 from app.modules.extract.facture import Facture, FactureIllisible
-from app.modules.extract.reponses_ia import PrixInternetLu
+from app.modules.extract.reponses_ia import OffreLue, PrixInternetLu
 from app.modules.extract.verification import SEUIL_CONFIANCE_DEFAUT
 from app.modules.ingest.ia_prix import BilanIA, LigneEssai, ProduitEssai
 from app.modules.ingest.ia_synthese import ResultatSynthese
@@ -1146,13 +1146,19 @@ _SYNTHESE_RAPPROCHER_TOUT_RE = re.compile(
 )
 
 
-async def _creer_facture_recue(engine: AsyncEngine) -> tuple[uuid.UUID, int]:
+async def _creer_facture_recue(
+    engine: AsyncEngine,
+    *,
+    statut: str = "recu",
+    motifs: list[dict[str, Any]] | None = None,
+) -> tuple[uuid.UUID, int]:
     sessionmaker = creer_sessionmaker(engine)
     async with sessionmaker() as session:
         document = Document(
             type="facture",
             source="upload",
-            statut="recu",
+            statut=statut,
+            motifs=motifs or [],
             fichier_path=f"{_PREFIXE_FICHIER_RAPPROCHER}{uuid.uuid4()}.pdf",
         )
         session.add(document)
@@ -1244,6 +1250,53 @@ def test_rapprocher_tout_traite_les_factures_recues_une_par_une_code_0(
         traitees, echecs, _anomalies = (int(g) for g in correspondance.groups())
         assert traitees >= 2
         assert echecs == 0
+    finally:
+        asyncio.run(_nettoyer_factures_rapprochees(db_engine))
+
+
+@pytest.mark.db
+def test_rapprocher_tout_evalue_r10_des_factures_a_verifier(
+    db_engine: AsyncEngine, _env_bl_test: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Reprise des factures déjà en base « à vérifier » à somme incohérente
+    sans R10 (posées avant la correction du 29/09/2026) : `rapprocher --tout`
+    les traite aussi et ouvre leur R10 (procédure de déploiement d'octobre)."""
+    facture_id, numero = asyncio.run(
+        _creer_facture_recue(
+            db_engine,
+            statut="a_verifier",
+            motifs=[
+                {
+                    "code": "somme_incoherente",
+                    "champ": "total_ht",
+                    "detail": {"somme": "20.00", "total": "999.99", "ecart": "979.99"},
+                }
+            ],
+        )
+    )
+
+    async def _r10_ouvertes() -> int:
+        async with creer_sessionmaker(db_engine)() as session:
+            return (
+                await session.execute(
+                    select(func.count())
+                    .select_from(Anomalie)
+                    .where(
+                        Anomalie.document_id == facture_id,
+                        Anomalie.regle == "R10",
+                        Anomalie.statut == "ouverte",
+                    )
+                )
+            ).scalar_one()
+
+    try:
+        assert asyncio.run(_r10_ouvertes()) == 0
+        code = cli.main(["rapprocher", "--tout"])
+        sortie = capsys.readouterr().out
+
+        assert code == 0
+        assert f"facture {numero} : " in sortie
+        assert asyncio.run(_r10_ouvertes()) == 1
     finally:
         asyncio.run(_nettoyer_factures_rapprochees(db_engine))
 
@@ -2080,9 +2133,9 @@ def test_essai_prix_internet_champ_ia_echappe_dans_la_sortie(
     assert code == 0
     lignes = list(csv.reader(io.StringIO(sortie), delimiter=";"))
     assert len(lignes) == 2  # en-tête + une ligne de données
-    assert len(lignes[0]) == 11
+    assert len(lignes[0]) == 14
     ligne_donnees = lignes[1]
-    assert len(ligne_donnees) == 11  # jamais décalée par le `;`/`"` du champ
+    assert len(ligne_donnees) == 14  # jamais décalée par le `;`/`"` du champ
     assert ligne_donnees[0] == "Produit Un"
     assert ligne_donnees[1] == "non_verifiable"
     assert ligne_donnees[9] == raison_piegee  # colonne "raison", intacte
@@ -2247,6 +2300,30 @@ def test_essai_prix_internet_nominal_csv_sortie(
                 source_url="https://exemple.invalid/produit-un",
                 confiance="elevee",
                 raison=None,
+                offres=(
+                    OffreLue(
+                        prix=Decimal("12.3400"),
+                        devise="EUR",
+                        taxes="HT",
+                        prix_ht=Decimal("12.34"),
+                        unite="u",
+                        conditionnement="boîte",
+                        produit_trouve="Produit Un Trouvé",
+                        source_url="https://exemple.invalid/produit-un",
+                        confiance="elevee",
+                    ),
+                    OffreLue(
+                        prix=Decimal("15.0000"),
+                        devise="EUR",
+                        taxes="HT",
+                        prix_ht=Decimal("15.00"),
+                        unite="u",
+                        conditionnement="boîte",
+                        produit_trouve="Produit Un Trouvé",
+                        source_url="https://autre.invalid/produit-un",
+                        confiance="moyenne",
+                    ),
+                ),
             ),
             erreur=None,
             duree_s=1.234,
@@ -2275,7 +2352,7 @@ def test_essai_prix_internet_nominal_csv_sortie(
     assert produits_captures == produits_attendus
     assert sortie[0] == (
         "designation;statut;prix;taxes;unite;conditionnement;produit_trouve;"
-        "source_url;confiance;raison;duree_s"
+        "source_url;confiance;raison;duree_s;nb_sources;prix_ht_min;prix_ht_max"
     )
     assert sortie[1] == ";".join(
         [
@@ -2290,6 +2367,9 @@ def test_essai_prix_internet_nominal_csv_sortie(
             "elevee",
             "",
             "1.2",
+            "2",
+            "12.34",
+            "15.00",
         ]
     )
     assert sortie[2] == ";".join(
@@ -2305,6 +2385,9 @@ def test_essai_prix_internet_nominal_csv_sortie(
             "",
             "ProviderAuthError",
             "0.5",
+            "",
+            "",
+            "",
         ]
     )
 
@@ -2314,3 +2397,63 @@ def test_essai_prix_internet_sans_fichier_systemexit_2() -> None:
         cli.main(["essai-prix-internet"])
 
     assert exc_info.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# `chantiers-alias-suspects` (B-05) : diagnostic en lecture seule.
+# ---------------------------------------------------------------------------
+
+
+async def _preparer_alias_suspect(
+    engine: AsyncEngine,
+) -> tuple[uuid.UUID, uuid.UUID]:
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        fournisseur = Fournisseur(nom=f"Fournisseur suspect {uuid.uuid4()}")
+        session.add(fournisseur)
+        chantier = Chantier(nom_canonique="Résidence Les Cèdres 12")
+        session.add(chantier)
+        await session.flush()
+        session.add(
+            ChantierAlias(
+                fournisseur_id=fournisseur.id,
+                libelle_brut="residence les cedres 13",
+                code_brut=None,
+                chantier_id=chantier.id,
+            )
+        )
+        await session.commit()
+        return fournisseur.id, chantier.id
+
+
+@pytest.mark.db
+def test_cli_chantiers_alias_suspects(
+    db_engine: AsyncEngine, _env_bl_test: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fournisseur_id, chantier_id = asyncio.run(_preparer_alias_suspect(db_engine))
+    try:
+        code = cli.main(["chantiers-alias-suspects"])
+        sortie = capsys.readouterr().out
+
+        assert code == 0
+        assert "residence les cedres 13" in sortie
+        assert "Résidence Les Cèdres 12" in sortie
+        assert "0 document" in sortie
+
+        async def _nb() -> int:
+            async with creer_sessionmaker(db_engine)() as session:
+                return len(
+                    (
+                        await session.execute(
+                            select(ChantierAlias).where(
+                                ChantierAlias.fournisseur_id == fournisseur_id
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+
+        assert asyncio.run(_nb()) == 1
+    finally:
+        asyncio.run(_nettoyer_alias_en_attente(db_engine, fournisseur_id, chantier_id))

@@ -1217,6 +1217,125 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ia/labo/etat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Etat Labo Endpoint */
+        get: operations["etat_labo_endpoint_api_ia_labo_etat_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ia/labo/essais/prix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Lancer Essai Prix Endpoint */
+        post: operations["lancer_essai_prix_endpoint_api_ia_labo_essais_prix_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ia/labo/essais/explication": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Lancer Essai Explication Endpoint */
+        post: operations["lancer_essai_explication_endpoint_api_ia_labo_essais_explication_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ia/labo/essais/synthese": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Lancer Essai Synthese Endpoint */
+        post: operations["lancer_essai_synthese_endpoint_api_ia_labo_essais_synthese_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ia/labo/essais/{essai_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lire Essai Endpoint */
+        get: operations["lire_essai_endpoint_api_ia_labo_essais__essai_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ia/labo/essais": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Derniers Essais Endpoint */
+        get: operations["derniers_essais_endpoint_api_ia_labo_essais_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ia/labo/appels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Journal Appels Endpoint */
+        get: operations["journal_appels_endpoint_api_ia_labo_appels_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1487,6 +1606,31 @@ export interface components {
             erreurs: components["schemas"]["ErreurImportReponse"][];
             /** Feuilles Ignorees */
             feuilles_ignorees: string[];
+        };
+        /**
+         * AppelIALigneReponse
+         * @description Une ligne de `GET /api/ia/labo/appels` -- mêmes attributs
+         *     qu'`ingest.ia_labo.LigneAppelIA`.
+         */
+        AppelIALigneReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Usage */
+            usage: string;
+            /** Statut */
+            statut: string;
+            /** Erreur */
+            erreur: string | null;
+            /** Duree Ms */
+            duree_ms: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /**
          * ArchivageRequete
@@ -1923,6 +2067,13 @@ export interface components {
             lignes: components["schemas"]["LigneCompareeReponse"][];
             /** Nb Problemes */
             nb_problemes: number;
+            /**
+             * Categorie
+             * @enum {string}
+             */
+            categorie: "conforme" | "a_verifier" | "pas_encore_facture";
+            /** Raison A Verifier */
+            raison_a_verifier?: string | null;
         };
         /**
          * CompteCreationRequete
@@ -2038,6 +2189,19 @@ export interface components {
             anomalie_ids: string[];
             /** Commentaire */
             commentaire: string;
+        };
+        /**
+         * ControleReponse
+         * @description Un contrôle anti-invention -- mêmes attributs
+         *     qu'`extract.reponses_ia.Controle`.
+         */
+        ControleReponse: {
+            /** Nom */
+            nom: string;
+            /** Ok */
+            ok: boolean;
+            /** Detail */
+            detail: string;
         };
         /**
          * CorrectionEnteteRequete
@@ -2243,6 +2407,83 @@ export interface components {
             numero_ligne: number;
             /** Message */
             message: string;
+        };
+        /**
+         * EssaiExplicationRequete
+         * @description Corps de `POST /api/ia/labo/essais/explication`.
+         */
+        EssaiExplicationRequete: {
+            /**
+             * Anomalie Id
+             * Format: uuid
+             */
+            anomalie_id: string;
+        };
+        /**
+         * EssaiLanceReponse
+         * @description Réponse `202` des trois routes `POST /api/ia/labo/essais/...`.
+         */
+        EssaiLanceReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+        };
+        /**
+         * EssaiPrixRequete
+         * @description Corps de `POST /api/ia/labo/essais/prix`. `designation` nettoyée des
+         *     espaces de tête/fin (fix round 1, revue LABO) : `min_length=1` seul
+         *     laissait passer une chaîne blanche (« un espace » a une longueur de 1),
+         *     envoyée telle quelle à l'IA -- même principe que `ChantierCreationRequete
+         *     ._nom_non_blanc`.
+         */
+        EssaiPrixRequete: {
+            /** Fournisseur */
+            fournisseur?: string | null;
+            /** Designation */
+            designation: string;
+            /** Code */
+            code?: string | null;
+            /** Unite */
+            unite?: string | null;
+        };
+        /**
+         * EssaiSyntheseRequete
+         * @description Corps de `POST /api/ia/labo/essais/synthese`.
+         */
+        EssaiSyntheseRequete: {
+            /**
+             * Semaine Debut
+             * Format: date
+             */
+            semaine_debut: string;
+        };
+        /**
+         * EtatLaboReponse
+         * @description Réponse de `GET /api/ia/labo/etat` -- diagnostic (`ingest.opencode
+         *     .DiagnosticIA`) et appels du jour/plafond, construite à la main par le
+         *     routeur (deux sources combinées, jamais une seule dataclass).
+         */
+        EtatLaboReponse: {
+            /** Ia Active */
+            ia_active: boolean;
+            /** Url Configuree */
+            url_configuree: boolean;
+            /** Joignable */
+            joignable: boolean;
+            /** Joignable Detail */
+            joignable_detail: string | null;
+            /** Agents */
+            agents: string[];
+            /** Abonnement Connecte */
+            abonnement_connecte: boolean;
+            /** Recherche Web */
+            recherche_web: boolean;
+            /** Appels Aujourdhui */
+            appels_aujourdhui: number;
+            /** Appels Max Jour */
+            appels_max_jour: number;
         };
         /**
          * ExplicationAlerteReponse
@@ -2517,6 +2758,11 @@ export interface components {
              * Format: uuid
              */
             facture_id: string;
+            /**
+             * Categorie
+             * @enum {string}
+             */
+            categorie: "conforme" | "a_verifier" | "sans_bon";
             montants: components["schemas"]["MontantsBilanReponse"];
         };
         /**
@@ -2626,6 +2872,13 @@ export interface components {
              * @enum {string}
              */
             controle: "conforme" | "ecart" | "non_facture" | "non_controle" | "pas_encore_facture";
+            /** Detail Livre */
+            detail_livre?: string | null;
+            /**
+             * Inclus Dans Precedente
+             * @default false
+             */
+            inclus_dans_precedente: boolean;
         };
         /**
          * LigneDocumentReponse
@@ -2774,6 +3027,11 @@ export interface components {
             fournisseur_id: string | null;
             /** Fournisseur */
             fournisseur: string | null;
+            /**
+             * Categorie
+             * @enum {string}
+             */
+            categorie: "conforme" | "a_verifier" | "sans_bon";
             montants: components["schemas"]["MontantsBilanReponse"];
         };
         /**
@@ -2856,6 +3114,8 @@ export interface components {
             conforme: string;
             /** A Verifier */
             a_verifier: string;
+            /** Facture A Verifier */
+            facture_a_verifier: string;
         };
         /**
          * MotifReponse
@@ -2872,6 +3132,45 @@ export interface components {
             detail: {
                 [key: string]: string;
             };
+        };
+        /**
+         * OffrePrixInternetReponse
+         * @description Une offre vérifiée sur un site — mêmes attributs
+         *     qu'`ingest.ia_prix.OffreVue` (`prix_ht` : `None` si les taxes sont
+         *     inconnues).
+         */
+        OffrePrixInternetReponse: {
+            /** Prix */
+            prix: string;
+            /** Devise */
+            devise: string | null;
+            /** Taxes */
+            taxes: string | null;
+            /** Prix Ht */
+            prix_ht: string | null;
+            /** Unite */
+            unite: string | null;
+            /** Conditionnement */
+            conditionnement: string | null;
+            /** Produit Trouve */
+            produit_trouve: string | null;
+            /** Source Url */
+            source_url: string | null;
+            /** Confiance */
+            confiance: string | null;
+        };
+        /**
+         * OutilTraceReponse
+         * @description Une recherche ou une page ouverte par l'IA pendant un essai -- mêmes
+         *     attributs qu'`ingest.ia_labo.OutilTrace`.
+         */
+        OutilTraceReponse: {
+            /** Outil */
+            outil: string;
+            /** Adresse */
+            adresse: string;
+            /** Extrait */
+            extrait: string;
         };
         /**
          * ParametreReponse
@@ -2928,7 +3227,9 @@ export interface components {
         /**
          * PrixInternetReponse
          * @description Dernier prix trouvé sur internet pour le produit d'une anomalie —
-         *     mêmes attributs qu'`ingest.ia_prix.PrixInternetVue`.
+         *     mêmes attributs qu'`ingest.ia_prix.PrixInternetVue` : les champs à plat
+         *     décrivent l'offre la moins chère ; `offres` les liste toutes (la moins
+         *     chère en HT d'abord), `prix_ht_min`/`prix_ht_max` bornent le HT connu.
          */
         PrixInternetReponse: {
             /** Statut */
@@ -2956,6 +3257,14 @@ export interface components {
              * Format: date-time
              */
             consulte_le: string;
+            /** Offres */
+            offres: components["schemas"]["OffrePrixInternetReponse"][];
+            /** Prix Ht Min */
+            prix_ht_min: string | null;
+            /** Prix Ht Max */
+            prix_ht_max: string | null;
+            /** Nb Sources */
+            nb_sources: number;
         };
         /**
          * ProblemePrioritaireReponse
@@ -3178,6 +3487,100 @@ export interface components {
             non_justifie: string;
             /** Conforme */
             conforme: string;
+            /** Facture A Verifier */
+            facture_a_verifier: string;
+        };
+        /**
+         * TraceEssaiReponse
+         * @description Réponse de `GET /api/ia/labo/essais/{id}` -- mêmes attributs
+         *     qu'`ingest.ia_labo.TraceEssai`.
+         */
+        TraceEssaiReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "prix" | "explication" | "synthese";
+            /**
+             * Statut
+             * @enum {string}
+             */
+            statut: "en_cours" | "fini" | "erreur";
+            /**
+             * Debut
+             * Format: date-time
+             */
+            debut: string;
+            /** Fin */
+            fin: string | null;
+            /** Duree Ms */
+            duree_ms: number | null;
+            /** Agent */
+            agent: string;
+            /** Texte Envoye */
+            texte_envoye: string;
+            /** Schema */
+            schema: {
+                [key: string]: unknown;
+            };
+            /** Modele */
+            modele: string | null;
+            /** Outils */
+            outils: components["schemas"]["OutilTraceReponse"][];
+            /** Reponse Brute */
+            reponse_brute: unknown;
+            /** Controles */
+            controles: components["schemas"]["ControleReponse"][];
+            /** Resultat */
+            resultat: {
+                [key: string]: unknown;
+            } | null;
+            /** Erreur */
+            erreur: {
+                [key: string]: unknown;
+            } | null;
+            /** Appels Restants */
+            appels_restants: number | null;
+        };
+        /**
+         * TraceEssaiResumeReponse
+         * @description Une ligne de `GET /api/ia/labo/essais` (résumé, sans le texte envoyé
+         *     ni la réponse brute -- trop volumineux pour une liste).
+         */
+        TraceEssaiResumeReponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "prix" | "explication" | "synthese";
+            /**
+             * Statut
+             * @enum {string}
+             */
+            statut: "en_cours" | "fini" | "erreur";
+            /**
+             * Debut
+             * Format: date-time
+             */
+            debut: string;
+            /** Fin */
+            fin: string | null;
+            /** Duree Ms */
+            duree_ms: number | null;
+            /** Erreur */
+            erreur: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * TraitementAnomalieRequete
@@ -5550,6 +5953,196 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    etat_labo_endpoint_api_ia_labo_etat_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EtatLaboReponse"];
+                };
+            };
+        };
+    };
+    lancer_essai_prix_endpoint_api_ia_labo_essais_prix_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EssaiPrixRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EssaiLanceReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lancer_essai_explication_endpoint_api_ia_labo_essais_explication_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EssaiExplicationRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EssaiLanceReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lancer_essai_synthese_endpoint_api_ia_labo_essais_synthese_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EssaiSyntheseRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EssaiLanceReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lire_essai_endpoint_api_ia_labo_essais__essai_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                essai_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TraceEssaiReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    derniers_essais_endpoint_api_ia_labo_essais_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TraceEssaiResumeReponse"][];
+                };
+            };
+        };
+    };
+    journal_appels_endpoint_api_ia_labo_appels_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppelIALigneReponse"][];
                 };
             };
         };

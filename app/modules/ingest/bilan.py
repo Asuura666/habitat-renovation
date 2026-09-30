@@ -134,6 +134,7 @@ from app.modules.ingest.anomalies import (
     regles_de_categorie,
 )
 from app.modules.ingest.commun import regles_masquees
+from app.modules.ingest.lecture import TYPES_BL
 from app.modules.ingest.models import (
     Anomalie,
     BlocFacture,
@@ -194,18 +195,21 @@ class MontantsBilan:
     même requête, chaque bloc compté une seule fois -- jamais par
     soustraction ou addition des quatre montants ci-dessus, qui ne forment
     pas une partition (L5-D3) :
-    - `conforme` : blocs reçus (`statut_rapprochement = 'recu'`) sans
-      aucune anomalie ouverte de quantité ou de prix. L'ancienne formule
-      « rapproché - en écart » (spec §6.2) supposait que tout bloc en écart
-      était reçu, ce qui est faux : R07-R09 s'évaluent quel que soit l'état
-      du BL (Ruling R11 du lot 4) -- un bloc non reçu en écart de prix était
-      retiré d'un « conforme » où il n'avait jamais été compté ;
-    - `a_verifier` : blocs qui portent au moins une anomalie **ouverte**
-      de bon manquant (R01/R02, `REGLES_BL_MANQUANT`) ou de quantité/prix
-      (`REGLES_QUANTITE_OU_PRIX`). Un bloc non reçu dont le problème a déjà
-      été contesté ou ignoré n'est plus « à vérifier » (l'ancienne formule
-      `en_ecart + non_justifie` le comptait toujours, et comptait deux fois
-      un bloc non reçu en écart de prix)."""
+    - `conforme` : **définition unique et stricte** (décision d'Ilane du
+      29/09/2026, audit B-02/B-03/D-01), voir `_sous_requete_categories` :
+      bloc reçu (`statut_rapprochement = 'recu'`) dont le bon est validé
+      (`Document.statut = 'recu'`), dont la facture n'est pas « à vérifier »
+      et qui ne porte, ni lui ni son bon, aucune anomalie ouverte (R10-R13,
+      R17, quantité, prix, bon manquant...). Reprise telle quelle par la
+      liste des livraisons, la page du bon et le tableau de bord ;
+    - `a_verifier` : blocs qui ne sont ni conformes ni « sans bon » (bon à
+      vérifier, problème ouvert de toute règle, facture à vérifier), plus
+      ceux qui portent une anomalie **ouverte** de bon manquant (R01/R02) ou
+      de quantité/prix. Un bloc non reçu dont le problème a déjà été
+      contesté ou ignoré n'est plus « à vérifier » ;
+    - `facture_a_verifier` (B-09) : part de `facture_ht` portée par des
+      factures « à vérifier » (somme incohérente...), affichée « dont X €
+      sur des factures à vérifier » à côté de « Facturé »."""
 
     facture_ht: Decimal
     rapproche: Decimal
@@ -214,6 +218,12 @@ class MontantsBilan:
     nb_anomalies_ouvertes: int
     conforme: Decimal
     a_verifier: Decimal
+    facture_a_verifier: Decimal
+    # Blocs du périmètre qui ne sont pas « conformes » (définition unique) :
+    # l'état « conforme » d'un chantier se décide sur ce compte, jamais sur
+    # un montant (un bloc à 0 € ou un avoir qui annule une facture ne pèsent
+    # rien dans `a_verifier`).
+    nb_blocs_non_conformes: int = 0
 
 
 @dataclass(frozen=True)
@@ -261,6 +271,7 @@ class LigneBilanBl:
     statut_rapprochement: str | None
     bl_document_id: uuid.UUID | None
     facture_id: uuid.UUID
+    categorie: str
     montants: MontantsBilan
 
 
@@ -328,6 +339,8 @@ class _ExpressionsMontants:
     nb_anomalies_ouvertes: Any
     conforme: Any
     a_verifier: Any
+    facture_a_verifier: Any
+    nb_blocs_non_conformes: Any
 
 
 def _conditions_base(mois: date | None) -> list[Any]:
@@ -368,6 +381,7 @@ def _sous_requete_blocs(conditions: list[Any]) -> Any:
             BlocFacture.date_bl.label("date_bl"),
             BlocFacture.bl_document_id.label("bl_document_id"),
             BlocFacture.facture_id.label("facture_id"),
+            Document.statut.label("facture_statut"),
             func.coalesce(func.sum(Ligne.montant_ht), Decimal("0")).label("montant_ht"),
         )
         .select_from(BlocFacture)
@@ -390,6 +404,7 @@ def _sous_requete_blocs(conditions: list[Any]) -> Any:
             BlocFacture.date_bl,
             BlocFacture.bl_document_id,
             BlocFacture.facture_id,
+            Document.statut,
         )
         .subquery()
     )
@@ -478,6 +493,22 @@ def _sous_requete_anomalies(mois: date | None, exclues: frozenset[str]) -> Any:
                 "fournisseur_id"
             ),
             Anomalie.regle.label("regle"),
+            # Bon auquel l'anomalie se rattache (catégorie « conforme »,
+            # `_sous_requete_categories`) : celui que cite son bloc, ou son
+            # document quand c'est lui-même un bon (R11/R15 sur le BL).
+            func.coalesce(
+                BlocFacture.bl_document_id,
+                case(
+                    (
+                        and_(
+                            Anomalie.bloc_id.is_(None),
+                            Document.type.in_(TYPES_BL),
+                        ),
+                        Anomalie.document_id,
+                    ),
+                    else_=None,
+                ),
+            ).label("bl_document_id"),
         )
         .select_from(Anomalie)
         .outerjoin(Document, Document.id == Anomalie.document_id)
@@ -486,6 +517,88 @@ def _sous_requete_anomalies(mois: date | None, exclues: frozenset[str]) -> Any:
         .where(*conditions)
         .subquery()
     )
+
+
+def _sous_requete_categories(
+    exclues: frozenset[str], bloc_ids: Any | None = None
+) -> Any:
+    """**Définition unique de « Conforme »** (décision d'Ilane du 29/09/2026,
+    audit B-02/B-03/D-01), calculée par le serveur pour chaque bloc de
+    facture non archivée : une ligne `(bloc_id, categorie)`.
+
+    - `conforme` : le rapprochement a trouvé un bon (`statut_rapprochement =
+      'recu'`), ce bon est **validé** (`Document.statut = 'recu'`, pas « à
+      vérifier »), sa facture n'est pas « à vérifier », et **aucune anomalie
+      ouverte** (toute règle : R10, R11, R12, R13, R17, quantité, prix...)
+      ne porte ni sur ce bloc, ni sur le bon qu'il cite (R12 sur le bloc
+      d'une seconde facture du même bon, R11 sur le bon lui-même) ;
+    - `sans_bon` : bon jamais reçu ou livraison annoncée sans bon
+      (`non_recu`, `pas_de_bon`) ;
+    - `a_verifier` : tout le reste (bon à vérifier, problème ouvert, bloc
+      pas encore rapproché, facture à vérifier).
+
+    Les anomalies sont lues tous mois confondus (un bon déposé un autre mois
+    que la facture compte quand même). Le bilan (5 niveaux), le tableau de
+    bord, la liste des livraisons et la page du bon appellent tous cette
+    sous-requête : aucun écran ne recalcule cette catégorie."""
+    anomalies = _sous_requete_anomalies(None, exclues)
+    bl = aliased(Document)
+    facture = aliased(Document)
+    nb_sur_le_bloc = (
+        select(func.count())
+        .select_from(anomalies)
+        .where(anomalies.c.bloc_id == BlocFacture.id)
+        .correlate(BlocFacture)
+        .scalar_subquery()
+    )
+    nb_sur_le_bon = (
+        select(func.count())
+        .select_from(anomalies)
+        .where(anomalies.c.bl_document_id == BlocFacture.bl_document_id)
+        .correlate(BlocFacture)
+        .scalar_subquery()
+    )
+    categorie = case(
+        (BlocFacture.statut_rapprochement.in_(_STATUTS_NON_JUSTIFIE), "sans_bon"),
+        (
+            and_(
+                BlocFacture.statut_rapprochement == "recu",
+                bl.statut == "recu",
+                facture.statut == "recu",
+                nb_sur_le_bloc == 0,
+                nb_sur_le_bon == 0,
+            ),
+            "conforme",
+        ),
+        else_="a_verifier",
+    )
+    requete = (
+        select(BlocFacture.id.label("bloc_id"), categorie.label("categorie"))
+        .select_from(BlocFacture)
+        .join(facture, facture.id == BlocFacture.facture_id)
+        .outerjoin(bl, bl.id == BlocFacture.bl_document_id)
+        .where(facture.type == "facture", facture.statut != "archive")
+    )
+    if bloc_ids is not None:
+        requete = requete.where(BlocFacture.id.in_(bloc_ids))
+    return requete.subquery()
+
+
+async def categories_des_blocs(
+    session: AsyncSession, bloc_ids: Any
+) -> dict[uuid.UUID, str]:
+    """Catégorie (`conforme`, `a_verifier`, `sans_bon`) de chacun des blocs
+    donnés, par la définition unique `_sous_requete_categories` -- point
+    d'entrée des écrans qui ne passent pas par les montants du bilan (page
+    du bon, `ingest.comparaison_bl`). Un bloc d'une facture archivée est
+    absent du résultat."""
+    ids = list(bloc_ids)
+    if not ids:
+        return {}
+    exclues = await regles_masquees(session)
+    categories = _sous_requete_categories(exclues, ids)
+    lignes = await session.execute(select(categories.c.bloc_id, categories.c.categorie))
+    return {bloc_id: categorie for bloc_id, categorie in lignes.all()}
 
 
 def _comptes_anomalies(
@@ -525,7 +638,7 @@ def _anomalies_qte_prix_par_bloc(anomalies: Any) -> Any:
 
 
 def _expressions_montants(
-    blocs: Any, anomalies_qte_prix: Any, nb_anomalies_ouvertes: Any
+    blocs: Any, anomalies_qte_prix: Any, nb_anomalies_ouvertes: Any, categories: Any
 ) -> _ExpressionsMontants:
     """Les quatre montants et le compte d'anomalies (L5-D3/Ruling L5-R4),
     à partir des deux sous-requêtes ci-dessus -- le point que la revue de
@@ -539,9 +652,10 @@ def _expressions_montants(
     chaque groupe ne contient jamais plus d'une ligne `blocs`) sans changer
     un seul `CASE WHEN`.
 
-    `conforme`/`a_verifier` (revue finale de la refonte du front) : un
-    `CASE WHEN` par bloc, chaque bloc compté au plus une fois -- voir le
-    docstring de `MontantsBilan`."""
+    `conforme`/`a_verifier` : un `CASE WHEN` par bloc sur la catégorie
+    calculée par `_sous_requete_categories` (`categories`, déjà jointe par
+    la requête appelante sur `bloc_id`), chaque bloc compté au plus une
+    fois -- voir le docstring de `MontantsBilan`."""
     en_ecart_bloc = func.coalesce(anomalies_qte_prix.c.nb_qte_prix, 0) > 0
     bl_manquant_bloc = func.coalesce(anomalies_qte_prix.c.nb_bl_manquant, 0) > 0
     return _ExpressionsMontants(
@@ -571,10 +685,7 @@ def _expressions_montants(
         conforme=func.sum(
             case(
                 (
-                    and_(
-                        blocs.c.statut_rapprochement == "recu",
-                        ~en_ecart_bloc,
-                    ),
+                    categories.c.categorie == "conforme",
                     blocs.c.montant_ht,
                 ),
                 else_=0,
@@ -582,9 +693,37 @@ def _expressions_montants(
         ),
         a_verifier=func.sum(
             case(
-                (or_(en_ecart_bloc, bl_manquant_bloc), blocs.c.montant_ht),
+                (
+                    or_(
+                        en_ecart_bloc,
+                        bl_manquant_bloc,
+                        categories.c.categorie == "a_verifier",
+                    ),
+                    blocs.c.montant_ht,
+                ),
                 else_=0,
             )
+        ),
+        facture_a_verifier=func.sum(
+            case(
+                (blocs.c.facture_statut == "a_verifier", blocs.c.montant_ht),
+                else_=0,
+            )
+        ),
+        nb_blocs_non_conformes=func.coalesce(
+            func.sum(
+                case(
+                    (
+                        or_(
+                            categories.c.categorie.is_(None),
+                            categories.c.categorie != "conforme",
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ),
+            0,
         ),
     )
 
@@ -602,6 +741,8 @@ def _montants_bilan(ligne: Any) -> MontantsBilan:
         nb_anomalies_ouvertes=ligne.nb_anomalies_ouvertes,
         conforme=ligne.conforme,
         a_verifier=ligne.a_verifier,
+        facture_a_verifier=ligne.facture_a_verifier,
+        nb_blocs_non_conformes=ligne.nb_blocs_non_conformes,
     )
 
 
@@ -684,8 +825,9 @@ async def _bilan_par_chantier_interne(
             filtre_anomalies=filtre_anomalies,
         ),
     )
+    categories = _sous_requete_categories(exclues)
     montants = _expressions_montants(
-        blocs, anomalies_qte_prix, comptes_anomalies.c.nb_total
+        blocs, anomalies_qte_prix, comptes_anomalies.c.nb_total, categories
     )
 
     requete = (
@@ -701,9 +843,12 @@ async def _bilan_par_chantier_interne(
             montants.nb_anomalies_ouvertes.label("nb_anomalies_ouvertes"),
             montants.conforme.label("conforme"),
             montants.a_verifier.label("a_verifier"),
+            montants.facture_a_verifier.label("facture_a_verifier"),
+            montants.nb_blocs_non_conformes.label("nb_blocs_non_conformes"),
         )
         .select_from(blocs)
         .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
+        .outerjoin(categories, categories.c.bloc_id == blocs.c.bloc_id)
         .outerjoin(
             comptes_anomalies,
             comptes_anomalies.c.chantier_id.is_not_distinct_from(blocs.c.chantier_id),
@@ -810,8 +955,9 @@ async def _bilan_par_fournisseur_interne(
             filtre_anomalies=filtre_anomalies,
         ),
     )
+    categories = _sous_requete_categories(exclues)
     montants = _expressions_montants(
-        blocs, anomalies_qte_prix, comptes_anomalies.c.nb_total
+        blocs, anomalies_qte_prix, comptes_anomalies.c.nb_total, categories
     )
 
     requete = (
@@ -825,9 +971,12 @@ async def _bilan_par_fournisseur_interne(
             montants.nb_anomalies_ouvertes.label("nb_anomalies_ouvertes"),
             montants.conforme.label("conforme"),
             montants.a_verifier.label("a_verifier"),
+            montants.facture_a_verifier.label("facture_a_verifier"),
+            montants.nb_blocs_non_conformes.label("nb_blocs_non_conformes"),
         )
         .select_from(blocs)
         .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
+        .outerjoin(categories, categories.c.bloc_id == blocs.c.bloc_id)
         .outerjoin(
             comptes_anomalies,
             comptes_anomalies.c.fournisseur_id.is_not_distinct_from(
@@ -933,8 +1082,9 @@ async def bilan_par_bl(
     anomalies = _sous_requete_anomalies(mois, exclues)
     anomalies_qte_prix = _anomalies_qte_prix_par_bloc(anomalies)
     comptes_anomalies = _comptes_anomalies(anomalies, anomalies.c.bloc_id)
+    categories = _sous_requete_categories(exclues)
     montants = _expressions_montants(
-        blocs, anomalies_qte_prix, comptes_anomalies.c.nb_total
+        blocs, anomalies_qte_prix, comptes_anomalies.c.nb_total, categories
     )
 
     requete = (
@@ -945,6 +1095,7 @@ async def bilan_par_bl(
             blocs.c.statut_rapprochement,
             blocs.c.bl_document_id,
             blocs.c.facture_id,
+            categories.c.categorie.label("categorie"),
             montants.facture_ht.label("facture_ht"),
             montants.rapproche.label("rapproche"),
             montants.en_ecart.label("en_ecart"),
@@ -952,9 +1103,12 @@ async def bilan_par_bl(
             montants.nb_anomalies_ouvertes.label("nb_anomalies_ouvertes"),
             montants.conforme.label("conforme"),
             montants.a_verifier.label("a_verifier"),
+            montants.facture_a_verifier.label("facture_a_verifier"),
+            montants.nb_blocs_non_conformes.label("nb_blocs_non_conformes"),
         )
         .select_from(blocs)
         .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
+        .outerjoin(categories, categories.c.bloc_id == blocs.c.bloc_id)
         .outerjoin(comptes_anomalies, comptes_anomalies.c.bloc_id == blocs.c.bloc_id)
         .group_by(
             blocs.c.bloc_id,
@@ -963,6 +1117,7 @@ async def bilan_par_bl(
             blocs.c.statut_rapprochement,
             blocs.c.bl_document_id,
             blocs.c.facture_id,
+            categories.c.categorie,
             comptes_anomalies.c.nb_total,
         )
         .where(
@@ -985,6 +1140,7 @@ async def bilan_par_bl(
             statut_rapprochement=ligne.statut_rapprochement,
             bl_document_id=ligne.bl_document_id,
             facture_id=ligne.facture_id,
+            categorie=ligne.categorie,
             montants=_montants_bilan(ligne),
         )
         for ligne in lignes
@@ -1023,6 +1179,7 @@ class LigneLivraison:
     chantier: str | None
     fournisseur_id: uuid.UUID | None
     fournisseur: str | None
+    categorie: str
     montants: MontantsBilan
 
 
@@ -1067,8 +1224,9 @@ async def lister_livraisons(
     anomalies = _sous_requete_anomalies(mois, exclues)
     anomalies_qte_prix = _anomalies_qte_prix_par_bloc(anomalies)
     comptes_anomalies = _comptes_anomalies(anomalies, anomalies.c.bloc_id)
+    categories = _sous_requete_categories(exclues)
     montants = _expressions_montants(
-        blocs, anomalies_qte_prix, comptes_anomalies.c.nb_total
+        blocs, anomalies_qte_prix, comptes_anomalies.c.nb_total, categories
     )
 
     requete = (
@@ -1083,6 +1241,7 @@ async def lister_livraisons(
             Chantier.nom_canonique.label("chantier"),
             blocs.c.fournisseur_id,
             Fournisseur.nom.label("fournisseur"),
+            categories.c.categorie.label("categorie"),
             montants.facture_ht.label("facture_ht"),
             montants.rapproche.label("rapproche"),
             montants.en_ecart.label("en_ecart"),
@@ -1090,9 +1249,12 @@ async def lister_livraisons(
             montants.nb_anomalies_ouvertes.label("nb_anomalies_ouvertes"),
             montants.conforme.label("conforme"),
             montants.a_verifier.label("a_verifier"),
+            montants.facture_a_verifier.label("facture_a_verifier"),
+            montants.nb_blocs_non_conformes.label("nb_blocs_non_conformes"),
         )
         .select_from(blocs)
         .outerjoin(anomalies_qte_prix, anomalies_qte_prix.c.bloc_id == blocs.c.bloc_id)
+        .outerjoin(categories, categories.c.bloc_id == blocs.c.bloc_id)
         .outerjoin(comptes_anomalies, comptes_anomalies.c.bloc_id == blocs.c.bloc_id)
         .outerjoin(Chantier, Chantier.id == blocs.c.chantier_id)
         .outerjoin(Fournisseur, Fournisseur.id == blocs.c.fournisseur_id)
@@ -1107,6 +1269,7 @@ async def lister_livraisons(
             Chantier.nom_canonique,
             blocs.c.fournisseur_id,
             Fournisseur.nom,
+            categories.c.categorie,
             comptes_anomalies.c.nb_total,
         )
     )
@@ -1139,6 +1302,7 @@ async def lister_livraisons(
             chantier=ligne.chantier,
             fournisseur_id=ligne.fournisseur_id,
             fournisseur=ligne.fournisseur,
+            categorie=ligne.categorie,
             montants=_montants_bilan(ligne),
         )
         for ligne in lignes
@@ -1308,6 +1472,40 @@ async def bilan_detail(
     bloc et enfin son identifiant (dernier départage absolu)."""
     blocs = _sous_requete_blocs(_conditions_base(mois))
     bl_ligne = aliased(Ligne)
+    # B-06 : une ligne de facture peut être reliée à plusieurs lignes de BL
+    # (même code réparti sur le BL) : on somme leurs quantités par ligne de
+    # facture pour ne produire qu'une ligne de détail par ligne facturée.
+    # Une ligne de BL reliée à plusieurs lignes de facture (2/1) n'est
+    # comptée que sur la première ligne de facture du groupe (ordre, puis
+    # id) : une somme de la colonne ne la compte ainsi qu'une fois.
+    facture_liee = aliased(Ligne)
+    rang_lien = (
+        func.row_number()
+        .over(
+            partition_by=RapprochementLigne.ligne_bl_id,
+            order_by=(facture_liee.ordre.asc(), facture_liee.id.asc()),
+        )
+        .label("rang")
+    )
+    liens_de_tete = (
+        select(
+            RapprochementLigne.ligne_facture_id.label("ligne_facture_id"),
+            RapprochementLigne.ligne_bl_id.label("ligne_bl_id"),
+            rang_lien,
+        )
+        .join(facture_liee, facture_liee.id == RapprochementLigne.ligne_facture_id)
+        .subquery()
+    )
+    qte_bl_par_ligne = (
+        select(
+            liens_de_tete.c.ligne_facture_id.label("ligne_facture_id"),
+            func.sum(bl_ligne.qte_totale).label("qte_bl"),
+        )
+        .join(bl_ligne, bl_ligne.id == liens_de_tete.c.ligne_bl_id)
+        .where(liens_de_tete.c.rang == 1)
+        .group_by(liens_de_tete.c.ligne_facture_id)
+        .subquery()
+    )
 
     requete = (
         select(
@@ -1332,15 +1530,14 @@ async def bilan_detail(
             Ligne.pu_ht,
             Ligne.remise_pct,
             Ligne.montant_ht,
-            bl_ligne.qte_totale.label("qte_bl_appariee"),
+            qte_bl_par_ligne.c.qte_bl.label("qte_bl_appariee"),
         )
         .select_from(Ligne)
         .join(blocs, blocs.c.bloc_id == Ligne.bloc_id)
         .join(Document, Document.id == blocs.c.facture_id)
         .outerjoin(Chantier, Chantier.id == blocs.c.chantier_id)
         .outerjoin(Fournisseur, Fournisseur.id == blocs.c.fournisseur_id)
-        .outerjoin(RapprochementLigne, RapprochementLigne.ligne_facture_id == Ligne.id)
-        .outerjoin(bl_ligne, bl_ligne.id == RapprochementLigne.ligne_bl_id)
+        .outerjoin(qte_bl_par_ligne, qte_bl_par_ligne.c.ligne_facture_id == Ligne.id)
     )
     if agence is not None:
         requete = requete.where(_condition_agence(blocs, agence))

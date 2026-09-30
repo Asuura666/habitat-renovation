@@ -13,7 +13,7 @@ import { EtatVide, Filtres, type OptionFiltre } from "../ui";
  * connaissait jusqu'ici que `LigneBilanBl`. */
 type LivraisonMontants = Pick<
   LigneBilanBl,
-  "statut_rapprochement" | "bl_document_id" | "facture_id" | "montants"
+  "statut_rapprochement" | "bl_document_id" | "facture_id" | "montants" | "categorie"
 >;
 
 /** Une livraison affichée par ce composant, sur les trois écrans qui le
@@ -30,46 +30,33 @@ export interface LivraisonAffichee {
   ligne: LivraisonMontants;
 }
 
-export type CategorieLivraison = "conforme" | "ecart" | "alerte" | "inconnu";
+/** Catégorie d'une livraison, **calculée par le serveur** (définition unique
+ * de « Conforme », décision d'Ilane du 29/09/2026 : bon validé, comparé sans
+ * écart, aucun autre problème ouvert). Le front n'a aucune règle propre : il
+ * affiche ce champ et filtre dessus. */
+export type CategorieLivraison = LigneBilanBl["categorie"];
 
 const CLASSES_POINT_STATUT: Record<CategorieLivraison, string> = {
   conforme: "bg-conforme",
-  ecart: "bg-ecart",
-  alerte: "bg-alerte",
-  inconnu: "bg-encre-2",
+  a_verifier: "bg-ecart",
+  sans_bon: "bg-alerte",
 };
 
-/** État d'une livraison (extrait de l'ancien `EtatBon` de `FicheChantier
- * .tsx`) : reçue sans problème ouvert (conforme), reçue avec un problème
- * ouvert (à vérifier), jamais reçue/livrée sans bon (sans bon) -- même
- * logique que le filtre « Conformes/À vérifier/Sans bon » ci-dessous,
- * jamais deux définitions divergentes du même état. */
-export function categorieLivraison(ligne: LivraisonMontants): CategorieLivraison {
-  if (ligne.statut_rapprochement === "recu") {
-    return ligne.montants.nb_anomalies_ouvertes > 0 ? "ecart" : "conforme";
-  }
-  if (ligne.statut_rapprochement === "non_recu" || ligne.statut_rapprochement === "pas_de_bon") {
-    return "alerte";
-  }
-  return "inconnu";
-}
-
-function libelleStatutBon(statut: string | null): string {
-  if (statut === "recu") return "Reçu";
-  if (statut === "non_recu") return "Jamais reçu";
-  if (statut === "pas_de_bon") return "Livré sans bon";
-  return "Statut inconnu";
+function libelleEtatBon(ligne: LivraisonMontants): string {
+  if (ligne.categorie === "conforme") return "Conforme";
+  if (ligne.categorie === "a_verifier") return "À vérifier";
+  return ligne.statut_rapprochement === "pas_de_bon" ? "Livré sans bon" : "Jamais reçu";
 }
 
 /** Point de couleur + libellé (jamais la couleur seule, spec §2) résumant
  * l'état d'une ligne de livraison — `nb_anomalies_ouvertes` déjà fourni par
  * le serveur, aucun calcul ici. */
 function EtatBon({ ligne }: { ligne: LivraisonMontants }): ReactElement {
-  const categorie = categorieLivraison(ligne);
+  const categorie = ligne.categorie;
   return (
     <span className="inline-flex items-center gap-2 whitespace-nowrap">
       <span aria-hidden="true" className={`h-2.5 w-2.5 shrink-0 rounded-full ${CLASSES_POINT_STATUT[categorie]}`} />
-      {libelleStatutBon(ligne.statut_rapprochement)}
+      {libelleEtatBon(ligne)}
     </span>
   );
 }
@@ -238,8 +225,8 @@ function TableauLivraisonsOrdi({
 const OPTIONS_ETAT: OptionFiltre[] = [
   { valeur: "toutes", libelle: "Toutes" },
   { valeur: "conforme", libelle: "Conformes" },
-  { valeur: "ecart", libelle: "À vérifier" },
-  { valeur: "alerte", libelle: "Sans bon" },
+  { valeur: "a_verifier", libelle: "À vérifier" },
+  { valeur: "sans_bon", libelle: "Sans bon" },
 ];
 
 const VALEURS_ETAT_CONNUES = new Set(OPTIONS_ETAT.map((option) => option.valeur));
@@ -276,7 +263,7 @@ export function TableauLivraisons({
   const [parametres, setParametres] = useSearchParams();
   // T13 (revue finale du 27/09/2026) : une valeur `?etat=` inconnue (lien
   // périmé, modifiée à la main) ne doit plus filtrer sur une catégorie qui
-  // n'existe pas -- `categorieLivraison` ne renvoie jamais cette valeur,
+  // n'existe pas -- aucune livraison n'a cette catégorie,
   // donc `filtrees` restait vide en silence. Repli sur « toutes ».
   const etatParam = parametres.get("etat");
   const etat = etatParam !== null && VALEURS_ETAT_CONNUES.has(etatParam) ? etatParam : "toutes";
@@ -292,7 +279,7 @@ export function TableauLivraisons({
   }
 
   const filtrees =
-    etat === "toutes" ? livraisons : livraisons.filter((livraison) => categorieLivraison(livraison.ligne) === etat);
+    etat === "toutes" ? livraisons : livraisons.filter((livraison) => livraison.ligne.categorie === etat);
 
   return (
     <div id="livraisons" className="space-y-4">

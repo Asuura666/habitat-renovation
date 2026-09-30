@@ -589,25 +589,37 @@ La sauvegarde comprend :
 - un envoi chiffré dans restic ;
 - une rétention de 30 sauvegardes quotidiennes et 12 mensuelles.
 
-Procédure complète : `deploy/RESTAURATION.md`.
+Procédure complète : `deploy/RESTAURATION.md`. Les scripts visent par défaut
+le développement local ; pour une instance du VPS, passer les trois variables
+(sans `sudo`) :
+
+```bash
+cd /home/debian/habitat_reno
+# Production ; pour la démonstration : .env.demo et habitat_demo
+export HABITAT_RENO_ENV_FILE=/home/debian/habitat_reno/.env.prod
+export COMPOSE_PROJECT_NAME=habitat_prod
+./deploy/backup.sh
+```
 
 ### 11.2 Retour arrière applicatif avec schéma compatible
 
 Utiliser cette procédure uniquement si l'analyse des migrations confirme que le
 schéma courant reste compatible avec l'ancien code. Remplacer `<SHA_PRECEDENT>`
-par la valeur consignée avant déploiement :
+par la valeur consignée avant déploiement. `$P` désigne l'instance (jamais
+`up` sans la surcouche VPS sur ce serveur) :
 
 ```bash
 cd /home/debian/habitat_reno
+# Production :
+P="-p habitat_prod --env-file .env.prod -f deploy/docker-compose.yml -f deploy/docker-compose.vps.yml"
+# Démonstration : P="-p habitat_demo --env-file .env.demo -f deploy/docker-compose.yml -f deploy/docker-compose.vps.yml"
+# Développement local : P="-p habitat_reno --env-file .env -f deploy/docker-compose.yml"
 test -z "$(git status --porcelain)" || { echo "Arbre Git non propre : rollback refusé" >&2; exit 1; }
 git switch --detach <SHA_PRECEDENT>
 
-docker compose -p habitat_reno --env-file .env \
-  -f deploy/docker-compose.yml build api
-docker compose -p habitat_reno --env-file .env \
-  -f deploy/docker-compose.yml stop api
-docker compose -p habitat_reno --env-file .env \
-  -f deploy/docker-compose.yml up -d api
+docker compose $P build api
+docker compose $P stop api
+docker compose $P up -d api
 ```
 
 La garde Git refuse explicitement un arbre non propre : ne pas écraser,
@@ -641,17 +653,21 @@ Préparer la version exacte et s'assurer qu'un conteneur `api` existe. L'étape
 
 ```bash
 cd /home/debian/habitat_reno
+# Production (démonstration : .env.demo, habitat_demo ; développement local :
+# ne rien exporter et prendre P="-p habitat_reno --env-file .env -f deploy/docker-compose.yml")
+export HABITAT_RENO_ENV_FILE=/home/debian/habitat_reno/.env.prod
+export COMPOSE_PROJECT_NAME=habitat_prod
+export COMPOSE_OVERRIDE_FILE=deploy/docker-compose.vps.yml
+P="-p habitat_prod --env-file .env.prod -f deploy/docker-compose.yml -f deploy/docker-compose.vps.yml"
+
 test -z "$(git status --porcelain)" || { echo "Arbre Git non propre : restauration refusée" >&2; exit 1; }
 git switch --detach <SHA_ASSOCIE_AU_SNAPSHOT>
 
-docker compose -p habitat_reno --env-file .env \
-  -f deploy/docker-compose.yml up -d postgres
-docker compose -p habitat_reno --env-file .env \
-  -f deploy/docker-compose.yml build api
-docker compose -p habitat_reno --env-file .env \
-  -f deploy/docker-compose.yml create api
+docker compose $P up -d postgres
+docker compose $P build api
+docker compose $P create api
 
-./deploy/restore.sh <IDENTIFIANT_SNAPSHOT> --confirmer
+./deploy/restore.sh <IDENTIFIANT_SNAPSHOT> --confirmer   # sans sudo
 ```
 
 Ici aussi, la garde refuse la restauration si l'arbre contient des changements
@@ -661,6 +677,10 @@ Lire **entièrement** `deploy/RESTAURATION.md` avant cette commande. Vérifier
 l'espace disque : l'ancien et le nouveau dossier documentaire coexistent
 pendant la bascule. L'ancien contenu est conservé dans un dossier
 `.avant-restauration-*` jusqu'à sa suppression manuelle après validation.
+Les documents restaurés sont rendus à l'uid/gid 10001 de l'API (0750/0640)
+par un conteneur root jetable, et une copie de sécurité de la base courante
+est écrite dans `~/sauvegardes-habitat/` avant sa suppression : l'opérateur
+n'a besoin ni de `sudo` ni de `chown`.
 
 Le script restaure le schéma contenu dans le snapshot puis démarre l'image
 préparée. Il ne migre pas automatiquement une sauvegarde ancienne vers un code

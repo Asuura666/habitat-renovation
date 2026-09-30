@@ -58,9 +58,10 @@ def test_apparier_doublons_de_code_chacun_apparie_une_fois() -> None:
 
     resultat = apparier_lignes(lignes_facture, lignes_bl)
 
+    groupe_facture, groupe_bl = (fact_1, fact_2), (bl_1, bl_2)
     assert resultat == (
-        Appariement(cle_facture=fact_1, cle_bl=bl_1, methode="code"),
-        Appariement(cle_facture=fact_2, cle_bl=bl_2, methode="code"),
+        Appariement(fact_1, bl_1, "code", groupe_facture, groupe_bl),
+        Appariement(fact_2, bl_2, "code", groupe_facture, groupe_bl),
     )
 
 
@@ -180,3 +181,45 @@ def test_apparier_aucune_ligne_de_facture_renvoie_tuple_vide() -> None:
     resultat = apparier_lignes([], lignes_bl)
 
     assert resultat == ()
+
+
+def test_apparier_une_ligne_facture_deux_lignes_bl_meme_code_forment_un_groupe() -> (
+    None
+):
+    """B-06 : la ligne de facture est reliée à la première ligne de BL, et
+    les deux lignes de BL sont consommées (groupe)."""
+    fact_1, bl_1, bl_2, fact_2 = _uuids(4)
+    lignes_facture = [
+        LigneAApparier(cle=fact_1, code="AB1234", designation="Colle"),
+        LigneAApparier(cle=fact_2, code=None, designation="Colle"),
+    ]
+    lignes_bl = [
+        LigneAApparier(cle=bl_1, code="AB1234", designation="Colle"),
+        LigneAApparier(cle=bl_2, code="ab 1234", designation="Colle"),
+    ]
+
+    resultat = apparier_lignes(lignes_facture, lignes_bl)
+
+    assert resultat == (
+        Appariement(fact_1, bl_1, "code", (fact_1,), (bl_1, bl_2)),
+        Appariement(fact_2, None, None),
+    )
+
+
+def test_apparier_deux_lignes_facture_une_ligne_bl_meme_code_forment_un_groupe() -> (
+    None
+):
+    """B-06 : les deux lignes de facture sont reliées à la ligne de BL."""
+    fact_1, fact_2, bl_1 = _uuids(3)
+    lignes_facture = [
+        LigneAApparier(cle=fact_1, code="AB1234", designation="Colle"),
+        LigneAApparier(cle=fact_2, code="AB1234", designation="Colle"),
+    ]
+    lignes_bl = [LigneAApparier(cle=bl_1, code="AB1234", designation="Colle")]
+
+    resultat = apparier_lignes(lignes_facture, lignes_bl)
+
+    assert resultat == (
+        Appariement(fact_1, bl_1, "code", (fact_1, fact_2), (bl_1,)),
+        Appariement(fact_2, bl_1, "code", (fact_1, fact_2), (bl_1,)),
+    )

@@ -43,6 +43,7 @@ from app.modules.extract.facture import (
 )
 from app.modules.extract.unikalo import analyser_facture_unikalo
 from app.modules.ingest import factures as ingest_factures
+from app.modules.ingest.anomalies import lister_anomalies
 from app.modules.ingest.commun import Deposant
 from app.modules.ingest.factures import (
     EcritureImpossible,
@@ -652,6 +653,34 @@ async def test_depot_total_incoherent_a_verifier_motif_somme_incoherente(
     assert journal.apres is not None
     assert journal.apres["statut"] == "a_verifier"
     assert journal.apres["motifs"] == ["somme_incoherente"]
+
+
+async def test_depot_total_incoherent_produit_l_alerte_r10_a_regler(
+    db_session: AsyncSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B-09 : la facture « à vérifier » à somme incohérente porte une
+    anomalie R10 ouverte (donc dans « À régler »), et son montant reste
+    compté dans « Facturé »."""
+    facture = _facture_invente(
+        blocs=(_bloc_invente(lignes=(_ligne_invente(),)),),
+        total_ht=Decimal("999.99"),
+    )
+    monkeypatch.setattr(
+        ingest_factures, "analyser_facture_unikalo", lambda reponse: facture
+    )
+    utilisateur = await _creer_utilisateur(db_session)
+
+    resultat = await deposer_facture(
+        db_session,
+        _SIGNATURE_PDF_INVENTEE,
+        _deposant_depuis(utilisateur),
+        tmp_path,
+        _ocr_quelconque,
+    )
+
+    anomalies = await lister_anomalies(db_session, statut="ouverte")
+    assert [(a.regle, a.document_id) for a in anomalies] == [("R10", resultat.id)]
+    assert anomalies[0].detail["total"] == "999.99"
 
 
 async def test_depot_confiance_min_calculee_depuis_les_pages(

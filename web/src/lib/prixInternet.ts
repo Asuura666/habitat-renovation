@@ -12,6 +12,11 @@
 import type { PrixInternet } from "../api/ia";
 import { formaterMontant } from "./formats";
 
+/** Les seuls champs utiles à l'affichage du montant -- aussi fournis par le
+ * Laboratoire IA (`pages/LaboIA.tsx`), qui montre le résultat d'un essai
+ * exactement comme la page « Prix à vérifier ». */
+export type MontantPrixInternet = Pick<PrixInternet, "prix" | "taxes" | "conditionnement" | "unite">;
+
 /** Nom de domaine d'une adresse (« exemple.invalid », jamais l'adresse
  * complète -- rester court à l'écran), `www.` retiré -- `null` si l'adresse
  * ne doit **pas** devenir un lien cliquable : non analysable, protocole
@@ -42,7 +47,7 @@ export function domaineSource(url: string): string | null {
  * manque, jamais les deux à la fois (redondant, l'un contenant souvent déjà
  * l'autre). Chaîne vide si aucun des deux n'est présent -- jamais une
  * parenthèse vide affichée. */
-function parentheseConditionnement(prixInternet: PrixInternet): string {
+function parentheseConditionnement(prixInternet: MontantPrixInternet): string {
   const partie = prixInternet.conditionnement ?? prixInternet.unite;
   return partie !== null && partie !== "" ? ` (${partie})` : "";
 }
@@ -52,7 +57,25 @@ function parentheseConditionnement(prixInternet: PrixInternet): string {
  * de vérifier `statut === "trouve" && prix !== null` avant d'appeler cette
  * fonction (jamais revérifié ici, comme `formaterMontant` : un tiret plutôt
  * qu'une exception si `prix` est tout de même `null`). */
-export function texteMontantPrixInternet(prixInternet: PrixInternet): string {
+export function texteMontantPrixInternet(prixInternet: MontantPrixInternet): string {
   const taxes = prixInternet.taxes !== null ? ` ${prixInternet.taxes}` : "";
   return `${formaterMontant(prixInternet.prix)}${taxes}${parentheseConditionnement(prixInternet)}`;
+}
+
+/** « dès 11,59 € HT · 3 sources (jusqu'à 13,91 € HT) » ; « 2 sources · taxes
+ * non précisées » quand aucune offre n'a de prix HT connu (la liste des
+ * offres reste alors affichée, spec §7) -- `null` quand il n'y a qu'une
+ * source (l'affichage d'une offre unique reste celui d'avant). */
+export function texteResumeOffres(prixInternet: PrixInternet): string | null {
+  if (prixInternet.nb_sources < 2) {
+    return null;
+  }
+  if (prixInternet.prix_ht_min === null) {
+    return `${prixInternet.nb_sources} sources · taxes non précisées`;
+  }
+  const jusqua =
+    prixInternet.prix_ht_max !== null && prixInternet.prix_ht_max !== prixInternet.prix_ht_min
+      ? ` (jusqu'à ${formaterMontant(prixInternet.prix_ht_max)} HT)`
+      : "";
+  return `dès ${formaterMontant(prixInternet.prix_ht_min)} HT · ${prixInternet.nb_sources} sources${jusqua}`;
 }
