@@ -1291,8 +1291,10 @@ factures, 0 échec ; production : 1 facture, 0 échec) et
 `python -m app.cli chantiers-alias-suspects` (aucun alias suspect, démo et
 production). L'IA reste **éteinte et gelée** en production, le contrôle des prix
 reste éteint. Les scripts de supervision (`feature/exploitation-2`) n'en
-faisaient pas partie. **Non établi ici** : si l'image OpenCode a été
-reconstruite en production à cette occasion (l'IA y étant éteinte).
+faisaient pas partie. L'image OpenCode n'a pas été reconstruite : sa
+configuration (`deploy/opencode/opencode.json`) n'a pas changé depuis la
+reconstruction du 29/09 (cinq sources), déjà en service, et l'IA reste éteinte
+en production.
 
 ---
 
