@@ -3,7 +3,8 @@
 Préparé le 28/09/2026 (session A) pour être relu par Ilane **avant** toute
 action. Rien de ce document n'a été exécuté. Il complète
 `docs/deploiement-et-tests.md` (procédure générale, §10 mise à jour, §11
-retour arrière) avec ce qui est propre à ce déploiement.
+retour arrière) avec ce qui est propre à ce déploiement. La livraison des corrections
+d'audit a sa propre page courte : `docs/deploiement-corrections-audit.md`.
 
 ---
 
