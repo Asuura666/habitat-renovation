@@ -1673,3 +1673,43 @@ la mise en production.
   l'API.
 - **Bot Telegram de la démo invalide** (jeton refusé par Telegram) : la démo ne
   reçoit aucun dépôt.
+
+## Recherche à la demande et contestations de prix (01/10/2026)
+
+Branche `feature/prix-contestations-recherche`, non fusionnée, non déployée.
+Spécification : `docs/superpowers/specs/2026-10-01-prix-recherche-et-contestations-design.md`.
+
+- **État des recherches en mémoire.** Les recherches de prix internet lancées
+  par le bouton sont suivies dans un registre en mémoire du processus
+  (`ingest/ia_prix.py`, `_RECHERCHES`). Un redémarrage de l'API l'efface : une
+  recherche en cours est perdue (la cellule revient à son bouton) et un message
+  d'échec disparaît. Un échec n'est gardé que 15 minutes. Le registre suppose
+  **une seule instance d'API** ; avec deux, le « déjà en cours » ne serait plus
+  garanti. Même choix que le Laboratoire IA. Ce que cela ne couvre pas : la
+  reprise après redémarrage, plusieurs instances.
+- **Un seul identifiant par rangée de la page Prix.** Le bouton, la lecture
+  groupée et l'affichage utilisent le premier identifiant d'alerte de la rangée
+  (`anomalie_ids[0]`). Si les alertes d'une même rangée portent des produits
+  différents (clés de produit différentes), seul le premier est cherché et
+  affiché.
+- **Une contestation n'est ni modifiable ni annulable.** « Contester » ferme
+  les alertes de façon définitive (une alerte fermée n'est jamais rouverte).
+  L'écran de la grille et la synthèse ne font que les lire ; il n'y a aucun
+  moyen de corriger un commentaire ou de retirer une contestation faite par
+  erreur.
+- **Les prix « ignorés » ne sont visibles nulle part hors du journal**
+  (décision D4 d'Ilane : contestations seulement). Ni la grille du fournisseur
+  ni la synthèse de la semaine ne les montrent.
+- **Le prix de grille d'une contestation est la valeur au moment du
+  contrôle.** Il vient du détail de l'alerte, pas de la grille actuelle : si la
+  grille change ensuite, la contestation garde l'ancien prix. L'indication
+  « absent de la grille » dit seulement si le produit est dans la grille
+  maintenant.
+- **Pas de tests automatiques du front.** Les écrans (bouton, « Recherche en
+  cours… », dépliage des contestations, section, compteur de la carte) sont
+  vérifiés par `tsc`, `vite build`, des gardes sur le texte du source
+  (`tests/test_web_*.py`) et un contrôle visuel, pas par un test de
+  comportement.
+- **Au-delà de 500 contestations** pour un fournisseur, les plus anciennes ne
+  sont pas listées ; la synthèse ne reçoit que 50 entrées (les plus récentes),
+  avec une phrase de troncature.

@@ -84,6 +84,13 @@ puis `docs/roadmap-octobre-2026.md` (demandes de la réunion du 26/09,
 organisation git, phases 1 à 4, suivi), `docs/dette.md` et, avant de toucher
 l'IA, `docs/phase-4-ia.md`.
 
+- **Demandes du 01/10/2026 (onglet Prix), codées, non fusionnées, non
+  déployées** : branche `feature/prix-contestations-recherche` (bouton
+  « Chercher sur internet » sur chaque rangée, contestations dans la grille du
+  fournisseur et dans la synthèse de la semaine, migration `0016`, image
+  OpenCode de la démo à reconstruire). À fusionner dans `dev` par PR, puis à
+  déployer sur la démo seulement ; production inchangée (IA éteinte). Détail :
+  README §2.4, §12.10 et `docs/dette.md` (section du 01/10/2026).
 - **Livré et en production (30/09/2026, `dev` → `main`, PR #17, étiquette
   `mise-en-prod-2026-09-30`, migration `0015`)** : démo à jour à 07 h 29 UTC,
   production à 07 h 31 UTC (sauvegarde préalable, migration 0014 → 0015,
