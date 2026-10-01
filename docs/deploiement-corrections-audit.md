@@ -2,7 +2,7 @@
 
 Page courte, propre à cette livraison. Elle complète
 `docs/deploiement-octobre-2026.md` (variables `I`, `P`, `PORT` du §4) et
-`docs/deploiement-et-tests.md` (procédure générale). Rien ici n'a été exécuté.
+`docs/deploiement-et-tests.md` (procédure générale). **Exécutée le 30/09/2026** : démo à 07:29 UTC, production à 07:31 UTC (étiquette `mise-en-prod-2026-09-30`) ; `rapprocher --tout` sans échec et aucun alias suspect sur les deux instances.
 
 ## Ce qui change
 

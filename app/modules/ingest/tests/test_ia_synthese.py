@@ -11,6 +11,7 @@ import json
 import uuid
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -27,6 +28,7 @@ from app.modules.ingest.ia_synthese import (
     BonLie,
     ResultatSynthese,
     _CommentaireEnvoye,
+    _ContestationEnvoyee,
     _texte_synthese,
     derniere_semaine_complete,
     generer_synthese,
@@ -44,6 +46,8 @@ from app.modules.ingest.models import (
     SyntheseCommentaires,
     Utilisateur,
 )
+from app.modules.ingest.tests.test_contestations_prix import _creer_anomalie_fermee
+from app.modules.ingest.tests.test_prix_page import _creer_ligne
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
 
@@ -327,7 +331,7 @@ async def test_generer_synthese_semaine_vide_aucune_requete(
         )
     ).scalar_one()
     assert synthese.statut == "vide"
-    assert synthese.resume == "Aucun commentaire cette semaine."
+    assert synthese.resume == "Aucun commentaire ni contestation cette semaine."
     assert synthese.nb_commentaires == 0
 
     journal = (
@@ -341,6 +345,7 @@ async def test_generer_synthese_semaine_vide_aucune_requete(
         "semaine_fin": (_LUNDI + timedelta(days=6)).isoformat(),
         "statut": "vide",
         "nb_commentaires": 0,
+        "nb_contestations": 0,
         "nb_actions": 0,
     }
 
@@ -444,6 +449,7 @@ async def test_generer_synthese_nominale_actions_document_ids_et_journal(
         "semaine_fin": (_LUNDI + timedelta(days=6)).isoformat(),
         "statut": "ok",
         "nb_commentaires": 2,
+        "nb_contestations": 0,
         "nb_actions": 1,
     }
 
@@ -999,3 +1005,267 @@ async def test_marquer_action_inconnue(db_session: AsyncSession) -> None:
         await marquer_action(
             db_session, uuid.uuid4(), faite=True, utilisateur_id=uuid.uuid4()
         )
+
+
+# --------------------------------------------------------------------------
+# Contestations de prix (spec 2026-10-01 §5, migration 0016)
+# --------------------------------------------------------------------------
+
+
+def _contestation_envoyee(**surcharges: Any) -> _ContestationEnvoyee:
+    valeurs: dict[str, Any] = {
+        "reference": "p1",
+        "jour": date(2026, 9, 29),
+        "fournisseur": "Fournisseur Un Invente",
+        "produit": "Produit inventé",
+        "numeros_bons": ("N1", "N2"),
+        "prix_bon": Decimal("12.00"),
+        "unite_bon": "u",
+        "prix_grille": Decimal("10.00"),
+        "commentaire": "Prix négocié inventé",
+    }
+    valeurs.update(surcharges)
+    return _ContestationEnvoyee(**valeurs)
+
+
+def test_texte_synthese_contestations_sans_auteur() -> None:
+    texte = _texte_synthese((), 0, (_contestation_envoyee(),), nb_contestations=1)
+    lignes = texte.splitlines()
+
+    assert "Prix contestés cette semaine :" in lignes
+    assert (
+        "[p1] mardi 29/09 — Fournisseur Un Invente — produit « Produit inventé » — "
+        "bon(s) N1, N2 — prix du bon 12,00 € / u, grille 10,00 € : "
+        "Prix négocié inventé"
+    ) in lignes
+    assert not any("cette semaine ; les" in ligne for ligne in lignes)
+
+
+def test_texte_synthese_contestation_sans_prix_ni_unite() -> None:
+    texte = _texte_synthese(
+        (),
+        0,
+        (_contestation_envoyee(prix_bon=None, unite_bon=None, prix_grille=None),),
+        nb_contestations=1,
+    )
+
+    assert "bon(s) N1, N2 : Prix négocié inventé" in texte, texte
+
+
+def test_texte_synthese_contestations_troncature() -> None:
+    texte = _texte_synthese((), 0, (_contestation_envoyee(),), nb_contestations=80)
+
+    assert "80 contestations cette semaine ; les 1 plus récentes ci-dessous." in texte
+
+
+async def _contester(
+    db_session: AsyncSession,
+    document: Document,
+    *,
+    quand: datetime,
+    commentaire: str = "Contesté : prix négocié inventé",
+    code: str = "L1",
+    regle: str = "R19",
+    detail: dict[str, str] | None = None,
+    traitee_par: uuid.UUID | None = None,
+) -> None:
+    ligne = await _creer_ligne(db_session, document=document, code_brut=code)
+    await _creer_anomalie_fermee(
+        db_session,
+        document=document,
+        ligne=ligne,
+        regle=regle,
+        commentaire=commentaire,
+        traitee_le=quand,
+        detail=detail,
+        traitee_par=traitee_par,
+    )
+
+
+async def test_generer_synthese_seulement_des_contestations(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    document = await _creer_document(db_session, fournisseur=fournisseur)
+    await _contester(db_session, document, quand=_paris(_LUNDI + timedelta(days=1), 9))
+    await db_session.commit()
+
+    structured = {
+        "resume": "Un prix contesté cette semaine.",
+        "actions": [{"texte": "Revoir la grille.", "commentaires": ["p1"]}],
+    }
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(_handler_json(_reponses_ok(structured)))
+    )
+
+    resultat = await generer_synthese(db_session, http, semaine_debut=_LUNDI)
+
+    assert resultat == ResultatSynthese(
+        statut="creee", semaine_debut=_LUNDI, nb_commentaires=0, nb_actions=1
+    )
+    synthese = (
+        await db_session.execute(
+            select(SyntheseCommentaires).where(
+                SyntheseCommentaires.semaine_debut == _LUNDI
+            )
+        )
+    ).scalar_one()
+    assert synthese.statut == "ok"
+    assert synthese.nb_commentaires == 0
+    assert synthese.nb_contestations == 1
+    action = (
+        await db_session.execute(
+            select(SyntheseAction).where(SyntheseAction.synthese_id == synthese.id)
+        )
+    ).scalar_one()
+    assert action.commentaire_ids == []
+    assert action.document_ids == [str(document.id)]
+    journal = (
+        await db_session.execute(
+            select(Journal).where(Journal.cible_id == str(synthese.id))
+        )
+    ).scalar_one()
+    assert journal.apres is not None
+    assert journal.apres["nb_contestations"] == 1
+
+
+async def test_generer_synthese_sans_commentaire_ni_contestation_vide(
+    db_session: AsyncSession,
+) -> None:
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_aucune_requete))
+
+    resultat = await generer_synthese(db_session, http, semaine_debut=_LUNDI)
+
+    assert resultat.statut == "vide"
+    synthese = (await db_session.execute(select(SyntheseCommentaires))).scalar_one()
+    assert synthese.resume == "Aucun commentaire ni contestation cette semaine."
+    assert synthese.nb_contestations == 0
+
+
+async def test_generer_synthese_regroupe_les_bons_du_meme_produit(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    doc_1 = await _creer_document(db_session, fournisseur=fournisseur, numero="N1")
+    doc_2 = await _creer_document(db_session, fournisseur=fournisseur, numero="N2")
+    auteur = Utilisateur(
+        email="auteur.contestation@example.invalid",
+        nom="Prenom Auteur Contestation Invente",
+        role="agent",
+        is_active=True,
+    )
+    db_session.add(auteur)
+    await db_session.flush()
+    quand = _paris(_LUNDI + timedelta(days=1), 9)
+    await _contester(
+        db_session,
+        doc_1,
+        quand=quand,
+        commentaire="Contesté : même",
+        traitee_par=auteur.id,
+    )
+    await _contester(
+        db_session,
+        doc_2,
+        quand=quand + timedelta(hours=1),
+        commentaire="Contesté : même",
+        traitee_par=auteur.id,
+    )
+    await _contester(
+        db_session,
+        doc_2,
+        quand=quand + timedelta(hours=2),
+        commentaire="Contesté : autre",
+        code="L2",
+        traitee_par=auteur.id,
+    )
+    await db_session.commit()
+
+    requetes: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requetes.append(request)
+        return _handler_json(_reponses_ok({"resume": "Résumé.", "actions": []}))(
+            request
+        )
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    await generer_synthese(db_session, http, semaine_debut=_LUNDI)
+
+    envoye = json.loads(requetes[1].content)["parts"][0]["text"]
+    lignes_p = [ligne for ligne in envoye.splitlines() if ligne.startswith("[p")]
+    assert len(lignes_p) == 2
+    assert lignes_p[0].startswith("[p1]") and "bon(s) N1, N2" in lignes_p[0]
+    assert lignes_p[1].startswith("[p2]") and "bon(s) N2 " in lignes_p[1]
+    assert auteur.nom not in envoye
+    assert auteur.email not in envoye
+
+
+async def test_generer_synthese_contestation_bornes_heure_de_paris(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    document = await _creer_document(db_session, fournisseur=fournisseur)
+    dimanche = _LUNDI + timedelta(days=6)
+    await _contester(db_session, document, quand=_paris(dimanche, 23, 30), code="A")
+    await _contester(
+        db_session,
+        document,
+        quand=_paris(dimanche + timedelta(days=1), 0, 5),
+        code="B",
+        commentaire="Contesté : semaine suivante",
+    )
+    await db_session.commit()
+
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            _handler_json(_reponses_ok({"resume": "Résumé.", "actions": []}))
+        )
+    )
+    await generer_synthese(db_session, http, semaine_debut=_LUNDI)
+    await generer_synthese(db_session, http, semaine_debut=_LUNDI + timedelta(days=7))
+
+    syntheses = {
+        s.semaine_debut: s.nb_contestations
+        for s in (await db_session.execute(select(SyntheseCommentaires))).scalars()
+    }
+    assert syntheses == {_LUNDI: 1, _LUNDI + timedelta(days=7): 1}
+
+
+async def test_generer_synthese_reference_p_inconnue_ecartee(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    document = await _creer_document(db_session, fournisseur=fournisseur)
+    await _contester(db_session, document, quand=_paris(_LUNDI + timedelta(days=1), 9))
+    await db_session.commit()
+
+    structured = {
+        "resume": "Résumé.",
+        "actions": [
+            {"texte": "Action inventée.", "commentaires": ["p9"]},
+            {"texte": "Action valable.", "commentaires": ["p1"]},
+        ],
+    }
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(_handler_json(_reponses_ok(structured)))
+    )
+    resultat = await generer_synthese(db_session, http, semaine_debut=_LUNDI)
+
+    assert resultat.nb_actions == 1
+    action = (await db_session.execute(select(SyntheseAction))).scalar_one()
+    assert action.texte == "Action valable."
+
+
+@pytest.mark.parametrize(
+    ("valeur", "attendu"),
+    [
+        (Decimal("12"), "12,00 €"),
+        (Decimal("10.00"), "10,00 €"),
+        (Decimal("9.7250"), "9,725 €"),
+        (Decimal("0.0375"), "0,0375 €"),
+        (Decimal("12.5"), "12,50 €"),
+    ],
+)
+def test_montant_decimales_significatives(valeur: Decimal, attendu: str) -> None:
+    assert ia_synthese._montant(valeur) == attendu

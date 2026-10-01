@@ -1,54 +1,106 @@
 import type { ReactElement } from "react";
 
-import type { PrixInternet } from "../api/ia";
-import type { AlerteProduit } from "../api/prix";
-import { formaterJourMois, TIRET } from "../lib/formats";
+import type { PrixInternet, RecherchePrix } from "../api/ia";
+import { formaterJourMois } from "../lib/formats";
 import { domaineSource, texteMontantPrixInternet, texteResumeOffres } from "../lib/prixInternet";
+import { Bouton } from "../ui";
 import { OffresPrixInternet } from "./OffresPrixInternet";
+
+export interface ProprietesInternet {
+  prixInternet: PrixInternet | null | undefined;
+  recherche: RecherchePrix | undefined;
+  lancementEnCours: boolean;
+  erreurLancement: string | null;
+  onRechercher: () => void;
+}
 
 /**
  * Cellule de la colonne « Internet » de la page « Prix à vérifier » (T10b,
- * phase 4 IA, spec §6.4) : dernier prix indicatif trouvé sur internet pour
- * une alerte « Produit absent de la grille » (R22, lot Prix) -- montée à la
- * fois dans le tableau (`<td>`) et dans la carte téléphone (`<dd>`,
- * `pages/Prix.tsx`), la colonne/ligne elle-même n'existant que quand l'IA
- * est active (`ia_active`, décision prise en amont par `Prix.tsx` -- jamais
- * relue ici). Réutilise la logique d'affichage partagée avec l'encart
+ * phase 4 IA, spec §6.4 ; bouton « Chercher sur internet » : spec
+ * 2026-10-01 §3) : dernier prix indicatif trouvé sur internet pour une
+ * alerte de prix -- toutes les alertes de prix sont couvertes (décision D1),
+ * plus seulement « Produit absent de la grille ». Montée à la fois dans le
+ * tableau (`<td>`) et dans la carte téléphone (`<dd>`, `pages/Prix.tsx`), la
+ * colonne/ligne elle-même n'existant que quand l'IA est active
+ * (`ia_active`, décision prise en amont par `Prix.tsx` -- jamais relue ici).
+ * Réutilise la logique d'affichage partagée avec l'encart
  * `components/AvisIA.tsx` (`lib/prixInternet.ts`) pour ne jamais dupliquer
  * la garde https-only du lien source.
  *
- * `prixInternet` :
- * - `undefined` (rangée R22 absente de la réponse groupée) ou `null`
- *   (recherchée, sans résultat `trouve`/`non_verifiable` de moins de 30
- *   jours, `ingest/ia_prix.py`) -> « en attente » dans les deux cas (même
- *   texte, même conclusion pour l'utilisateur : rien à montrer pour
- *   l'instant) ;
+ * Ordre d'affichage :
+ * - recherche en cours (clic en train de partir, ou état du serveur) ->
+ *   « Recherche en cours… » ;
  * - `statut === "trouve"` -> montant, taxes, conditionnement, date de
  *   consultation et lien vers la source (domaine seul, `https:` seulement,
- *   `rel="noopener noreferrer"`) ;
- * - `statut === "non_verifiable"` -> « introuvable », raison en `title`
- *   (brief T10b -- la cellule reste courte, la raison n'est jamais affichée
- *   en clair).
- *
- * Une rangée sans alerte R22 (autre alerte de prix) affiche un tiret --
- * jamais interrogée par `Prix.tsx` (`prixInternet` y vaut donc toujours
- * `undefined`), mais ce composant vérifie `produit.regles` lui-même plutôt
- * que de déduire ce cas de la seule absence de valeur, qui a une autre
- * signification ci-dessus (« pas encore cherché »).
+ *   `rel="noopener noreferrer"`), puis « Relancer » ;
+ * - `statut === "non_verifiable"` -> « introuvable », raison en `title`,
+ *   puis « Relancer » ;
+ * - un message (refus du clic : IA éteinte, plafond atteint ; ou échec de la
+ *   recherche) s'affiche dans la cellule de la rangée, avec « Réessayer » ;
+ * - sinon (rien de cherché) -> le bouton « Chercher sur internet ».
  */
 export function PrixInternetCellule({
-  produit,
   prixInternet,
-}: {
-  produit: AlerteProduit;
-  prixInternet: PrixInternet | null | undefined;
-}): ReactElement {
-  if (!produit.regles.includes("R22")) {
-    return <>{TIRET}</>;
+  recherche,
+  lancementEnCours,
+  erreurLancement,
+  onRechercher,
+}: ProprietesInternet): ReactElement {
+  const lienAction = (libelle: string): ReactElement => (
+    <button
+      type="button"
+      onClick={onRechercher}
+      className="ml-1 font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
+    >
+      {libelle}
+    </button>
+  );
+
+  if (lancementEnCours || recherche?.etat === "en_cours") {
+    return <span role="status" className="text-encre-2">
+        Recherche en cours…
+      </span>;
   }
 
+  const message =
+    erreurLancement ??
+    (recherche?.etat === "echec" ? (recherche.message ?? "La recherche a échoué") : null);
+  const resultat = resultatPrixInternet(prixInternet);
+
+  if (resultat !== null) {
+    return (
+      <>
+        {resultat}
+        {message !== null && <p role="alert" className="text-xs text-alerte">
+            {message}
+          </p>}
+        {lienAction(message !== null ? "Réessayer" : "Relancer")}
+      </>
+    );
+  }
+  if (message !== null) {
+    return (
+      <>
+        <span role="alert" className="text-alerte">
+          {message}
+        </span>
+        {lienAction("Réessayer")}
+      </>
+    );
+  }
+  return (
+    <Bouton variante="secondaire" className="whitespace-nowrap" onClick={onRechercher}>
+      Chercher sur internet
+    </Bouton>
+  );
+}
+
+/** Affichage d'un résultat déjà enregistré (`trouve`, `non_verifiable`) ;
+ * `null` s'il n'y en a pas (rien cherché, ou statut sans résultat exploitable
+ * comme `echec`, jamais renvoyé en principe). */
+function resultatPrixInternet(prixInternet: PrixInternet | null | undefined): ReactElement | null {
   if (prixInternet === undefined || prixInternet === null) {
-    return <span className="text-encre-2">en attente</span>;
+    return null;
   }
 
   if (prixInternet.statut === "trouve" && prixInternet.prix !== null) {
@@ -93,8 +145,5 @@ export function PrixInternetCellule({
     );
   }
 
-  // Statut inconnu (`echec`, en principe jamais renvoyé -- même garde que
-  // `AvisIA.tsx::LignePrixInternet`) : « en attente » plutôt qu'un texte
-  // incohérent.
-  return <span className="text-encre-2">en attente</span>;
+  return null;
 }

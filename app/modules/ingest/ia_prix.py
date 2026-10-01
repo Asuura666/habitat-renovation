@@ -36,17 +36,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import time
 import uuid
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
 import httpx
+from fastapi import BackgroundTasks
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.modules.extract.reponses_ia import (
     SCHEMA_EXPLICATION,
@@ -73,8 +75,18 @@ from app.modules.ingest.models import (
     Fournisseur,
     PrixInternet,
 )
-from app.modules.ingest.opencode import ErreurIA, IAIndisponible, ia_active, interroger
+from app.modules.ingest.opencode import (
+    ErreurIA,
+    IAIndisponible,
+    appels_du_jour,
+    ia_active,
+    ia_appels_max_jour,
+    interroger,
+)
 from app.modules.normalize.texte import normaliser_libelle
+from app.modules.rules.engine import REGLES_PRIX_BL
+
+logger = logging.getLogger(__name__)
 
 # Constantes du brief T6 -----------------------------------------------------
 
@@ -571,6 +583,81 @@ def _offre_json(offre: OffreLue) -> dict[str, Any]:
     }
 
 
+async def _rechercher_et_enregistrer(
+    session: AsyncSession,
+    http: httpx.AsyncClient,
+    *,
+    cle: str,
+    fournisseur_id: uuid.UUID | None,
+    fournisseur_nom: str | None,
+    designation: str,
+    code: str | None,
+    unite: str | None,
+) -> Literal["trouve", "non_verifiable", "echec", "echec_injoignable"]:
+    """Une recherche et son enregistrement (une ligne `PrixInternet`
+    commitée) -- partagé par `chercher_prix_internet` et la recherche à la
+    demande (spec 2026-10-01 §3.1). `IAIndisponible` remonte sans rien
+    écrire."""
+    try:
+        resultat, modele = await rechercher_prix(
+            session,
+            http,
+            fournisseur=fournisseur_nom,
+            designation=designation,
+            code=code,
+            unite=unite,
+        )
+    except ErreurIA as exc:
+        session.add(
+            _ligne_prix_echec(
+                fournisseur_id=fournisseur_id,
+                cle=cle,
+                designation=designation,
+                code=code,
+                raison=exc.code,
+                consulte_le=datetime.now(UTC),
+            )
+        )
+        await session.commit()
+        return "echec_injoignable" if _echec_injoignable(exc.code) else "echec"
+    except ReponseIAInvalide:
+        session.add(
+            _ligne_prix_echec(
+                fournisseur_id=fournisseur_id,
+                cle=cle,
+                designation=designation,
+                code=code,
+                raison="reponse_invalide",
+                consulte_le=datetime.now(UTC),
+            )
+        )
+        await session.commit()
+        return "echec"
+    session.add(
+        PrixInternet(
+            fournisseur_id=fournisseur_id,
+            cle=cle,
+            designation=designation,
+            code=code,
+            statut=resultat.statut,
+            prix=resultat.prix,
+            devise=resultat.devise,
+            taxes=resultat.taxes,
+            unite=resultat.unite,
+            conditionnement=resultat.conditionnement,
+            produit_trouve=resultat.produit_trouve,
+            source_url=resultat.source_url,
+            confiance=resultat.confiance,
+            raison=resultat.raison,
+            offres=[_offre_json(o) for o in resultat.offres],
+            modele=modele,
+            consulte_le=datetime.now(UTC),
+        )
+    )
+    await session.commit()
+    return "trouve" if resultat.statut == "trouve" else "non_verifiable"
+
+
 async def chercher_prix_internet(
     session: AsyncSession, http: httpx.AsyncClient
 ) -> BilanIA:
@@ -678,10 +765,12 @@ async def chercher_prix_internet(
             continue
 
         try:
-            resultat, modele = await rechercher_prix(
+            issue = await _rechercher_et_enregistrer(
                 session,
                 http,
-                fournisseur=nom_fournisseur,
+                cle=cle,
+                fournisseur_id=fournisseur_id,
+                fournisseur_nom=nom_fournisseur,
                 designation=designation,
                 code=code,
                 unite=unite,
@@ -689,63 +778,14 @@ async def chercher_prix_internet(
         except IAIndisponible as exc:
             arret = exc.raison
             break
-        except ErreurIA as exc:
-            session.add(
-                _ligne_prix_echec(
-                    fournisseur_id=fournisseur_id,
-                    cle=cle,
-                    designation=designation,
-                    code=code,
-                    raison=exc.code,
-                    consulte_le=datetime.now(UTC),
-                )
-            )
-            await session.commit()
-            echecs += 1
-            if _echec_injoignable(exc.code):
-                echecs_injoignable += 1
-            continue
-        except ReponseIAInvalide:
-            session.add(
-                _ligne_prix_echec(
-                    fournisseur_id=fournisseur_id,
-                    cle=cle,
-                    designation=designation,
-                    code=code,
-                    raison="reponse_invalide",
-                    consulte_le=datetime.now(UTC),
-                )
-            )
-            await session.commit()
-            echecs += 1
-            continue
-
-        session.add(
-            PrixInternet(
-                fournisseur_id=fournisseur_id,
-                cle=cle,
-                designation=designation,
-                code=code,
-                statut=resultat.statut,
-                prix=resultat.prix,
-                devise=resultat.devise,
-                taxes=resultat.taxes,
-                unite=resultat.unite,
-                conditionnement=resultat.conditionnement,
-                produit_trouve=resultat.produit_trouve,
-                source_url=resultat.source_url,
-                confiance=resultat.confiance,
-                raison=resultat.raison,
-                offres=[_offre_json(o) for o in resultat.offres],
-                modele=modele,
-                consulte_le=datetime.now(UTC),
-            )
-        )
-        await session.commit()
-        if resultat.statut == "trouve":
+        if issue == "trouve":
             ok += 1
-        else:
+        elif issue == "non_verifiable":
             non_verifiables += 1
+        else:
+            echecs += 1
+            if issue == "echec_injoignable":
+                echecs_injoignable += 1
 
     return BilanIA(
         ok=ok,
@@ -754,6 +794,168 @@ async def chercher_prix_internet(
         echecs_injoignable=echecs_injoignable,
         arret=arret,
     )
+
+
+# --------------------------------------------------------------------------
+# Recherche à la demande depuis la page Prix (spec 2026-10-01 §3)
+# --------------------------------------------------------------------------
+
+# État en mémoire du processus (une seule instance d'API, comme les essais du
+# Laboratoire IA) -- perdu au redémarrage, la cellule revient à son bouton.
+_DUREE_ETAT_RECHERCHE = timedelta(minutes=15)
+_MESSAGES_RECHERCHE: dict[str, str] = {
+    "eteinte": "IA éteinte",
+    "plafond": "Plafond du jour atteint",
+}
+_MESSAGE_ECHEC_RECHERCHE = "La recherche a échoué"
+
+
+@dataclass(frozen=True)
+class _EtatRecherche:
+    etat: Literal["en_cours", "termine", "echec"]
+    message: str | None
+    depuis: datetime
+
+
+_RECHERCHES: dict[str, _EtatRecherche] = {}
+
+
+@dataclass(frozen=True)
+class RechercheVue:
+    etat: Literal["en_cours", "echec"]
+    message: str | None
+
+
+class RechercheImpossible(Exception):
+    def __init__(self, raison: Literal["eteinte", "plafond"]) -> None:
+        super().__init__(_MESSAGES_RECHERCHE[raison])
+        self.raison = raison
+
+
+def etat_recherche(cle: str, maintenant: datetime | None = None) -> RechercheVue | None:
+    """État affichable de la recherche à la demande d'une clé de produit :
+    `None` si aucune, terminée avec succès ou périmée (15 minutes)."""
+    etat = _RECHERCHES.get(cle)
+    if etat is None:
+        return None
+    if (maintenant or datetime.now(UTC)) - etat.depuis >= _DUREE_ETAT_RECHERCHE:
+        return None
+    if etat.etat == "en_cours":
+        return RechercheVue(etat="en_cours", message=None)
+    if etat.etat == "echec":
+        return RechercheVue(etat="echec", message=etat.message)
+    return None
+
+
+@dataclass(frozen=True)
+class _ProduitRecherche:
+    cle: str
+    fournisseur_id: uuid.UUID | None
+    fournisseur_nom: str | None
+    designation: str
+    code: str | None
+    unite: str | None
+
+
+async def _produit_a_rechercher(
+    session: AsyncSession, anomalie_id: uuid.UUID
+) -> _ProduitRecherche:
+    exclues = await regles_masquees(session)
+    rangee = (
+        await session.execute(
+            select(Anomalie, Document.fournisseur_id, Fournisseur.nom)
+            .outerjoin(Document, Document.id == Anomalie.document_id)
+            .outerjoin(Fournisseur, Fournisseur.id == Document.fournisseur_id)
+            .where(
+                Anomalie.id == anomalie_id,
+                Anomalie.statut == "ouverte",
+                condition_regles_actives(exclues=exclues),
+                Anomalie.regle.in_(tuple(REGLES_PRIX_BL)),
+            )
+        )
+    ).one_or_none()
+    if rangee is None:
+        raise AnomalieIntrouvable(str(anomalie_id))
+    anomalie, fournisseur_id, fournisseur_nom = rangee
+    designation = _valeur_utile(anomalie.detail.get("produit"))
+    if designation is None:
+        raise AnomalieIntrouvable(str(anomalie_id))
+    code = _valeur_utile(anomalie.detail.get("code"))
+    return _ProduitRecherche(
+        cle=cle_produit_internet(fournisseur_id, designation, code),
+        fournisseur_id=fournisseur_id,
+        fournisseur_nom=fournisseur_nom,
+        designation=designation,
+        code=code,
+        unite=_valeur_utile(anomalie.detail.get("unite_bon")),
+    )
+
+
+async def _executer_recherche_prix(
+    produit: _ProduitRecherche,
+    sessions: async_sessionmaker[AsyncSession],
+    http: httpx.AsyncClient,
+) -> None:
+    # `except Exception` seulement (une annulation se propage) ; `finally`
+    # garantit qu'aucune clé ne reste « en cours » après la tâche.
+    etat_final = _EtatRecherche("echec", _MESSAGE_ECHEC_RECHERCHE, datetime.now(UTC))
+    try:
+        async with sessions() as session:
+            try:
+                issue = await _rechercher_et_enregistrer(
+                    session,
+                    http,
+                    cle=produit.cle,
+                    fournisseur_id=produit.fournisseur_id,
+                    fournisseur_nom=produit.fournisseur_nom,
+                    designation=produit.designation,
+                    code=produit.code,
+                    unite=produit.unite,
+                )
+            except IAIndisponible as exc:
+                etat_final = _EtatRecherche(
+                    "echec", _MESSAGES_RECHERCHE[exc.raison], datetime.now(UTC)
+                )
+            else:
+                if issue in ("trouve", "non_verifiable"):
+                    etat_final = _EtatRecherche("termine", None, datetime.now(UTC))
+                else:
+                    etat_final = _EtatRecherche(
+                        "echec", _MESSAGE_ECHEC_RECHERCHE, datetime.now(UTC)
+                    )
+    except Exception:
+        logger.exception("erreur imprévue pendant une recherche de prix à la demande")
+    finally:
+        _RECHERCHES[produit.cle] = etat_final
+
+
+async def lancer_recherche_prix(
+    session: AsyncSession,
+    sessions: async_sessionmaker[AsyncSession],
+    http: httpx.AsyncClient,
+    background_tasks: BackgroundTasks,
+    anomalie_id: uuid.UUID,
+) -> Literal["lancee", "deja_en_cours"]:
+    """Bouton « Chercher sur internet » de la page Prix (spec 2026-10-01
+    §3.1) : ignore le cache de 30 jours et la limite d'échecs (décision
+    humaine), respecte le plafond du jour ; une seule recherche à la fois
+    par produit."""
+    produit = await _produit_a_rechercher(session, anomalie_id)
+    if not ia_active():
+        raise RechercheImpossible("eteinte")
+    if await appels_du_jour(session) >= ia_appels_max_jour():
+        raise RechercheImpossible("plafond")
+    maintenant = datetime.now(UTC)
+    etat = _RECHERCHES.get(produit.cle)
+    if (
+        etat is not None
+        and etat.etat == "en_cours"
+        and maintenant - etat.depuis < _DUREE_ETAT_RECHERCHE
+    ):
+        return "deja_en_cours"
+    _RECHERCHES[produit.cle] = _EtatRecherche("en_cours", None, maintenant)
+    background_tasks.add_task(_executer_recherche_prix, produit, sessions, http)
+    return "lancee"
 
 
 # --------------------------------------------------------------------------
@@ -894,7 +1096,7 @@ class AvisIA:
 def _cle_produit_pour_anomalie(
     detail: Mapping[str, Any], fournisseur_id: uuid.UUID | None
 ) -> str | None:
-    """Clé de cache produit (`cle_produit_internet`) d'une anomalie R22, ou
+    """Clé de cache produit (`cle_produit_internet`) d'une alerte de prix, ou
     `None` si son `detail` ne porte pas de désignation exploitable (cas
     défensif, jamais atteint en pratique -- `rules/R22.py` renseigne
     toujours `produit`) -- factorise le calcul partagé par
@@ -1087,14 +1289,16 @@ class PrixInternetLot:
     """Réponse de `prix_internet_des_anomalies` (`GET /api/ia/prix-internet`)
     : le prix internet de plusieurs anomalies en un seul appel, pour la 3ᵉ
     colonne « Internet » de la page « Prix à vérifier ». `par_anomalie` ne
-    porte une clé que pour les identifiants qui désignent une anomalie R22
-    (`REGLES_PRIX_INTERNET`) ouverte et non masquée -- toute autre entrée de
-    `anomalie_ids` (inconnue, masquée, fermée, autre règle) est simplement
-    absente du dictionnaire, jamais une erreur (la page peut envoyer les
-    identifiants de rangées qui n'ont pas d'alerte R22)."""
+    porte une clé que pour les identifiants qui désignent une alerte de prix
+    (`REGLES_PRIX_BL`, R19 à R25 : décision D1 du 01/10/2026) ouverte et non
+    masquée -- toute autre entrée de `anomalie_ids` (inconnue, masquée,
+    fermée, autre règle) est simplement absente du dictionnaire, jamais une
+    erreur. `recherches` porte l'état des recherches à la demande en cours
+    ou échouées (clé = anomalie ; absente si rien à afficher)."""
 
     ia_active: bool
     par_anomalie: dict[uuid.UUID, PrixInternetVue | None]
+    recherches: dict[uuid.UUID, RechercheVue] = field(default_factory=dict)
 
 
 async def prix_internet_des_anomalies(
@@ -1107,7 +1311,7 @@ async def prix_internet_des_anomalies(
     le reste d'`ingest` (`ingest.prix_bl.lister_alertes_prix`, notamment),
     qui tient compte à la fois de `regles_desactivees()` (R07-R09/R06) et des
     interrupteurs `prix_…` du lot Prix (général et par alerte) -- fix round
-    1, T10a --, règle ∈ `REGLES_PRIX_INTERNET`) et même lecture du cache
+    1, T10a --, règle ∈ `REGLES_PRIX_BL`) et même lecture du cache
     (`_cle_produit_pour_anomalie`/`_dernieres_vues_prix_internet`, aucune
     duplication de calcul entre les deux fonctions -- le comportement
     d'`avis_ia_anomalie` ne change pas), mais en lot : une seule requête pour
@@ -1136,7 +1340,7 @@ async def prix_internet_des_anomalies(
                 Anomalie.id.in_(ids_uniques),
                 Anomalie.statut == "ouverte",
                 condition_regles_actives(exclues=exclues),
-                Anomalie.regle.in_(tuple(REGLES_PRIX_INTERNET)),
+                Anomalie.regle.in_(tuple(REGLES_PRIX_BL)),
             )
         )
     ).all()
@@ -1157,4 +1361,12 @@ async def prix_internet_des_anomalies(
         if vue is not None:
             par_anomalie[anomalie_id] = vue
 
-    return PrixInternetLot(ia_active=ia_active(), par_anomalie=par_anomalie)
+    recherches: dict[uuid.UUID, RechercheVue] = {}
+    for anomalie_id, cle in cle_par_anomalie.items():
+        vue_recherche = etat_recherche(cle)
+        if vue_recherche is not None:
+            recherches[anomalie_id] = vue_recherche
+
+    return PrixInternetLot(
+        ia_active=ia_active(), par_anomalie=par_anomalie, recherches=recherches
+    )

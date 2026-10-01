@@ -979,6 +979,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/grilles/fournisseurs/{fournisseur_id}/contestations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Contestations Fournisseur Endpoint */
+        get: operations["contestations_fournisseur_endpoint_api_grilles_fournisseurs__fournisseur_id__contestations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/grilles/fournisseurs/{fournisseur_id}/prix": {
         parameters: {
             query?: never;
@@ -1211,6 +1228,23 @@ export interface paths {
         get: operations["prix_internet_lot_endpoint_api_ia_prix_internet_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ia/prix-internet/recherches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Lancer Recherche Prix Endpoint */
+        post: operations["lancer_recherche_prix_endpoint_api_ia_prix_internet_recherches_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2177,6 +2211,48 @@ export interface components {
              * Format: date-time
              */
             cree_le: string;
+        };
+        /**
+         * ContestationReponse
+         * @description `GET /api/grilles/fournisseurs/{id}/contestations` -- mêmes attributs
+         *     qu'`ingest.contestations_prix.Contestation` (sans le fournisseur, déjà
+         *     connu de l'écran).
+         */
+        ContestationReponse: {
+            /**
+             * Conteste Le
+             * Format: date-time
+             */
+            conteste_le: string;
+            /** Auteur */
+            auteur: string | null;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /** Numero Bon */
+            numero_bon: string | null;
+            /** Date Bon */
+            date_bon: string | null;
+            /** Produit */
+            produit: string;
+            /** Code */
+            code: string | null;
+            /** Prix Bon */
+            prix_bon: string | null;
+            /** Unite Bon */
+            unite_bon: string | null;
+            /** Prix Grille */
+            prix_grille: string | null;
+            /** Regles */
+            regles: string[];
+            /** Commentaire */
+            commentaire: string;
+            /** Cle Produit */
+            cle_produit: string;
+            /** Dans La Grille */
+            dans_la_grille: boolean;
         };
         /**
          * ContesterPrixRequete
@@ -3223,6 +3299,13 @@ export interface components {
             prix: {
                 [key: string]: components["schemas"]["PrixInternetReponse"] | null;
             };
+            /**
+             * Recherches
+             * @default {}
+             */
+            recherches: {
+                [key: string]: components["schemas"]["RechercheReponse"];
+            };
         };
         /**
          * PrixInternetReponse
@@ -3322,6 +3405,40 @@ export interface components {
              * Format: date
              */
             date_effet: string;
+        };
+        /** RechercheLanceeReponse */
+        RechercheLanceeReponse: {
+            /**
+             * Etat
+             * @enum {string}
+             */
+            etat: "lancee" | "deja_en_cours";
+        };
+        /**
+         * RecherchePrixRequete
+         * @description `POST /api/ia/prix-internet/recherches` : l'alerte de prix dont le
+         *     produit est à chercher.
+         */
+        RecherchePrixRequete: {
+            /**
+             * Anomalie Id
+             * Format: uuid
+             */
+            anomalie_id: string;
+        };
+        /**
+         * RechercheReponse
+         * @description État d'une recherche à la demande (mêmes attributs qu'`ingest.ia_prix
+         *     .RechercheVue`).
+         */
+        RechercheReponse: {
+            /**
+             * Etat
+             * @enum {string}
+             */
+            etat: "en_cours" | "echec";
+            /** Message */
+            message: string | null;
         };
         /**
          * RecontrolePrixReponse
@@ -3433,6 +3550,8 @@ export interface components {
             resume: string;
             /** Nb Commentaires */
             nb_commentaires: number;
+            /** Nb Contestations */
+            nb_contestations: number;
             /** Actions */
             actions: components["schemas"]["ActionSyntheseReponse"][];
         };
@@ -5520,6 +5639,37 @@ export interface operations {
             };
         };
     };
+    contestations_fournisseur_endpoint_api_grilles_fournisseurs__fournisseur_id__contestations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fournisseur_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContestationReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     enregistrer_prix_endpoint_api_grilles_fournisseurs__fournisseur_id__prix_post: {
         parameters: {
             query?: never;
@@ -5944,6 +6094,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PrixInternetLotReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lancer_recherche_prix_endpoint_api_ia_prix_internet_recherches_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecherchePrixRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RechercheLanceeReponse"];
                 };
             };
             /** @description Validation Error */

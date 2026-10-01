@@ -122,23 +122,40 @@ def test_cellule_reutilise_la_logique_partagee() -> None:
     assert "new URL(" not in cellule
 
 
-def test_cellule_rangee_sans_r22_tiret() -> None:
+def test_cellule_couvre_toutes_les_alertes_de_prix() -> None:
+    """Décision D1 (01/10/2026) : la colonne « Internet » et son bouton
+    couvrent toutes les alertes de prix, plus seulement R22 -- la cellule ne
+    filtre plus sur la règle et ne reçoit plus la rangée."""
     cellule = _lire("components", "PrixInternetCellule.tsx")
-    garde = 'if (!produit.regles.includes("R22")) {'
-    assert garde in cellule
-    suite = cellule.split(garde, 1)[1].split("}", 1)[0]
-    assert "TIRET" in suite
+    assert '"R22"' not in _sans_commentaires(cellule)
+    assert "produit.regles" not in cellule
+    assert "AlerteProduit" not in cellule
 
 
-def test_cellule_pas_encore_cherche_en_attente() -> None:
-    """`undefined` (rangée absente de la réponse groupée) et `null`
-    (recherchée sans résultat récent) donnent le même texte -- brief T10b :
-    « pas encore cherché -> en attente »."""
+def test_cellule_pas_encore_cherche_bouton_chercher_sur_internet() -> None:
+    """Spec 2026-10-01 §3 : sans résultat, ni recherche, ni message, la
+    cellule montre le bouton « Chercher sur internet » (plus « en
+    attente »)."""
     cellule = _lire("components", "PrixInternetCellule.tsx")
-    garde = "if (prixInternet === undefined || prixInternet === null) {"
+    assert "Chercher sur internet" in cellule
+    assert "en attente" not in _sans_commentaires(cellule)
+    fin = cellule.split("<Bouton", 1)[1].split("</Bouton>", 1)[0]
+    assert "onClick={onRechercher}" in fin
+    assert "Chercher sur internet" in fin
+
+
+def test_cellule_recherche_en_cours_message_et_relance() -> None:
+    cellule = _lire("components", "PrixInternetCellule.tsx")
+    garde = 'if (lancementEnCours || recherche?.etat === "en_cours") {'
     assert garde in cellule
     suite = cellule.split(garde, 1)[1].split("}", 1)[0]
-    assert "en attente" in suite
+    assert "Recherche en cours…" in suite
+    # Le message d'un refus (409) ou d'un échec s'affiche dans la cellule de
+    # la rangée, avec « Réessayer » ; un résultat déjà là garde « Relancer ».
+    assert "erreurLancement ??" in cellule
+    assert '"Réessayer"' in cellule
+    assert '"Relancer"' in cellule
+    assert "La recherche a échoué" in cellule
 
 
 def test_cellule_trouve_montant_date_et_lien_source() -> None:
@@ -190,7 +207,8 @@ def test_cellule_aucun_jargon_visible() -> None:
         assert mot not in texte, (
             f"mot interdit « {mot} » visible sur PrixInternetCellule.tsx"
         )
-    assert "en attente" in texte
+    assert "chercher sur internet" in texte
+    assert "recherche en cours" in texte
     assert "introuvable" in texte
 
 
@@ -206,75 +224,54 @@ def test_prix_page_importe_la_cellule_partagee() -> None:
     assert page.count("<PrixInternetCellule") == 2
 
 
-def test_ids_internet_pour_envoie_tous_les_ids_dune_rangee_r22() -> None:
-    """Fix round 1 (ruling du contrôleur, 28/09) : le brief T10b disait « le
-    premier de `anomalie_ids` », mais `regles` et `anomalie_ids` sont deux
-    tableaux indépendants -- R22 peut cohabiter avec R20/R24 sur la même
-    ligne (`rules/rules/R22.py`, seules ces deux règles peuvent encore se
-    déclencher sur une ligne déjà en R22) et une rangée peut grouper
-    plusieurs lignes, donc `anomalie_ids[0]` n'est pas forcément celui de
-    R22. `idsInternetPour` envoie donc tous les identifiants d'une rangée
-    R22, jamais seulement le premier -- le serveur ne renvoie de toute façon
-    jamais de clé pour un identifiant qui ne désigne pas une alerte R22
-    ouverte et non masquée (brief T10a)."""
+def test_id_internet_pour_un_identifiant_par_rangee() -> None:
+    """Décision D1 : toutes les alertes de prix sont couvertes ; une rangée
+    est représentée par son premier identifiant d'anomalie (le serveur
+    retrouve le produit et le fournisseur à partir de cette alerte)."""
     page = _lire("pages", "Prix.tsx")
 
     fonction = (
-        "function idsInternetPour(produit: AlerteProduit): readonly string[] {\n"
-        '  return produit.regles.includes("R22") ? produit.anomalie_ids : [];\n'
+        "function idInternetPour(produit: AlerteProduit): string | undefined {\n"
+        "  return produit.anomalie_ids[0];\n"
         "}"
     )
     assert fonction in page
-    # Plus aucune indexation par position pour choisir un identifiant --
-    # hors commentaires (qui expliquent justement l'erreur corrigée, donc
-    # mentionnent `anomalie_ids[0]` en toutes lettres).
-    assert "anomalie_ids[0]" not in _sans_commentaires(page)
+    assert page.count("function idInternetPour(") == 1
+    assert "idsInternetPour" not in page
 
 
-def test_prix_page_requete_agrege_tous_les_ids_r22_dedupliques() -> None:
+def test_prix_page_requete_un_id_par_rangee_dedoublonne_et_relue_en_cours() -> None:
     page = _lire("pages", "Prix.tsx")
 
-    # La liste envoyée à la requête groupée agrège `idsInternetPour` de
-    # toutes les rangées (donc tous les identifiants des rangées R22, pas un
-    # par rangée), dédupliquée et plafonnée -- aucune requête si la liste
-    # des alertes n'a pas de rangée R22 (brief T10b : « aucune requête s'il
-    # n'y en a pas »), la clé de requête reste dérivée de cette même liste
-    # ordonnée (`clePrixInternet(idsR22)`, inchangé).
-    assert "alertes.data.flatMap((produit) => idsInternetPour(produit))" in page
-    assert "Array.from(new Set(" in page
-    assert ".slice(\n        0,\n        MAX_IDS_PRIX_INTERNET,\n      )" in page
-    assert "queryKey: clePrixInternet(idsR22)" in page
-    assert "enabled: alertesChargees && idsR22.length > 0" in page
+    assert "const id = idInternetPour(produit);" in page
+    assert "Array.from(\n        new Set(" in page
+    assert ".slice(0, MAX_IDS_PRIX_INTERNET)" in page
+    assert "queryKey: clePrixInternet(ids)" in page
+    assert "enabled: alertesChargees && ids.length > 0" in page
+    # Relecture toutes les 10 s tant qu'une recherche est en cours.
+    assert 'some((r) => r.etat === "en_cours")' in page
+    assert "10_000" in page
 
 
-def test_prix_internet_pour_selectionne_par_cle_jamais_par_index() -> None:
-    """Fix round 1 : une rangée dont `regles` vaut `["R20", "R22"]` et
-    `anomalie_ids` vaut `[idR20, idR22]` -- seul `idR22` est une clé de la
-    réponse groupée (le serveur ne renvoie jamais de clé pour une anomalie
-    qui n'est pas R22). La cellule doit donc afficher la valeur d'`idR22`,
-    jamais celle d'`idR20` (« le premier de `anomalie_ids` », l'erreur du
-    brief d'origine) : `prixInternetPour` doit chercher, dans l'ordre des
-    identifiants de la rangée, le premier présent comme **clé** de la
-    réponse (`.find((id) => id in prix)`), jamais indexer par position."""
+def test_proprietes_internet_lit_la_rangee_par_son_identifiant() -> None:
+    """La cellule d'une rangée lit le résultat, l'état de la recherche et le
+    message de refus de l'identifiant de la rangée, et lance la recherche
+    pour ce même identifiant ; le message d'un 409 reste dans la cellule de
+    la rangée cliquée (un message par identifiant)."""
     page = _lire("pages", "Prix.tsx")
 
-    fonction = (
-        "  function prixInternetPour(produit: AlerteProduit): PrixInternet | "
-        "null | undefined {\n"
-        "    const prix = prixInternetLot.data?.prix;\n"
-        "    if (prix === undefined) {\n"
-        "      return undefined;\n"
-        "    }\n"
-        "    const idConnu = produit.anomalie_ids.find((id) => id in prix);\n"
-        "    return idConnu === undefined ? undefined : prix[idConnu];\n"
-        "  }"
-    )
-    assert fonction in page
-    # Une seule fonction de sélection dans tout le fichier, jamais une
-    # variante qui indexerait par position (`anomalie_ids[0]`, l'erreur
-    # d'origine du brief T10b) -- hors commentaires.
-    assert page.count("function prixInternetPour(") == 1
-    assert "anomalie_ids[0]" not in _sans_commentaires(page)
+    assert page.count("function proprietesInternet(") == 1
+    fonction = page.split("function proprietesInternet(", 1)[1].split(
+        "async function apresAction", 1
+    )[0]
+    assert "const id = idInternetPour(produit);" in fonction
+    assert "prix[id]" in fonction
+    assert "prixInternetLot.data?.recherches?.[id]" in fonction
+    assert "erreursRecherche[id]" in fonction
+    assert "rechercheMutation.mutate(id)" in fonction
+    assert "rechercheMutation.variables === id" in fonction
+    assert "lancerRecherchePrix(anomalieId)" in page
+    assert "[anomalieId]: messageErreur(erreur," in page
 
 
 def test_prix_page_colonne_seulement_si_ia_active() -> None:
@@ -305,9 +302,8 @@ def test_prix_page_carte_telephone_ligne_internet_au_meme_endroit() -> None:
     bloc = page.split("Dernier prix facturé</dt>", 1)[1].split("Écart</dt>", 1)[0]
     assert "colonneInternetVisible &&" in bloc
     assert ">Internet<" in bloc
-    assert (
-        "<PrixInternetCellule produit={produit} prixInternet={prixInternet} />" in bloc
-    )
+    assert "<PrixInternetCellule {...internet} />" in bloc
+    assert "<PrixInternetCellule {...proprietesInternet(produit)} />" in page
 
 
 def test_prix_page_colspan_actions_suit_la_colonne_internet() -> None:

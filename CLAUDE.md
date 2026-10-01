@@ -78,46 +78,57 @@ infra/         README.md : documentation technique d'ensemble (demande client, a
 
 ## Où en est le projet
 
-**État au 29/09/2026.** Lire d'abord `README.md` (documentation globale à
+**État au 30/09/2026.** Lire d'abord `README.md` (documentation globale à
 jour : périmètre livré, état exact des demandes du client, audit, limites),
 puis `docs/roadmap-octobre-2026.md` (demandes de la réunion du 26/09,
 organisation git, phases 1 à 4, suivi), `docs/dette.md` et, avant de toucher
 l'IA, `docs/phase-4-ia.md`.
 
-- **Livré et en production (28/09/2026, étiquette `mise-en-prod-octobre-2026`,
-  migration `0014`)** : lots 1 à 5, refonte du front (23/09), optimisations de
-  sécurité (25/09), phases 1 à 4 d'octobre (chantiers rattachés
-  automatiquement, R18, comptes, photos rangées, commentaires sur les lignes,
-  grilles de prix, contrôle des prix des bons R19-R25, IA). En production,
-  l'IA est **éteinte** (`IA_ACTIVE=false`) et le contrôle des prix des bons
-  est **éteint** (interrupteur `prix_controle_bl_actif`) tant que les grilles
-  ne sont pas chargées. R06 à R09 restent désactivées côté serveur.
-- **Dans `dev`, pas encore en production** : Laboratoire IA (`/ia`), correctifs
-  de l'IA, Entrée enregistre un commentaire, prix internet par marque, nom et
-  format, jusqu'à cinq sources en HT (migration `0015`), dépendances à jour
-  (PR #9 à #14). La démo porte `dev` jusqu'à la PR #13, IA allumée.
+- **Demandes du 01/10/2026 (onglet Prix), codées, non fusionnées, déployées
+  sur la démo le 01/10 (pas en production)** : branche `feature/prix-contestations-recherche` (bouton
+  « Chercher sur internet » sur chaque rangée, contestations dans la grille du
+  fournisseur et dans la synthèse de la semaine, migration `0016`, image
+  OpenCode de la démo à reconstruire). À fusionner dans `dev` (PR #19) ; démo déjà
+  à jour (migration 0016, image OpenCode reconstruite) ; production inchangée (IA éteinte). Détail :
+  README §2.4, §12.10 et `docs/dette.md` (section du 01/10/2026).
+- **Livré et en production (30/09/2026, `dev` → `main`, PR #17, étiquette
+  `mise-en-prod-2026-09-30`, migration `0015`)** : démo à jour à 07 h 29 UTC,
+  production à 07 h 31 UTC (sauvegarde préalable, migration 0014 → 0015,
+  `rapprocher --tout` sans échec, `chantiers-alias-suspects` : aucun alias
+  suspect). La production porte tout ce qui a été fait : lots 1 à 5, refonte
+  du front (23/09), optimisations de sécurité (25/09), phases 1 à 4 d'octobre
+  (déployées une première fois le 28/09, étiquette `mise-en-prod-octobre-2026`),
+  puis les PR #9 à #16 : Laboratoire IA (`/ia`), correctifs de l'IA, Entrée
+  enregistre un commentaire, prix internet par marque, nom et format, jusqu'à
+  cinq sources en HT, dépendances à jour, documentation, corrections de
+  l'audit. En production, l'IA est **éteinte** (`IA_ACTIVE=false`) et le
+  contrôle des prix des bons est **éteint** (interrupteur
+  `prix_controle_bl_actif`) tant que les grilles ne sont pas chargées. R06 à
+  R09 restent désactivées côté serveur. La démo porte la même version, IA
+  allumée.
 - **IA gelée par Ilane le 29/09** : aucune évolution de l'IA sans son accord ;
   OpenCode reste en 1.18.32, modèle `gpt-5.6-sol`, compte ChatGPT d'Ilane.
-- **Audit complet du 29/09** : 0 critique, 13 importants confirmés, les autres
-  mineurs ou latents (README §20 ; mineurs dans `docs/dette.md`). Décisions
-  d'Ilane : « Conforme » strict partout, facture à somme incohérente comptée
-  avec mention et R10 dans « À régler », chantiers ne différant que par un
-  numéro jamais rattachés automatiquement. **Corrections en cours** sur
-  `feature/corrections-audit` (groupe 1, rejeu des recalculs, en relecture ;
-  groupes 2 à 5 à faire) ; puis PR vers `dev`, démo, et passage de `dev` en
-  production avec l'accord d'Ilane (sauvegarde, migration `0015`, image
-  OpenCode, API).
+- **Audit complet du 29/09 : corrigé et déployé le 30/09** (0 critique, 13
+  importants confirmés, tous corrigés en cinq groupes, PR #16, relus ; README
+  §20 ; mineurs dans `docs/dette.md`). Décisions d'Ilane déployées :
+  « Conforme » strict partout, facture à somme incohérente comptée avec mention
+  et R10 dans « À régler », chantiers ne différant que par un numéro jamais
+  rattachés automatiquement. Essai réel de restauration isolé
+  (`deploy/test-restauration.sh`) réussi le 30/09. Reste ouvert : F-04 (aucune
+  alerte si une sauvegarde ne s'exécute pas). Ordre de déploiement :
+  `docs/deploiement-corrections-audit.md`.
 - **Pas fait** : lot 6 (recette sur deux mois, formation, procès-verbal),
   lecteur de factures Point.P, mesure de l'OCR sur 30 photos (4 disponibles),
   Drive (bloqué : Drive partagé Workspace ou OAuth), contrôle des prix à la
   facture, sauvegardes hors du serveur (dépôts restic locaux), serveur dédié
   au client (le serveur actuel est provisoire), supervision (canal Telegram
-  supprimé le 28/09 ; scripts de `feature/exploitation-2` non validés).
+  supprimé le 28/09 ; scripts de `feature/exploitation-2` non validés et hors du passage du 30/09 ;
+  leur `verifier-sauvegarde.sh` devra filtrer `--host`).
 - **Organisation** : plus aucun commit direct sur `main` ; branches
   `feature/…` → PR vers `dev` ; `dev` → `main` seulement avec l'accord
   d'Ilane ; déploiements depuis l'arbre dédié `habitat_reno-prod`. Détail :
   `docs/roadmap-octobre-2026.md` §2.
-- **Tests** : 2 699 collectés le 29/09/2026 ; ruff, mypy strict, typecheck et
+- **Tests** : 2 799 au 30/09/2026 ; ruff, mypy strict, typecheck et
   build du front verts à chaque commit (hooks pre-commit, ne jamais utiliser
   `--no-verify`, ne jamais lancer `pre-commit install` depuis un worktree).
 - **Décisions d'Ilane qui font foi** : `docs/roadmap-octobre-2026.md` §1.2, avenants

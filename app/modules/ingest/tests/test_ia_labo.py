@@ -732,6 +732,51 @@ async def test_essai_synthese_semaine_vide_sans_appel_a_lia(
     assert await _compter(db_session, SyntheseCommentaires) == 0
 
 
+async def test_essai_synthese_avec_seulement_une_contestation(
+    sessions_test: async_sessionmaker[AsyncSession], db_session: AsyncSession
+) -> None:
+    from app.modules.ingest.tests.test_contestations_prix import (
+        _creer_anomalie_fermee,
+    )
+    from app.modules.ingest.tests.test_prix_page import (
+        _creer_bl,
+        _creer_fournisseur,
+        _creer_ligne,
+    )
+
+    fournisseur = await _creer_fournisseur(db_session)
+    document = await _creer_bl(db_session, fournisseur=fournisseur)
+    ligne = await _creer_ligne(db_session, document=document, code_brut="L1")
+    await _creer_anomalie_fermee(
+        db_session,
+        document=document,
+        ligne=ligne,
+        traitee_le=datetime.combine(_LUNDI, time(10, 0), tzinfo=FUSEAU_PARIS),
+    )
+
+    reponses = _reponses_session(
+        {
+            "resume": "Un prix contesté.",
+            "actions": [{"texte": "Revoir la grille.", "commentaires": ["p1"]}],
+        }
+    )
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+    background_tasks = BackgroundTasks()
+
+    essai_id = await lancer_essai_synthese(
+        sessions_test, http, background_tasks, _LUNDI
+    )
+    trace = lire_essai(essai_id)
+    assert trace is not None
+    assert "[p1]" in trace.texte_envoye
+    assert "Aucun commentaire" not in (trace.resultat or {}).get("resume", "")
+
+    await _executer(background_tasks)
+    trace = lire_essai(essai_id)
+    assert trace is not None
+    assert trace.statut == "fini"
+
+
 async def test_essai_synthese_semaine_pas_lundi_422(
     sessions_test: async_sessionmaker[AsyncSession], db_session: AsyncSession
 ) -> None:

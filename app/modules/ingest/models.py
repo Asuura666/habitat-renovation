@@ -766,6 +766,9 @@ class SyntheseCommentaires(Base):
     statut: Mapped[str] = mapped_column(Text, nullable=False)
     resume: Mapped[str] = mapped_column(Text, nullable=False)
     nb_commentaires: Mapped[int] = mapped_column(Integer, nullable=False)
+    nb_contestations: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0", default=0
+    )
     modele: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = _created_at()
 

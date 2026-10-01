@@ -9,8 +9,9 @@ jamais**. Les règles décident ; l'humain tranche. Un seul client, deux
 instances (production et démonstration) sur un serveur provisoire, un dépôt
 Git privé.
 
-*Document rédigé le 29/09/2026 à partir de la branche `dev` (dernier commit
-du 29/09/2026 à 17 h 35, heure de Paris), du récapitulatif de travail, de la
+*Document rédigé le 29/09/2026 à partir de la branche `dev`, puis mis à jour
+le 30/09/2026 après la mise en production du jour (`main`, étiquette
+`mise-en-prod-2026-09-30`), à partir du récapitulatif de travail, de la
 roadmap d'octobre, des recettes, des passations, des décisions d'Ilane et de
 l'audit du 29/09/2026. Chaque fait renvoie à son document ou à son fichier
 source. Quand une information n'a pas pu être établie avec certitude, ce
@@ -84,29 +85,35 @@ reliée à un logiciel comptable.
 
 **Comment c'est fait.** Un monolithe modulaire (FastAPI + React, une seule
 base PostgreSQL), des frontières de code vérifiées automatiquement, une suite
-de 2 699 tests (collectés le 29/09/2026) qui doit rester verte avant chaque
+de 2 799 tests (au 30/09/2026) qui doit rester verte avant chaque
 commit.
 
-**Où ça en est au 29/09/2026.**
+**Où ça en est au 30/09/2026.**
 
 - Les lots 1 à 5 du cahier des charges (Socle, Collecte, Extraction,
   Rapprochement, Restitution), la refonte du front (23/09) et les
   optimisations de sécurité (25/09) sont livrés.
 - Les demandes exprimées par le client lors de la démonstration du samedi
   26/09, consignées dans la roadmap du 27/09 (phases 1 à 4), sont **codées
-  et déployées en production le 28/09/2026** (étiquette
+  et déployées en production depuis le 28/09/2026** (étiquette
   `mise-en-prod-octobre-2026`), sauf le contrôle des prix à la facture, non
-  commencé. L'IA est éteinte en production, allumée sur la démo, puis
+  commencé. L'IA est **éteinte en production**, allumée sur la démo, et
   **gelée** par Ilane le 29/09 (plus d'évolution sans son accord).
-- Depuis le 28/09, `dev` (non déployé en production) contient en plus : le
-  Laboratoire IA, plusieurs correctifs de l'IA, la touche Entrée pour
-  enregistrer un commentaire, la lecture des prix écrits avec le symbole euro collé aux chiffres, le prix
-  internet identifié par marque, nom et format, les prix internet à
-  plusieurs sources (migration 0015) et la mise à jour des dépendances.
-- Un audit complet a eu lieu le 29/09 : **0 problème critique, 13
-  importants confirmés**, les autres mineurs ou latents (section 20). Les
-  corrections sont **en cours** sur une branche séparée ; `dev` n'est pas
-  encore passé en production.
+- **Mise en production du 30/09/2026** (PR #17, `dev` vers `main`, étiquette
+  `mise-en-prod-2026-09-30`) : démo mise à jour à 07 h 29 UTC, production à
+  07 h 31 UTC. Elle apporte tout ce qui n'était que dans `dev` : le
+  Laboratoire IA, les correctifs de l'IA, la touche Entrée pour enregistrer un
+  commentaire, la lecture des prix écrits avec le symbole euro collé aux
+  chiffres, le prix internet identifié par marque, nom et format, les prix
+  internet à plusieurs sources (migration 0015, appliquée en production), la
+  mise à jour des dépendances, la documentation et les corrections de l'audit.
+  Les décisions d'Ilane du 29/09 (« Conforme » strict, R10 visible, chantiers
+  à numéro jamais rattachés automatiquement) sont **déployées**.
+- L'audit complet du 29/09 a relevé **0 problème critique et 13 importants
+  confirmés** (section 20). Les 13 sont **corrigés**, relus et fusionnés
+  (PR #16), puis déployés le 30/09 ; les constats mineurs restent dans
+  `docs/dette.md`. Un essai réel de restauration isolé a réussi le 30/09
+  (section 18.1).
 - Ce qui n'est pas livré ni validé par le client (section 23) : le lot 6
   (recette sur deux mois, formation, procès-verbal), Google Drive (bloqué),
   le lecteur de factures Point.P, la mesure de l'OCR sur 30 photos, les
@@ -183,19 +190,18 @@ de ces demandes.** Les décisions d'Ilane du même jour y figurent aussi
   par Ilane le 29/09.
 
 **Légende de l'état.** « Fait » = codé, testé, relu, fusionné dans `dev` et
-déployé en production le 28/09/2026 sauf mention contraire. « Dans `dev`
-seulement » = fait mais pas encore en production. « En cours », « À faire »,
-« En attente » = comme écrit.
+déployé en production (le 28/09/2026, ou le 30/09/2026 pour ce qui est daté du
+29/09) sauf mention contraire. « En attente » = comme écrit.
 
-| # | Demande exprimée le 26/09 | Décision d'Ilane (27/09) | État au 29/09/2026 |
+| # | Demande exprimée le 26/09 | Décision d'Ilane (27/09) | État au 30/09/2026 |
 | --- | --- | --- | --- |
 | 1a | Fiche fournisseur : filtrer sur un mois | — | **Fait** (27/09, phase 1) |
-| 1b | Voir aussi les bons conformes, pas seulement les problèmes, et les ouvrir d'un clic | Montant « Conforme » cliquable vers la liste des livraisons, puis la page du bon | **Fait** (27/09). **Définition de « Conforme » à durcir** : décision d'Ilane du 29/09 (« Conforme strict »), correction **à faire** (audit, section 20) |
+| 1b | Voir aussi les bons conformes, pas seulement les problèmes, et les ouvrir d'un clic | Montant « Conforme » cliquable vers la liste des livraisons, puis la page du bon | **Fait** (27/09). **« Conforme » strict** (décision d'Ilane du 29/09) : une seule définition calculée par le serveur, **déployée le 30/09** (section 20) |
 | 1c | « Confirmé par » (chantiers) affiche un identifiant au lieu du nom | Noms affichés partout ; Journal entièrement en français | **Fait** (27/09) ; le Journal affiche aussi le nom du compte visé (PR #7, 28/09) |
 | 1d | Fournisseur : même problème d'identifiant | idem | **Fait** (27/09) |
 | 2a | Le nom du chantier, toujours écrit sur le BL, est lu automatiquement et ajouté au tableau de bord | Une seule règle pour les bons et les factures | **Fait** (27/09) |
 | 2b | L'employé indique aussi le nom du chantier en envoyant la photo (confirmation) | La légende de la photo Telegram sert de confirmation | **Fait** (27/09) |
-| 2c | Ressemblance d'au moins 90 % avec un chantier existant : rattaché ; sinon un chantier est créé et l'utilisateur prévenu sur le site | Seuil réglable dans Réglages ; chantier créé « à compléter » (sans agence ni client) et signalé dans « À régler » ; pas d'import de la liste des chantiers (le client complète) | **Fait** (27/09). **Défaut relevé par l'audit** : deux noms ne différant que par un numéro peuvent être rattachés à tort ; décision d'Ilane du 29/09 (jamais de rattachement automatique dans ce cas), correction **à faire** |
+| 2c | Ressemblance d'au moins 90 % avec un chantier existant : rattaché ; sinon un chantier est créé et l'utilisateur prévenu sur le site | Seuil réglable dans Réglages ; chantier créé « à compléter » (sans agence ni client) et signalé dans « À régler » ; pas d'import de la liste des chantiers (le client complète) | **Fait** (27/09). **Défaut relevé par l'audit, corrigé et déployé le 30/09** : deux noms ne différant que par un numéro ne sont plus jamais rattachés automatiquement (décision d'Ilane du 29/09), ils sont proposés « à confirmer » |
 | 2d | Nom lu et légende désignant deux chantiers différents | Alerte R18, l'humain choisit ; bouton « Fusionner avec… » contre les doublons ; reprise des noms en attente au déploiement | **Fait** (27/09). Reprise faite au déploiement du 28/09 : des chantiers ont été créés « à compléter » ; **à compléter par Ilane et le client** |
 | + | Gestion des comptes par un admin « au cas où » (créer, modifier, supprimer, changer le mot de passe) | Ajout d'Ilane | **Fait** (27/09) : créer, modifier, changer le mot de passe, **retirer ou rétablir l'accès** (pas de suppression définitive : rien n'est supprimé physiquement), garde-fous (jamais soi-même, jamais le dernier admin). Comptes des employés **à créer par Ilane** |
 | + | Photos rangées sur le serveur | `bl/<année>/<mois>/<jour>_<déposant>_<chantier>_n<numéro>` | **Fait** (27/09) : rangement par lien physique + commande `ranger-photos` (nocturne). Ce rangement n'est pas une sauvegarde |
@@ -204,12 +210,12 @@ seulement » = fait mais pas encore en production. « En cours », « À faire �
 | 3c | Import d'une grille Excel avec un modèle fourni | Aperçu avant confirmation ; modèle téléchargeable | **Fait** (28/09) |
 | 3d | Mise à jour automatique après validation manuelle par un représentant | « Valider ce prix » ajoute une ligne à la grille (date d'effet = date du bon) | **Fait** (28/09) |
 | 4a | Contrôle des prix à la réception du BL : historique des factures, grille avec sa date, seuil en % réglable | Au bon d'abord, à la facture ensuite ; tout garder (unités seau/kg, prix catalogue, remise, net) ; sept alertes R19 à R25 activables séparément, interrupteur général éteint par défaut | **Fait** (28/09), **éteint en production** jusqu'au chargement des grilles |
-| 4b | Produit ni en grille ni en facture : une IA cherche le prix sur internet (indicatif) | Plus tard, avec la synthèse | **Fait** (28/09), amélioré le 29/09 (marque + nom + format, jusqu'à cinq sources en HT). **Allumé sur la démo seulement**, éteint en production ; **IA gelée** par Ilane le 29/09. Dans `dev` seulement pour les améliorations du 29/09 |
+| 4b | Produit ni en grille ni en facture : une IA cherche le prix sur internet (indicatif) | Plus tard, avec la synthèse | **Fait** (28/09), amélioré le 29/09 (marque + nom + format, jusqu'à cinq sources en HT). **Allumé sur la démo seulement**, éteint en production ; **IA gelée** par Ilane le 29/09. Les améliorations du 29/09 sont en production depuis le 30/09 (IA éteinte) |
 | 4c | La règle de seuil déclenche l'alerte ; l'IA commente l'écart sans décider | Explication automatique de chaque alerte de prix, sans chiffre inventé | **Fait** (28/09), même état que 4b |
 | 4d | Contrôle des prix à la facture | Après le contrôle au bon | **Non commencé** (phase 4 hors IA) |
 | 5a | Page de suivi des produits en alerte : prix facturé, prix de grille, prix internet | Page « Prix à vérifier » simple : prix du bon, grille (date), dernier prix facturé (date), écart, ressemblance ; l'humain décide (Valider / Contester / Ignorer) | **Fait** (28/09) ; colonne « Internet » visible seulement quand l'IA est allumée |
 | 5b | Un prix validé met à jour la grille | idem 3d | **Fait** (28/09) |
-| 6a | Commentaire sur chaque ligne de BL | Tout compte connecté ; ni modifiable ni supprimable | **Fait** (27/09) ; Entrée enregistre le commentaire sur ordinateur (29/09, dans `dev` seulement) |
+| 6a | Commentaire sur chaque ligne de BL | Tout compte connecté ; ni modifiable ni supprimable | **Fait** (27/09) ; Entrée enregistre le commentaire sur ordinateur (29/09, en production le 30/09) |
 | 6b | Chaque semaine, une IA lit les commentaires et envoie une synthèse à l'accueil avec les actions à mener, sans rien modifier | Accueil = Vue d'ensemble ; actions à cocher (qui, quand), les non faites restent visibles | **Fait** (28/09), même état que 4b |
 
 **À faire côté client et Ilane pour ces demandes** (`docs/roadmap-octobre-2026.md`
@@ -218,6 +224,18 @@ seulement » = fait mais pas encore en production. « En cours », « À faire �
 groupe de production (le bot de la démo est aujourd'hui invalide, voir
 section 23) ; import des grilles réelles puis allumage du contrôle des prix ;
 compléter les chantiers créés automatiquement.
+
+**Demandes d'Ilane du 01/10/2026 (onglet Prix).** Trois demandes, avec ses
+quatre décisions D1 à D4 prises en séance (spécification :
+`docs/superpowers/specs/2026-10-01-prix-recherche-et-contestations-design.md`).
+Elles lèvent le gel de l'IA du 29/09 pour ces deux usages seulement (bouton et
+résumé) ; rien d'autre ne change dans l'IA.
+
+| # | Demande du 01/10/2026 | Décision d'Ilane (01/10) | État au 01/10/2026 |
+| --- | --- | --- | --- |
+| 7a | Un bouton pour chercher le prix d'un produit sur internet avec l'IA | **D1** : le bouton est sur toutes les rangées de l'onglet Prix (alertes R19 à R25), pas seulement « Produit absent de la grille ». **D2** : l'IA reste allumée sur la démo seulement | **Codé, non fusionné ; sur la démo depuis le 01/10/2026, pas en production** (branche `feature/prix-contestations-recherche`). Le bouton n'apparaît que là où l'IA est allumée : donc sur la démo, jamais en production |
+| 7b | Voir les contestations (et leur commentaire) dans la grille de prix du fournisseur | **D3** : un lien « N contestations » sur la rangée du produit déplie l'historique, plus une section « Contestations de prix » sous le tableau (produits retirés de la grille compris). **D4** : les prix « ignorés » n'y figurent pas | **Codé, non fusionné ; sur la démo depuis le 01/10/2026, pas en production**. Marche sans IA : serait utile en production dès que le contrôle des prix y sera allumé |
+| 7c | Les contestations dans le résumé de la semaine fait par l'IA | **D4** : contestations seulement (pas les prix ignorés) ; **D2** : démo seulement | **Codé, non fusionné ; sur la démo depuis le 01/10/2026, pas en production** (migration 0016, consigne de l'agent `habitat-synthese` modifiée, image OpenCode de la démo à reconstruire) |
 
 ### 2.5 Ce que le client a demandé avant, dans le cahier des charges
 
@@ -237,8 +255,9 @@ section 23.
 
 Cette section dit ce qui existe, par phase et par écran, avec les dates. Elle
 sert de base pour vérifier qu'un point est livré ou non. « Production » =
-version déployée le 28/09/2026 (`mise-en-prod-octobre-2026`) ; « `dev` » =
-code fusionné dans la branche d'intégration mais pas encore en production.
+version déployée le 30/09/2026 (`mise-en-prod-2026-09-30`, après la mise en
+production du 28/09/2026, `mise-en-prod-octobre-2026`) ; « démo » = instance
+de démonstration.
 
 ### 3.1 Par phase et par date
 
@@ -262,13 +281,16 @@ code fusionné dans la branche d'intégration mais pas encore en production.
 | **Phase 3 — lot Prix** | 27–28/09 | Grilles de prix par fournisseur à historique inaltérable (migration 0013), saisie, import Excel avec modèle, contrôle des prix des bons (R19 à R25), page « Prix à vérifier » avec Valider / Contester / Ignorer, réglages | Oui (28/09), **contrôle éteint** |
 | **Phase 4 — IA** | 27–28/09 | OpenCode, synthèse hebdomadaire des commentaires, explication des alertes de prix, prix internet (migration 0014), colonne « Internet » de la page Prix | Oui (28/09) ; **IA éteinte en production**, allumée sur la démo |
 | **Journal : noms des comptes** | 28/09 | Le Journal affiche le nom du compte visé ; filtre « Auteur » par nom (PR #7) | Oui (28/09) |
-| **Laboratoire IA** | 29/09 | Page d'essai réservée aux admins (`/ia`) pour essayer les trois usages de l'IA et voir exactement ce qui a été envoyé et contrôlé, sans rien enregistrer (PR #9) | `dev` ; démo |
-| **Correctifs de l'IA** | 29/09 | Modèle `gpt-5.6-sol` ; sortie structurée ; pages lues relevées sur toutes les étapes ; références de synthèse reconnues ; semaine sans commentaire sans appel (PR #10) | `dev` ; démo |
-| **Entrée = enregistrer** | 29/09 | Sur ordinateur, Entrée enregistre un commentaire (Maj+Entrée = saut de ligne) ; prix écrits avec le symbole euro collé aux chiffres reconnus (PR #11) | `dev` ; démo |
-| **Prix internet par marque, nom, format** | 29/09 | Le code du fournisseur n'est plus qu'un indice (PR #12) | `dev` ; démo |
-| **Prix internet à plusieurs sources** | 29/09 | Jusqu'à cinq offres contrôlées une à une, ramenées en HT ; migration 0015 ; page Prix « dès … HT · N sources » (PR #13) | `dev` ; démo |
-| **Dépendances à jour** | 29/09 | Mise à jour dans les versions existantes, sans faille connue (PR #14) | `dev` |
-| **Audit complet** | 29/09 | 6 angles, vérification contradictoire (section 20) | Corrections **en cours** |
+| **Laboratoire IA** | 29/09 | Page d'essai réservée aux admins (`/ia`) pour essayer les trois usages de l'IA et voir exactement ce qui a été envoyé et contrôlé, sans rien enregistrer (PR #9) | Oui (30/09, IA éteinte) ; démo |
+| **Correctifs de l'IA** | 29/09 | Modèle `gpt-5.6-sol` ; sortie structurée ; pages lues relevées sur toutes les étapes ; références de synthèse reconnues ; semaine sans commentaire sans appel (PR #10) | Oui (30/09, IA éteinte) ; démo |
+| **Entrée = enregistrer** | 29/09 | Sur ordinateur, Entrée enregistre un commentaire (Maj+Entrée = saut de ligne) ; prix écrits avec le symbole euro collé aux chiffres reconnus (PR #11) | Oui (30/09, IA éteinte) ; démo |
+| **Prix internet par marque, nom, format** | 29/09 | Le code du fournisseur n'est plus qu'un indice (PR #12) | Oui (30/09, IA éteinte) ; démo |
+| **Prix internet à plusieurs sources** | 29/09 | Jusqu'à cinq offres contrôlées une à une, ramenées en HT ; migration 0015 ; page Prix « dès … HT · N sources » (PR #13) | Oui (30/09, IA éteinte) ; démo |
+| **Dépendances à jour** | 29/09 | Mise à jour dans les versions existantes, sans faille connue (PR #14) | Oui (30/09) |
+| **Audit complet** | 29/09 | 6 angles, vérification contradictoire (section 20) | Oui |
+| **Corrections de l'audit** | 29–30/09 | Les 13 constats importants, en cinq groupes : recalculs après correction, codes répétés, « Conforme » strict et R10, chantiers à numéro, sauvegardes et restauration (PR #16) | Oui (30/09) |
+| **Mise en production du 30/09** | 30/09 | `dev` vers `main` (PR #17, étiquette `mise-en-prod-2026-09-30`), migration 0015, rapprochement rejoué | Oui (démo 07 h 29 UTC, production 07 h 31 UTC) |
+| **Recherche à la demande et contestations de prix** | 01/10 | Bouton « Chercher sur internet » sur chaque rangée de l'onglet Prix ; contestations visibles dans la grille du fournisseur (sur la rangée et dans une section) ; contestations dans la synthèse de la semaine ; migration 0016 | **Non** : branche `feature/prix-contestations-recherche`, ni fusionnée dans `dev` ni déployée à la date d'écriture |
 
 ### 3.2 Par écran
 
@@ -277,18 +299,18 @@ code fusionné dans la branche d'intégration mais pas encore en production.
 | Écran | Route | Accès | Ce qu'on y fait | Depuis |
 | --- | --- | --- | --- | --- |
 | Connexion | `/connexion` | Public | Se connecter (cookie httpOnly, 12 h glissantes) | 17/09 |
-| Vue d'ensemble | `/` | Admin | Sélecteur de mois ; chiffres du mois (facturé, conforme, écart, sans bon, montant des bons reçus, problèmes à régler, BL reçus/facturés) ; chantiers triés par montant à vérifier, avec pastille d'état ; problèmes prioritaires ; carte « Commentaires de la semaine » (IA) ; export Excel du détail du mois | 23/09 (refonte) ; carte IA 28/09 |
+| Vue d'ensemble | `/` | Admin | Sélecteur de mois ; chiffres du mois (facturé, conforme, écart, sans bon, montant des bons reçus, problèmes à régler, BL reçus/facturés) ; chantiers triés par montant à vérifier, avec pastille d'état ; problèmes prioritaires ; carte « Commentaires de la semaine » (IA ; affiche aussi le nombre de contestations de prix depuis le 01/10, démo seulement) ; export Excel du détail du mois | 23/09 (refonte) ; carte IA 28/09 |
 | À régler | `/a-regler`, `/a-regler/:id` | Admin | Liste unique de ce qui attend une décision (problèmes ouverts, documents à corriger, chantiers à rattacher), filtrable ; détail avec « pourquoi c'est signalé » chiffré, liens vers la facture et le bon ; traiter exige un commentaire (« Contesté auprès du fournisseur » ou « C'est normal, ignorer ») ; choix du chantier sur une alerte R18 ; avis de l'IA sur une alerte de prix | 23/09 ; R18 27/09 ; avis IA 28/09 |
 | Chantiers | `/chantiers`, `/chantiers/:id` | Admin | Liste et création ; filtre agence ; fiche (client, agence, livraisons cliquables, quatre chiffres, modification) ; chantiers « à compléter » ; **fusion** de deux chantiers | 23/09 ; à compléter et fusion 27/09 |
 | Fournisseurs | `/fournisseurs`, `/fournisseurs/:id` | Admin | Liste ; fiche avec chantiers concernés, **filtre par mois**, problèmes ouverts ; lien vers la grille de prix | 23/09 ; mois 27/09 |
-| Grille de prix | `/fournisseurs/:id/prix` | Admin | Prix en vigueur, recherche, ajout ou modification (nouvelle ligne d'historique), retrait, import Excel avec aperçu, modèle à télécharger | 28/09 |
+| Grille de prix | `/fournisseurs/:id/prix` | Admin | Prix en vigueur, recherche, ajout ou modification (nouvelle ligne d'historique), retrait, import Excel avec aperçu, modèle à télécharger ; **contestations** : lien « ⚑ N contestation(s) » sous un produit contesté qui déplie son historique (date, bon, prix du bon, prix de la grille, auteur, commentaire), et section « Contestations de prix (N) » sous le tableau, groupée par produit, avec la mention « absent de la grille » pour un produit retiré (section absente s'il n'y en a aucune ; la recherche de la grille ne la filtre pas) | 28/09 ; contestations 01/10 (démo seulement) |
 | Livraisons | `/livraisons` | Admin | Bons « Conforme » (et autres états), filtrables par mois, agence, chantier, fournisseur ; clic vers le bon | 27/09 |
-| Prix à vérifier | `/prix` | Admin | Une rangée par produit en alerte (prix du bon, grille et sa date, dernier prix facturé et sa date, écart, ressemblance, colonne « Internet » si l'IA est allumée) ; Valider ce prix / Contester (commentaire obligatoire) / Ignorer ; recontrôle des bons | 28/09 ; prix internet à plusieurs sources 29/09 (`dev`) |
+| Prix à vérifier | `/prix` | Admin | Une rangée par produit en alerte (prix du bon, grille et sa date, dernier prix facturé et sa date, écart, ressemblance, colonne « Internet » si l'IA est allumée) ; Valider ce prix / Contester (commentaire obligatoire) / Ignorer ; recontrôle des bons. **Colonne « Internet » (si l'IA est allumée) sur toutes les rangées** : bouton « Chercher sur internet », puis « Recherche en cours… », puis le résultat avec « Relancer » (« introuvable » si rien de vérifiable), ou un message court avec « Réessayer » | 28/09 ; prix internet à plusieurs sources 29/09 (production le 30/09) ; bouton sur toutes les rangées 01/10 (démo seulement) |
 | Documents | `/documents`, `/documents/:id`, `/bl/:id` | Admin et agent (ses dépôts) | Liste filtrable ; dépôt d'une facture PDF (admin) ; **page BL** : photo, téléchargement nommé, tableau livré/facturé/prix/contrôle par ligne, correction de lecture, validation, archivage, relance de la lecture, **commentaires par ligne** | 23/09 ; commentaires 27/09 |
 | Comptes | `/comptes` | Admin | Créer, modifier, changer le mot de passe, retirer ou rétablir l'accès | 27/09 |
 | Journal | `/journal` | Admin | Journal des actions, en français, avec lien direct vers l'élément | 24/09 ; noms 27–28/09 |
 | Réglages | `/reglages` | Admin | Seuils modifiables ; interrupteurs du contrôle des prix des bons ; lien « Essayer l'IA » | 19/09 ; prix 28/09 |
-| Laboratoire IA | `/ia` | Admin | Diagnostic de l'IA (allumée, joignable, agents, recherche web, compte ChatGPT connecté), essais des trois usages, journal des appels | 29/09 (`dev`, démo) |
+| Laboratoire IA | `/ia` | Admin | Diagnostic de l'IA (allumée, joignable, agents, recherche web, compte ChatGPT connecté), essais des trois usages, journal des appels | 29/09 (production le 30/09) |
 
 Les anciennes adresses (`/a-traiter`, `/anomalies`, `/bilan…`, `/bl`,
 `/factures…`) redirigent vers les nouvelles.
@@ -313,7 +335,6 @@ Les anciennes adresses (`/a-traiter`, `/anomalies`, `/bilan…`, `/bl`,
   **supervision externe** (UptimeRobot prévu par le cahier des charges).
 - **Export comptable, WhatsApp, double authentification** : hors périmètre du
   cahier des charges.
-- **Corrections de l'audit du 29/09** : en cours, non livrées (section 20).
 
 ---
 
@@ -352,10 +373,13 @@ nom lu et la légende désignent deux chantiers différents, une alerte R18
 « Chantier à confirmer » est levée et un humain choisit. Un admin peut
 fusionner deux chantiers doublons. Exemples inventés : « Villa Test » et
 « VILLA TEST (123) » = 100 (rattaché) ; « Les Pins » et « Les Pins 2 » = 88
-(nouveau chantier). *Défaut connu (audit, section 20) : deux noms ne
-différant que par un numéro (« Lot 12 », « Lot 13 ») peuvent atteindre le
-seuil ; décision d'Ilane : ils ne devront jamais être rattachés
-automatiquement. Correction à faire.*
+(nouveau chantier). *Défaut relevé par l'audit (section 20) et corrigé le
+30/09 : deux noms ne différant que par un numéro (« Lot 12 », « Lot 13 »)
+pouvaient atteindre le seuil ; sur décision d'Ilane, ils ne sont plus jamais
+rattachés automatiquement et sont proposés « à confirmer » (R18). Les alias
+déjà appris ne sont pas revus : la commande `chantiers-alias-suspects`
+(section 16) les liste pour relecture ; elle n'en a signalé aucun, sur la démo
+comme en production, le 30/09.*
 
 **Rapprochement BL ↔ facture.** Chaque bloc « Concerne le B.L. n°… » d'une
 facture est comparé au BL du même numéro (reçu, non reçu, « pas de bon ») ;
@@ -374,7 +398,7 @@ exige un commentaire ; une anomalie traitée ou ignorée n'est jamais rouverte.
 **Commentaires sur les lignes** (phase 3). Sur la page d'un bon, n'importe
 quel compte connecté ajoute un commentaire par ligne (1 000 caractères au
 plus) ; un commentaire n'est ni modifiable ni supprimable (on en ajoute un
-autre pour se corriger). Sur ordinateur, Entrée enregistre (`dev`).
+autre pour se corriger). Sur ordinateur, Entrée enregistre (en production depuis le 30/09).
 
 **Contrôle des prix d'un bon** (phase 3, éteint en production). Après la
 lecture d'un bon, ou après la correction de ses lignes, chaque ligne est
@@ -425,7 +449,7 @@ positif et un test négatif par règle (`app/modules/rules/tests/`).
 | R07 | Prix un peu plus cher | Écart de prix supérieur à 5 % à la médiane des 6 derniers mois de factures | Moyenne | `seuil_prix_pct` | Désactivée par défaut (`CONTROLE_PRIX_ACTIF=false`) |
 | R08 | Prix plus cher que d'habitude | Même écart, supérieur à 15 % | Haute | `seuil_prix_fort_pct` | Désactivée par défaut (idem R07) |
 | R09 | Remise habituelle oubliée | Remise historique absente | Moyenne | `occurrences_prix_min` (3) | Désactivée par défaut (idem R07) |
-| R10 | Erreur de calcul sur la facture | Somme des blocs différente du total HT | Haute | `tolerance_total_ht` (quelques centimes) | Active dans le code mais **inatteignable en pratique** : une facture incohérente reste « à vérifier » et n'est jamais rapprochée. Décision d'Ilane du 29/09 : R10 doit apparaître dans « À régler » ; correction **à faire** |
+| R10 | Erreur de calcul sur la facture | Somme des blocs différente du total HT | Haute | `tolerance_total_ht` (quelques centimes) | Active. Jusqu'au 29/09 elle était **inatteignable en pratique** (une facture incohérente reste « à vérifier » et n'était jamais rapprochée) ; depuis le 30/09, sur décision d'Ilane, R10 est évaluée seule pour une facture « à vérifier » et apparaît dans « À régler ». Elle tombe au rejeu suivant si la somme redevient cohérente ou si la facture est archivée |
 | R11 | Erreur de calcul sur le bon | Somme des lignes différente du total HT du BL | Moyenne | `tolerance_total_ht` | Active |
 | R12 | Bon facturé deux fois | Doublon de facturation | Haute | — | Active |
 | R13 | Avoir sans achat d'origine | Ligne négative sans ligne positive d'origine | Moyenne | — | Active |
@@ -475,6 +499,17 @@ d'abord sur les bons (décision d'Ilane) ; le contrôle à la facture n'existe
 pas. Ordre conseillé au déploiement : importer les grilles, vérifier la page
 « Grille » du fournisseur, puis allumer le contrôle et lancer un recontrôle
 des bons existants.
+
+**Ce que fait « Contester »** (`ingest/prix_bl.py`, inchangé le 01/10) : il
+ferme toutes les alertes du produit au statut « traitée », avec le commentaire
+`Contesté : <texte>` (obligatoire), le nom de l'auteur et la date ; il écrit
+une entrée au journal par alerte et une pour l'action ; il ne touche jamais
+la grille. Une alerte fermée n'est jamais rouverte. **Depuis le 01/10/2026
+(démo seulement)**, ces contestations se relisent à trois endroits : dans la
+grille du fournisseur (une contestation = une ligne de bon), dans la synthèse
+de la semaine, et elles restent dans le journal. Un prix « ignoré » ou
+« validé » n'est pas une contestation et n'apparaît pas dans ces deux
+endroits (décision D4).
 
 ---
 
@@ -689,12 +724,12 @@ source de vérité unique du schéma (`ARCHITECTURE.md` §4).
 | `grille_import` | Trace de chaque import Excel (nom et empreinte du fichier, date d'effet, nombre de lignes nouvelles, modifiées, inchangées et en erreur, auteur) |
 | `grille_prix` | Historique des prix par fournisseur : une ligne par changement (référence, désignation, unité, prix catalogue HT, remise, prix net, marque, famille, date d'effet, source saisie/import/validation, auteur) ; **UPDATE, DELETE et TRUNCATE refusés par des déclencheurs PostgreSQL** ; le prix en vigueur est la dernière ligne par produit |
 
-### 9.4 IA (migrations 0014 et 0015)
+### 9.4 IA (migrations 0014, 0015 et 0016)
 
 | Table | Rôle |
 | --- | --- |
 | `appel_ia` | Journal technique de chaque appel à l'IA (usage, statut, durée, erreur) — jamais le texte envoyé ni la réponse |
-| `synthese_commentaires` | Une synthèse par semaine (`semaine_debut` unique), résumé, statut |
+| `synthese_commentaires` | Une synthèse par semaine (`semaine_debut` unique), résumé, statut ; depuis la migration 0016, colonne `nb_contestations` (entier, 0 par défaut : nombre de contestations de prix envoyées à l'IA) |
 | `synthese_action` | Actions à cocher d'une synthèse, liées à des commentaires et des bons |
 | `explication_alerte` | Explication IA d'une alerte de prix, par empreinte du détail (évite de renvoyer un texte périmé) |
 | `prix_internet` | Historique des recherches de prix public ; depuis la migration 0015, colonne JSONB `offres` (jusqu'à cinq offres avec prix, HT ou TTC, unité, conditionnement, source) ; les colonnes d'origine portent l'offre la moins chère en HT |
@@ -718,10 +753,12 @@ source de vérité unique du schéma (`ARCHITECTURE.md` §4).
 | 0013 | Grilles de prix (`grille_import`, `grille_prix`, historique inaltérable par déclencheur) |
 | 0014 | Tables de l'IA : `appel_ia`, `synthese_commentaires`, `synthese_action`, `explication_alerte`, `prix_internet` |
 | 0015 | `prix_internet.offres` (jusqu'à cinq offres) et reprise des prix déjà trouvés comme une offre unique |
+| 0016 | `synthese_commentaires.nb_contestations` (entier non nul, 0 par défaut) ; branche `feature/prix-contestations-recherche`, **appliquée sur la démo le 01/10/2026**, pas en production |
 
-**En production au 29/09/2026 : jusqu'à la révision 0014.** La 0015 est
-appliquée sur la démo seulement ; elle sera appliquée en production au
-prochain passage de `dev` en production (sauvegarde d'abord).
+**En production au 30/09/2026 : jusqu'à la révision 0015.** La 0015 a été
+appliquée sur la démo puis en production le 30/09 (sauvegarde d'abord,
+coupure d'environ 15 secondes). **La 0016 est appliquée sur la démo
+seulement** (01/10/2026, 13 h 11 UTC, sauvegarde d'abord) ; la production reste en 0015.
 
 Conventions : identifiants UUID générés par la base (sauf `parametre`,
 `telegram_update`, `jeton_session`) ; montants en `numeric` lus en `Decimal` ;
@@ -802,11 +839,13 @@ Liste relue dans les décorateurs `@router.*` de `app/modules/api/*.py`
 | Commentaires | `GET /api/commentaires/documents/{id}` | tout compte connecté | Commentaires d'un bon (visibilité du bon) |
 | | `POST /api/commentaires/lignes/{id}` | tout compte connecté | Ajoute un commentaire (1 à 1 000 caractères) |
 | Grilles de prix | `GET /api/grilles/modele`, `GET /api/grilles/fournisseurs/{id}`, `.../produits/{cle}/historique` | admin | Modèle Excel, grille en vigueur, historique d'un produit |
+| | `GET /api/grilles/fournisseurs/{id}/contestations` (01/10, démo seulement) | admin | Contestations de prix du fournisseur, plus récentes d'abord (500 au plus) ; 404 si le fournisseur n'existe pas |
 | | `POST /api/grilles/fournisseurs/{id}/prix`, `.../retrait`, `.../import/apercu`, `.../import` | admin | Saisie, retrait, import avec aperçu puis confirmation |
 | Prix à vérifier | `GET /api/prix/alertes` | admin | Une rangée par produit en alerte |
 | | `POST /api/prix/valider`, `/contester`, `/ignorer`, `/recontrole` | admin | Valider (nouvelle ligne de grille), contester, ignorer, recontrôler les bons |
 | IA | `GET /api/ia/synthese`, `POST /api/ia/synthese/actions/{id}/faite`, `.../a-faire` | admin | Synthèse de la semaine, cocher une action |
-| | `GET /api/ia/anomalies/{id}`, `GET /api/ia/prix-internet` | admin | Avis de l'IA sur une alerte, prix internet groupés |
+| | `GET /api/ia/anomalies/{id}`, `GET /api/ia/prix-internet` | admin | Avis de l'IA sur une alerte, prix internet groupés ; depuis le 01/10 (démo seulement), pour toutes les alertes de prix R19 à R25 et avec un champ `recherches` (recherches en cours ou échouées, par identifiant d'anomalie) |
+| | `POST /api/ia/prix-internet/recherches` (01/10, démo seulement) | admin | Lance la recherche d'un produit (corps `{"anomalie_id": …}`) ; 202 `lancee` ou `deja_en_cours` ; 404 si l'alerte n'est pas une alerte de prix ouverte et visible ; 409 si l'IA est éteinte ou le plafond du jour atteint |
 | Laboratoire IA | `GET /api/ia/labo/etat`, `.../appels`, `.../essais`, `.../essais/{id}` ; `POST /api/ia/labo/essais/prix`, `.../explication`, `.../synthese` | admin | Diagnostic, journal des appels, essais sans rien enregistrer |
 
 Les agrégats du Bilan et de la Vue d'ensemble sont calculés à la demande, sans
@@ -872,6 +911,9 @@ Construite les 27 et 28/09/2026, améliorée le 29/09/2026. **Déployée en
 production le 28/09/2026 mais éteinte** (`IA_ACTIVE=false`) ; **allumée sur la
 démo**. **Gelée par Ilane le 29/09/2026** (« on s'arrête là pour l'IA ») :
 plus d'évolution de l'IA sans son accord ; OpenCode reste en version 1.18.32.
+**Exception du 01/10/2026** : Ilane lève le gel pour deux usages (bouton de
+recherche à la demande, contestations dans le résumé), voir 12.10 ; ce code
+n'est pas déployé.
 Conception : `docs/superpowers/specs/2026-09-27-phase-4-ia-design.md` ; guide
 d'exploitation : `docs/phase-4-ia.md`.
 
@@ -1017,6 +1059,41 @@ refuse de démarrer sinon, en nommant la variable manquante, jamais sa valeur).
 Installation, essai avant de se fier au prix internet et arrêt d'urgence :
 `docs/phase-4-ia.md`.
 
+### 12.10 Recherche à la demande et contestations (01/10/2026, démo seulement)
+
+Branche `feature/prix-contestations-recherche`, spécification
+`docs/superpowers/specs/2026-10-01-prix-recherche-et-contestations-design.md`.
+Décision D2 d'Ilane : l'IA reste **éteinte en production** ; le bouton et le
+résumé ne servent donc que sur la démo.
+
+- **Recherche à la demande.** `POST /api/ia/prix-internet/recherches` lance la
+  même recherche que la commande `ia-prix` (même fonction d'enregistrement,
+  une ligne `prix_internet`) pour le produit d'une rangée de l'onglet Prix,
+  en tâche de fond. Un clic ignore le délai de 30 jours et la limite de
+  trois échecs (c'est une décision humaine) mais **respecte le plafond du
+  jour** (`IA_APPELS_MAX_JOUR`) : plafond atteint, rien n'est cherché ni
+  écrit. Un deuxième clic sur le même produit pendant la recherche ne relance
+  rien (`deja_en_cours`). L'état « en cours » ou « échec » est gardé **en
+  mémoire de l'API** (15 minutes, pour un échec comme pour un « en cours »
+  qui ne se terminerait pas) ; un redémarrage l'efface. La commande `ia-prix` ne change pas (toujours les produits absents sans dernier
+  prix). L'IA ne crée ni ne modifie aucune anomalie ni grille.
+- **Contestations dans la synthèse.** Les contestations de prix de la semaine
+  (semaine à l'heure de Paris) partent à l'agent `habitat-synthese` sous des
+  références `[pN]`, regroupées par fournisseur, produit et commentaire (une
+  entrée même pour plusieurs bons du même produit), 50 au plus : jour,
+  fournisseur, produit, numéros des bons, prix du bon, prix de grille s'il
+  existe, commentaire. **Jamais l'auteur, le chantier ni le client.** Une
+  action de la synthèse peut citer des références `cN` (commentaires) et
+  `pN` ; les bons des contestations citées s'ajoutent aux liens de l'action.
+  Une semaine sans commentaire ni contestation n'appelle pas l'IA (résumé :
+  « Aucun commentaire ni contestation cette semaine. ») ; une semaine avec
+  seulement des contestations est résumée. Le journal `synthese_generee`
+  porte `nb_contestations`. Le Laboratoire IA charge la semaine de la même
+  façon.
+- **Consigne de l'agent `habitat-synthese` modifiée**
+  (`deploy/opencode/opencode.json`) : **l'image OpenCode de la démo est à
+  reconstruire** au déploiement, sinon l'agent ne connaît pas les `pN`.
+
 ---
 
 ## 13. Configuration
@@ -1156,8 +1233,8 @@ npm --prefix web run build       # build Vite
   fait échouer la suite.
 - Les tests qui lisent des documents réels du client (`tests/fixtures/`) sont
   ignorés sur un clone neuf.
-- **Nombre de tests : 2 699 collectés le 29/09/2026** (`dev`, commit
-  `28e1600`), contre 1 362 à la fin du lot 5 (20/09), environ 1 735 à la fin
+- **Nombre de tests : 2 799 au 30/09/2026** (après les corrections de
+  l'audit), contre 2 699 le 29/09 (commit `28e1600`), 1 362 à la fin du lot 5 (20/09), environ 1 735 à la fin
   des phases 1 et 2 (27/09) et 2 223 le 28/09.
 - Hooks pre-commit : ruff check, ruff format --check, mypy, la suite pytest
   complète (sous `flock`, de l'ordre de 10 à 25 minutes quand le verrou est
@@ -1191,6 +1268,7 @@ commande interactive). D'après `app/cli.py`.
 | `controler-prix [--depuis AAAA-MM-JJ]` | Recontrôle les prix de tous les bons non archivés depuis une date (1er du mois précédent par défaut) | — |
 | `drive-sync [--limite 1..1000]` | Synchronise les documents en attente vers Google Drive | 1 : au moins un échec ; 2 : configuration Drive absente ou invalide |
 | `rattacher-chantiers` | Reprise, au déploiement, des noms de chantier en attente et des bons sans chantier (idempotente) | toujours 0 |
+| `chantiers-alias-suspects` | Liste, en lecture seule, les noms de chantier appris dont les nombres diffèrent de ceux du chantier (« … 13 » appris sur « … 12 ») ; diagnostic manuel, à ne pas planifier ni copier ailleurs (la sortie contient des noms de chantier) | toujours 0 |
 | `ranger-photos` | (Re)construit le rangement des photos sous `bl/<AAAA>/<MM>/…` (idempotente) | toujours 0 |
 | `synthese-commentaires [--semaine AAAA-MM-JJ]` | Génère la synthèse hebdomadaire des commentaires | 1 : échec de génération ; 2 : date invalide ou pas un lundi |
 | `ia-prix` | Explique les alertes de prix puis cherche un prix internet (tâche planifiée) | 1 seulement si toutes les tentatives échouent faute d'IA joignable |
@@ -1226,7 +1304,7 @@ sur le serveur dédié n'est pas fait** (section 23).
 | Port local | `127.0.0.1:8450` | `127.0.0.1:8451` |
 | Domaine | https://habitat.ellumena.fr | https://demo.habitat.ellumena.fr |
 | Données | Réelles | Fictives (script de remplissage hors dépôt) |
-| Version déployée au 29/09/2026 | Étiquette `mise-en-prod-octobre-2026` (28/09), migration 0014, IA éteinte | `dev` jusqu'à la PR #13, migration 0015, IA allumée, Laboratoire IA |
+| Version déployée au 30/09/2026 | Étiquette `mise-en-prod-2026-09-30` (30/09, 07 h 31 UTC), migration 0015, IA éteinte, contrôle des prix éteint | Même version (30/09, 07 h 29 UTC), migration 0015, IA allumée ; puis le 01/10 (13 h 11 UTC) la branche `feature/prix-contestations-recherche`, migration 0016, image OpenCode reconstruite |
 
 ### 17.3 Fichiers Compose
 
@@ -1262,16 +1340,27 @@ sans message (audit F-05, mineur). Procédure d'octobre complète, instance par
 instance, retour arrière compris : `docs/deploiement-octobre-2026.md` ;
 procédures générales : `docs/deploiement-et-tests.md`. **Déploiements réels
 faits** : démo le 28/09 à 18 h 24 UTC, production le 28/09 vers 19 h UTC
-(coupure d'environ 25 secondes), avec sauvegarde préalable de chaque base et
-de l'image précédente.
+(coupure d'environ 25 secondes) ; démo le 30/09 à 07 h 29 UTC, production le
+30/09 à 07 h 31 UTC (coupure d'environ 15 secondes) ; à chaque fois avec
+sauvegarde préalable de chaque base et de l'image précédente. Ordre propre aux
+corrections de l'audit (sauvegarde, reconstruction de l'API, rejeu du
+rapprochement, contrôle des alias) : `docs/deploiement-corrections-audit.md`.
 
-### 17.5 Prochain passage en production (décidé, non fait)
+### 17.5 Passage en production du 30/09/2026 (fait)
 
-Accord d'Ilane donné pour le passage de `dev` en production après l'audit :
-sauvegarde, migration 0015, reconstruction de l'image OpenCode, puis API. Il
-attend la fin des corrections de l'audit, leur relecture, leur essai sur la
-démo, et la mise à jour de cette documentation. Les scripts de supervision
-(`feature/exploitation-2`) ne font pas partie de ce passage.
+`dev` est passé dans `main` par la PR #17 (`7f9515d`, fusionnée le 30/09 à
+09 h 30 heure de Paris), étiquette `mise-en-prod-2026-09-30`, avec l'accord
+d'Ilane donné pour ce passage. Déroulé, démo d'abord : sauvegarde de chaque base
+et image précédente gardée pour un retour arrière ; migration **0014 vers
+0015** en production ; puis `python -m app.cli rapprocher --tout` (démo : 4
+factures, 0 échec ; production : 1 facture, 0 échec) et
+`python -m app.cli chantiers-alias-suspects` (aucun alias suspect, démo et
+production). L'IA reste **éteinte et gelée** en production, le contrôle des prix
+reste éteint. Les scripts de supervision (`feature/exploitation-2`) n'en
+faisaient pas partie. L'image OpenCode n'a pas été reconstruite : sa
+configuration (`deploy/opencode/opencode.json`) n'a pas changé depuis la
+reconstruction du 29/09 (cinq sources), déjà en service, et l'IA reste éteinte
+en production.
 
 ---
 
@@ -1281,10 +1370,13 @@ démo, et la mise à jour de cette documentation. Les scripts de supervision
 
 - `deploy/backup.sh` : `pg_dump -Fc` dans un conteneur PostgreSQL jetable, puis
   `restic backup` du dump et des originaux ; rétention prévue : 30 sauvegardes
-  quotidiennes et 12 mensuelles. **Constat de l'audit (F-01, mineur) : la
-  rotation ne supprime rien en pratique** (le chemin du dump change à chaque
-  passage) ; l'impact disque est faible aujourd'hui, la rétention promise n'est
-  pas tenue. Correction à faire.
+  quotidiennes et 12 mensuelles. **Constat de l'audit (F-01, mineur), corrigé
+  le 30/09** : la rotation ne supprimait rien (le chemin du dump et le nom
+  d'hôte changeaient à chaque passage) ; le dump est désormais monté sous
+  `/dump` et `--host` vaut le nom du projet Compose, donc la rétention
+  s'applique. **Reste** : les anciens instantanés (hôte aléatoire) ne sont pas
+  purgés ; à supprimer à la main (`restic forget <id> --prune`) quand quelques
+  semaines de sauvegardes récentes existeront.
 - Dépôts restic actuels **locaux et provisoires** (`~/sauvegardes-habitat/`,
   décision d'Ilane du 27/09 : local d'abord, stockage objet OVH ensuite, dès
   qu'un conteneur et des clés existent). Ils protègent d'une erreur
@@ -1292,12 +1384,21 @@ démo, et la mise à jour de cette documentation. Les scripts de supervision
 - **Test de restauration rejoué avec succès le 27/09/2026** sur des ports
   libres (migration, données inventées, sauvegarde, destruction,
   restauration, comptes de lignes et empreintes des documents identiques,
-  `/health` à 200 ; `docs/phase-2-exploitation-recette.md`).
-- **Réserves de l'audit sur la restauration** (section 20) : après une
-  restauration lancée par un compte ordinaire, l'API peut perdre l'accès aux
-  documents (droits) ; les procédures écrites ne sont pas toutes utilisables
-  telles quelles pour la production et la démo ; rien n'alerte si une
-  sauvegarde ne s'exécute pas. Corrections **en cours** (groupe 5).
+  `/health` à 200 ; `docs/phase-2-exploitation-recette.md`), **puis le
+  30/09/2026 avec `deploy/test-restauration.sh` après les corrections de
+  l'audit : succès complet** (comptes de lignes et empreintes identiques,
+  documents en 10001:10001 avec les droits 0750 pour les dossiers et 0640 pour
+  les fichiers, copie de sécurité de la base en 0600, `/health` à 200). Le test
+  ne reproduit pas un dossier parent possédé par root.
+- **Réserves de l'audit sur la restauration** (section 20) : **corrigées le
+  30/09** (groupe 5). `restore.sh` fait tous ses contrôles avant la première
+  destruction (dossier des copies de sécurité, snapshot, dump validé), écrit une
+  copie de sécurité de la base courante avant de la supprimer, et rend les
+  documents à l'API (uid 10001) sans exiger un compte root ; les procédures
+  écrites sont exécutables pour la production et la démo. **Restent** : la copie
+  de sécurité n'est jamais purgée (à supprimer à la main après validation),
+  l'espace disque n'est pas vérifié, et **rien n'alerte si une sauvegarde ne
+  s'exécute pas** (F-04, section 18.3).
 - Procédure complète : `deploy/RESTAURATION.md` et
   `docs/deploiement-et-tests.md` §11.
 
@@ -1342,7 +1443,11 @@ une conversation privée avec le bot et renseigne son identifiant dans
 non commitée, décision d'Ilane attendue) : surveillance du site et du disque
 toutes les 5 minutes, vérification hebdomadaire des sauvegardes (âge du dernier
 instantané, contrôle d'intégrité partiel), remontée d'un échec du rangement
-des photos.
+des photos. Ces scripts ne font pas partie de la mise en production du 30/09.
+Point à corriger avant de les valider : `verifier-sauvegarde.sh` devra filtrer
+sur `--host`, les anciens instantanés restic ayant un nom d'hôte aléatoire.
+C'est cette vérification qui répondrait au constat F-04 (aucune alerte si une
+sauvegarde ne s'exécute pas), toujours ouvert.
 
 ### 18.4 Journaux et sondes
 
@@ -1395,7 +1500,7 @@ mineur), ni Telegram, ni Mistral, ni Drive. **Pas de sonde externe**
   (ports 22, 80, 443), mises à jour automatiques du système
   (`infra/README.md` §5.1).
 - **Dépendances** : `pip-audit` et `npm audit` ne signalent aucune faille
-  connue au 29/09/2026.
+  connue au 29/09/2026 (mise à jour en production le 30/09).
 
 ### 19.2 Sous-traitants (RGPD, cahier des charges §8 et §15)
 
@@ -1423,7 +1528,7 @@ interne. Registre des traitements pré-rempli et information des salariés :
 
 ### 20.1 Méthode
 
-Le 29/09/2026, avant la mise en production de la version en cours, un audit
+Le 29/09/2026, avant la mise en production du 30/09, un audit
 complet du code de `dev` (copie figée au commit `8ccd872`, c'est-à-dire avant
 la mise à jour des dépendances) a été mené en deux temps.
 
@@ -1454,11 +1559,11 @@ la mise à jour des dépendances) a été mené en deux temps.
 rétrogradés en mineurs ou latents. Les 34 autres constats, déjà classés
 mineurs, n'ont pas été vérifiés un par un : ils sont listés dans
 `docs/dette.md` (section « Audit du 29/09/2026 »). Sauf précision, ces défauts
-concernent le code de `dev`, qui contient la version en production : ils sont
-donc présumés présents aussi en production, où les corrections ne sont pas
-encore livrées.
+concernaient le code de `dev`, qui contenait la version en production : ils
+étaient donc présumés présents aussi en production jusqu'au 30/09, date à
+laquelle les corrections y ont été livrées (section 20.4).
 
-**Les 13 importants confirmés.**
+**Les 13 importants confirmés** (tous corrigés le 30/09, sauf la part F-04 : section 20.4).
 
 | ID | Constat | Effet concret |
 | --- | --- | --- |
@@ -1507,24 +1612,28 @@ longs), F-01 (rotation restic sans effet).
   supervision (`feature/exploitation-2`) hors de ce passage.
 - **IA gelée** : une éventuelle correction du défaut E-01 exige son accord.
 
-### 20.4 Corrections : état au 29/09/2026 (en cours)
+### 20.4 Corrections : faites, relues, déployées le 30/09/2026
 
-Les corrections sont faites sur une branche séparée (`feature/corrections-audit`),
-en cinq groupes ; rien n'est fusionné dans `dev` ni déployé.
+Les corrections ont été faites sur la branche `feature/corrections-audit`, en
+cinq groupes, chacun relu puis relu de nouveau, suivis d'une relecture finale de
+la branche et d'une dernière vague de corrections elle aussi relue. Fusion dans
+`dev` par la PR #16 (`19b746f`), puis dans `main` par la PR #17 (30/09).
 
 | Groupe | Constats | État |
 | --- | --- | --- |
-| 1. Recalculs après correction, relecture, suppression de ligne et archivage | C-01, B-01, B-04, B-07 | Codé (un commit, 9 puis 15 tests dédiés) ; **en relecture** |
-| 2. Codes répétés | B-06 | À faire |
-| 3. « Conforme » strict, R10, mention « dont X euros à vérifier » | B-02, B-03, D-01, B-09 | À faire |
-| 4. Chantiers à numéro jamais rattachés automatiquement | B-05 | À faire |
-| 5. Sauvegardes et restauration | F-02 (C-02), F-03 ; F-01, C-03, F-04 : à traiter ou à décider | À faire |
+| 1. Recalculs après correction, relecture, suppression de ligne et archivage | C-01, B-01, B-04, B-07 | **Fait** : le rapprochement est rejoué dans la transaction de l'écriture ; la relecture d'un bon est atomique |
+| 2. Codes répétés | B-06 | **Fait** : un même code sur plusieurs lignes est apparié sur les quantités totales ; la page du bon affiche le livré du groupe face au facturé |
+| 3. « Conforme » strict, R10, mention « dont X euros à vérifier » | B-02, B-03, D-01, B-09 | **Fait** : définition unique côté serveur, R10 levée pour une facture « à vérifier », mention sur « Facturé » ; la pastille de la page du bon dit pourquoi un bon est « À vérifier » |
+| 4. Chantiers à numéro jamais rattachés automatiquement | B-05 | **Fait** ; diagnostic `chantiers-alias-suspects` pour les alias déjà appris |
+| 5. Sauvegardes et restauration | F-02 (C-02), F-03, C-03, F-01 | **Fait** ; essai réel de restauration réussi le 30/09 (section 18.1). **F-04 reste ouvert** (aucune alerte si une sauvegarde ne s'exécute pas) |
 
-Ensuite : relecture de la branche, PR vers `dev`, essai sur la démo, mise à
-jour de la documentation, puis `dev` → `main` et déploiement en production avec
-l'accord d'Ilane déjà donné pour ce passage. La mise à jour des dépendances
-(PR #14) est déjà dans `dev` ; `pip-audit` et `npm audit` ne signalent aucune
-faille connue.
+Limites connues après correction : « Conforme » ne s'applique pas à la colonne
+« Contrôle » de chaque ligne de la page du bon, qui affiche « Identique » (un
+verdict par ligne, pas de la livraison) ; aucune route ne corrige ni ne valide
+une facture, donc R10 tombe par archivage ou par rejeu, pas par correction à
+l'écran (`docs/dette.md`). Les constats mineurs restent dans `docs/dette.md`.
+La mise à jour des dépendances (PR #14) est dans la même livraison ; `pip-audit`
+et `npm audit` ne signalent aucune faille connue.
 
 ### 20.5 Ce que l'audit a contrôlé sans rien relever
 
@@ -1557,10 +1666,10 @@ D'après `docs/roadmap-octobre-2026.md` §2.
 - Chaque lot sur une branche `feature/<nom>` partie de `dev`, terminée par une
   **PR vers `dev`** ; la session qui a fait le lot fusionne sa PR quand la
   relecture finale est verte (commit de fusion, historique tâche par tâche
-  conservé). Quatorze PR au 29/09/2026 (#1 à #14).
+  conservé). Dix-sept PR au 30/09/2026 (#1 à #17).
 - **`dev` → `main` seulement avec l'accord d'Ilane**, avant un déploiement ;
-  le déploiement se fait depuis `main` (étiquette `mise-en-prod-octobre-2026`
-  posée le 28/09).
+  le déploiement se fait depuis `main` (étiquettes `mise-en-prod-octobre-2026`
+  posée le 28/09, puis `mise-en-prod-2026-09-30` posée le 30/09).
 - **Plusieurs sessions Claude Code en parallèle**, chacune dans son propre
   arbre de travail Git : session A (phases 1, 2, 4, déploiements, audit),
   session B (phase 3, commentaires et lot Prix), un arbre dédié au
@@ -1595,9 +1704,9 @@ D'après `docs/roadmap-octobre-2026.md` §2.
 
 ### 22.1 Lot par lot et phase par phase
 
-346 commits sur `dev` (du 16/09/2026, « init : dépôt vide », au 29/09/2026).
+367 commits sur `main` (du 16/09/2026, « init : dépôt vide », au 30/09/2026).
 Étiquettes Git : `lot-1` à `lot-5`, `refonte-front`,
-`mise-en-prod-octobre-2026`.
+`mise-en-prod-octobre-2026`, `mise-en-prod-2026-09-30`.
 
 | Étape | Dates | Contenu | État | Déployé |
 | --- | --- | --- | --- | --- |
@@ -1620,11 +1729,15 @@ D'après `docs/roadmap-octobre-2026.md` §2.
 | Phase 3 — lot Prix | 27–28/09 | Migration 0013, R19 à R25, page Prix | Fusionné (PR #5) | Oui, éteint |
 | Phase 4 — IA | 27–28/09 | OpenCode, synthèse, explication, prix internet, colonne « Internet » | Fusionnée (PR #4, #6) | Oui, éteinte en production |
 | Mise en production d'octobre | 28/09 | Démo à jour à 18 h 24 UTC, production vers 19 h UTC (PR #8) | Fait | Oui |
-| Améliorations du 29/09 | 29/09 | Laboratoire IA, correctifs IA, Entrée, prix par marque/nom/format, cinq sources, dépendances | Fusionnées (PR #9 à #14) | Démo seulement (sauf #14) |
-| Audit complet | 29/09 | Section 20 | Constats vérifiés ; corrections en cours | Non |
+| Améliorations du 29/09 | 29/09 | Laboratoire IA, correctifs IA, Entrée, prix par marque/nom/format, cinq sources, dépendances | Fusionnées (PR #9 à #14) | Oui, le 30/09 (IA éteinte en production) |
+| Audit complet | 29/09 | Section 20 | Constats vérifiés | — |
+| Documentation globale | 29/09 | README global de 25 sections, état au 29/09 (PR #15) | Fusionnée | — |
+| Corrections de l'audit | 29–30/09 | Les 13 constats importants en cinq groupes (PR #16), essai réel de restauration | Fusionnées, relues | Oui, le 30/09 |
+| Mise en production du 30/09 | 30/09 | `dev` vers `main` (PR #17), étiquette `mise-en-prod-2026-09-30`, migration 0015 | Fait | Oui (démo 07 h 29 UTC, production 07 h 31 UTC) |
+| Recherche à la demande et contestations de prix | 01/10 | Demandes d'Ilane du 01/10 : bouton de recherche sur chaque rangée de l'onglet Prix, contestations dans la grille et dans la synthèse, migration 0016 (sept tâches de code commitées sur `feature/prix-contestations-recherche`) | Codé ; relecture, PR vers `dev` et déploiement de la démo à venir | **Non** à la date d'écriture |
 | Lot 6 — Livraison | — | Recette sur deux mois réels, documentation, formation, remise du dépôt étiqueté, procès-verbal | **Non commencé** | — |
 
-### 22.2 Les quatorze PR
+### 22.2 Les dix-sept PR
 
 | PR | Date | Contenu |
 | --- | --- | --- |
@@ -1642,6 +1755,9 @@ D'après `docs/roadmap-octobre-2026.md` §2.
 | #12 | 29/09 | Prix internet par marque, nom et format |
 | #13 | 29/09 | Prix internet à plusieurs sources (migration 0015) |
 | #14 | 29/09 | Dépendances à jour |
+| #15 | 29/09 | Documentation globale (README de 25 sections) |
+| #16 | 29/09–30/09 | Corrections de l'audit (13 constats importants, cinq groupes) |
+| #17 | 30/09 | `dev` → `main` : mise en production du 30/09 |
 
 ### 22.3 Déroulé jour par jour
 
@@ -1672,21 +1788,38 @@ D'après `docs/roadmap-octobre-2026.md` §2.
 - **29/09** : compte ChatGPT d'Ilane connecté ; Laboratoire IA, correctifs de
   l'IA, Entrée, prix par marque/nom/format, prix à plusieurs sources ;
   dépendances à jour ; **IA gelée** ; **audit complet** et décisions d'Ilane ;
-  corrections en cours ; cette documentation.
+  début des corrections ; documentation globale (PR #15).
+- **30/09** : fin des corrections de l'audit (PR #16), relues ; essai réel de
+  restauration réussi ; **mise en production** (PR #17, étiquette
+  `mise-en-prod-2026-09-30`) : démo à 07 h 29 UTC, production à 07 h 31 UTC,
+  migration 0015, rapprochement rejoué, aucun alias suspect ; mise à jour de
+  cette documentation.
+- **01/10** : demandes d'Ilane sur l'onglet Prix (recherche à la demande,
+  contestations dans la grille et dans le résumé) et décisions D1 à D4 ;
+  spécification, code et documentation sur la branche
+  `feature/prix-contestations-recherche` (depuis `dev`), **non fusionnée, non
+  déployée**.
 
-### 22.4 État au 29/09/2026
+### 22.4 État au 30/09/2026
 
-- **En production** : la version du 28/09 (phases 1 à 4, migration 0014, IA
-  éteinte, contrôle des prix éteint). Chantiers créés automatiquement « à
-  compléter » par la reprise du déploiement ; comptes des employés, mot de
-  passe admin, import des grilles : à faire par Ilane.
-- **Sur la démo** : `dev` jusqu'à la PR #13, migration 0015, IA allumée,
-  Laboratoire IA.
-- **Dans `dev`, pas en production** : PR #9 à #14 (section 3.1).
-- **En cours** : corrections de l'audit (section 20.4).
-- **Décidé, non déployé** : décisions d'Ilane du 29/09 (Conforme strict, R10 et
-  mention, chantiers à numéro) ; passage de `dev` en production.
-- **Préparé, non validé** : scripts de supervision (`feature/exploitation-2`).
+- **En production** : la version `mise-en-prod-2026-09-30` (phases 1 à 4,
+  Laboratoire IA, prix internet à plusieurs sources, corrections de l'audit,
+  migration 0015), IA **éteinte et gelée**, contrôle des prix éteint. Chantiers
+  créés automatiquement « à compléter » par la reprise du 28/09 ; comptes des
+  employés, mot de passe admin, import des grilles : à faire par Ilane.
+- **Sur la démo** : la même version, IA allumée.
+- **Déployé** : décisions d'Ilane du 29/09 (Conforme strict, R10 visible,
+  chantiers à numéro).
+- **Non commencé** : lot 6. **Bloqué** : Drive, lecteur Point.P (aucun
+  document), mesure de l'OCR (4 photos sur 30).
+- **Codé le 01/10/2026, non fusionné, déployé sur la démo seulement** (01/10, 13 h 11 UTC) : branche
+  `feature/prix-contestations-recherche` (recherche de prix internet à la
+  demande, contestations dans la grille du fournisseur et dans la synthèse de
+  la semaine, migration 0016). La production est inchangée.
+- **Préparé, non validé, hors de ce passage** : scripts de supervision
+  (`feature/exploitation-2`).
+- **Ouvert** : F-04 (aucune alerte si une sauvegarde manque) et les constats
+  mineurs de l'audit (`docs/dette.md`).
 
 ---
 
@@ -1737,7 +1870,8 @@ et l'audit du 29/09/2026.
   bilan est calculé à la demande et les retards sont signalés par R14 à R16.
 - **Définitions à confirmer par le client** : les quatre montants du Bilan
   (gardés par Ilane le 23/09), le classement du mois d'août, et « Conforme »
-  strict (décision d'Ilane du 29/09, correction en cours).
+  strict (décision d'Ilane du 29/09, déployée le 30/09 : la définition reste à
+  confirmer par le client).
 - **Question restée ouverte** : le numéro d'un bon d'enlèvement validé ne
   correspond à aucun bloc de la facture d'août (numéros de longueurs
   différentes) : à poser au client.
@@ -1746,6 +1880,13 @@ et l'audit du 29/09/2026.
   libellés, filtres fins d'Anomalies non repris) : à faire accepter
   formellement.
 - **Avenant §15 (IA)** : rédigé, marqué « à confirmer par Ilane ».
+- **Demandes du 01/10/2026 (onglet Prix)** : code fait sur la branche
+  `feature/prix-contestations-recherche`, **non fusionné, sur la démo seulement** ; la
+  **production reste inchangée** (version du 30/09, migration 0015). L'IA y
+  étant éteinte, le bouton « Chercher sur internet » et le résumé des
+  contestations ne seront visibles que sur la démo ; seule la partie « grille
+  du fournisseur » marche sans IA. Limites : `docs/dette.md`, section du
+  01/10/2026.
 
 ### 23.2 Exploitation et hébergement
 
@@ -1761,15 +1902,17 @@ et l'audit du 29/09/2026.
   conteneur et les clés. Les mots de passe restic doivent être recopiés par
   Ilane dans son gestionnaire de mots de passe : sans eux, les sauvegardes sont
   illisibles. Réserves de l'audit : rotation sans effet (F-01), restauration
-  à fiabiliser (F-02, F-03, C-03), aucune alerte si une sauvegarde manque
-  (F-04). Corrections en cours.
+  à fiabiliser (F-02, F-03, C-03) : **corrigées le 30/09**, restauration
+  réellement essayée ; **reste** l'absence d'alerte si une sauvegarde manque
+  (F-04) et la purge à la main des anciens instantanés.
 - **Clés et mot de passe** : les clés Mistral, Telegram et Google, et le mot de
   passe admin de production, ont été affichés dans des échanges de travail en
   septembre : Ilane doit les renouveler et changer le mot de passe admin depuis
   l'écran Comptes.
 - **Supervision** : canal de supervision Telegram supprimé le 28/09 ; pas de
   sonde externe ; `/health` ne vérifie que la base ; scripts de supervision
-  préparés mais non validés.
+  préparés mais non validés (leur vérification des sauvegardes devra filtrer sur
+  `--host`).
 - **Bot Telegram de la démo invalide** : la démo ne reçoit pas de dépôts ;
   Ilane doit fournir un nouveau jeton (et un groupe de test distinct du groupe de
   production).
@@ -1784,22 +1927,22 @@ et l'audit du 29/09/2026.
 
 ### 23.3 Situation par rapport aux critères d'acceptation du cahier des charges (§10)
 
-| Lot | Critère (résumé) | Situation au 29/09/2026 |
+| Lot | Critère (résumé) | Situation au 30/09/2026 |
 | --- | --- | --- |
-| Socle | Serveur sécurisé, restauration complète exécutée et consignée, `/health` supervisé | Serveur durci (accès par clé, pare-feu, fail2ban, mises à jour automatiques). Restauration rejouée avec succès le 27/09 sur des ports libres ; pas encore sur un serveur jetable ; pas de supervision externe |
+| Socle | Serveur sécurisé, restauration complète exécutée et consignée, `/health` supervisé | Serveur durci (accès par clé, pare-feu, fail2ban, mises à jour automatiques). Restauration rejouée avec succès le 27/09, puis le 30/09 après les corrections de l'audit, sur des ports libres ; pas encore sur un serveur jetable ; pas de supervision externe |
 | Socle | Une facture Unikalo produit la liste exacte de ses blocs | Blocs extraits de la seule facture fournie (août) ; pas de facture de septembre |
 | Collecte | 20 dépôts Telegram consécutifs sans perte, visibles sous 60 s | Dépôts réels réussis en production (dont le 26/09) ; série de 20 dépôts non consignée en recette |
 | Collecte | Dépôt d'un identifiant non rattaché ignoré et signalé | Implémenté et couvert par les tests ; test manuel de recette non consigné |
 | Extraction | 4 champs justes à au moins 95 % sur 30 photos dont 10 dégradées | **Non mesuré** : 4 photos disponibles |
 | Extraction | Au moins 90 % des lignes justes | **Non mesuré** (4 photos) |
 | Extraction | Aucune erreur silencieuse | Zéro erreur silencieuse sur les 4 photos ; tout écart somme/total passe « à vérifier » |
-| Rapprochement | Chaque bloc classé reçu / non reçu / pas de bon, sans faux positif | Rejeu du lot 4 sur la facture d'août : verdicts **non vérifiés à la main par le client** ; défauts d'appariement relevés par l'audit (B-06) |
+| Rapprochement | Chaque bloc classé reçu / non reçu / pas de bon, sans faux positif | Rejeu du lot 4 sur la facture d'août : verdicts **non vérifiés à la main par le client** ; défauts d'appariement relevés par l'audit (B-06), corrigés le 30/09 |
 | Rapprochement | Conversions d'unité exactes | Implémentées, échantillon réel trop petit pour valider |
 | Règles | Chaque anomalie cite sa règle, sa justification chiffrée, son document | Oui (contrainte en base et tests) ; revue de 30 anomalies impossible faute de volume |
 | Règles | Un test positif et un test négatif par règle | Fait (25 règles) |
 | Règles | Livraison semi-remorque signalée | Non construite |
 | Application | Écrans utilisables sur téléphone et ordinateur ; login, rôles, journal ; Bilan en trois taps | Construit puis refondu ; parcours de recette non signé |
-| Application | Bilan d'août égal aux factures | Non confirmé par le client ; « Conforme » et « Facturé » en cours de correction (audit) |
+| Application | Bilan d'août égal aux factures | Non confirmé par le client ; « Conforme » strict et mention « dont X € sur des factures à vérifier » sur « Facturé » déployés le 30/09, à confirmer |
 | Drive | Chaque document au bon emplacement | Bloqué |
 | Livraison | Documentation d'exploitation, dépôt remis, formation de 2 h, procès-verbal | Documentation d'exploitation et d'ensemble écrite ; dépôt non remis ; formation et procès-verbal : **lot 6 non commencé** |
 
@@ -1843,6 +1986,7 @@ comptable et un service de résultats Google Shopping pour les prix « cachés �
 | `docs/roadmap-octobre-2026.md` | Demandes du client du 26/09, décisions d'Ilane, organisation du travail, phases 1 à 4, calendrier, suivi |
 | `docs/phase-4-ia.md` | Guide opérationnel de l'IA : installation, allumage, essai, surveillance, arrêt d'urgence |
 | `docs/deploiement-octobre-2026.md` | Procédure du déploiement d'octobre (phases 1 à 4), retour arrière |
+| `docs/deploiement-corrections-audit.md` | Ordre de déploiement des corrections de l'audit : sauvegarde, reconstruction de l'API, `rapprocher --tout`, `chantiers-alias-suspects`, contrôles visuels |
 | `docs/deploiement-et-tests.md` | Guide opérationnel : tests, déploiement, mise à jour, tâches planifiées, retour arrière |
 | `docs/mise-en-production-1er-octobre-recette.md` | Recette de la phase 1 : tâches livrées, décisions, déploiement |
 | `docs/phase-2-exploitation-recette.md` | Recette de la phase 2 : sauvegardes, tâches planifiées, alerte, reste à faire |
@@ -1886,12 +2030,12 @@ comptable et un service de résultats Google Shopping pour les prix « cachés �
 | Ratio | Facteur de conversion entre l'unité de conditionnement d'un article (un seau) et son unité de facturation (le kg) |
 | À compléter | État d'un chantier créé automatiquement, sans agence ni client renseignés |
 | À vérifier | Statut d'un document dont l'extraction a détecté une incohérence, en attente de validation par un admin |
-| Conforme | Livraison dont le bon est validé, comparé sans écart, et sans autre problème ouvert (définition stricte décidée le 29/09, correction en cours) |
+| Conforme | Livraison dont le bon est validé, comparé sans écart, et sans autre problème ouvert (définition stricte décidée le 29/09, déployée le 30/09) |
 | Contrôle différé | Règle évaluée une fois par jour par une tâche planifiée (R06, R14, R15, R16) |
 | Interrupteur (drapeau) | Variable d'environnement ou réglage qui active ou désactive un groupe de règles, sans redéploiement |
 | OpenCode | Logiciel serveur qui relaie les demandes de l'application vers le modèle de langage ; conteneur interne, jamais exposé |
 | Laboratoire IA | Page d'essai de l'IA réservée aux admins ; un essai n'enregistre rien |
 | Offre (prix internet) | Prix d'un produit relevé sur la page d'un site marchand ; jusqu'à cinq par produit, chacune contrôlée |
 | Gel de l'IA | Décision d'Ilane du 29/09 : plus d'évolution de l'IA sans son accord |
-| Étiquette (tag) Git | Repère posé sur une version livrée ; `mise-en-prod-octobre-2026` désigne la version en production |
+| Étiquette (tag) Git | Repère posé sur une version livrée ; `mise-en-prod-2026-09-30` désigne la version en production |
 | Audit | Relecture complète du code menée le 29/09/2026 (section 20) |
