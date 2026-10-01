@@ -276,8 +276,8 @@ function HistoriqueContestations({
 }): ReactElement {
   return (
     <ul className="space-y-2 text-sm">
-      {contestations.map((c) => (
-        <li key={`${c.document_id}-${c.conteste_le}-${c.commentaire}`} className="border-l-2 border-bordure pl-3">
+      {contestations.map((c, index) => (
+        <li key={`${c.document_id}-${c.conteste_le}-${index}`} className="border-l-2 border-bordure pl-3">
           <p className="text-encre-2">
             {formaterDate(c.conteste_le)} · bon{" "}
             <Link to={`/documents/${c.document_id}`} className="font-medium text-accent underline">

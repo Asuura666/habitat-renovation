@@ -1255,3 +1255,17 @@ async def test_generer_synthese_reference_p_inconnue_ecartee(
     assert resultat.nb_actions == 1
     action = (await db_session.execute(select(SyntheseAction))).scalar_one()
     assert action.texte == "Action valable."
+
+
+@pytest.mark.parametrize(
+    ("valeur", "attendu"),
+    [
+        (Decimal("12"), "12,00 €"),
+        (Decimal("10.00"), "10,00 €"),
+        (Decimal("9.7250"), "9,725 €"),
+        (Decimal("0.0375"), "0,0375 €"),
+        (Decimal("12.5"), "12,50 €"),
+    ],
+)
+def test_montant_decimales_significatives(valeur: Decimal, attendu: str) -> None:
+    assert ia_synthese._montant(valeur) == attendu

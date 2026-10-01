@@ -57,7 +57,9 @@ export function PrixInternetCellule({
   );
 
   if (lancementEnCours || recherche?.etat === "en_cours") {
-    return <span className="text-encre-2">Recherche en cours…</span>;
+    return <span role="status" className="text-encre-2">
+        Recherche en cours…
+      </span>;
   }
 
   const message =
@@ -69,7 +71,9 @@ export function PrixInternetCellule({
     return (
       <>
         {resultat}
-        {message !== null && <p className="text-xs text-alerte">{message}</p>}
+        {message !== null && <p role="alert" className="text-xs text-alerte">
+            {message}
+          </p>}
         {lienAction(message !== null ? "Réessayer" : "Relancer")}
       </>
     );
@@ -77,7 +81,9 @@ export function PrixInternetCellule({
   if (message !== null) {
     return (
       <>
-        <span className="text-alerte">{message}</span>
+        <span role="alert" className="text-alerte">
+          {message}
+        </span>
         {lienAction("Réessayer")}
       </>
     );

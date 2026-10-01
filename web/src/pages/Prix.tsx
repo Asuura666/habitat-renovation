@@ -468,6 +468,7 @@ export function Prix(): ReactElement {
     setMessage(texte);
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: CLE_ALERTES_PRIX }),
+      queryClient.invalidateQueries({ queryKey: ["grille"] }),
       invaliderApresChangementAnomalies(queryClient),
     ]);
   }

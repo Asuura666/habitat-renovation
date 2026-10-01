@@ -26,7 +26,7 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as heure
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Literal
 
 import httpx
@@ -165,7 +165,12 @@ class _ContestationEnvoyee:
 
 
 def _montant(valeur: Decimal) -> str:
-    return f"{valeur:.2f}".replace(".", ",") + " €"
+    """Montant en euros : jusqu'à 4 décimales significatives, au moins 2,
+    virgule décimale (12 -> « 12,00 € », 9.7250 -> « 9,725 € »)."""
+    texte = f"{valeur.quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP):f}"
+    entier, _, decimales = texte.partition(".")
+    decimales = decimales.rstrip("0").ljust(2, "0")
+    return f"{entier},{decimales} €"
 
 
 def _texte_prix_conteste(contestation: _ContestationEnvoyee) -> str:
