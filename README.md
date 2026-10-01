@@ -233,9 +233,9 @@ résumé) ; rien d'autre ne change dans l'IA.
 
 | # | Demande du 01/10/2026 | Décision d'Ilane (01/10) | État au 01/10/2026 |
 | --- | --- | --- | --- |
-| 7a | Un bouton pour chercher le prix d'un produit sur internet avec l'IA | **D1** : le bouton est sur toutes les rangées de l'onglet Prix (alertes R19 à R25), pas seulement « Produit absent de la grille ». **D2** : l'IA reste allumée sur la démo seulement | **Codé, non fusionné ; sur la démo depuis le 01/10/2026, pas en production** (branche `feature/prix-contestations-recherche`). Le bouton n'apparaît que là où l'IA est allumée : donc sur la démo, jamais en production |
-| 7b | Voir les contestations (et leur commentaire) dans la grille de prix du fournisseur | **D3** : un lien « N contestations » sur la rangée du produit déplie l'historique, plus une section « Contestations de prix » sous le tableau (produits retirés de la grille compris). **D4** : les prix « ignorés » n'y figurent pas | **Codé, non fusionné ; sur la démo depuis le 01/10/2026, pas en production**. Marche sans IA : serait utile en production dès que le contrôle des prix y sera allumé |
-| 7c | Les contestations dans le résumé de la semaine fait par l'IA | **D4** : contestations seulement (pas les prix ignorés) ; **D2** : démo seulement | **Codé, non fusionné ; sur la démo depuis le 01/10/2026, pas en production** (migration 0016, consigne de l'agent `habitat-synthese` modifiée, image OpenCode de la démo à reconstruire) |
+| 7a | Un bouton pour chercher le prix d'un produit sur internet avec l'IA | **D1** : le bouton est sur toutes les rangées de l'onglet Prix (alertes R19 à R25), pas seulement « Produit absent de la grille ». **D2** : l'IA reste allumée sur la démo seulement | **Fait le 01/10/2026 (PR #19) ; sur la démo depuis le 01/10/2026, pas en production** (branche `feature/prix-contestations-recherche`). Le bouton n'apparaît que là où l'IA est allumée : donc sur la démo, jamais en production |
+| 7b | Voir les contestations (et leur commentaire) dans la grille de prix du fournisseur | **D3** : un lien « N contestations » sur la rangée du produit déplie l'historique, plus une section « Contestations de prix » sous le tableau (produits retirés de la grille compris). **D4** : les prix « ignorés » n'y figurent pas | **Fait le 01/10/2026 (PR #19) ; sur la démo depuis le 01/10/2026, pas en production**. Marche sans IA : serait utile en production dès que le contrôle des prix y sera allumé |
+| 7c | Les contestations dans le résumé de la semaine fait par l'IA | **D4** : contestations seulement (pas les prix ignorés) ; **D2** : démo seulement | **Fait le 01/10/2026 (PR #19) ; sur la démo depuis le 01/10/2026, pas en production** (migration 0016, consigne de l'agent `habitat-synthese` modifiée, image OpenCode de la démo à reconstruire) |
 
 ### 2.5 Ce que le client a demandé avant, dans le cahier des charges
 
@@ -1797,8 +1797,8 @@ D'après `docs/roadmap-octobre-2026.md` §2.
 - **01/10** : demandes d'Ilane sur l'onglet Prix (recherche à la demande,
   contestations dans la grille et dans le résumé) et décisions D1 à D4 ;
   spécification, code et documentation sur la branche
-  `feature/prix-contestations-recherche` (depuis `dev`), **non fusionnée, non
-  déployée**.
+  `feature/prix-contestations-recherche` (depuis `dev`), **fusionnée le 01/10
+  (PR #19), déployée sur la démo seulement**.
 
 ### 22.4 État au 30/09/2026
 
@@ -1812,7 +1812,7 @@ D'après `docs/roadmap-octobre-2026.md` §2.
   chantiers à numéro).
 - **Non commencé** : lot 6. **Bloqué** : Drive, lecteur Point.P (aucun
   document), mesure de l'OCR (4 photos sur 30).
-- **Codé le 01/10/2026, non fusionné, déployé sur la démo seulement** (01/10, 13 h 11 UTC) : branche
+- **Fait le 01/10/2026 (PR #19), déployé sur la démo seulement** (01/10, 13 h 11 UTC) : branche
   `feature/prix-contestations-recherche` (recherche de prix internet à la
   demande, contestations dans la grille du fournisseur et dans la synthèse de
   la semaine, migration 0016). La production est inchangée.
@@ -1881,7 +1881,7 @@ et l'audit du 29/09/2026.
   formellement.
 - **Avenant §15 (IA)** : rédigé, marqué « à confirmer par Ilane ».
 - **Demandes du 01/10/2026 (onglet Prix)** : code fait sur la branche
-  `feature/prix-contestations-recherche`, **non fusionné, sur la démo seulement** ; la
+  `feature/prix-contestations-recherche`, **fusionné (PR #19), sur la démo seulement** ; la
   **production reste inchangée** (version du 30/09, migration 0015). L'IA y
   étant éteinte, le bouton « Chercher sur internet » et le résumé des
   contestations ne seront visibles que sur la démo ; seule la partie « grille
