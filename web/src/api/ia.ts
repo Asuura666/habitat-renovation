@@ -79,7 +79,7 @@ export function lireAvisIA(anomalieId: string): Promise<AvisIA> {
  * spec §6.4) : la colonne « Internet » de la page « Prix à vérifier »
  * (`pages/Prix.tsx`, lot Prix) lit cette route groupée plutôt que
  * `lireAvisIA` anomalie par anomalie -- une seule requête pour toutes les
- * rangées R22 affichées. Mêmes attributs que la dataclasse
+ * rangées affichées (toutes les alertes de prix). Mêmes attributs que la dataclasse
  * `ingest.ia_prix.PrixInternetLot`, à ceci près que les clés de `prix` sont
  * des identifiants texte (voir `app/modules/api/schemas.py`).
  */
@@ -88,16 +88,29 @@ export type PrixInternetLot = components["schemas"]["PrixInternetLotReponse"];
 /** Clé de requête TanStack Query du lot de prix internet -- un lot par
  * ensemble d'identifiants d'anomalies (même principe que `cleAlertesPrix`,
  * `api/prix.ts`) : un nouveau filtre sur la page Prix change les rangées
- * R22 affichées, donc l'ensemble d'identifiants interrogé. */
+ * affichées, donc l'ensemble d'identifiants interrogé. */
 export function clePrixInternet(anomalieIds: readonly string[]): readonly [string, string, string] {
   return ["ia", "prix-internet", anomalieIds.join(",")] as const;
+}
+
+export type RecherchePrix = components["schemas"]["RechercheReponse"];
+export type RechercheLancee = components["schemas"]["RechercheLanceeReponse"];
+
+/** `POST /api/ia/prix-internet/recherches` (admin) : lance la recherche du
+ * produit de l'alerte en tâche de fond ; le résultat arrive par la lecture
+ * groupée. 409 : IA éteinte ou plafond du jour atteint. */
+export function lancerRecherchePrix(anomalieId: string): Promise<RechercheLancee> {
+  return appelerApi<RechercheLancee>("/api/ia/prix-internet/recherches", {
+    method: "POST",
+    json: { anomalie_id: anomalieId },
+  });
 }
 
 /** `GET /api/ia/prix-internet?anomalie_id=…` (admin, paramètre répété) : le
  * prix internet des anomalies demandées, au plus `MAX_ANOMALIES_PRIX_
  * INTERNET` (200, `ingest/ia_prix.py`, 422 au-delà) -- `Prix.tsx` ne demande
- * que les rangées R22 (brief T10b), très en-deçà en pratique. Les
- * identifiants qui ne désignent pas une alerte R22 ouverte et non masquée
+ * qu'un identifiant par rangée, très en-deçà en pratique. Les
+ * identifiants qui ne désignent pas une alerte de prix ouverte et non masquée
  * sont simplement absents de `prix`, jamais une erreur. */
 export function lirePrixInternet(anomalieIds: string[]): Promise<PrixInternetLot> {
   const parametres = new URLSearchParams();
