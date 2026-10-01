@@ -17,6 +17,12 @@ pour la 3ᵉ colonne « Internet » de la page « Prix à vérifier » (lot Prix
 plutôt que d'enrichir `GET /api/prix/alertes`, pour ne jamais faire dépendre
 le service du lot Prix (`ingest.prix_bl`) de l'IA.
 
+`POST /api/ia/prix-internet/recherches` (spec 2026-10-01 §3) : bouton
+« Chercher sur internet » de la page Prix -- lance en tâche de fond la
+recherche du produit d'une alerte de prix (202 `lancee`/`deja_en_cours`,
+404 alerte introuvable, 409 IA éteinte ou plafond du jour atteint) ; le
+résultat et l'état arrivent par `GET /api/ia/prix-internet`.
+
 `GET /api/ia/labo/etat`, `POST /api/ia/labo/essais/{prix,explication,
 synthese}`, `GET /api/ia/labo/essais[/{id}]`, `GET /api/ia/labo/appels`
 (tâche LABO, brief `task-labo-brief.md`) : écran « Laboratoire IA » — teste
@@ -70,6 +76,9 @@ from app.modules.api.schemas import (
     EtatLaboReponse,
     PrixInternetLotReponse,
     PrixInternetReponse,
+    RechercheLanceeReponse,
+    RecherchePrixRequete,
+    RechercheReponse,
     SyntheseAccueilReponse,
     TraceEssaiReponse,
     TraceEssaiResumeReponse,
@@ -83,7 +92,12 @@ from app.modules.ingest.ia_labo import (
     lancer_essai_synthese,
     lire_essai,
 )
-from app.modules.ingest.ia_prix import avis_ia_anomalie, prix_internet_des_anomalies
+from app.modules.ingest.ia_prix import (
+    RechercheImpossible,
+    avis_ia_anomalie,
+    lancer_recherche_prix,
+    prix_internet_des_anomalies,
+)
 from app.modules.ingest.ia_synthese import (
     ActionIntrouvable,
     marquer_action,
@@ -191,6 +205,10 @@ async def prix_internet_lot_endpoint(
             )
             for identifiant, vue in lot.par_anomalie.items()
         },
+        recherches={
+            str(identifiant): RechercheReponse.model_validate(vue)
+            for identifiant, vue in lot.recherches.items()
+        },
     )
 
 
@@ -212,6 +230,35 @@ def _get_http(request: Request) -> httpx.AsyncClient:
     .get_messagerie`)."""
     http: httpx.AsyncClient = request.app.state.http
     return http
+
+
+@router.post(
+    "/ia/prix-internet/recherches",
+    response_model=RechercheLanceeReponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def lancer_recherche_prix_endpoint(
+    corps: RecherchePrixRequete,
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    background_tasks: BackgroundTasks,
+    sessions: Annotated[async_sessionmaker[AsyncSession], Depends(_get_sessionmaker)],
+    http: Annotated[httpx.AsyncClient, Depends(_get_http)],
+) -> RechercheLanceeReponse:
+    del utilisateur
+    try:
+        etat = await lancer_recherche_prix(
+            session, sessions, http, background_tasks, corps.anomalie_id
+        )
+    except AnomalieIntrouvable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="alerte de prix introuvable"
+        ) from exc
+    except RechercheImpossible as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    return RechercheLanceeReponse(etat=etat)
 
 
 @router.get("/ia/labo/etat", response_model=EtatLaboReponse)

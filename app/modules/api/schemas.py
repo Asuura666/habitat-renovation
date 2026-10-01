@@ -1193,6 +1193,27 @@ class AvisIAReponse(BaseModel):
     prix_internet: PrixInternetReponse | None
 
 
+class RecherchePrixRequete(BaseModel):
+    """`POST /api/ia/prix-internet/recherches` : l'alerte de prix dont le
+    produit est à chercher."""
+
+    anomalie_id: uuid.UUID
+
+
+class RechercheLanceeReponse(BaseModel):
+    etat: Literal["lancee", "deja_en_cours"]
+
+
+class RechercheReponse(BaseModel):
+    """État d'une recherche à la demande (mêmes attributs qu'`ingest.ia_prix
+    .RechercheVue`)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    etat: Literal["en_cours", "echec"]
+    message: str | None
+
+
 class PrixInternetLotReponse(BaseModel):
     """Réponse de `GET /api/ia/prix-internet` (T10a) — mêmes attributs
     qu'`ingest.ia_prix.PrixInternetLot`, à ceci près que les identifiants
@@ -1204,6 +1225,7 @@ class PrixInternetLotReponse(BaseModel):
 
     ia_active: bool
     prix: dict[str, PrixInternetReponse | None]
+    recherches: dict[str, RechercheReponse] = {}
 
 
 # --------------------------------------------------------------------------

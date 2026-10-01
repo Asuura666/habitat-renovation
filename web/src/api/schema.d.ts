@@ -1234,6 +1234,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ia/prix-internet/recherches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Lancer Recherche Prix Endpoint */
+        post: operations["lancer_recherche_prix_endpoint_api_ia_prix_internet_recherches_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ia/labo/etat": {
         parameters: {
             query?: never;
@@ -3282,6 +3299,13 @@ export interface components {
             prix: {
                 [key: string]: components["schemas"]["PrixInternetReponse"] | null;
             };
+            /**
+             * Recherches
+             * @default {}
+             */
+            recherches: {
+                [key: string]: components["schemas"]["RechercheReponse"];
+            };
         };
         /**
          * PrixInternetReponse
@@ -3381,6 +3405,40 @@ export interface components {
              * Format: date
              */
             date_effet: string;
+        };
+        /** RechercheLanceeReponse */
+        RechercheLanceeReponse: {
+            /**
+             * Etat
+             * @enum {string}
+             */
+            etat: "lancee" | "deja_en_cours";
+        };
+        /**
+         * RecherchePrixRequete
+         * @description `POST /api/ia/prix-internet/recherches` : l'alerte de prix dont le
+         *     produit est à chercher.
+         */
+        RecherchePrixRequete: {
+            /**
+             * Anomalie Id
+             * Format: uuid
+             */
+            anomalie_id: string;
+        };
+        /**
+         * RechercheReponse
+         * @description État d'une recherche à la demande (mêmes attributs qu'`ingest.ia_prix
+         *     .RechercheVue`).
+         */
+        RechercheReponse: {
+            /**
+             * Etat
+             * @enum {string}
+             */
+            etat: "en_cours" | "echec";
+            /** Message */
+            message: string | null;
         };
         /**
          * RecontrolePrixReponse
@@ -6036,6 +6094,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PrixInternetLotReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lancer_recherche_prix_endpoint_api_ia_prix_internet_recherches_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecherchePrixRequete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RechercheLanceeReponse"];
                 };
             };
             /** @description Validation Error */

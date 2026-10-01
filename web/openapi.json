@@ -3655,6 +3655,44 @@
     }
    }
   },
+  "/api/ia/prix-internet/recherches": {
+   "post": {
+    "summary": "Lancer Recherche Prix Endpoint",
+    "operationId": "lancer_recherche_prix_endpoint_api_ia_prix_internet_recherches_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RecherchePrixRequete"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RechercheLanceeReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/ia/labo/etat": {
    "get": {
     "summary": "Etat Labo Endpoint",
@@ -9044,6 +9082,14 @@
       },
       "type": "object",
       "title": "Prix"
+     },
+     "recherches": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/RechercheReponse"
+      },
+      "type": "object",
+      "title": "Recherches",
+      "default": {}
      }
     },
     "type": "object",
@@ -9377,6 +9423,68 @@
     ],
     "title": "ProduitGrilleReponse",
     "description": "Un produit de la grille -- mêmes attributs qu'`ingest.grilles\n.ProduitGrilleAffiche`. Réponse de `GET /api/grilles/fournisseurs/{id}`\n(dans `GrilleFournisseurReponse.produits`) et de `POST /api/grilles\n/fournisseurs/{id}/prix` (la ligne enregistrée)."
+   },
+   "RechercheLanceeReponse": {
+    "properties": {
+     "etat": {
+      "type": "string",
+      "enum": [
+       "lancee",
+       "deja_en_cours"
+      ],
+      "title": "Etat"
+     }
+    },
+    "type": "object",
+    "required": [
+     "etat"
+    ],
+    "title": "RechercheLanceeReponse"
+   },
+   "RecherchePrixRequete": {
+    "properties": {
+     "anomalie_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Anomalie Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "anomalie_id"
+    ],
+    "title": "RecherchePrixRequete",
+    "description": "`POST /api/ia/prix-internet/recherches` : l'alerte de prix dont le\nproduit est à chercher."
+   },
+   "RechercheReponse": {
+    "properties": {
+     "etat": {
+      "type": "string",
+      "enum": [
+       "en_cours",
+       "echec"
+      ],
+      "title": "Etat"
+     },
+     "message": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Message"
+     }
+    },
+    "type": "object",
+    "required": [
+     "etat",
+     "message"
+    ],
+    "title": "RechercheReponse",
+    "description": "État d'une recherche à la demande (mêmes attributs qu'`ingest.ia_prix\n.RechercheVue`)."
    },
    "RecontrolePrixReponse": {
     "properties": {

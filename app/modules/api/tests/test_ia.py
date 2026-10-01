@@ -32,8 +32,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.auth import NOM_COOKIE
 from app.core.auth import router as auth_router
 from app.core.config import get_settings
+from app.modules.api import ia as ia_routes
 from app.modules.api import router as api_router
-from app.modules.ingest import commun
+from app.modules.ingest import commun, ia_prix
 from app.modules.ingest.ia_prix import (
     MAX_ANOMALIES_PRIX_INTERNET,
     cle_produit_internet,
@@ -704,7 +705,7 @@ async def test_get_prix_internet_lot_admin_200_aucun_identifiant(
         reponse = await client.get("/api/ia/prix-internet")
 
     assert reponse.status_code == 200
-    assert reponse.json() == {"ia_active": False, "prix": {}}
+    assert reponse.json() == {"ia_active": False, "prix": {}, "recherches": {}}
 
 
 async def test_get_prix_internet_lot_plus_de_200_422(
@@ -848,3 +849,178 @@ async def test_prix_internet_plusieurs_offres_json(
         ]
         assert prix["offres"][0]["prix_ht"] == "11.59"
         assert prix["offres"][0]["taxes"] == "TTC"
+
+
+# --------------------------------------------------------------------------
+# POST /api/ia/prix-internet/recherches (spec 2026-10-01 §3)
+# --------------------------------------------------------------------------
+
+
+def _app_recherche(
+    sessions: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> FastAPI:
+    app_test = _app_test(sessions, tmp_path)
+    # Jamais appelé : la tâche de fond est remplacée dans ces tests.
+    app_test.state.http = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda requete: httpx.Response(500))
+    )
+    return app_test
+
+
+async def test_post_recherche_prix_admin_202_puis_deja_en_cours(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.ia.recherche@example.invalid", role="admin"
+    )
+    anomalie, _f, _d = await _creer_anomalie_prix(db_session, regle="R19")
+    etats = iter(["lancee", "deja_en_cours"])
+    appels: list[uuid.UUID] = []
+
+    async def _faux_service(
+        session: object,
+        sessions: object,
+        http: object,
+        background_tasks: object,
+        anomalie_id: uuid.UUID,
+    ) -> str:
+        appels.append(anomalie_id)
+        return next(etats)
+
+    monkeypatch.setattr(ia_routes, "lancer_recherche_prix", _faux_service)
+    app_test = _app_recherche(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app_test),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        corps = {"anomalie_id": str(anomalie.id)}
+        premiere = await client.post("/api/ia/prix-internet/recherches", json=corps)
+        seconde = await client.post("/api/ia/prix-internet/recherches", json=corps)
+
+    assert (premiere.status_code, premiere.json()) == (202, {"etat": "lancee"})
+    assert (seconde.status_code, seconde.json()) == (202, {"etat": "deja_en_cours"})
+    assert appels == [anomalie.id, anomalie.id]
+
+
+async def test_post_recherche_prix_inconnue_404(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.ia.recherche.404@example.invalid", role="admin"
+    )
+    app_test = _app_recherche(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app_test),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        reponse = await client.post(
+            "/api/ia/prix-internet/recherches", json={"anomalie_id": str(uuid.uuid4())}
+        )
+
+    assert reponse.status_code == 404
+
+
+async def test_post_recherche_prix_ia_eteinte_409(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.ia.recherche.409@example.invalid", role="admin"
+    )
+    anomalie, _f, _d = await _creer_anomalie_prix(db_session, regle="R19")
+    await _activer_controle_prix_bl(db_session)
+    await db_session.commit()
+    app_test = _app_recherche(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app_test),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        reponse = await client.post(
+            "/api/ia/prix-internet/recherches", json={"anomalie_id": str(anomalie.id)}
+        )
+
+    # IA_ACTIVE absente en test -> éteinte.
+    assert reponse.status_code == 409
+    assert reponse.json()["detail"] == "IA éteinte"
+
+
+async def test_post_recherche_prix_agent_403_et_anonyme_401(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    agent = await _creer_utilisateur(
+        db_session, email="agent.ia.recherche@example.invalid", role="agent"
+    )
+    app_test = _app_recherche(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=agent.email)
+    corps = {"anomalie_id": str(uuid.uuid4())}
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app_test, client=(_ip_isolee(), 12345)),
+        base_url="http://test",
+    ) as anonyme:
+        sans_cookie = await anonyme.post("/api/ia/prix-internet/recherches", json=corps)
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app_test),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        agent_reponse = await client.post(
+            "/api/ia/prix-internet/recherches", json=corps
+        )
+
+    assert (sans_cookie.status_code, agent_reponse.status_code) == (401, 403)
+
+
+async def test_get_prix_internet_lot_rend_les_recherches(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.ia.recherche.lot@example.invalid", role="admin"
+    )
+    anomalie, fournisseur, _d = await _creer_anomalie_prix(db_session, regle="R19")
+    await _activer_controle_prix_bl(db_session)
+    await db_session.commit()
+    cle = cle_produit_internet(
+        fournisseur.id, _DETAIL_R22_INVENTE["produit"], _DETAIL_R22_INVENTE["code"]
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app_test),
+        base_url="http://test",
+        cookies={NOM_COOKIE: cookie},
+    ) as client:
+        params = {"anomalie_id": str(anomalie.id)}
+        vide = (await client.get("/api/ia/prix-internet", params=params)).json()
+        ia_prix._RECHERCHES[cle] = ia_prix._EtatRecherche(
+            "echec", "Plafond du jour atteint", datetime.now(UTC)
+        )
+        try:
+            avec = (await client.get("/api/ia/prix-internet", params=params)).json()
+        finally:
+            ia_prix._RECHERCHES.clear()
+
+    assert vide["recherches"] == {}
+    assert avec["recherches"] == {
+        str(anomalie.id): {"etat": "echec", "message": "Plafond du jour atteint"}
+    }
