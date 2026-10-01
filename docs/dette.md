@@ -1683,15 +1683,30 @@ Spécification : `docs/superpowers/specs/2026-10-01-prix-recherche-et-contestati
   par le bouton sont suivies dans un registre en mémoire du processus
   (`ingest/ia_prix.py`, `_RECHERCHES`). Un redémarrage de l'API l'efface : une
   recherche en cours est perdue (la cellule revient à son bouton) et un message
-  d'échec disparaît. Un échec n'est gardé que 15 minutes. Le registre suppose
+  d'échec disparaît. Un échec n'est gardé que 15 minutes, et un état « en
+  cours » expire lui aussi après 15 minutes. Le registre suppose
   **une seule instance d'API** ; avec deux, le « déjà en cours » ne serait plus
   garanti. Même choix que le Laboratoire IA. Ce que cela ne couvre pas : la
   reprise après redémarrage, plusieurs instances.
 - **Un seul identifiant par rangée de la page Prix.** Le bouton, la lecture
   groupée et l'affichage utilisent le premier identifiant d'alerte de la rangée
-  (`anomalie_ids[0]`). Si les alertes d'une même rangée portent des produits
-  différents (clés de produit différentes), seul le premier est cherché et
-  affiché.
+  (`anomalie_ids[0]`) : le serveur place en tête les alertes de la ligne la
+  plus récente (celle dont viennent le nom et le prix affichés), triées par
+  règle puis identifiant, donc le choix est stable et correspond à la ligne
+  montrée. Si les alertes d'une même rangée portent des produits différents
+  (clés de produit différentes), seule celle de la ligne la plus récente est
+  cherchée et affichée.
+- **Regroupement des contestations dans la synthèse par la clé du bon.** Les
+  références `[pN]` regroupent par clé de produit telle que le bon la donne :
+  un même produit de grille retrouvé une fois par référence (`ref:…`) et une
+  fois par le nom (bon sans code, `nom:…`) peut donc former deux groupes. Sur
+  l'écran de la grille, en revanche, la contestation est rattachée à la
+  rangée du produit par sa désignation de grille.
+- **Relancer la lecture d'un bon supprime ses contestations.** La relecture
+  supprime les lignes du bon (`extraction_bl.py`) et les anomalies suivent
+  (suppression en cascade) : la contestation disparaît de la grille et de la
+  synthèse, et l'alerte revient « ouverte » au contrôle suivant. Le journal
+  garde la trace. Comportement antérieur à cette branche, non corrigé.
 - **Une contestation n'est ni modifiable ni annulable.** « Contester » ferme
   les alertes de façon définitive (une alerte fermée n'est jamais rouverte).
   L'écran de la grille et la synthèse ne font que les lire ; il n'y a aucun

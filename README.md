@@ -1074,8 +1074,8 @@ résumé ne servent donc que sur la démo.
   jour** (`IA_APPELS_MAX_JOUR`) : plafond atteint, rien n'est cherché ni
   écrit. Un deuxième clic sur le même produit pendant la recherche ne relance
   rien (`deja_en_cours`). L'état « en cours » ou « échec » est gardé **en
-  mémoire de l'API** (15 minutes pour un échec) ; un redémarrage l'efface. La
-  commande `ia-prix` ne change pas (toujours les produits absents sans dernier
+  mémoire de l'API** (15 minutes, pour un échec comme pour un « en cours »
+  qui ne se terminerait pas) ; un redémarrage l'efface. La commande `ia-prix` ne change pas (toujours les produits absents sans dernier
   prix). L'IA ne crée ni ne modifie aucune anomalie ni grille.
 - **Contestations dans la synthèse.** Les contestations de prix de la semaine
   (semaine à l'heure de Paris) partent à l'agent `habitat-synthese` sous des
