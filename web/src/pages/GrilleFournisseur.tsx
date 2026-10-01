@@ -1,14 +1,17 @@
-import { type ChangeEvent, type FormEvent, type ReactElement, useRef, useState } from "react";
+import { type ChangeEvent, Fragment, type FormEvent, type ReactElement, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "react-router";
+import { Link, useParams } from "react-router";
 
 import {
   type ApercuImport,
   apercevoirImportGrille,
+  cleContestations,
   cleGrilleFournisseur,
+  type ContestationPrix,
   type ProduitGrille,
   enregistrerPrixGrille,
   importerGrille,
+  listerContestations,
   obtenirGrilleFournisseur,
   type SaisiePrixGrille,
   retirerProduitGrille,
@@ -18,6 +21,7 @@ import { ErreurApi } from "../api/client";
 import { CLE_FOURNISSEURS, listerFournisseurs } from "../api/referentiels";
 import { estMontantNul, formaterDate, formaterMontant, TIRET } from "../lib/formats";
 import { Bouton, Carte, EnTetePage, EtatVide, FilAriane } from "../ui";
+import { titreRegle } from "../ui/libelles";
 
 const CLASSES_CHAMP =
   "min-h-[44px] w-full rounded-lg border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent";
@@ -256,6 +260,69 @@ function FormulaireProduit({
   );
 }
 
+/** « ⚑ 2 contestations » : texte du bouton qui déplie l'historique d'un
+ * produit. */
+function texteNbContestations(nombre: number): string {
+  return `⚑ ${nombre} ${accorder(nombre, "contestation", "contestations")}`;
+}
+
+/** Historique des contestations d'un produit (spec 2026-10-01 §4.2) : date,
+ * bon (lien), prix du bon, prix de la grille et auteur, puis le commentaire
+ * et les contrôles concernés. Liste simple, jamais une grille à colonnes. */
+function HistoriqueContestations({
+  contestations,
+}: {
+  contestations: readonly ContestationPrix[];
+}): ReactElement {
+  return (
+    <ul className="space-y-2 text-sm">
+      {contestations.map((c, index) => (
+        <li key={`${c.document_id}-${c.conteste_le}-${index}`} className="border-l-2 border-bordure pl-3">
+          <p className="text-encre-2">
+            {formaterDate(c.conteste_le)} · bon{" "}
+            <Link to={`/documents/${c.document_id}`} className="font-medium text-accent underline">
+              {c.numero_bon ?? "sans numéro"}
+            </Link>
+            {c.prix_bon !== null && (
+              <>
+                {" "}
+                · {formaterMontant(c.prix_bon)}
+                {c.unite_bon !== null ? ` / ${c.unite_bon}` : ""}
+              </>
+            )}
+            {c.prix_grille !== null && <> · grille {formaterMontant(c.prix_grille)}</>}
+            {c.auteur !== null && <> · {c.auteur}</>}
+          </p>
+          <p className="text-encre">« {c.commentaire} »</p>
+          <p className="text-xs text-encre-2">{c.regles.map(titreRegle).join(" · ")}</p>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Bouton-lien qui déplie ou replie l'historique d'un produit. */
+function BoutonContestations({
+  nombre,
+  deplie,
+  surBasculer,
+}: {
+  nombre: number;
+  deplie: boolean;
+  surBasculer: () => void;
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={surBasculer}
+      aria-expanded={deplie}
+      className="mt-1 text-xs font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
+    >
+      {texteNbContestations(nombre)} {deplie ? "▴" : "▾"}
+    </button>
+  );
+}
+
 /** Une rangée de la grille, en carte (téléphone) — mêmes informations que
  * le tableau ci-dessous (spec §9). */
 function CarteProduit({
@@ -263,16 +330,25 @@ function CarteProduit({
   surModifier,
   surRetirer,
   retraitEnCours,
+  contestations,
+  deplie,
+  surBasculer,
 }: {
   produit: ProduitGrille;
   surModifier: () => void;
   surRetirer: () => void;
   retraitEnCours: boolean;
+  contestations: readonly ContestationPrix[];
+  deplie: boolean;
+  surBasculer: () => void;
 }): ReactElement {
   return (
     <li className="rounded-carte border border-bordure bg-surface p-4">
       <p className="font-medium text-encre">{produit.designation}</p>
       <p className="text-sm text-encre-2">{produit.reference ?? "Sans référence"}</p>
+      {contestations.length > 0 && (
+        <BoutonContestations nombre={contestations.length} deplie={deplie} surBasculer={surBasculer} />
+      )}
       <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
         <div>
           <dt className="text-xs text-encre-2">Prix net</dt>
@@ -298,6 +374,11 @@ function CarteProduit({
           <dd className="text-encre">{produit.famille ?? TIRET}</dd>
         </div>
       </dl>
+      {deplie && contestations.length > 0 && (
+        <div className="mt-3">
+          <HistoriqueContestations contestations={contestations} />
+        </div>
+      )}
       <div className="mt-3 flex gap-2">
         <Bouton variante="secondaire" onClick={surModifier} disabled={retraitEnCours}>
           Modifier
@@ -542,6 +623,48 @@ function SectionImport({ onImporte }: { onImporte: (resume: string) => void }): 
   );
 }
 
+/** Section « Contestations de prix » (spec 2026-10-01 §4.3) : toutes les
+ * contestations du fournisseur regroupées par produit, y compris celles d'un
+ * produit retiré de la grille (« absent de la grille »). */
+function SectionContestations({
+  contestations,
+}: {
+  contestations: readonly ContestationPrix[];
+}): ReactElement {
+  const groupes = new Map<string, ContestationPrix[]>();
+  for (const c of contestations) {
+    groupes.set(c.cle_produit, [...(groupes.get(c.cle_produit) ?? []), c]);
+  }
+  return (
+    <Carte titre={`Contestations de prix (${contestations.length})`}>
+      <div className="space-y-5">
+        {[...groupes.entries()].map(([cle, [premiere, ...autres]]) => {
+          if (premiere === undefined) {
+            return null;
+          }
+          const liste = [premiere, ...autres];
+          return (
+          <div key={cle}>
+            <p className="font-medium text-encre">
+              {premiere.produit}
+              {premiere.code !== null && <span className="ml-2 text-xs font-normal text-encre-2">{premiere.code}</span>}
+              {liste.every((c) => !c.dans_la_grille) && (
+                <span className="ml-2 rounded-full border border-bordure px-2 py-0.5 text-xs font-normal text-encre-2">
+                  absent de la grille
+                </span>
+              )}
+            </p>
+            <div className="mt-2">
+              <HistoriqueContestations contestations={liste} />
+            </div>
+          </div>
+          );
+        })}
+      </div>
+    </Carte>
+  );
+}
+
 /**
  * Grille de prix d'un fournisseur (`/fournisseurs/:fournisseurId/prix`,
  * phase 3, tâche P5, spec §9) : prix en vigueur aujourd'hui, recherche,
@@ -570,6 +693,31 @@ export function GrilleFournisseur(): ReactElement {
     queryFn: () => obtenirGrilleFournisseur(fournisseurId ?? "", { recherche, page }),
     enabled: fournisseurId !== undefined,
   });
+
+  const contestations = useQuery({
+    queryKey: cleContestations(fournisseurId ?? ""),
+    queryFn: () => listerContestations(fournisseurId ?? ""),
+    enabled: fournisseurId !== undefined,
+  });
+  const contestationsParCle = useMemo(() => {
+    const parCle = new Map<string, ContestationPrix[]>();
+    for (const c of contestations.data ?? []) {
+      parCle.set(c.cle_produit, [...(parCle.get(c.cle_produit) ?? []), c]);
+    }
+    return parCle;
+  }, [contestations.data]);
+  // Produits dont l'historique de contestations est déplié (par produit).
+  const [clesDepliees, setClesDepliees] = useState<ReadonlySet<string>>(new Set());
+
+  function basculerContestations(cle: string): void {
+    setClesDepliees((courantes) => {
+      const suivantes = new Set(courantes);
+      if (!suivantes.delete(cle)) {
+        suivantes.add(cle);
+      }
+      return suivantes;
+    });
+  }
 
   // Clé du produit en cours de retrait (`null` : aucun) -- sert à ne
   // désactiver que le bouton de sa ligne pendant la requête (constat de
@@ -707,6 +855,9 @@ export function GrilleFournisseur(): ReactElement {
                   surModifier={() => setProduitEnEdition(produit)}
                   surRetirer={() => surRetirer(produit)}
                   retraitEnCours={cleEnRetrait === produit.cle_produit}
+                  contestations={contestationsParCle.get(produit.cle_produit) ?? []}
+                  deplie={clesDepliees.has(produit.cle_produit)}
+                  surBasculer={() => basculerContestations(produit.cle_produit)}
                 />
               ))}
             </ul>
@@ -726,12 +877,23 @@ export function GrilleFournisseur(): ReactElement {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-bordure bg-surface">
-                  {grille.data.produits.map((produit) => (
-                    <tr key={produit.cle_produit}>
+                  {grille.data.produits.map((produit) => {
+                    const sesContestations = contestationsParCle.get(produit.cle_produit) ?? [];
+                    const deplie = clesDepliees.has(produit.cle_produit);
+                    return (
+                    <Fragment key={produit.cle_produit}>
+                    <tr>
                       <th scope="row" className="px-5 py-3 text-left align-top font-medium text-encre">
                         <p className="whitespace-normal break-words">{produit.designation}</p>
                         {produit.reference !== null && (
                           <p className="mt-0.5 text-xs font-normal text-encre-2">{produit.reference}</p>
+                        )}
+                        {sesContestations.length > 0 && (
+                          <BoutonContestations
+                            nombre={sesContestations.length}
+                            deplie={deplie}
+                            surBasculer={() => basculerContestations(produit.cle_produit)}
+                          />
                         )}
                       </th>
                       <td className="px-5 py-3 align-top text-encre">{produit.unite_brut ?? TIRET}</td>
@@ -764,7 +926,16 @@ export function GrilleFournisseur(): ReactElement {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    {deplie && sesContestations.length > 0 && (
+                      <tr>
+                        <td colSpan={6} className="bg-fond px-5 py-3">
+                          <HistoriqueContestations contestations={sesContestations} />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -793,6 +964,15 @@ export function GrilleFournisseur(): ReactElement {
           </>
         )}
       </Carte>
+
+      {contestations.isError && (
+        <p role="alert" className="text-sm text-alerte">
+          Impossible de charger les contestations.
+        </p>
+      )}
+      {contestations.data && contestations.data.length > 0 && (
+        <SectionContestations contestations={contestations.data} />
+      )}
 
       <SectionImport
         onImporte={(resume) => {

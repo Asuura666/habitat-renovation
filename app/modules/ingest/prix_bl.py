@@ -816,7 +816,7 @@ class _LigneAlerte:
     anomalies: tuple[Anomalie, ...]
 
 
-def _cle_groupe(ligne_alerte: _LigneAlerte) -> str:
+def cle_produit_alerte(ligne: Ligne, anomalies: Sequence[Anomalie]) -> str:
     """Clé de regroupement d'une ligne en alerte par produit (spec §8.1) :
     celle du produit de grille retrouvé, si une des anomalies de cette
     ligne porte `designation_grille` (règles de grille, spec §5.2) --
@@ -829,8 +829,11 @@ def _cle_groupe(ligne_alerte: _LigneAlerte) -> str:
     elle n'est possible que lorsque le produit a été retrouvé par référence
     (R23 se déclenche sans condition de seuil dès qu'un produit est retrouvé
     par le nom, spec §5.2) : le repli sur la ligne du bon calcule alors la
-    même clé `ref:...` que le produit de grille, sans perte."""
-    for anomalie in ligne_alerte.anomalies:
+    même clé `ref:...` que le produit de grille, sans perte.
+
+    Publique (spec 2026-10-01 §4.1) : aussi la clé d'une contestation,
+    relue par `ingest.contestations_prix`."""
+    for anomalie in anomalies:
         if anomalie.regle in _REGLES_GRILLE:
             designation_grille = anomalie.detail.get("designation_grille")
             if designation_grille:
@@ -838,8 +841,13 @@ def _cle_groupe(ligne_alerte: _LigneAlerte) -> str:
                 code = anomalie.detail.get("code")
                 reference = code if methode == "reference" and code != _TIRET else None
                 return cle_produit(reference, str(designation_grille))
-    ligne = ligne_alerte.ligne
     return cle_produit(ligne.code_brut, ligne.article_brut)
+
+
+def _cle_groupe(ligne_alerte: _LigneAlerte) -> str:
+    """Clé de regroupement d'une ligne en alerte par produit (spec §8.1) :
+    voir `cle_produit_alerte`."""
+    return cle_produit_alerte(ligne_alerte.ligne, ligne_alerte.anomalies)
 
 
 def _fournisseur_id_document(document: Document) -> uuid.UUID:
@@ -955,7 +963,14 @@ def _alerte_produit(items: Sequence[_LigneAlerte]) -> AlerteProduit:
 
     toutes_anomalies = tuple(a for item in items for a in item.anomalies)
     regles = tuple(sorted({a.regle for a in toutes_anomalies}))
-    anomalie_ids = tuple(a.id for a in toutes_anomalies)
+    # Ordre déterministe : d'abord les anomalies de la ligne la plus récente
+    # (celle dont viennent les champs affichés ; le front en garde la
+    # première), triées par règle puis identifiant, puis celles des autres.
+    anomalie_ids = tuple(
+        a.id
+        for item in items_tries
+        for a in sorted(item.anomalies, key=lambda x: (x.regle, x.id))
+    )
 
     document_ids = {item.document.id for item in items}
     prix_distincts = {
@@ -1486,6 +1501,11 @@ async def _fermer_groupe(
     return len(anomalies)
 
 
+# Préfixe du commentaire d'une alerte contestée (spec 2026-10-01 §4.1) :
+# seul marqueur d'une contestation, relu par `ingest.contestations_prix`.
+PREFIXE_CONTESTATION = "Contesté : "
+
+
 async def contester_prix(
     session: AsyncSession,
     *,
@@ -1502,7 +1522,7 @@ async def contester_prix(
         session,
         anomalie_ids=anomalie_ids,
         statut="traitee",
-        commentaire=f"Contesté : {commentaire_normalise}",
+        commentaire=f"{PREFIXE_CONTESTATION}{commentaire_normalise}",
         action_journal="prix_conteste",
         auteur_id=auteur_id,
     )

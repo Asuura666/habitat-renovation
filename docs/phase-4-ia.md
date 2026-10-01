@@ -29,6 +29,28 @@ Trois usages :
 | **Explication d'une alerte prix** | Explique en une à trois phrases l'écart déjà calculé par les règles | Ne dit jamais si le prix est bon, mauvais, normal ou anormal ; n'invente aucun chiffre absent des données |
 | **Prix trouvé sur internet** | Cherche le prix public d'un produit absent de la grille, avec sa source et sa date | Jamais utilisé par une règle ni comparé automatiquement à un prix interne ; toujours affiché comme indicatif ; jamais de prix inventé (`prix_non_verifiable` sinon) |
 
+**Depuis le 01/10/2026 (branche `feature/prix-contestations-recherche`, non
+déployée)**, deux usages s'ajoutent sans changer ce principe (décisions D1 à
+D4 d'Ilane, spécification
+`docs/superpowers/specs/2026-10-01-prix-recherche-et-contestations-design.md`) :
+
+- **Recherche à la demande** : sur l'onglet Prix, un bouton « Chercher sur
+  internet » est présent sur chaque rangée (alertes R19 à R25), pas seulement
+  sur « Produit absent de la grille ». Il lance la même recherche que la
+  commande `ia-prix`, en tâche de fond ; un clic ignore le délai de 30 jours
+  et la limite de trois échecs, mais respecte le plafond du jour. L'état
+  « en cours » est en mémoire de l'API (perdu au redémarrage).
+- **Contestations dans la synthèse** : les contestations de prix de la
+  semaine partent à l'agent `habitat-synthese` sous des références `[pN]`
+  (jour, fournisseur, produit, numéros des bons, prix du bon, prix de grille,
+  commentaire ; jamais l'auteur, le chantier ni le client). Migration 0016
+  (`synthese_commentaires.nb_contestations`). La consigne de l'agent change
+  (`deploy/opencode/opencode.json`) : **reconstruire l'image OpenCode de la
+  démo** au déploiement. Les prix « ignorés » n'y figurent pas.
+
+L'IA reste **éteinte en production** : ces deux usages ne servent que sur la
+démo.
+
 L'IA utilisée est **OpenCode**, connecté à l'abonnement ChatGPT Plus/Pro
 personnel d'Ilane (décision du 27/09/2026, contre la recommandation d'une
 API payante à l'usage). La recherche web passe par le service public

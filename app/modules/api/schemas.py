@@ -1106,6 +1106,7 @@ class SyntheseReponse(BaseModel):
     statut: str
     resume: str
     nb_commentaires: int
+    nb_contestations: int
     actions: list[ActionSyntheseReponse]
 
 
@@ -1192,6 +1193,27 @@ class AvisIAReponse(BaseModel):
     prix_internet: PrixInternetReponse | None
 
 
+class RecherchePrixRequete(BaseModel):
+    """`POST /api/ia/prix-internet/recherches` : l'alerte de prix dont le
+    produit est à chercher."""
+
+    anomalie_id: uuid.UUID
+
+
+class RechercheLanceeReponse(BaseModel):
+    etat: Literal["lancee", "deja_en_cours"]
+
+
+class RechercheReponse(BaseModel):
+    """État d'une recherche à la demande (mêmes attributs qu'`ingest.ia_prix
+    .RechercheVue`)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    etat: Literal["en_cours", "echec"]
+    message: str | None
+
+
 class PrixInternetLotReponse(BaseModel):
     """Réponse de `GET /api/ia/prix-internet` (T10a) — mêmes attributs
     qu'`ingest.ia_prix.PrixInternetLot`, à ceci près que les identifiants
@@ -1203,6 +1225,7 @@ class PrixInternetLotReponse(BaseModel):
 
     ia_active: bool
     prix: dict[str, PrixInternetReponse | None]
+    recherches: dict[str, RechercheReponse] = {}
 
 
 # --------------------------------------------------------------------------
@@ -1413,6 +1436,29 @@ class LigneHistoriqueReponse(BaseModel):
     ligne_libelle: str | None
     auteur: str | None
     created_at: datetime
+
+
+class ContestationReponse(BaseModel):
+    """`GET /api/grilles/fournisseurs/{id}/contestations` -- mêmes attributs
+    qu'`ingest.contestations_prix.Contestation` (sans le fournisseur, déjà
+    connu de l'écran)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    conteste_le: datetime
+    auteur: str | None
+    document_id: uuid.UUID
+    numero_bon: str | None
+    date_bon: date | None
+    produit: str
+    code: str | None
+    prix_bon: Decimal | None
+    unite_bon: str | None
+    prix_grille: Decimal | None
+    regles: list[str]
+    commentaire: str
+    cle_produit: str
+    dans_la_grille: bool
 
 
 class SaisiePrixRequete(BaseModel):

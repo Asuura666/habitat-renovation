@@ -1,6 +1,7 @@
 """`GET /api/grilles/modele`, `GET /api/grilles/fournisseurs/{id}` (et son
-historique), `POST /api/grilles/fournisseurs/{id}/prix`, `/retrait`,
-`/import/apercu` et `/import` (phase 3, tâche P4, spec
+historique et ses contestations de prix),
+`POST /api/grilles/fournisseurs/{id}/prix`, `/retrait`, `/import/apercu` et
+`/import` (phase 3, tâche P4, spec
 `docs/superpowers/specs/2026-09-27-prix-design.md` §10).
 
 Couche d'entrée (L2-D3) : ce routeur n'importe que `app.core` et
@@ -33,6 +34,7 @@ from app.core.db import get_session
 from app.core.fuseau import FUSEAU_PARIS
 from app.modules.api.schemas import (
     ApercuImportReponse,
+    ContestationReponse,
     GrilleFournisseurReponse,
     ImportEffectueReponse,
     LigneHistoriqueReponse,
@@ -40,6 +42,7 @@ from app.modules.api.schemas import (
     RetraitProduitRequete,
     SaisiePrixRequete,
 )
+from app.modules.ingest.contestations_prix import contestations_du_fournisseur
 from app.modules.ingest.grilles import (
     AucuneLigneValide,
     EcritureImpossible,
@@ -140,6 +143,23 @@ async def historique_produit_endpoint(
             status_code=status.HTTP_404_NOT_FOUND, detail="produit introuvable"
         ) from exc
     return [LigneHistoriqueReponse.model_validate(ligne) for ligne in historique]
+
+
+@router.get(
+    "/grilles/fournisseurs/{fournisseur_id}/contestations",
+    response_model=list[ContestationReponse],
+)
+async def contestations_fournisseur_endpoint(
+    fournisseur_id: uuid.UUID,
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[ContestationReponse]:
+    del utilisateur
+    try:
+        contestations = await contestations_du_fournisseur(session, fournisseur_id)
+    except FournisseurIntrouvable as exc:
+        raise _erreur_fournisseur_introuvable() from exc
+    return [ContestationReponse.model_validate(c) for c in contestations]
 
 
 @router.post(

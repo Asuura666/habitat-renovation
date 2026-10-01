@@ -31,10 +31,11 @@ from typing import Any
 
 import httpx
 import pytest
+from fastapi import BackgroundTasks
 from pydantic import SecretStr
 from sqlalchemy import event, select
 from sqlalchemy.engine import Engine
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.modules.ingest import anomalies, commun, ia_prix, opencode
 from app.modules.ingest.anomalies import AnomalieIntrouvable
@@ -45,12 +46,16 @@ from app.modules.ingest.ia_prix import (
     TITRES_REGLES_PRIX,
     BilanIA,
     ProduitEssai,
+    RechercheImpossible,
+    RechercheVue,
     avis_ia_anomalie,
     chercher_prix_internet,
     cle_produit_internet,
     empreinte_detail,
     essayer_prix_internet,
+    etat_recherche,
     expliquer_alertes,
+    lancer_recherche_prix,
     prix_internet_des_anomalies,
 )
 from app.modules.ingest.models import (
@@ -99,6 +104,13 @@ def _ia_active_par_defaut(monkeypatch: pytest.MonkeyPatch) -> None:
     """IA allumée par défaut pour ce fichier (le défaut réel de l'application
     est éteinte) -- les tests dédiés au plafond l'écrasent localement."""
     monkeypatch.setattr(opencode, "get_settings", lambda: _SettingsIAFake())
+
+
+@pytest.fixture(autouse=True)
+def _recherches_vides() -> None:
+    """Le registre en mémoire des recherches à la demande est vidé entre les
+    tests."""
+    ia_prix._RECHERCHES.clear()
 
 
 def _regler_controle_prix(monkeypatch: pytest.MonkeyPatch, *, actif: bool) -> None:
@@ -2084,3 +2096,347 @@ async def test_rechercher_prix_delai_300_secondes(
         )
 
     assert delais == [300]
+
+
+# --------------------------------------------------------------------------
+# Recherche à la demande depuis la page Prix (spec 2026-10-01 §3)
+# --------------------------------------------------------------------------
+
+
+async def _alerte_prix_a_chercher(
+    session: AsyncSession,
+    *,
+    regle: str = "R19",
+    detail: dict[str, str] | None = None,
+    statut: str = "ouverte",
+) -> tuple[Anomalie, Fournisseur, str]:
+    fournisseur = await _creer_fournisseur(session)
+    facture = await _creer_facture(session, fournisseur=fournisseur)
+    anomalie = await _creer_anomalie(
+        session,
+        regle=regle,
+        detail=detail if detail is not None else _detail_r22(prix_grille="7.00"),
+        document=facture,
+        statut=statut,
+    )
+    await _activer_controle_prix_bl(session)
+    await session.commit()
+    cle = cle_produit_internet(fournisseur.id, "Plaque std 13", "PL13")
+    return anomalie, fournisseur, cle
+
+
+def _client_prix_trouve() -> httpx.AsyncClient:
+    reponses = _reponses_prix_trouve(
+        prix="7.50",
+        source_url="https://exemple.invalid/plaque",
+        page_texte="Plaque std 13 à 7,50 € HT",
+    )
+    return httpx.AsyncClient(transport=httpx.MockTransport(_handler_json(reponses)))
+
+
+async def _lignes_prix(session: AsyncSession) -> list[PrixInternet]:
+    return list((await session.execute(select(PrixInternet))).scalars())
+
+
+async def test_lancer_recherche_enregistre_le_resultat(
+    db_session: AsyncSession, sessions_test: async_sessionmaker[AsyncSession]
+) -> None:
+    anomalie, _, cle = await _alerte_prix_a_chercher(db_session)
+    background_tasks = BackgroundTasks()
+
+    issue = await lancer_recherche_prix(
+        db_session, sessions_test, _client_prix_trouve(), background_tasks, anomalie.id
+    )
+
+    assert issue == "lancee"
+    assert etat_recherche(cle) == RechercheVue("en_cours", None)
+    await background_tasks()
+    lignes = await _lignes_prix(db_session)
+    assert [(ligne.cle, ligne.statut) for ligne in lignes] == [(cle, "trouve")]
+    assert etat_recherche(cle) is None
+
+
+async def test_clic_ignore_le_cache_et_les_echecs(
+    db_session: AsyncSession, sessions_test: async_sessionmaker[AsyncSession]
+) -> None:
+    anomalie, fournisseur, cle = await _alerte_prix_a_chercher(db_session)
+    maintenant = datetime.now(UTC)
+    await _creer_prix_internet(
+        db_session,
+        cle=cle,
+        statut="trouve",
+        consulte_le=maintenant - timedelta(days=2),
+        fournisseur_id=fournisseur.id,
+    )
+    for minutes in (1, 2, 3):
+        await _creer_prix_internet(
+            db_session,
+            cle=cle,
+            statut="echec",
+            consulte_le=maintenant - timedelta(minutes=minutes),
+            fournisseur_id=fournisseur.id,
+            raison="x",
+        )
+    await db_session.commit()
+    background_tasks = BackgroundTasks()
+
+    await lancer_recherche_prix(
+        db_session, sessions_test, _client_prix_trouve(), background_tasks, anomalie.id
+    )
+    await background_tasks()
+
+    assert len(await _lignes_prix(db_session)) == 5
+
+
+async def test_deja_en_cours(
+    db_session: AsyncSession, sessions_test: async_sessionmaker[AsyncSession]
+) -> None:
+    anomalie, _, _ = await _alerte_prix_a_chercher(db_session)
+    background_tasks = BackgroundTasks()
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_aucune_requete))
+
+    premier = await lancer_recherche_prix(
+        db_session, sessions_test, http, background_tasks, anomalie.id
+    )
+    second = await lancer_recherche_prix(
+        db_session, sessions_test, http, background_tasks, anomalie.id
+    )
+
+    assert (premier, second) == ("lancee", "deja_en_cours")
+    assert len(background_tasks.tasks) == 1
+
+
+async def test_ia_eteinte_409(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    anomalie, _, cle = await _alerte_prix_a_chercher(db_session)
+    monkeypatch.setattr(
+        opencode, "get_settings", lambda: _SettingsIAFake(ia_active=False)
+    )
+    background_tasks = BackgroundTasks()
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_aucune_requete))
+
+    with pytest.raises(RechercheImpossible) as info:
+        await lancer_recherche_prix(
+            db_session, sessions_test, http, background_tasks, anomalie.id
+        )
+
+    assert info.value.raison == "eteinte"
+    assert str(info.value) == "IA éteinte"
+    assert background_tasks.tasks == []
+    assert etat_recherche(cle) is None
+
+
+async def test_plafond_au_clic(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    anomalie, _, _ = await _alerte_prix_a_chercher(db_session)
+    monkeypatch.setattr(
+        opencode, "get_settings", lambda: _SettingsIAFake(ia_appels_max_jour=0)
+    )
+    background_tasks = BackgroundTasks()
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_aucune_requete))
+
+    with pytest.raises(RechercheImpossible) as info:
+        await lancer_recherche_prix(
+            db_session, sessions_test, http, background_tasks, anomalie.id
+        )
+
+    assert info.value.raison == "plafond"
+    assert str(info.value) == "Plafond du jour atteint"
+    assert background_tasks.tasks == []
+
+
+async def test_plafond_pendant_la_recherche(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    anomalie, _, cle = await _alerte_prix_a_chercher(db_session)
+    background_tasks = BackgroundTasks()
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_aucune_requete))
+    await lancer_recherche_prix(
+        db_session, sessions_test, http, background_tasks, anomalie.id
+    )
+
+    async def _plafond(*args: Any, **kwargs: Any) -> Any:
+        raise opencode.IAIndisponible("plafond")
+
+    monkeypatch.setattr(ia_prix, "interroger", _plafond)
+    await background_tasks()
+
+    assert await _lignes_prix(db_session) == []
+    assert etat_recherche(cle) == RechercheVue("echec", "Plafond du jour atteint")
+
+
+async def test_erreur_ia_enregistre_un_echec(
+    db_session: AsyncSession, sessions_test: async_sessionmaker[AsyncSession]
+) -> None:
+    anomalie, _, cle = await _alerte_prix_a_chercher(db_session)
+    erreur_info = {"name": "ProviderAuthError", "data": {}}
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(_handler_json(_reponses_erreur(erreur_info)))
+    )
+    background_tasks = BackgroundTasks()
+    await lancer_recherche_prix(
+        db_session, sessions_test, http, background_tasks, anomalie.id
+    )
+
+    await background_tasks()
+
+    lignes = await _lignes_prix(db_session)
+    assert [(ligne.cle, ligne.statut) for ligne in lignes] == [(cle, "echec")]
+    assert etat_recherche(cle) == RechercheVue("echec", "La recherche a échoué")
+
+
+async def test_erreur_imprevue_ne_reste_pas_en_cours(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    anomalie, _, cle = await _alerte_prix_a_chercher(db_session)
+    background_tasks = BackgroundTasks()
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_aucune_requete))
+    await lancer_recherche_prix(
+        db_session, sessions_test, http, background_tasks, anomalie.id
+    )
+
+    async def _plante(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("panne imprévue")
+
+    monkeypatch.setattr(ia_prix, "_rechercher_et_enregistrer", _plante)
+    await background_tasks()
+
+    vue = etat_recherche(cle)
+    assert vue is not None
+    assert vue.etat == "echec"
+
+
+async def test_anomalie_non_prix_ou_fermee_404(
+    db_session: AsyncSession, sessions_test: async_sessionmaker[AsyncSession]
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    hors_prix = await _creer_anomalie(
+        db_session, regle="R01", detail=_detail_r22(), document=facture
+    )
+    fermee = await _creer_anomalie(
+        db_session,
+        regle="R19",
+        detail=_detail_r22(),
+        document=facture,
+        statut="traitee",
+    )
+    await _activer_controle_prix_bl(db_session)
+    await db_session.commit()
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_aucune_requete))
+
+    for identifiant in (hors_prix.id, fermee.id, uuid.uuid4()):
+        with pytest.raises(AnomalieIntrouvable):
+            await lancer_recherche_prix(
+                db_session, sessions_test, http, BackgroundTasks(), identifiant
+            )
+
+
+async def test_anomalie_masquee_404(
+    db_session: AsyncSession, sessions_test: async_sessionmaker[AsyncSession]
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    anomalie = await _creer_anomalie(
+        db_session, regle="R22", detail=_detail_r22(), document=facture
+    )
+    await db_session.commit()  # contrôle des prix éteint : alerte masquée
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_aucune_requete))
+
+    with pytest.raises(AnomalieIntrouvable):
+        await lancer_recherche_prix(
+            db_session, sessions_test, http, BackgroundTasks(), anomalie.id
+        )
+
+
+async def test_r25_sans_unite(
+    db_session: AsyncSession, sessions_test: async_sessionmaker[AsyncSession]
+) -> None:
+    detail = _detail_r22()
+    del detail["unite_bon"]
+    anomalie, _, cle = await _alerte_prix_a_chercher(
+        db_session, regle="R25", detail=detail
+    )
+    reponses = _reponses_prix_trouve(
+        prix="7.50",
+        source_url="https://exemple.invalid/plaque",
+        page_texte="Plaque std 13 à 7,50 € HT",
+    )
+    envoyes: list[str] = []
+    gestionnaire = _handler_json(reponses)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path.endswith("/message"):
+            envoyes.append(request.content.decode())
+        return gestionnaire(request)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    background_tasks = BackgroundTasks()
+
+    issue = await lancer_recherche_prix(
+        db_session, sessions_test, http, background_tasks, anomalie.id
+    )
+    await background_tasks()
+
+    assert issue == "lancee"
+    assert len(envoyes) == 1
+    assert "Unité : —" in json.loads(envoyes[0])["parts"][0]["text"]
+    assert [ligne.cle for ligne in await _lignes_prix(db_session)] == [cle]
+
+
+async def test_etat_echec_expire_apres_15_minutes(
+    db_session: AsyncSession, sessions_test: async_sessionmaker[AsyncSession]
+) -> None:
+    anomalie, _, cle = await _alerte_prix_a_chercher(db_session)
+    ancien = datetime.now(UTC) - timedelta(minutes=16)
+
+    ia_prix._RECHERCHES[cle] = ia_prix._EtatRecherche("echec", "x", ancien)
+    assert etat_recherche(cle) is None
+
+    ia_prix._RECHERCHES[cle] = ia_prix._EtatRecherche("en_cours", None, ancien)
+    assert etat_recherche(cle) is None
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_aucune_requete))
+    issue = await lancer_recherche_prix(
+        db_session, sessions_test, http, BackgroundTasks(), anomalie.id
+    )
+    assert issue == "lancee"
+
+
+async def test_lot_couvre_toutes_les_regles_de_prix(
+    db_session: AsyncSession,
+) -> None:
+    anomalie, _, cle = await _alerte_prix_a_chercher(db_session, regle="R19")
+
+    lot = await prix_internet_des_anomalies(db_session, [anomalie.id])
+    assert lot.par_anomalie == {anomalie.id: None}
+    assert lot.recherches == {}
+
+    ia_prix._RECHERCHES[cle] = ia_prix._EtatRecherche(
+        "en_cours", None, datetime.now(UTC)
+    )
+    lot = await prix_internet_des_anomalies(db_session, [anomalie.id])
+    assert lot.recherches == {anomalie.id: RechercheVue("en_cours", None)}
+
+
+async def test_lot_ecarte_les_regles_hors_prix(db_session: AsyncSession) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    facture = await _creer_facture(db_session, fournisseur=fournisseur)
+    anomalie = await _creer_anomalie(
+        db_session, regle="R07", detail=_detail_r07(), document=facture
+    )
+    await _activer_controle_prix_bl(db_session)
+    await db_session.commit()
+
+    lot = await prix_internet_des_anomalies(db_session, [anomalie.id])
+
+    assert lot.par_anomalie == {}

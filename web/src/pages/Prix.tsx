@@ -14,11 +14,15 @@ import {
   validerPrix,
 } from "../api/prix";
 import { ErreurApi } from "../api/client";
-import { clePrixInternet, lirePrixInternet, type PrixInternet } from "../api/ia";
+import {
+  clePrixInternet,
+  lancerRecherchePrix,
+  lirePrixInternet,
+} from "../api/ia";
 import { invaliderApresChangementAnomalies } from "../api/invalidations";
 import { CLE_PARAMETRES, listerParametres } from "../api/parametres";
 import { CLE_FOURNISSEURS, listerFournisseurs } from "../api/referentiels";
-import { PrixInternetCellule } from "../components/PrixInternetCellule";
+import { PrixInternetCellule, type ProprietesInternet } from "../components/PrixInternetCellule";
 import { gererEntreeCommentaire } from "../lib/entreeClavier";
 import { formaterDate, formaterMontant, formaterPoints, TIRET } from "../lib/formats";
 import { lienBon } from "../lib/liens";
@@ -26,23 +30,20 @@ import { Bouton, Carte, EnTetePage, EtatVide, Filtres, type OptionFiltre, titreR
 
 /** Plafond de `GET /api/ia/prix-internet` (`MAX_ANOMALIES_PRIX_INTERNET`,
  * `ingest/ia_prix.py`, 422 au-delà) -- défense côté front, jamais atteinte
- * en pratique (nombre de rangées R22 affichées en même temps très en-deçà),
+ * en pratique (nombre de rangées affichées en même temps très en-deçà),
  * mais évite de jamais provoquer ce 422 si la liste explosait un jour. */
 const MAX_IDS_PRIX_INTERNET = 200;
 
-/** Identifiants d'anomalies à interroger pour une rangée (fix round 1,
- * ruling du contrôleur : le brief T10b disait « le premier de
- * `anomalie_ids` », mais `regles` et `anomalie_ids` sont deux tableaux
- * indépendants -- R22 peut cohabiter avec R20/R24 sur la même ligne
- * (`rules/rules/R22.py` : seules ces deux règles peuvent encore se
- * déclencher sur une ligne déjà en R22) et une rangée peut grouper
- * plusieurs lignes, donc `anomalie_ids[0]` n'est pas forcément celui de
- * R22. Tableau vide si la rangée n'a pas d'alerte R22 (exclue de la requête
- * groupée, cellule à tiret) -- tous les identifiants sinon, la réponse ne
- * portant de toute façon jamais de clé pour un identifiant qui ne désigne
- * pas une alerte R22 ouverte et non masquée (brief T10a). */
-function idsInternetPour(produit: AlerteProduit): readonly string[] {
-  return produit.regles.includes("R22") ? produit.anomalie_ids : [];
+/** Identifiant d'anomalie qui représente une rangée pour la colonne
+ * « Internet » : le premier de la rangée. Le serveur place en tête les
+ * alertes de la ligne la plus récente, celle dont viennent le nom et le prix
+ * affichés : l'identifiant est donc stable et correspond à la ligne montrée.
+ * Toutes les alertes de prix sont couvertes (décision D1 du 01/10/2026) et
+ * une rangée regroupe les alertes d'un même produit : le serveur retrouve le
+ * produit et son fournisseur à partir de cette seule alerte, la recherche et
+ * son résultat valent pour toute la rangée. */
+function idInternetPour(produit: AlerteProduit): string | undefined {
+  return produit.anomalie_ids[0];
 }
 
 /** Réglage qui commande l'écran tout entier (spec §3.4, §8.3) -- toujours
@@ -296,12 +297,12 @@ function CarteAlertePrix({
   produit,
   actions,
   colonneInternetVisible,
-  prixInternet,
+  internet,
 }: {
   produit: AlerteProduit;
   actions: ReactElement;
   colonneInternetVisible: boolean;
-  prixInternet: PrixInternet | null | undefined;
+  internet: ProprietesInternet;
 }): ReactElement {
   const ressemblance = texteRessemblance(produit);
   return (
@@ -329,7 +330,7 @@ function CarteAlertePrix({
           <div>
             <dt className="text-xs text-encre-2">Internet</dt>
             <dd className="text-encre">
-              <PrixInternetCellule produit={produit} prixInternet={prixInternet} />
+              <PrixInternetCellule {...internet} />
             </dd>
           </div>
         )}
@@ -390,45 +391,75 @@ export function Prix(): ReactElement {
   });
 
   /** Colonne « Internet » (T10b, phase 4 IA, spec §6.4) : requête groupée,
-   * tous les identifiants des rangées R22 (fix round 1, `idsInternetPour`
-   * ci-dessus), dédupliqués en gardant l'ordre de la page (`Set` préserve
-   * l'ordre d'insertion en JavaScript) et plafonnés à `MAX_IDS_PRIX_
-   * INTERNET` au total -- activée seulement quand la liste des alertes est
-   * chargée, non vide, et en contient au moins un -- aucune requête sinon.
-   * Si l'IA est éteinte, si la requête échoue ou pendant son chargement :
-   * `colonneInternetVisible` reste faux et rien ne change (la page reste à
-   * 6 colonnes, aucun message, brief T10b). */
+   * un identifiant par rangée (`idInternetPour` ci-dessus : toutes les
+   * alertes de prix sont couvertes), dédupliqués en gardant l'ordre de la
+   * page (`Set` préserve l'ordre d'insertion en JavaScript) et plafonnés à
+   * `MAX_IDS_PRIX_INTERNET` au total -- activée seulement quand la liste des
+   * alertes est chargée, non vide, et en contient au moins un -- aucune
+   * requête sinon. Si l'IA est éteinte, si la requête échoue ou pendant son
+   * chargement : `colonneInternetVisible` reste faux et rien ne change (la
+   * page reste à 6 colonnes, aucun message, brief T10b). Relue toutes les
+   * 10 secondes tant qu'une recherche lancée par le bouton est en cours. */
   const alertesChargees = alertes.data !== undefined && alertes.data.length > 0;
-  const idsR22 = alertesChargees
-    ? Array.from(new Set(alertes.data.flatMap((produit) => idsInternetPour(produit)))).slice(
-        0,
-        MAX_IDS_PRIX_INTERNET,
-      )
+  const ids = alertesChargees
+    ? Array.from(
+        new Set(
+          alertes.data.flatMap((produit) => {
+            const id = idInternetPour(produit);
+            return id === undefined ? [] : [id];
+          }),
+        ),
+      ).slice(0, MAX_IDS_PRIX_INTERNET)
     : [];
 
   const prixInternetLot = useQuery({
-    queryKey: clePrixInternet(idsR22),
-    queryFn: () => lirePrixInternet(idsR22),
-    enabled: alertesChargees && idsR22.length > 0,
+    queryKey: clePrixInternet(ids),
+    queryFn: () => lirePrixInternet(ids),
+    enabled: alertesChargees && ids.length > 0,
+    refetchInterval: (requete) =>
+      Object.values(requete.state.data?.recherches ?? {}).some((r) => r.etat === "en_cours")
+        ? 10_000
+        : false,
   });
 
   const colonneInternetVisible = prixInternetLot.data?.ia_active === true;
 
-  /** Prix internet d'une rangée (fix round 1) : le premier des identifiants
-   * de la rangée qui est présent **comme clé** de la réponse groupée --
-   * jamais `anomalie_ids[0]` (voir `idsInternetPour` ci-dessus), et jamais
-   * uniquement une valeur non nulle (une clé présente avec une valeur
-   * `null`, « recherché sans résultat récent », doit arrêter la recherche
-   * là, pas continuer vers un identifiant suivant qui n'a pas de sens pour
-   * cette rangée). Aucune clé trouvée (rangée sans R22, ou au-delà du
-   * plafond) -> `undefined`, même « en attente » que `null` côté cellule. */
-  function prixInternetPour(produit: AlerteProduit): PrixInternet | null | undefined {
+  /** Recherche à la demande (spec 2026-10-01 §3) : le message d'un refus
+   * (IA éteinte, plafond du jour atteint) reste dans la cellule de la
+   * rangée cliquée, jamais dans un message général de la page. */
+  const [erreursRecherche, setErreursRecherche] = useState<Record<string, string>>({});
+  const rechercheMutation = useMutation({
+    mutationFn: (anomalieId: string) => lancerRecherchePrix(anomalieId),
+    onMutate: (anomalieId) =>
+      setErreursRecherche(({ [anomalieId]: _ancienne, ...reste }) => reste),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["ia", "prix-internet"] });
+    },
+    onError: (erreur, anomalieId) =>
+      setErreursRecherche((e) => ({
+        ...e,
+        [anomalieId]: messageErreur(erreur, "La recherche n'a pas pu être lancée."),
+      })),
+  });
+
+  /** Ce que la cellule « Internet » d'une rangée affiche et peut faire : le
+   * résultat enregistré, l'état d'une recherche en cours ou échouée, le
+   * message d'un refus, et l'action de lancer la recherche. */
+  function proprietesInternet(produit: AlerteProduit): ProprietesInternet {
+    const id = idInternetPour(produit);
     const prix = prixInternetLot.data?.prix;
-    if (prix === undefined) {
-      return undefined;
-    }
-    const idConnu = produit.anomalie_ids.find((id) => id in prix);
-    return idConnu === undefined ? undefined : prix[idConnu];
+    return {
+      prixInternet: id !== undefined && prix !== undefined ? prix[id] : undefined,
+      recherche: id !== undefined ? prixInternetLot.data?.recherches?.[id] : undefined,
+      lancementEnCours:
+        id !== undefined && rechercheMutation.isPending && rechercheMutation.variables === id,
+      erreurLancement: id !== undefined ? (erreursRecherche[id] ?? null) : null,
+      onRechercher: () => {
+        if (id !== undefined) {
+          rechercheMutation.mutate(id);
+        }
+      },
+    };
   }
 
   async function apresAction(texte: string): Promise<void> {
@@ -437,6 +468,7 @@ export function Prix(): ReactElement {
     setMessage(texte);
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: CLE_ALERTES_PRIX }),
+      queryClient.invalidateQueries({ queryKey: ["grille"] }),
       invaliderApresChangementAnomalies(queryClient),
     ]);
   }
@@ -638,7 +670,7 @@ export function Prix(): ReactElement {
                     produit={produit}
                     actions={actionsPour(produit)}
                     colonneInternetVisible={colonneInternetVisible}
-                    prixInternet={prixInternetPour(produit)}
+                    internet={proprietesInternet(produit)}
                   />
                 ))}
               </ul>
@@ -646,7 +678,8 @@ export function Prix(): ReactElement {
               {/* Tableau — ordinateur (>= md), 6 colonnes au plus (spec
                   §8.3) : produit, prix du bon, grille, dernier prix
                   facturé, écart (avec la ressemblance), alertes/lien --
-                  7ᵉ colonne « Internet » (T10b, phase 4 IA) seulement quand
+                  7ᵉ colonne « Internet » (T10b, phase 4 IA ; toutes les alertes de
+                  prix, avec son bouton « Chercher sur internet ») seulement quand
                   l'IA est active (`colonneInternetVisible`), jamais montrée
                   sinon (page inchangée, IA éteinte). Rangées compactes : les
                   trois actions occupent une ligne pleine largeur sous les
@@ -689,7 +722,7 @@ export function Prix(): ReactElement {
                             <td className="px-5 pb-1 pt-3 align-top text-encre">{texteDernierPrix(produit)}</td>
                             {colonneInternetVisible && (
                               <td className="px-5 pb-1 pt-3 align-top text-encre">
-                                <PrixInternetCellule produit={produit} prixInternet={prixInternetPour(produit)} />
+                                <PrixInternetCellule {...proprietesInternet(produit)} />
                               </td>
                             )}
                             <td className="px-5 pb-1 pt-3 align-top font-mono font-medium text-encre">
