@@ -35,11 +35,13 @@ import { Bouton, Carte, EnTetePage, EtatVide, Filtres, type OptionFiltre, titreR
 const MAX_IDS_PRIX_INTERNET = 200;
 
 /** Identifiant d'anomalie qui représente une rangée pour la colonne
- * « Internet » : le premier de la rangée. Toutes les alertes de prix sont
- * couvertes (décision D1 du 01/10/2026) et une rangée regroupe les alertes
- * d'un même produit : le serveur retrouve le produit et son fournisseur à
- * partir de cette seule alerte, la recherche et son résultat valent pour
- * toute la rangée. */
+ * « Internet » : le premier de la rangée. Le serveur place en tête les
+ * alertes de la ligne la plus récente, celle dont viennent le nom et le prix
+ * affichés : l'identifiant est donc stable et correspond à la ligne montrée.
+ * Toutes les alertes de prix sont couvertes (décision D1 du 01/10/2026) et
+ * une rangée regroupe les alertes d'un même produit : le serveur retrouve le
+ * produit et son fournisseur à partir de cette seule alerte, la recherche et
+ * son résultat valent pour toute la rangée. */
 function idInternetPour(produit: AlerteProduit): string | undefined {
   return produit.anomalie_ids[0];
 }

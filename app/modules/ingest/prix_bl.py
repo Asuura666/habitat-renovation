@@ -963,7 +963,14 @@ def _alerte_produit(items: Sequence[_LigneAlerte]) -> AlerteProduit:
 
     toutes_anomalies = tuple(a for item in items for a in item.anomalies)
     regles = tuple(sorted({a.regle for a in toutes_anomalies}))
-    anomalie_ids = tuple(a.id for a in toutes_anomalies)
+    # Ordre déterministe : d'abord les anomalies de la ligne la plus récente
+    # (celle dont viennent les champs affichés ; le front en garde la
+    # première), triées par règle puis identifiant, puis celles des autres.
+    anomalie_ids = tuple(
+        a.id
+        for item in items_tries
+        for a in sorted(item.anomalies, key=lambda x: (x.regle, x.id))
+    )
 
     document_ids = {item.document.id for item in items}
     prix_distincts = {

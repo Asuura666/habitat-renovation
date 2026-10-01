@@ -222,6 +222,51 @@ async def test_regroupement_meme_produit_plusieurs_bons_prix_differents(
     assert len(produit.anomalie_ids) == 3
 
 
+async def test_anomalie_ids_ligne_la_plus_recente_d_abord(
+    db_session: AsyncSession,
+) -> None:
+    """Deux lignes du même produit, libellés différents : `anomalie_ids`
+    commence par les anomalies de la ligne la plus récente (celle dont
+    viennent les champs affichés), quel que soit l'ordre de création."""
+    await _activer_controle(db_session)
+    fournisseur = await _creer_fournisseur(db_session)
+    await _creer_prix_grille(db_session, fournisseur=fournisseur, prix_ht="10.00")
+
+    ancien = await _creer_bl(
+        db_session, fournisseur=fournisseur, date_doc=date(2026, 6, 1)
+    )
+    await _creer_ligne(
+        db_session,
+        document=ancien,
+        article_brut="Ancien libellé inventé",
+        pu_ht=Decimal("15.00"),
+    )
+    recent = await _creer_bl(
+        db_session, fournisseur=fournisseur, date_doc=date(2026, 6, 10)
+    )
+    ligne_recente = await _creer_ligne(
+        db_session,
+        document=recent,
+        article_brut="Nouveau libellé inventé",
+        pu_ht=Decimal("20.00"),
+    )
+    for bon in (ancien, recent):
+        await _controler(db_session, bon.id)
+
+    produits = await lister_alertes_prix(db_session)
+
+    assert len(produits) == 1
+    produit = produits[0]
+    assert produit.produit == "Nouveau libellé inventé"
+    resultat = await db_session.execute(
+        select(Anomalie.id, Anomalie.regle).where(Anomalie.ligne_id == ligne_recente.id)
+    )
+    attendus = [i for i, _ in sorted(resultat.all(), key=lambda r: (r[1], r[0]))]
+    assert attendus
+    assert list(produit.anomalie_ids[: len(attendus)]) == attendus
+    assert len(produit.anomalie_ids) > len(attendus)
+
+
 async def test_produits_sans_grille_regroupes_par_ligne_du_bon(
     db_session: AsyncSession,
 ) -> None:
