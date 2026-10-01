@@ -3022,6 +3022,50 @@
     }
    }
   },
+  "/api/grilles/fournisseurs/{fournisseur_id}/contestations": {
+   "get": {
+    "summary": "Contestations Fournisseur Endpoint",
+    "operationId": "contestations_fournisseur_endpoint_api_grilles_fournisseurs__fournisseur_id__contestations_get",
+    "parameters": [
+     {
+      "name": "fournisseur_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Fournisseur Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/ContestationReponse"
+         },
+         "title": "Response Contestations Fournisseur Endpoint Api Grilles Fournisseurs  Fournisseur Id  Contestations Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/grilles/fournisseurs/{fournisseur_id}/prix": {
    "post": {
     "summary": "Enregistrer Prix Endpoint",
@@ -5927,6 +5971,142 @@
     ],
     "title": "CompteReponse",
     "description": "Une ligne de `GET /api/comptes`, et la réponse de chaque route\nd'écriture de l'écran « Comptes » -- mêmes attributs qu'`app.core.auth\n.CompteLu`."
+   },
+   "ContestationReponse": {
+    "properties": {
+     "conteste_le": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Conteste Le"
+     },
+     "auteur": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Auteur"
+     },
+     "document_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Document Id"
+     },
+     "numero_bon": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero Bon"
+     },
+     "date_bon": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date Bon"
+     },
+     "produit": {
+      "type": "string",
+      "title": "Produit"
+     },
+     "code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Code"
+     },
+     "prix_bon": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Prix Bon"
+     },
+     "unite_bon": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite Bon"
+     },
+     "prix_grille": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Prix Grille"
+     },
+     "regles": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Regles"
+     },
+     "commentaire": {
+      "type": "string",
+      "title": "Commentaire"
+     },
+     "cle_produit": {
+      "type": "string",
+      "title": "Cle Produit"
+     },
+     "dans_la_grille": {
+      "type": "boolean",
+      "title": "Dans La Grille"
+     }
+    },
+    "type": "object",
+    "required": [
+     "conteste_le",
+     "auteur",
+     "document_id",
+     "numero_bon",
+     "date_bon",
+     "produit",
+     "code",
+     "prix_bon",
+     "unite_bon",
+     "prix_grille",
+     "regles",
+     "commentaire",
+     "cle_produit",
+     "dans_la_grille"
+    ],
+    "title": "ContestationReponse",
+    "description": "`GET /api/grilles/fournisseurs/{id}/contestations` -- mêmes attributs\nqu'`ingest.contestations_prix.Contestation` (sans le fournisseur, déjà\nconnu de l'écran)."
    },
    "ContesterPrixRequete": {
     "properties": {

@@ -34,7 +34,14 @@ from app.core.auth import router as auth_router
 from app.core.config import get_settings
 from app.core.origine import ControleOrigineMiddleware
 from app.modules.api import router as api_router
-from app.modules.ingest.models import Fournisseur, GrillePrix, Utilisateur
+from app.modules.ingest.models import (
+    Document,
+    Fournisseur,
+    GrillePrix,
+    Ligne,
+    Utilisateur,
+)
+from app.modules.ingest.tests.test_contestations_prix import _creer_anomalie_fermee
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
 
@@ -286,6 +293,143 @@ async def test_historique_produit_inconnu_renvoie_404(
     )
 
     assert reponse.status_code == 404
+
+
+# --------------------------------------------------------------------------
+# Contestations de prix du fournisseur
+# --------------------------------------------------------------------------
+
+
+async def _creer_bon_et_ligne(
+    db_session: AsyncSession, fournisseur: Fournisseur
+) -> tuple[Document, Ligne]:
+    document = Document(
+        type="bl",
+        source="telegram",
+        statut="recu",
+        fichier_path=f"chemin-invente-{uuid.uuid4()}.jpg",
+        numero="BL-INVENTE-1",
+        fournisseur_id=fournisseur.id,
+        date_doc=date(2026, 9, 1),
+    )
+    db_session.add(document)
+    await db_session.commit()
+    await db_session.refresh(document)
+    ligne = Ligne(
+        document_id=document.id,
+        type_ligne="article",
+        code_brut="REF1",
+        article_brut="Produit inventé",
+        pu_ht=Decimal("12.00"),
+        ordre=0,
+    )
+    db_session.add(ligne)
+    await db_session.commit()
+    await db_session.refresh(ligne)
+    return document, ligne
+
+
+async def test_contestations_fournisseur_admin_200(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    await _creer_utilisateur(
+        db_session, email="admin.contest@example.invalid", role="admin"
+    )
+    fournisseur = await _creer_fournisseur(db_session)
+    document, ligne = await _creer_bon_et_ligne(db_session, fournisseur)
+    await _creer_anomalie_fermee(
+        db_session,
+        document=document,
+        ligne=ligne,
+        commentaire="Contesté : remise oubliée inventée",
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.contest@example.invalid")
+
+    reponse = await _requete(
+        app_test,
+        "GET",
+        f"/api/grilles/fournisseurs/{fournisseur.id}/contestations",
+        cookie=cookie,
+    )
+
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert len(corps) == 1
+    assert corps[0]["commentaire"] == "remise oubliée inventée"
+    assert corps[0]["numero_bon"] == "BL-INVENTE-1"
+    assert corps[0]["document_id"] == str(document.id)
+    assert corps[0]["regles"] == ["R19"]
+    assert corps[0]["prix_bon"] == "12.00"
+    assert corps[0]["dans_la_grille"] is False
+
+
+async def test_contestations_fournisseur_sans_contestation_renvoie_liste_vide(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    await _creer_utilisateur(
+        db_session, email="admin.contest-vide@example.invalid", role="admin"
+    )
+    fournisseur = await _creer_fournisseur(db_session)
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.contest-vide@example.invalid")
+
+    reponse = await _requete(
+        app_test,
+        "GET",
+        f"/api/grilles/fournisseurs/{fournisseur.id}/contestations",
+        cookie=cookie,
+    )
+
+    assert reponse.status_code == 200
+    assert reponse.json() == []
+
+
+async def test_contestations_fournisseur_inconnu_renvoie_404(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    await _creer_utilisateur(
+        db_session, email="admin.contest-404@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.contest-404@example.invalid")
+
+    reponse = await _requete(
+        app_test,
+        "GET",
+        f"/api/grilles/fournisseurs/{uuid.uuid4()}/contestations",
+        cookie=cookie,
+    )
+
+    assert reponse.status_code == 404
+
+
+async def test_contestations_fournisseur_agent_renvoie_403(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    await _creer_utilisateur(
+        db_session, email="agent.contest@example.invalid", role="agent"
+    )
+    fournisseur = await _creer_fournisseur(db_session)
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="agent.contest@example.invalid")
+
+    reponse = await _requete(
+        app_test,
+        "GET",
+        f"/api/grilles/fournisseurs/{fournisseur.id}/contestations",
+        cookie=cookie,
+    )
+
+    assert reponse.status_code == 403
 
 
 # --------------------------------------------------------------------------

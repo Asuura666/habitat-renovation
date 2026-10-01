@@ -979,6 +979,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/grilles/fournisseurs/{fournisseur_id}/contestations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Contestations Fournisseur Endpoint */
+        get: operations["contestations_fournisseur_endpoint_api_grilles_fournisseurs__fournisseur_id__contestations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/grilles/fournisseurs/{fournisseur_id}/prix": {
         parameters: {
             query?: never;
@@ -2177,6 +2194,48 @@ export interface components {
              * Format: date-time
              */
             cree_le: string;
+        };
+        /**
+         * ContestationReponse
+         * @description `GET /api/grilles/fournisseurs/{id}/contestations` -- mêmes attributs
+         *     qu'`ingest.contestations_prix.Contestation` (sans le fournisseur, déjà
+         *     connu de l'écran).
+         */
+        ContestationReponse: {
+            /**
+             * Conteste Le
+             * Format: date-time
+             */
+            conteste_le: string;
+            /** Auteur */
+            auteur: string | null;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /** Numero Bon */
+            numero_bon: string | null;
+            /** Date Bon */
+            date_bon: string | null;
+            /** Produit */
+            produit: string;
+            /** Code */
+            code: string | null;
+            /** Prix Bon */
+            prix_bon: string | null;
+            /** Unite Bon */
+            unite_bon: string | null;
+            /** Prix Grille */
+            prix_grille: string | null;
+            /** Regles */
+            regles: string[];
+            /** Commentaire */
+            commentaire: string;
+            /** Cle Produit */
+            cle_produit: string;
+            /** Dans La Grille */
+            dans_la_grille: boolean;
         };
         /**
          * ContesterPrixRequete
@@ -5507,6 +5566,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LigneHistoriqueReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    contestations_fournisseur_endpoint_api_grilles_fournisseurs__fournisseur_id__contestations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fournisseur_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContestationReponse"][];
                 };
             };
             /** @description Validation Error */

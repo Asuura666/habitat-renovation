@@ -1415,6 +1415,29 @@ class LigneHistoriqueReponse(BaseModel):
     created_at: datetime
 
 
+class ContestationReponse(BaseModel):
+    """`GET /api/grilles/fournisseurs/{id}/contestations` -- mêmes attributs
+    qu'`ingest.contestations_prix.Contestation` (sans le fournisseur, déjà
+    connu de l'écran)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    conteste_le: datetime
+    auteur: str | None
+    document_id: uuid.UUID
+    numero_bon: str | None
+    date_bon: date | None
+    produit: str
+    code: str | None
+    prix_bon: Decimal | None
+    unite_bon: str | None
+    prix_grille: Decimal | None
+    regles: list[str]
+    commentaire: str
+    cle_produit: str
+    dans_la_grille: bool
+
+
 class SaisiePrixRequete(BaseModel):
     """Corps de `POST /api/grilles/fournisseurs/{id}/prix` (spec §7.4) :
     `date_effet` absente -> aujourd'hui, résolu par le routeur (le service
