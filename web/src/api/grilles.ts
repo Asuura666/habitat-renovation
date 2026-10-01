@@ -17,6 +17,7 @@ export type ApercuImport = components["schemas"]["ApercuImportReponse"];
 export type ImportEffectue = components["schemas"]["ImportEffectueReponse"];
 export type LigneComparee = components["schemas"]["LigneCompareeGrilleReponse"];
 export type ProduitAbsent = components["schemas"]["ProduitAbsentReponse"];
+export type ContestationPrix = components["schemas"]["ContestationReponse"];
 export type ErreurImportLigne = components["schemas"]["ErreurImportReponse"];
 
 export function cleGrilleFournisseur(
@@ -44,6 +45,22 @@ export function obtenirGrilleFournisseur(
   const requete = parametres.toString();
   return appelerApi<GrilleFournisseur>("/api/grilles/fournisseurs/{fournisseur_id}", {
     url: `/api/grilles/fournisseurs/${fournisseurId}${requete ? `?${requete}` : ""}`,
+  });
+}
+
+/** Clé de requête des contestations : sous `["grille", fournisseurId]`, donc
+ * rafraîchie par les invalidations déjà faites après un import ou un retrait. */
+export function cleContestations(
+  fournisseurId: string,
+): readonly [string, string, string] {
+  return ["grille", fournisseurId, "contestations"] as const;
+}
+
+/** `GET /api/grilles/fournisseurs/{id}/contestations` (admin) : les prix
+ * contestés depuis la page Prix, plus récents d'abord. */
+export function listerContestations(fournisseurId: string): Promise<ContestationPrix[]> {
+  return appelerApi<ContestationPrix[]>("/api/grilles/fournisseurs/{fournisseur_id}/contestations", {
+    url: `/api/grilles/fournisseurs/${fournisseurId}/contestations`,
   });
 }
 
