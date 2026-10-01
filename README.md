@@ -233,9 +233,9 @@ résumé) ; rien d'autre ne change dans l'IA.
 
 | # | Demande du 01/10/2026 | Décision d'Ilane (01/10) | État au 01/10/2026 |
 | --- | --- | --- | --- |
-| 7a | Un bouton pour chercher le prix d'un produit sur internet avec l'IA | **D1** : le bouton est sur toutes les rangées de l'onglet Prix (alertes R19 à R25), pas seulement « Produit absent de la grille ». **D2** : l'IA reste allumée sur la démo seulement | **Codé, non fusionné, non déployé** (branche `feature/prix-contestations-recherche`). Le bouton n'apparaît que là où l'IA est allumée : donc sur la démo, jamais en production |
-| 7b | Voir les contestations (et leur commentaire) dans la grille de prix du fournisseur | **D3** : un lien « N contestations » sur la rangée du produit déplie l'historique, plus une section « Contestations de prix » sous le tableau (produits retirés de la grille compris). **D4** : les prix « ignorés » n'y figurent pas | **Codé, non fusionné, non déployé**. Marche sans IA : serait utile en production dès que le contrôle des prix y sera allumé |
-| 7c | Les contestations dans le résumé de la semaine fait par l'IA | **D4** : contestations seulement (pas les prix ignorés) ; **D2** : démo seulement | **Codé, non fusionné, non déployé** (migration 0016, consigne de l'agent `habitat-synthese` modifiée, image OpenCode de la démo à reconstruire) |
+| 7a | Un bouton pour chercher le prix d'un produit sur internet avec l'IA | **D1** : le bouton est sur toutes les rangées de l'onglet Prix (alertes R19 à R25), pas seulement « Produit absent de la grille ». **D2** : l'IA reste allumée sur la démo seulement | **Codé, non fusionné ; sur la démo depuis le 01/10/2026, pas en production** (branche `feature/prix-contestations-recherche`). Le bouton n'apparaît que là où l'IA est allumée : donc sur la démo, jamais en production |
+| 7b | Voir les contestations (et leur commentaire) dans la grille de prix du fournisseur | **D3** : un lien « N contestations » sur la rangée du produit déplie l'historique, plus une section « Contestations de prix » sous le tableau (produits retirés de la grille compris). **D4** : les prix « ignorés » n'y figurent pas | **Codé, non fusionné ; sur la démo depuis le 01/10/2026, pas en production**. Marche sans IA : serait utile en production dès que le contrôle des prix y sera allumé |
+| 7c | Les contestations dans le résumé de la semaine fait par l'IA | **D4** : contestations seulement (pas les prix ignorés) ; **D2** : démo seulement | **Codé, non fusionné ; sur la démo depuis le 01/10/2026, pas en production** (migration 0016, consigne de l'agent `habitat-synthese` modifiée, image OpenCode de la démo à reconstruire) |
 
 ### 2.5 Ce que le client a demandé avant, dans le cahier des charges
 
@@ -299,13 +299,13 @@ de démonstration.
 | Écran | Route | Accès | Ce qu'on y fait | Depuis |
 | --- | --- | --- | --- | --- |
 | Connexion | `/connexion` | Public | Se connecter (cookie httpOnly, 12 h glissantes) | 17/09 |
-| Vue d'ensemble | `/` | Admin | Sélecteur de mois ; chiffres du mois (facturé, conforme, écart, sans bon, montant des bons reçus, problèmes à régler, BL reçus/facturés) ; chantiers triés par montant à vérifier, avec pastille d'état ; problèmes prioritaires ; carte « Commentaires de la semaine » (IA ; affiche aussi le nombre de contestations de prix depuis le 01/10, non déployé) ; export Excel du détail du mois | 23/09 (refonte) ; carte IA 28/09 |
+| Vue d'ensemble | `/` | Admin | Sélecteur de mois ; chiffres du mois (facturé, conforme, écart, sans bon, montant des bons reçus, problèmes à régler, BL reçus/facturés) ; chantiers triés par montant à vérifier, avec pastille d'état ; problèmes prioritaires ; carte « Commentaires de la semaine » (IA ; affiche aussi le nombre de contestations de prix depuis le 01/10, démo seulement) ; export Excel du détail du mois | 23/09 (refonte) ; carte IA 28/09 |
 | À régler | `/a-regler`, `/a-regler/:id` | Admin | Liste unique de ce qui attend une décision (problèmes ouverts, documents à corriger, chantiers à rattacher), filtrable ; détail avec « pourquoi c'est signalé » chiffré, liens vers la facture et le bon ; traiter exige un commentaire (« Contesté auprès du fournisseur » ou « C'est normal, ignorer ») ; choix du chantier sur une alerte R18 ; avis de l'IA sur une alerte de prix | 23/09 ; R18 27/09 ; avis IA 28/09 |
 | Chantiers | `/chantiers`, `/chantiers/:id` | Admin | Liste et création ; filtre agence ; fiche (client, agence, livraisons cliquables, quatre chiffres, modification) ; chantiers « à compléter » ; **fusion** de deux chantiers | 23/09 ; à compléter et fusion 27/09 |
 | Fournisseurs | `/fournisseurs`, `/fournisseurs/:id` | Admin | Liste ; fiche avec chantiers concernés, **filtre par mois**, problèmes ouverts ; lien vers la grille de prix | 23/09 ; mois 27/09 |
-| Grille de prix | `/fournisseurs/:id/prix` | Admin | Prix en vigueur, recherche, ajout ou modification (nouvelle ligne d'historique), retrait, import Excel avec aperçu, modèle à télécharger ; **contestations** : lien « ⚑ N contestation(s) » sous un produit contesté qui déplie son historique (date, bon, prix du bon, prix de la grille, auteur, commentaire), et section « Contestations de prix (N) » sous le tableau, groupée par produit, avec la mention « absent de la grille » pour un produit retiré (section absente s'il n'y en a aucune ; la recherche de la grille ne la filtre pas) | 28/09 ; contestations 01/10 (non déployé) |
+| Grille de prix | `/fournisseurs/:id/prix` | Admin | Prix en vigueur, recherche, ajout ou modification (nouvelle ligne d'historique), retrait, import Excel avec aperçu, modèle à télécharger ; **contestations** : lien « ⚑ N contestation(s) » sous un produit contesté qui déplie son historique (date, bon, prix du bon, prix de la grille, auteur, commentaire), et section « Contestations de prix (N) » sous le tableau, groupée par produit, avec la mention « absent de la grille » pour un produit retiré (section absente s'il n'y en a aucune ; la recherche de la grille ne la filtre pas) | 28/09 ; contestations 01/10 (démo seulement) |
 | Livraisons | `/livraisons` | Admin | Bons « Conforme » (et autres états), filtrables par mois, agence, chantier, fournisseur ; clic vers le bon | 27/09 |
-| Prix à vérifier | `/prix` | Admin | Une rangée par produit en alerte (prix du bon, grille et sa date, dernier prix facturé et sa date, écart, ressemblance, colonne « Internet » si l'IA est allumée) ; Valider ce prix / Contester (commentaire obligatoire) / Ignorer ; recontrôle des bons. **Colonne « Internet » (si l'IA est allumée) sur toutes les rangées** : bouton « Chercher sur internet », puis « Recherche en cours… », puis le résultat avec « Relancer » (« introuvable » si rien de vérifiable), ou un message court avec « Réessayer » | 28/09 ; prix internet à plusieurs sources 29/09 (production le 30/09) ; bouton sur toutes les rangées 01/10 (non déployé) |
+| Prix à vérifier | `/prix` | Admin | Une rangée par produit en alerte (prix du bon, grille et sa date, dernier prix facturé et sa date, écart, ressemblance, colonne « Internet » si l'IA est allumée) ; Valider ce prix / Contester (commentaire obligatoire) / Ignorer ; recontrôle des bons. **Colonne « Internet » (si l'IA est allumée) sur toutes les rangées** : bouton « Chercher sur internet », puis « Recherche en cours… », puis le résultat avec « Relancer » (« introuvable » si rien de vérifiable), ou un message court avec « Réessayer » | 28/09 ; prix internet à plusieurs sources 29/09 (production le 30/09) ; bouton sur toutes les rangées 01/10 (démo seulement) |
 | Documents | `/documents`, `/documents/:id`, `/bl/:id` | Admin et agent (ses dépôts) | Liste filtrable ; dépôt d'une facture PDF (admin) ; **page BL** : photo, téléchargement nommé, tableau livré/facturé/prix/contrôle par ligne, correction de lecture, validation, archivage, relance de la lecture, **commentaires par ligne** | 23/09 ; commentaires 27/09 |
 | Comptes | `/comptes` | Admin | Créer, modifier, changer le mot de passe, retirer ou rétablir l'accès | 27/09 |
 | Journal | `/journal` | Admin | Journal des actions, en français, avec lien direct vers l'élément | 24/09 ; noms 27–28/09 |
@@ -505,7 +505,7 @@ ferme toutes les alertes du produit au statut « traitée », avec le commentair
 `Contesté : <texte>` (obligatoire), le nom de l'auteur et la date ; il écrit
 une entrée au journal par alerte et une pour l'action ; il ne touche jamais
 la grille. Une alerte fermée n'est jamais rouverte. **Depuis le 01/10/2026
-(non déployé)**, ces contestations se relisent à trois endroits : dans la
+(démo seulement)**, ces contestations se relisent à trois endroits : dans la
 grille du fournisseur (une contestation = une ligne de bon), dans la synthèse
 de la semaine, et elles restent dans le journal. Un prix « ignoré » ou
 « validé » n'est pas une contestation et n'apparaît pas dans ces deux
@@ -753,12 +753,12 @@ source de vérité unique du schéma (`ARCHITECTURE.md` §4).
 | 0013 | Grilles de prix (`grille_import`, `grille_prix`, historique inaltérable par déclencheur) |
 | 0014 | Tables de l'IA : `appel_ia`, `synthese_commentaires`, `synthese_action`, `explication_alerte`, `prix_internet` |
 | 0015 | `prix_internet.offres` (jusqu'à cinq offres) et reprise des prix déjà trouvés comme une offre unique |
-| 0016 | `synthese_commentaires.nb_contestations` (entier non nul, 0 par défaut) ; branche `feature/prix-contestations-recherche`, **non déployée** |
+| 0016 | `synthese_commentaires.nb_contestations` (entier non nul, 0 par défaut) ; branche `feature/prix-contestations-recherche`, **appliquée sur la démo le 01/10/2026**, pas en production |
 
 **En production au 30/09/2026 : jusqu'à la révision 0015.** La 0015 a été
 appliquée sur la démo puis en production le 30/09 (sauvegarde d'abord,
-coupure d'environ 15 secondes). **La 0016 n'est appliquée sur aucune
-instance** tant que la branche du 01/10 n'est pas déployée.
+coupure d'environ 15 secondes). **La 0016 est appliquée sur la démo
+seulement** (01/10/2026, 13 h 11 UTC, sauvegarde d'abord) ; la production reste en 0015.
 
 Conventions : identifiants UUID générés par la base (sauf `parametre`,
 `telegram_update`, `jeton_session`) ; montants en `numeric` lus en `Decimal` ;
@@ -839,13 +839,13 @@ Liste relue dans les décorateurs `@router.*` de `app/modules/api/*.py`
 | Commentaires | `GET /api/commentaires/documents/{id}` | tout compte connecté | Commentaires d'un bon (visibilité du bon) |
 | | `POST /api/commentaires/lignes/{id}` | tout compte connecté | Ajoute un commentaire (1 à 1 000 caractères) |
 | Grilles de prix | `GET /api/grilles/modele`, `GET /api/grilles/fournisseurs/{id}`, `.../produits/{cle}/historique` | admin | Modèle Excel, grille en vigueur, historique d'un produit |
-| | `GET /api/grilles/fournisseurs/{id}/contestations` (01/10, non déployée) | admin | Contestations de prix du fournisseur, plus récentes d'abord (500 au plus) ; 404 si le fournisseur n'existe pas |
+| | `GET /api/grilles/fournisseurs/{id}/contestations` (01/10, démo seulement) | admin | Contestations de prix du fournisseur, plus récentes d'abord (500 au plus) ; 404 si le fournisseur n'existe pas |
 | | `POST /api/grilles/fournisseurs/{id}/prix`, `.../retrait`, `.../import/apercu`, `.../import` | admin | Saisie, retrait, import avec aperçu puis confirmation |
 | Prix à vérifier | `GET /api/prix/alertes` | admin | Une rangée par produit en alerte |
 | | `POST /api/prix/valider`, `/contester`, `/ignorer`, `/recontrole` | admin | Valider (nouvelle ligne de grille), contester, ignorer, recontrôler les bons |
 | IA | `GET /api/ia/synthese`, `POST /api/ia/synthese/actions/{id}/faite`, `.../a-faire` | admin | Synthèse de la semaine, cocher une action |
-| | `GET /api/ia/anomalies/{id}`, `GET /api/ia/prix-internet` | admin | Avis de l'IA sur une alerte, prix internet groupés ; depuis le 01/10 (non déployé), pour toutes les alertes de prix R19 à R25 et avec un champ `recherches` (recherches en cours ou échouées, par identifiant d'anomalie) |
-| | `POST /api/ia/prix-internet/recherches` (01/10, non déployée) | admin | Lance la recherche d'un produit (corps `{"anomalie_id": …}`) ; 202 `lancee` ou `deja_en_cours` ; 404 si l'alerte n'est pas une alerte de prix ouverte et visible ; 409 si l'IA est éteinte ou le plafond du jour atteint |
+| | `GET /api/ia/anomalies/{id}`, `GET /api/ia/prix-internet` | admin | Avis de l'IA sur une alerte, prix internet groupés ; depuis le 01/10 (démo seulement), pour toutes les alertes de prix R19 à R25 et avec un champ `recherches` (recherches en cours ou échouées, par identifiant d'anomalie) |
+| | `POST /api/ia/prix-internet/recherches` (01/10, démo seulement) | admin | Lance la recherche d'un produit (corps `{"anomalie_id": …}`) ; 202 `lancee` ou `deja_en_cours` ; 404 si l'alerte n'est pas une alerte de prix ouverte et visible ; 409 si l'IA est éteinte ou le plafond du jour atteint |
 | Laboratoire IA | `GET /api/ia/labo/etat`, `.../appels`, `.../essais`, `.../essais/{id}` ; `POST /api/ia/labo/essais/prix`, `.../explication`, `.../synthese` | admin | Diagnostic, journal des appels, essais sans rien enregistrer |
 
 Les agrégats du Bilan et de la Vue d'ensemble sont calculés à la demande, sans
@@ -1059,7 +1059,7 @@ refuse de démarrer sinon, en nommant la variable manquante, jamais sa valeur).
 Installation, essai avant de se fier au prix internet et arrêt d'urgence :
 `docs/phase-4-ia.md`.
 
-### 12.10 Recherche à la demande et contestations (01/10/2026, non déployé)
+### 12.10 Recherche à la demande et contestations (01/10/2026, démo seulement)
 
 Branche `feature/prix-contestations-recherche`, spécification
 `docs/superpowers/specs/2026-10-01-prix-recherche-et-contestations-design.md`.
@@ -1304,7 +1304,7 @@ sur le serveur dédié n'est pas fait** (section 23).
 | Port local | `127.0.0.1:8450` | `127.0.0.1:8451` |
 | Domaine | https://habitat.ellumena.fr | https://demo.habitat.ellumena.fr |
 | Données | Réelles | Fictives (script de remplissage hors dépôt) |
-| Version déployée au 30/09/2026 | Étiquette `mise-en-prod-2026-09-30` (30/09, 07 h 31 UTC), migration 0015, IA éteinte, contrôle des prix éteint | Même version (30/09, 07 h 29 UTC), migration 0015, IA allumée |
+| Version déployée au 30/09/2026 | Étiquette `mise-en-prod-2026-09-30` (30/09, 07 h 31 UTC), migration 0015, IA éteinte, contrôle des prix éteint | Même version (30/09, 07 h 29 UTC), migration 0015, IA allumée ; puis le 01/10 (13 h 11 UTC) la branche `feature/prix-contestations-recherche`, migration 0016, image OpenCode reconstruite |
 
 ### 17.3 Fichiers Compose
 
@@ -1812,10 +1812,10 @@ D'après `docs/roadmap-octobre-2026.md` §2.
   chantiers à numéro).
 - **Non commencé** : lot 6. **Bloqué** : Drive, lecteur Point.P (aucun
   document), mesure de l'OCR (4 photos sur 30).
-- **Codé le 01/10/2026, non fusionné, non déployé** : branche
+- **Codé le 01/10/2026, non fusionné, déployé sur la démo seulement** (01/10, 13 h 11 UTC) : branche
   `feature/prix-contestations-recherche` (recherche de prix internet à la
   demande, contestations dans la grille du fournisseur et dans la synthèse de
-  la semaine, migration 0016). La production et la démo sont inchangées.
+  la semaine, migration 0016). La production est inchangée.
 - **Préparé, non validé, hors de ce passage** : scripts de supervision
   (`feature/exploitation-2`).
 - **Ouvert** : F-04 (aucune alerte si une sauvegarde manque) et les constats
@@ -1881,7 +1881,7 @@ et l'audit du 29/09/2026.
   formellement.
 - **Avenant §15 (IA)** : rédigé, marqué « à confirmer par Ilane ».
 - **Demandes du 01/10/2026 (onglet Prix)** : code fait sur la branche
-  `feature/prix-contestations-recherche`, **non fusionné, non déployé** ; la
+  `feature/prix-contestations-recherche`, **non fusionné, sur la démo seulement** ; la
   **production reste inchangée** (version du 30/09, migration 0015). L'IA y
   étant éteinte, le bouton « Chercher sur internet » et le résumé des
   contestations ne seront visibles que sur la démo ; seule la partie « grille
