@@ -11,6 +11,19 @@ import {
 import { formaterJourMois, periodeSemaine, TIRET } from "../lib/formats";
 import { Carte } from "../ui";
 
+/** Compteurs de la semaine : commentaires et prix contestés, seulement ceux
+ * qui existent ; « 0 commentaire » si aucun des deux. */
+function texteCompteurs(nbCommentaires: number, nbContestations: number): string {
+  const morceaux: string[] = [];
+  if (nbCommentaires > 0) {
+    morceaux.push(`${nbCommentaires} commentaire${nbCommentaires > 1 ? "s" : ""}`);
+  }
+  if (nbContestations > 0) {
+    morceaux.push(`${nbContestations} contestation${nbContestations > 1 ? "s" : ""}`);
+  }
+  return morceaux.length > 0 ? morceaux.join(" · ") : "0 commentaire";
+}
+
 /** Carte « Commentaires de la semaine » de la Vue d'ensemble (T5, phase 4 IA,
  * spec §4.6) : synthèse hebdomadaire des commentaires rédigée par l'IA (T4,
  * `GET /api/ia/synthese`) et ses actions à cocher. Montée par une seule
@@ -82,7 +95,7 @@ export function SyntheseCommentaires(): ReactElement | null {
             ) : (
               <>
                 <p className="text-xs font-medium text-encre-2">
-                  {derniere.nb_commentaires} commentaire{derniere.nb_commentaires > 1 ? "s" : ""}
+                  {texteCompteurs(derniere.nb_commentaires, derniere.nb_contestations)}
                 </p>
                 <TexteResume texte={derniere.resume} />
                 {actionsCetteSemaine.length > 0 && (

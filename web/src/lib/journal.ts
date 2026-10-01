@@ -531,6 +531,7 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   semaine_debut: "Semaine du",
   semaine_fin: "Jusqu'au",
   nb_commentaires: "Commentaires",
+  nb_contestations: "Contestations",
   nb_actions: "Actions",
   // Phase 3, tâche P9 (`ingest/prix_bl.py::valider_prix`/`contester_prix`/
   // `ignorer_prix`/`recontroler_depuis_page`) : clés propres aux quatre

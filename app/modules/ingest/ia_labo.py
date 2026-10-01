@@ -16,7 +16,7 @@ Principes (non négociables, brief LABO) :
 - **Aucune duplication** des textes envoyés ni des gardes : ce module appelle
   les mêmes fonctions de construction de texte
   (`ia_prix._texte_prix`/`_texte_explication`,
-  `ia_synthese._texte_synthese`/`_commentaires_de_la_semaine`) et de lecture
+  `ia_synthese._elements_de_la_semaine`) et de lecture
   (`extract.reponses_ia.lire_...`/`controles_...`) que la production -- jamais
   une seconde implémentation.
 - Le serveur tourne en un seul processus uvicorn (`CMD` du `Dockerfile` :
@@ -83,8 +83,7 @@ from app.modules.ingest.ia_prix import (
 )
 from app.modules.ingest.ia_synthese import (
     _bornes_semaine_paris,
-    _commentaires_de_la_semaine,
-    _texte_synthese,
+    _elements_de_la_semaine,
 )
 from app.modules.ingest.models import Anomalie, AppelIA, Document, Fournisseur
 from app.modules.ingest.opencode import (
@@ -710,8 +709,8 @@ async def _executer_essai_synthese(
 
 
 _RESUME_SEMAINE_VIDE = (
-    "Aucun commentaire cette semaine : pas de synthèse, l'IA n'est pas appelée "
-    "(comme en production)."
+    "Aucun commentaire ni contestation cette semaine : pas de synthèse, "
+    "l'IA n'est pas appelée (comme en production)."
 )
 
 
@@ -749,7 +748,7 @@ async def lancer_essai_synthese(
     `semaine_debut` doit être un lundi (`ValueError` sinon, l'API traduit en
     422). Charge les commentaires de la semaine et construit le texte
     exactement comme `ia_synthese.generer_synthese`
-    (`_commentaires_de_la_semaine`/`_texte_synthese`, mêmes fonctions,
+    (`_elements_de_la_semaine`/`texte`, mêmes fonctions,
     jamais dupliquées). Crée la trace `en_cours` et exécute l'appel à l'IA
     en tâche de fond. Renvoie l'identifiant de l'essai.
 
@@ -764,16 +763,12 @@ async def lancer_essai_synthese(
 
     debut_dt, fin_dt = _bornes_semaine_paris(semaine_debut)
     async with sessions() as session:
-        (
-            commentaires_envoyes,
-            commentaire_par_reference,
-            nb_total,
-        ) = await _commentaires_de_la_semaine(session, debut_dt, fin_dt)
-    if nb_total == 0:
+        elements = await _elements_de_la_semaine(session, debut_dt, fin_dt)
+    if elements.vide:
         return await _essai_synthese_semaine_vide(sessions)
 
-    texte = _texte_synthese(commentaires_envoyes, nb_total)
-    references_valides = frozenset(commentaire_par_reference.keys())
+    texte = elements.texte()
+    references_valides = elements.references_valides
 
     trace = TraceEssai(
         id=uuid.uuid4(),

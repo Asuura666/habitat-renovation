@@ -9625,6 +9625,10 @@
       "type": "integer",
       "title": "Nb Commentaires"
      },
+     "nb_contestations": {
+      "type": "integer",
+      "title": "Nb Contestations"
+     },
      "actions": {
       "items": {
        "$ref": "#/components/schemas/ActionSyntheseReponse"
@@ -9641,6 +9645,7 @@
      "statut",
      "resume",
      "nb_commentaires",
+     "nb_contestations",
      "actions"
     ],
     "title": "SyntheseReponse",

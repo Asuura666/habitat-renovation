@@ -1106,6 +1106,7 @@ class SyntheseReponse(BaseModel):
     statut: str
     resume: str
     nb_commentaires: int
+    nb_contestations: int
     actions: list[ActionSyntheseReponse]
 
 

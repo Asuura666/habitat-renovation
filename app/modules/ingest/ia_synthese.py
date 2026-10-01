@@ -26,6 +26,7 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as heure
+from decimal import Decimal
 from typing import Any, Literal
 
 import httpx
@@ -40,6 +41,7 @@ from app.modules.extract.reponses_ia import (
     SyntheseLue,
     lire_synthese,
 )
+from app.modules.ingest.contestations_prix import Contestation, charger_contestations
 from app.modules.ingest.models import (
     Commentaire,
     Document,
@@ -56,7 +58,8 @@ from app.modules.ingest.opencode import ErreurIA, IAIndisponible, ia_active, int
 # côté lecture ; celui-ci borne ce qui part *vers* l'IA).
 _COMMENTAIRES_MAX = 200
 _ENCORE_A_FAIRE_MAX = 20
-_RESUME_VIDE = "Aucun commentaire cette semaine."
+_CONTESTATIONS_MAX = 50
+_RESUME_VIDE = "Aucun commentaire ni contestation cette semaine."
 
 _JOURS_FR = (
     "lundi",
@@ -70,11 +73,12 @@ _JOURS_FR = (
 
 _CONSIGNE_SYNTHESE = (
     "Voici les commentaires laissés cette semaine par l'équipe sur des "
-    "lignes de bons de livraison. Résume-les en quelques phrases simples "
-    "pour le dirigeant, puis propose au plus dix actions concrètes à "
-    "mener ; chaque action cite, sans crochets (c1, c2, ...), les "
-    "références des commentaires sur lesquels elle s'appuie. Tu ne décides "
-    "rien : un humain choisira."
+    "lignes de bons de livraison, puis les prix contestés cette semaine "
+    "depuis la page Prix. Résume-les en quelques phrases simples pour le "
+    "dirigeant, puis propose au plus dix actions concrètes à mener ; chaque "
+    "action cite, sans crochets, les références sur lesquelles elle "
+    "s'appuie (c1, c2, ... pour un commentaire ; p1, p2, ... pour une "
+    "contestation). Tu ne décides rien : un humain choisira."
 )
 
 
@@ -144,10 +148,46 @@ class _CommentaireEnvoye:
     texte: str
 
 
-def _texte_synthese(commentaires: Sequence[_CommentaireEnvoye], nb_total: int) -> str:
+@dataclass(frozen=True)
+class _ContestationEnvoyee:
+    """Une contestation de prix telle qu'elle part vers l'IA (spec
+    2026-10-01 §5) -- jamais l'auteur, le chantier ni le client."""
+
+    reference: str
+    jour: date
+    fournisseur: str
+    produit: str
+    numeros_bons: tuple[str, ...]
+    prix_bon: Decimal | None
+    unite_bon: str | None
+    prix_grille: Decimal | None
+    commentaire: str
+
+
+def _montant(valeur: Decimal) -> str:
+    return f"{valeur:.2f}".replace(".", ",") + " €"
+
+
+def _texte_prix_conteste(contestation: _ContestationEnvoyee) -> str:
+    morceaux: list[str] = []
+    if contestation.prix_bon is not None:
+        unite = f" / {contestation.unite_bon}" if contestation.unite_bon else ""
+        morceaux.append(f"prix du bon {_montant(contestation.prix_bon)}{unite}")
+    if contestation.prix_grille is not None:
+        morceaux.append(f"grille {_montant(contestation.prix_grille)}")
+    return f" — {', '.join(morceaux)}" if morceaux else ""
+
+
+def _texte_synthese(
+    commentaires: Sequence[_CommentaireEnvoye],
+    nb_total: int,
+    contestations: Sequence[_ContestationEnvoyee] = (),
+    nb_contestations: int = 0,
+) -> str:
     """Texte envoyé à l'agent `habitat-synthese` (brief T4, étape 7) :
     consigne fixe, puis une ligne par commentaire du plus ancien au plus
-    récent (déjà l'ordre attendu de `commentaires`). Une phrase de troncature
+    récent (déjà l'ordre attendu de `commentaires`), puis les prix contestés
+    (spec 2026-10-01 §5). Une phrase de troncature
     est ajoutée quand `nb_total` (le nombre réel de commentaires de la
     semaine) dépasse le nombre envoyé (`_COMMENTAIRES_MAX` au plus)."""
     lignes = [_CONSIGNE_SYNTHESE]
@@ -166,6 +206,24 @@ def _texte_synthese(commentaires: Sequence[_CommentaireEnvoye], nb_total: int) -
             f"bon {numero_bon} — ligne « {commentaire.ligne_libelle} » : "
             f"{commentaire.texte}"
         )
+    if contestations:
+        lignes.append("Prix contestés cette semaine :")
+        if nb_contestations > len(contestations):
+            lignes.append(
+                f"{nb_contestations} contestations cette semaine ; "
+                f"les {len(contestations)} plus récentes ci-dessous."
+            )
+        for contestation in contestations:
+            jour_libelle = (
+                f"{_JOURS_FR[contestation.jour.weekday()]} {contestation.jour:%d/%m}"
+            )
+            bons = ", ".join(contestation.numeros_bons) or "inconnu"
+            lignes.append(
+                f"[{contestation.reference}] {jour_libelle} — "
+                f"{contestation.fournisseur} — produit « {contestation.produit} » — "
+                f"bon(s) {bons}{_texte_prix_conteste(contestation)} : "
+                f"{contestation.commentaire}"
+            )
     return "\n".join(lignes)
 
 
@@ -231,6 +289,102 @@ async def _commentaires_de_la_semaine(
     return commentaires_envoyes, commentaire_par_reference, nb_total
 
 
+async def _contestations_de_la_semaine(
+    session: AsyncSession, debut_dt: datetime, fin_dt: datetime
+) -> tuple[list[_ContestationEnvoyee], dict[str, tuple[uuid.UUID, ...]], int]:
+    """Contestations de la semaine regroupées par (fournisseur, produit,
+    commentaire), numérotées p1..pN du plus ancien au plus récent ;
+    `_CONTESTATIONS_MAX` plus récentes au plus (le nombre réel est rendu)."""
+    contestations = await charger_contestations(session, depuis=debut_dt, avant=fin_dt)
+    groupes: dict[tuple[uuid.UUID, str, str], list[Contestation]] = {}
+    for contestation in contestations:  # plus récentes d'abord
+        cle = (
+            contestation.fournisseur_id,
+            contestation.cle_produit,
+            contestation.commentaire,
+        )
+        groupes.setdefault(cle, []).append(contestation)
+    nb_total = len(groupes)
+    retenus = list(groupes.values())[:_CONTESTATIONS_MAX]
+    retenus.reverse()
+    envoyees: list[_ContestationEnvoyee] = []
+    documents: dict[str, tuple[uuid.UUID, ...]] = {}
+    for indice, groupe in enumerate(retenus, start=1):
+        reference = f"p{indice}"
+        recente = groupe[0]
+        chronologique = list(reversed(groupe))
+        documents[reference] = tuple(
+            dict.fromkeys(c.document_id for c in chronologique)
+        )
+        envoyees.append(
+            _ContestationEnvoyee(
+                reference=reference,
+                jour=recente.conteste_le.astimezone(FUSEAU_PARIS).date(),
+                fournisseur=recente.fournisseur_nom,
+                produit=recente.produit,
+                numeros_bons=tuple(
+                    dict.fromkeys(c.numero_bon or "inconnu" for c in chronologique)
+                ),
+                prix_bon=recente.prix_bon,
+                unite_bon=recente.unite_bon,
+                prix_grille=recente.prix_grille,
+                commentaire=recente.commentaire,
+            )
+        )
+    return envoyees, documents, nb_total
+
+
+@dataclass(frozen=True)
+class _ElementsSemaine:
+    """Tout ce qui part vers l'IA pour une semaine -- partagé par
+    `generer_synthese` et l'essai du Laboratoire IA (jamais deux
+    implémentations)."""
+
+    commentaires: list[_CommentaireEnvoye]
+    commentaire_par_reference: dict[str, Commentaire]
+    nb_commentaires: int
+    contestations: list[_ContestationEnvoyee]
+    documents_par_contestation: dict[str, tuple[uuid.UUID, ...]]
+    nb_contestations: int
+
+    @property
+    def vide(self) -> bool:
+        return self.nb_commentaires == 0 and self.nb_contestations == 0
+
+    @property
+    def references_valides(self) -> frozenset[str]:
+        return frozenset(self.commentaire_par_reference) | frozenset(
+            self.documents_par_contestation
+        )
+
+    def texte(self) -> str:
+        return _texte_synthese(
+            self.commentaires,
+            self.nb_commentaires,
+            self.contestations,
+            self.nb_contestations,
+        )
+
+
+async def _elements_de_la_semaine(
+    session: AsyncSession, debut_dt: datetime, fin_dt: datetime
+) -> _ElementsSemaine:
+    commentaires, par_reference, nb_commentaires = await _commentaires_de_la_semaine(
+        session, debut_dt, fin_dt
+    )
+    contestations, documents, nb_contestations = await _contestations_de_la_semaine(
+        session, debut_dt, fin_dt
+    )
+    return _ElementsSemaine(
+        commentaires=commentaires,
+        commentaire_par_reference=par_reference,
+        nb_commentaires=nb_commentaires,
+        contestations=contestations,
+        documents_par_contestation=documents,
+        nb_contestations=nb_contestations,
+    )
+
+
 # --------------------------------------------------------------------------
 # generer_synthese
 # --------------------------------------------------------------------------
@@ -249,6 +403,7 @@ async def _enregistrer_synthese_vide(
         statut="vide",
         resume=_RESUME_VIDE,
         nb_commentaires=0,
+        nb_contestations=0,
         modele=None,
     )
     session.add(synthese)
@@ -270,6 +425,7 @@ async def _enregistrer_synthese_vide(
                 "semaine_fin": semaine_fin.isoformat(),
                 "statut": "vide",
                 "nb_commentaires": 0,
+                "nb_contestations": 0,
                 "nb_actions": 0,
             },
         )
@@ -286,9 +442,11 @@ async def _enregistrer_synthese_ok(
     semaine_debut: date,
     semaine_fin: date,
     nb_commentaires: int,
+    nb_contestations: int,
     modele: str | None,
     synthese_lue: SyntheseLue,
     commentaire_par_reference: Mapping[str, Commentaire],
+    documents_par_contestation: Mapping[str, tuple[uuid.UUID, ...]],
 ) -> ResultatSynthese:
     """Écrit la synthèse et ses actions (brief T4, étape 9). Même course
     qu'`_enregistrer_synthese_vide`, vérifiée sur le même `flush` (avant
@@ -301,6 +459,7 @@ async def _enregistrer_synthese_ok(
         statut="ok",
         resume=synthese_lue.resume,
         nb_commentaires=nb_commentaires,
+        nb_contestations=nb_contestations,
         modele=modele,
     )
     session.add(synthese)
@@ -312,13 +471,20 @@ async def _enregistrer_synthese_ok(
 
     for ordre, action_lue in enumerate(synthese_lue.actions, start=1):
         commentaires_cites = [
-            commentaire_par_reference[reference] for reference in action_lue.references
+            commentaire_par_reference[reference]
+            for reference in action_lue.references
+            if reference in commentaire_par_reference
         ]
         document_ids: list[str] = []
         for commentaire in commentaires_cites:
             document_id = str(commentaire.document_id)
             if document_id not in document_ids:
                 document_ids.append(document_id)
+        for reference in action_lue.references:
+            for document_uuid in documents_par_contestation.get(reference, ()):
+                document_id = str(document_uuid)
+                if document_id not in document_ids:
+                    document_ids.append(document_id)
         session.add(
             SyntheseAction(
                 synthese_id=synthese.id,
@@ -341,6 +507,7 @@ async def _enregistrer_synthese_ok(
                 "semaine_fin": semaine_fin.isoformat(),
                 "statut": "ok",
                 "nb_commentaires": nb_commentaires,
+                "nb_contestations": nb_contestations,
                 "nb_actions": len(synthese_lue.actions),
             },
         )
@@ -366,10 +533,12 @@ async def generer_synthese(
        sans commentaire : la carte de l'accueil reste cachée tant que l'IA
        est éteinte) ;
     4. commentaires de la semaine (heure de Paris), avec le numéro du bon et
-       le fournisseur de son document ;
-    5. zéro commentaire -> `vide`, sans appel à l'IA ;
-    6. plus de 200 commentaires -> les 200 plus récents seulement envoyés
-       (`nb_commentaires` reste le compte réel) ;
+       le fournisseur de son document, et prix contestés de la semaine
+       (références `pN`, spec 2026-10-01 §5) ;
+    5. ni commentaire ni contestation -> `vide`, sans appel à l'IA ;
+    6. plus de 200 commentaires (ou 50 contestations) -> les plus récents
+       seulement envoyés (`nb_commentaires`/`nb_contestations` restent les
+       comptes réels) ;
     7. texte envoyé (`_texte_synthese`) ;
     8. `interroger` (usage `"synthese"`, agent `habitat-synthese`) ;
     9. réponse gardée par `lire_synthese`, puis écriture (`SyntheseCommentaires`
@@ -399,15 +568,11 @@ async def generer_synthese(
     semaine_fin = semaine_debut + timedelta(days=6)
     debut_dt, fin_dt = _bornes_semaine_paris(semaine_debut)
 
-    (
-        commentaires_envoyes,
-        commentaire_par_reference,
-        nb_total,
-    ) = await _commentaires_de_la_semaine(session, debut_dt, fin_dt)
-    if nb_total == 0:
+    elements = await _elements_de_la_semaine(session, debut_dt, fin_dt)
+    if elements.vide:
         return await _enregistrer_synthese_vide(session, semaine_debut, semaine_fin)
 
-    texte_envoye = _texte_synthese(commentaires_envoyes, nb_total)
+    texte_envoye = elements.texte()
 
     try:
         reponse = await interroger(
@@ -430,9 +595,7 @@ async def generer_synthese(
         )
 
     try:
-        synthese_lue = lire_synthese(
-            reponse.structure, commentaire_par_reference.keys()
-        )
+        synthese_lue = lire_synthese(reponse.structure, elements.references_valides)
     except ReponseIAInvalide:
         return ResultatSynthese(
             statut="echec", semaine_debut=semaine_debut, erreur="reponse_invalide"
@@ -442,10 +605,12 @@ async def generer_synthese(
         session,
         semaine_debut=semaine_debut,
         semaine_fin=semaine_fin,
-        nb_commentaires=nb_total,
+        nb_commentaires=elements.nb_commentaires,
+        nb_contestations=elements.nb_contestations,
         modele=reponse.modele,
         synthese_lue=synthese_lue,
-        commentaire_par_reference=commentaire_par_reference,
+        commentaire_par_reference=elements.commentaire_par_reference,
+        documents_par_contestation=elements.documents_par_contestation,
     )
 
 
@@ -486,6 +651,7 @@ class SyntheseVue:
     statut: str
     resume: str
     nb_commentaires: int
+    nb_contestations: int
     actions: tuple[ActionVue, ...]
 
 
@@ -625,6 +791,7 @@ async def vue_accueil(session: AsyncSession) -> SyntheseAccueil:
             statut=derniere_db.statut,
             resume=derniere_db.resume,
             nb_commentaires=derniere_db.nb_commentaires,
+            nb_contestations=derniere_db.nb_contestations,
             actions=tuple(
                 _construire_action_vue(
                     action,

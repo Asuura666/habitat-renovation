@@ -3492,6 +3492,8 @@ export interface components {
             resume: string;
             /** Nb Commentaires */
             nb_commentaires: number;
+            /** Nb Contestations */
+            nb_contestations: number;
             /** Actions */
             actions: components["schemas"]["ActionSyntheseReponse"][];
         };
