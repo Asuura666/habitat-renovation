@@ -106,6 +106,35 @@ async def test_contestation_reelle_visible_dans_la_grille(
     assert "R19" in c.regles
 
 
+async def test_bon_sans_code_retrouve_par_le_nom_rattache_a_la_grille(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    utilisateur = await _creer_utilisateur(db_session)
+    await _creer_prix_grille(db_session, fournisseur=fournisseur)
+    document = await _creer_bl(db_session, fournisseur=fournisseur)
+    await _creer_ligne(
+        db_session, document=document, code_brut=None, pu_ht=Decimal("12.00")
+    )
+    await _activer_controle(db_session)
+    await _controler(db_session, document.id)
+    ouvertes = await _anomalies_ouvertes_du_bon(db_session, document.id)
+    assert ouvertes
+    await contester_prix(
+        db_session,
+        anomalie_ids=[a.id for a in ouvertes],
+        commentaire="Remise oubliée inventée",
+        auteur_id=utilisateur.id,
+    )
+
+    resultat = await contestations_du_fournisseur(db_session, fournisseur.id)
+
+    assert len(resultat) == 1
+    assert resultat[0].designation_grille == "Produit inventé"
+    assert resultat[0].cle_produit == cle_produit("REF1", "Produit inventé")
+    assert resultat[0].dans_la_grille is True
+
+
 async def test_ignoree_et_validee_exclues(db_session: AsyncSession) -> None:
     fournisseur = await _creer_fournisseur(db_session)
     document = await _creer_bl(db_session, fournisseur=fournisseur)

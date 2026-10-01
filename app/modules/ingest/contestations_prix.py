@@ -29,6 +29,7 @@ from app.modules.ingest.models import (
     Utilisateur,
 )
 from app.modules.ingest.prix_bl import PREFIXE_CONTESTATION, cle_produit_alerte
+from app.modules.normalize.texte import normaliser_libelle
 from app.modules.rules.engine import REGLES_PRIX_BL
 
 CONTESTATIONS_MAX = 500
@@ -55,6 +56,7 @@ class Contestation:
     regles: tuple[str, ...]
     commentaire: str
     cle_produit: str
+    designation_grille: str | None = None
     dans_la_grille: bool = False
 
 
@@ -184,6 +186,7 @@ async def charger_contestations(
                     PREFIXE_CONTESTATION
                 ),
                 cle_produit=cle_produit_alerte(ligne, anomalies),
+                designation_grille=_premiere_valeur(anomalies, "designation_grille"),
             )
         )
     return contestations
@@ -202,11 +205,26 @@ async def contestations_du_fournisseur(
     if not contestations:
         return []
     en_vigueur = await prix_en_vigueur(
-        session,
-        fournisseur_id,
-        datetime.now(FUSEAU_PARIS).date(),
-        cles={c.cle_produit for c in contestations},
+        session, fournisseur_id, datetime.now(FUSEAU_PARIS).date()
     )
-    return [
-        replace(c, dans_la_grille=c.cle_produit in en_vigueur) for c in contestations
-    ]
+    # Un produit retrouvé par le nom (bon sans code) a, côté bon, une clé
+    # `nom:...` alors que sa rangée de grille peut porter `ref:...` : on
+    # rattache alors la contestation à la rangée par la désignation.
+    cle_par_designation = {
+        normaliser_libelle(p.designation): cle for cle, p in en_vigueur.items()
+    }
+    rattachees: list[Contestation] = []
+    for c in contestations:
+        if c.cle_produit in en_vigueur:
+            rattachees.append(replace(c, dans_la_grille=True))
+            continue
+        cle_grille = (
+            cle_par_designation.get(normaliser_libelle(c.designation_grille))
+            if c.designation_grille
+            else None
+        )
+        if cle_grille is None:
+            rattachees.append(c)
+        else:
+            rattachees.append(replace(c, cle_produit=cle_grille, dans_la_grille=True))
+    return rattachees

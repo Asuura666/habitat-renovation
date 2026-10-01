@@ -366,6 +366,62 @@ async def test_contestations_fournisseur_admin_200(
     assert corps[0]["dans_la_grille"] is False
 
 
+async def test_contestations_fournisseur_produit_retrouve_par_le_nom(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    await _creer_utilisateur(
+        db_session, email="admin.contest-nom@example.invalid", role="admin"
+    )
+    fournisseur = await _creer_fournisseur(db_session)
+    db_session.add(
+        GrillePrix(
+            fournisseur_id=fournisseur.id,
+            cle_produit="ref:ref1",
+            reference="REF1",
+            designation="Produit inventé",
+            unite_brut=None,
+            unite=None,
+            prix_ht=Decimal("10"),
+            prix_net=Decimal("10.0000"),
+            date_effet=date(2020, 1, 1),
+            source="saisie",
+        )
+    )
+    await db_session.commit()
+    document, ligne = await _creer_bon_et_ligne(db_session, fournisseur)
+    await _creer_anomalie_fermee(
+        db_session,
+        document=document,
+        ligne=ligne,
+        commentaire="Contesté : remise oubliée inventée",
+        detail={
+            "produit": "Produit inventé",
+            "code": "—",
+            "prix_bon": "12.00",
+            "prix_grille": "10.00",
+            "designation_grille": "Produit inventé",
+            "methode": "nom",
+        },
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.contest-nom@example.invalid")
+
+    reponse = await _requete(
+        app_test,
+        "GET",
+        f"/api/grilles/fournisseurs/{fournisseur.id}/contestations",
+        cookie=cookie,
+    )
+
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert len(corps) == 1
+    assert corps[0]["cle_produit"] == "ref:ref1"
+    assert corps[0]["dans_la_grille"] is True
+
+
 async def test_contestations_fournisseur_sans_contestation_renvoie_liste_vide(
     db_session: AsyncSession,
     sessions_test: async_sessionmaker[AsyncSession],
