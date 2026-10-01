@@ -132,13 +132,14 @@ Colonne « Internet », visible seulement si `ia_active` (inchangé), sur
 - `ContestationVue` : `conteste_le` (`traitee_le`), `auteur` (nom de
   l'utilisateur), `document_id`, `numero_bon`, `date_bon`, `produit`
   (désignation du bon), `code`, `prix_bon`, `unite_bon`, `prix_grille` (celui
-  de l'alerte, s'il existe), `ecart_pct` (s'il existe), `alertes` (libellés
-  des règles), `commentaire` (sans le préfixe « Contesté : »), `cle_produit`
+  de l'alerte, s'il existe), `regles` (codes des règles, affichés par
+  `titreRegle` côté écran), `commentaire` (sans le préfixe « Contesté : »),
+  `cle_produit`
   (même calcul que `_cle_groupe`), `dans_la_grille` (la clé correspond à un
   produit **actuellement** dans la grille du fournisseur).
 - **Route** `GET /api/grilles/fournisseurs/{fournisseur_id}/contestations`
   (admin) ; `404` si le fournisseur n'existe pas.
-- Aucune migration : tout est lu dans `anomalie`, `ligne`, `document`,
+- Aucune migration pour cette partie : tout est lu dans `anomalie`, `ligne`, `document`,
   `utilisateur` et `grille_prix`. Les contestations déjà faites apparaissent.
 
 ### 4.2 Écran (`/fournisseurs/:id/prix`)
@@ -168,11 +169,18 @@ Colonne « Internet », visible seulement si `ia_active` (inchangé), sur
   l'union des deux ensembles de références valides (signature inchangée).
 - `SyntheseAction` : `commentaire_ids` = commentaires cités ; `document_ids`
   = bons des commentaires **et** des contestations cités (les liens « bon »
-  de l'accueil marchent donc pour les deux). Aucune migration.
+  de l'accueil marchent donc pour les deux).
 - Semaine **sans commentaire ni contestation** : `vide`, aucune
   sollicitation de l'IA, résumé « Aucun commentaire ni contestation cette
   semaine. ». Une semaine avec seulement des contestations est résumée.
 - Le journal `synthese_generee` ajoute `nb_contestations`.
+- **Migration `0016`** : colonne `synthese_commentaires.nb_contestations`
+  (entier, 0 par défaut). La carte « Commentaires de la semaine » de
+  l'accueil affiche « N commentaires · M contestations » (parties nulles
+  omises).
+- La consigne de l'agent `habitat-synthese` (`deploy/opencode/opencode.json`)
+  décrit aussi les contestations (`pN`) : l'image OpenCode de la démo est à
+  reconstruire au déploiement.
 - L'essai de synthèse du Laboratoire IA utilise le même chargement (aucune
   seconde implémentation).
 - Les synthèses déjà générées ne sont pas refaites.
@@ -201,9 +209,11 @@ modification de la grille par une contestation.
   et la limite d'échecs, plafond atteint pendant la recherche (rien écrit,
   état `echec`), enregistrement identique à `ia-prix` (même fonction), état
   en mémoire expiré après 15 minutes, lecture groupée sur R19–R25 et champ
-  `recherche`, accès admin seulement ; écran : bouton, « Recherche en
-  cours… », relecture toutes les 10 s puis arrêt, « Relancer »,
-  « Réessayer », message d'un `409`.
+  `recherche`, accès admin seulement.
+- **Écran** (A, B, C) : le front n'a pas d'outil de tests dans la stack ;
+  il est vérifié par `tsc --noEmit`, `vite build` et une vérification
+  visuelle (bouton, « Recherche en cours… », « Relancer », dépliage d'une
+  rangée de grille, section, compteur de la carte).
 - **B** : seules les contestations (pas les ignorées, ni les validées, ni
   les autres règles), une entrée par ligne de bon, préfixe retiré, bon
   archivé exclu, autre fournisseur exclu, `dans_la_grille` vrai/faux (dont
@@ -219,7 +229,7 @@ modification de la grille par une contestation.
 ## 9. Livraison
 
 Une branche, une PR vers `dev`, relecture, puis déploiement **sur la démo
-seulement**. Le passage en production attend l'accord d'Ilane (la partie B y
+seulement** (API, migration 0016, image OpenCode reconstruite). Le passage en production attend l'accord d'Ilane (la partie B y
 serait utile dès que le contrôle des prix sera allumé ; A et C y restent
 inactives tant que l'IA est éteinte). README et `docs/dette.md` mis à jour
 dans la même PR.
