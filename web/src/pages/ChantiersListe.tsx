@@ -17,19 +17,30 @@ import {
   CLE_CHANTIERS_SILENCIEUX,
   CLE_DEPOTS_PAR_AGENT,
   type Chantier,
+  type ChantierDuMois,
+  cleChantiersDuMois,
   ChantierEnDoubleErreur,
   type ChantierSilencieux,
   creerChantier,
   type DepotAgent,
   listerChantiers,
+  listerChantiersDuMois,
   obtenirAgences,
   obtenirChantiersSansDepot,
   obtenirDepotsParAgent,
 } from "../api/referentiels";
 import { CLE_PARAMETRES, listerParametres } from "../api/parametres";
 import { cleTableauDeBord, obtenirTableauDeBord, type TableauDeBord } from "../api/tableauDeBord";
-import { estMontantNul, formaterDateHeure, formaterMontant, lireMois, moisApi, TIRET } from "../lib/formats";
-import { Bouton, Carte, EnTetePage, type Etat, EtatVide, PastilleACompleter, PastilleEtat } from "../ui";
+import {
+  estMontantNul,
+  formaterDateHeure,
+  formaterMontant,
+  lireMois,
+  moisApi,
+  moisCourantParis,
+  TIRET,
+} from "../lib/formats";
+import { Bouton, Carte, EnTetePage, type Etat, EtatVide, Filtres, PastilleACompleter, PastilleEtat } from "../ui";
 
 const CLASSES_CHAMP =
   "min-h-[44px] w-full rounded-lg border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent";
@@ -44,7 +55,7 @@ const CLASSES_LIEN_EXPORT =
  * en orange faisait croire à un problème et diluait l'alerte). Choix de
  * présentation sur une valeur du serveur, jamais un calcul. */
 function classeMontant(valeur: string | null, classeSiNonNul: string): string {
-  return estMontantNul(valeur) ? "text-encre-2" : classeSiNonNul;
+  return valeur === null || estMontantNul(valeur) ? "text-encre-2" : classeSiNonNul;
 }
 
 /** Une ligne de tableau affichable, qu'elle vienne du bilan brut (tous les
@@ -63,10 +74,17 @@ interface LigneChantierAffichee {
   agence: string | null;
   etat: Etat | null;
   aVerifier: string | null;
-  factureHt: string;
+  /** `null` : aucun montant connu pour ce chantier sur la période (un tiret
+   * s'affiche). */
+  factureHt: string | null;
   enEcart: string | null;
   nonJustifie: string | null;
-  problemes: number;
+  problemes: number | null;
+  /** Vue « du mois » seulement : bons déposés ce mois-ci (`null` ailleurs). */
+  nbBons: number | null;
+  /** Vue « tous » seulement : `null` pour la ligne « à rattacher ». */
+  actif: boolean | null;
+  aCompleter: boolean;
 }
 
 function depuisBilan(lignes: LigneBilanChantier[]): LigneChantierAffichee[] {
@@ -81,6 +99,9 @@ function depuisBilan(lignes: LigneBilanChantier[]): LigneChantierAffichee[] {
     enEcart: ligne.montants.en_ecart,
     nonJustifie: ligne.montants.non_justifie,
     problemes: ligne.montants.nb_anomalies_ouvertes,
+    nbBons: null,
+    actif: null,
+    aCompleter: false,
   }));
 }
 
@@ -105,7 +126,62 @@ function depuisTableauDeBord(
       enEcart: null,
       nonJustifie: null,
       problemes: chantier.montants.nb_anomalies_ouvertes,
+      nbBons: null,
+      actif: null,
+      aCompleter: false,
     }));
+}
+
+type Vue = "mois" | "tous";
+
+/** Une ligne par chantier de la vue choisie, jointe par identifiant aux
+ * montants déjà chargés (bilan ou tableau de bord selon « Mois de
+ * facturation ») : la liste des chantiers vient du serveur (`du-mois`) ou du
+ * référentiel complet, jamais d'un calcul ici. Un chantier sans montant
+ * garde des tirets. Les montants « sans chantier » (chantier à rattacher)
+ * restent en fin de liste, comme avant. */
+function lignesDeLaVue(
+  vue: Vue,
+  chantiers: Chantier[],
+  duMois: ChantierDuMois[] | undefined,
+  montants: LigneChantierAffichee[],
+  agence: string | undefined,
+): LigneChantierAffichee[] {
+  const montantsParId = new Map<string, LigneChantierAffichee>();
+  const sansChantier: LigneChantierAffichee[] = [];
+  for (const ligne of montants) {
+    if (ligne.chantierId === null) sansChantier.push(ligne);
+    else montantsParId.set(ligne.chantierId, ligne);
+  }
+  const base: { chantier: Chantier; nbBons: number | null }[] =
+    vue === "tous"
+      ? chantiers
+          .filter((chantier) => agence === undefined || chantier.agence === agence)
+          .sort((a, b) => a.nom_canonique.localeCompare(b.nom_canonique, "fr"))
+          .map((chantier) => ({ chantier, nbBons: null }))
+      : (duMois ?? []).flatMap((ligne) => {
+          const chantier = chantiers.find((candidat) => candidat.id === ligne.chantier_id);
+          return chantier === undefined ? [] : [{ chantier, nbBons: ligne.nb_bons }];
+        });
+  const lignes = base.map(({ chantier, nbBons }): LigneChantierAffichee => {
+    const montant = montantsParId.get(chantier.id);
+    return {
+      chantierId: chantier.id,
+      nom: chantier.nom_canonique,
+      client: chantier.client,
+      agence: chantier.agence,
+      etat: montant?.etat ?? null,
+      aVerifier: montant?.aVerifier ?? null,
+      factureHt: montant?.factureHt ?? null,
+      enEcart: montant?.enEcart ?? null,
+      nonJustifie: montant?.nonJustifie ?? null,
+      problemes: montant?.problemes ?? null,
+      nbBons,
+      actif: vue === "tous" ? chantier.actif : null,
+      aCompleter: vue === "tous" && chantier.a_completer,
+    };
+  });
+  return [...lignes, ...sansChantier];
 }
 
 /** « Chantier à rattacher » (corrections de revue, tour 4, constat 2) :
@@ -166,7 +242,17 @@ function NomChantier({ ligne, mois }: { ligne: LigneChantierAffichee; mois: stri
  * n'aurait pas agrandi la zone cliquable elle-même. Le nom reste un texte
  * simple ici (pas de `NomChantier` imbriqué : un `<a>` ne peut pas contenir
  * un autre `<a>`), la carte entière porte le lien. */
-function CarteChantier({ ligne, mois }: { ligne: LigneChantierAffichee; mois: string | undefined }): ReactElement {
+function CarteChantier({
+  ligne,
+  mois,
+  vue,
+  avecEtat,
+}: {
+  ligne: LigneChantierAffichee;
+  mois: string | undefined;
+  vue: Vue;
+  avecEtat: boolean;
+}): ReactElement {
   return (
     <li>
       <Link
@@ -179,6 +265,12 @@ function CarteChantier({ ligne, mois }: { ligne: LigneChantierAffichee; mois: st
             <p className="text-sm text-encre-2">
               {ligne.client ?? "Client non renseigné"} · {ligne.agence ?? "Agence non renseignée"}
             </p>
+            {vue === "tous" && ligne.actif !== null && (
+              <p className={`mt-1 text-xs font-medium ${ligne.actif ? "text-conforme" : "text-encre-2"}`}>
+                {ligne.actif ? "Actif" : "Inactif"}
+              </p>
+            )}
+            {ligne.aCompleter && <PastilleACompleter className="mt-1" />}
           </div>
           {ligne.etat !== null && <PastilleEtat etat={ligne.etat} />}
         </div>
@@ -187,7 +279,13 @@ function CarteChantier({ ligne, mois }: { ligne: LigneChantierAffichee; mois: st
             <dt className="text-xs text-encre-2">Facturé</dt>
             <dd className="font-mono tabular-nums text-encre">{formaterMontant(ligne.factureHt)}</dd>
           </div>
-          {ligne.etat !== null ? (
+          {vue === "mois" && (
+            <div>
+              <dt className="text-xs text-encre-2">Bons du mois</dt>
+              <dd className="text-encre">{ligne.nbBons ?? TIRET}</dd>
+            </div>
+          )}
+          {avecEtat ? (
             <div>
               <dt className="text-xs text-encre-2">À vérifier</dt>
               <dd className={`font-mono tabular-nums ${classeMontant(ligne.aVerifier, "text-ecart-texte")}`}>
@@ -212,7 +310,7 @@ function CarteChantier({ ligne, mois }: { ligne: LigneChantierAffichee; mois: st
           )}
           <div>
             <dt className="text-xs text-encre-2">Problèmes</dt>
-            <dd className="text-encre">{ligne.problemes}</dd>
+            <dd className="text-encre">{ligne.problemes ?? TIRET}</dd>
           </div>
         </dl>
       </Link>
@@ -223,19 +321,27 @@ function CarteChantier({ ligne, mois }: { ligne: LigneChantierAffichee; mois: st
 function TableauChantiers({
   lignes,
   mois,
+  vue,
+  avecEtat,
 }: {
   lignes: LigneChantierAffichee[];
   mois: string | undefined;
+  vue: Vue;
+  avecEtat: boolean;
 }): ReactElement {
-  const avecEtat = lignes.some((ligne) => ligne.etat !== null);
   return (
     <div className="hidden overflow-x-auto rounded-carte border border-bordure bg-surface md:block">
-      <table className="w-full min-w-[880px] divide-y divide-bordure text-sm">
+      <table className="w-full min-w-[960px] divide-y divide-bordure text-sm">
         <caption className="sr-only">Chantiers</caption>
         <thead className="text-left text-xs font-medium uppercase tracking-wide text-encre-2">
           <tr>
             <th scope="col" className="px-4 py-3">Chantier · client</th>
             <th scope="col" className="px-4 py-3">Agence</th>
+            {vue === "mois" ? (
+              <th scope="col" className="px-4 py-3 text-right">Bons du mois</th>
+            ) : (
+              <th scope="col" className="px-4 py-3">Statut</th>
+            )}
             {avecEtat && <th scope="col" className="px-4 py-3">État</th>}
             <th scope="col" className="px-4 py-3 text-right">Facturé</th>
             {avecEtat ? (
@@ -257,6 +363,18 @@ function TableauChantiers({
                 <p className="text-xs font-normal text-encre-2">{ligne.client ?? "Client non renseigné"}</p>
               </th>
               <td className="px-4 py-3 text-encre-2">{ligne.agence ?? TIRET}</td>
+              {vue === "mois" ? (
+                <td className="px-4 py-3 text-right text-encre">{ligne.nbBons ?? TIRET}</td>
+              ) : (
+                <td className="px-4 py-3">
+                  {ligne.actif !== null && (
+                    <span className={`font-medium ${ligne.actif ? "text-conforme" : "text-encre-2"}`}>
+                      {ligne.actif ? "Actif" : "Inactif"}
+                    </span>
+                  )}
+                  {ligne.aCompleter && <PastilleACompleter className="ml-2" />}
+                </td>
+              )}
               {avecEtat && (
                 <td className="px-4 py-3">{ligne.etat !== null && <PastilleEtat etat={ligne.etat} />}</td>
               )}
@@ -283,7 +401,7 @@ function TableauChantiers({
                   </td>
                 </>
               )}
-              <td className="px-4 py-3 text-right text-encre">{ligne.problemes}</td>
+              <td className="px-4 py-3 text-right text-encre">{ligne.problemes ?? TIRET}</td>
             </tr>
           ))}
         </tbody>
@@ -295,9 +413,13 @@ function TableauChantiers({
 function ListeChantiers({
   lignes,
   mois,
+  vue,
+  avecEtat,
 }: {
   lignes: LigneChantierAffichee[];
   mois: string | undefined;
+  vue: Vue;
+  avecEtat: boolean;
 }): ReactElement {
   if (lignes.length === 0) {
     return <EtatVide message="Aucun chantier pour ces filtres." />;
@@ -306,12 +428,40 @@ function ListeChantiers({
     <>
       <ul className="space-y-3 md:hidden">
         {lignes.map((ligne, index) => (
-          <CarteChantier key={ligne.chantierId ?? `non-resolu-${index}`} ligne={ligne} mois={mois} />
+          <CarteChantier
+            key={ligne.chantierId ?? `non-resolu-${index}`}
+            ligne={ligne}
+            mois={mois}
+            vue={vue}
+            avecEtat={avecEtat}
+          />
         ))}
       </ul>
-      <TableauChantiers lignes={lignes} mois={mois} />
+      <TableauChantiers lignes={lignes} mois={mois} vue={vue} avecEtat={avecEtat} />
     </>
   );
+}
+
+/** Clé du navigateur qui retient si la carte « sans bon déposé » est
+ * dépliée (repliée tant qu'aucun choix n'est enregistré). Lecture et écriture
+ * dans un `try/catch` : en navigation privée, le stockage peut être
+ * indisponible, la carte reste alors simplement repliée au chargement. */
+const CLE_SILENCIEUX_OUVERT = "habitat.chantiers.silencieux.ouvert";
+
+function lireSilencieuxOuvert(): boolean {
+  try {
+    return window.localStorage.getItem(CLE_SILENCIEUX_OUVERT) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function ecrireSilencieuxOuvert(ouvert: boolean): void {
+  try {
+    window.localStorage.setItem(CLE_SILENCIEUX_OUVERT, ouvert ? "1" : "0");
+  } catch {
+    // Stockage indisponible : le choix n'est simplement pas retenu.
+  }
 }
 
 /** Bandeau « Chantiers sans bon déposé depuis N jours » (reprise de
@@ -332,6 +482,12 @@ function BandeauSilencieux({
   chantiers: ChantierSilencieux[];
   delaiJours: string | undefined;
 }): ReactElement {
+  const [ouvert, setOuvert] = useState(lireSilencieuxOuvert);
+  function basculer(): void {
+    const suivant = !ouvert;
+    setOuvert(suivant);
+    ecrireSilencieuxOuvert(suivant);
+  }
   // Revue finale (constat COUVERTURE-20) : le délai est un réglage
   // (`delai_chantier_silencieux_j`, écran Réglages) — le titre ne l'écrit
   // plus en dur (« 7 jours » devenait faux dès qu'il changeait) ; valeur lue
@@ -350,8 +506,24 @@ function BandeauSilencieux({
     );
   }
   return (
-    <Carte titre={titre} className="border-ecart">
-      <ul className="space-y-2 text-sm">
+    <Carte className="border-ecart">
+      <h2 className="font-titre text-xl font-medium text-encre">
+        <button
+          type="button"
+          aria-expanded={ouvert}
+          aria-controls="liste-chantiers-silencieux"
+          onClick={basculer}
+          className="flex min-h-[44px] w-full items-center justify-between gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <span>
+            {titre} ({chantiers.length})
+          </span>
+          <span aria-hidden="true" className="text-encre-2">
+            {ouvert ? "▾" : "▸"}
+          </span>
+        </button>
+      </h2>
+      <ul id="liste-chantiers-silencieux" hidden={!ouvert} className="mt-4 space-y-2 text-sm">
         {chantiers.map((chantier) => (
           <li key={chantier.chantier_id} className="flex flex-wrap items-baseline justify-between gap-2 border-b border-bordure py-2 last:border-0">
             <span className="font-medium text-encre">
@@ -371,106 +543,6 @@ function BandeauSilencieux({
           </li>
         ))}
       </ul>
-    </Carte>
-  );
-}
-
-/** Référentiel complet des chantiers (fix round 1, constat 1) :
- * `GET /api/bilan/chantiers` (table financière ci-dessus) ne remonte que
- * les chantiers ayant déjà au moins un bloc de facture
- * (`ingest/bilan.py::_sous_requete_blocs`) — un chantier tout juste créé,
- * dont les BL sont déposés mais pas encore facturés, ou inactif, n'y
- * apparaît donc jamais : sa fiche restait inatteignable, faute du moindre
- * lien vers elle. Cette carte liste tous les chantiers du référentiel
- * (`listerChantiers`, déjà chargé pour le formulaire de création),
- * filtrée par agence comme le reste de l'écran — jamais par mois, un
- * chantier existe indépendamment de toute facturation — avec le statut
- * Actif/Inactif (disparu de la liste depuis l'ancien `Chantiers.tsx`).
- * Fix round 2 (constat 1) : ses liens vers la fiche (`lienChantier(...,
- * undefined)`) ne reportent plus le mois choisi sur cet écran — avant,
- * cliquer un chantier sans facture ce mois-ci depuis cette carte ouvrait
- * sa fiche filtrée sur ce mois, qui affichait alors « Aucune livraison
- * enregistrée » même quand le chantier avait des livraisons sur d'autres
- * mois (voir aussi `FicheChantier.tsx`, « Dernier bon retrouvé sur une
- * facture » recalculée sans filtre de mois). */
-function CarteTousLesChantiers({
-  chantiers,
-  agence,
-}: {
-  chantiers: Chantier[];
-  agence: string | undefined;
-}): ReactElement {
-  const filtres =
-    agence === undefined ? chantiers : chantiers.filter((chantier) => chantier.agence === agence);
-  const tries = [...filtres].sort((a, b) => a.nom_canonique.localeCompare(b.nom_canonique, "fr"));
-
-  return (
-    <Carte titre={`Tous les chantiers (${tries.length})`}>
-      {tries.length === 0 ? (
-        <EtatVide message="Aucun chantier pour ces filtres." />
-      ) : (
-        <>
-          {/* Cartes téléphone (< md) : toute la carte est cliquable
-              (corrections de revue, tour 4, constat 1), comme
-              `CarteChantierConcerne` (`FicheFournisseur.tsx`, Task 9) —
-              avant, seul le nom (un lien texte sans marge intérieure)
-              ouvrait la fiche, avec une zone à toucher sous les 44 px
-              exigés. */}
-          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:hidden">
-            {tries.map((chantier) => (
-              <li key={chantier.id}>
-                <Link
-                  to={lienChantier(chantier.id, undefined)}
-                  className="block rounded-lg border border-bordure p-3 outline-none transition-colors hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
-                >
-                  <p className="font-medium text-encre">{chantier.nom_canonique}</p>
-                  <p className="mt-1 text-xs text-encre-2">
-                    {chantier.client ?? "Client non renseigné"} · {chantier.agence ?? "Agence non renseignée"}
-                  </p>
-                  <p className={`mt-1 text-xs font-medium ${chantier.actif ? "text-conforme" : "text-encre-2"}`}>
-                    {chantier.actif ? "Actif" : "Inactif"}
-                  </p>
-                  {chantier.a_completer && <PastilleACompleter className="mt-1" />}
-                </Link>
-              </li>
-            ))}
-          </ul>
-          <div className="hidden overflow-x-auto md:block">
-            <table className="w-full min-w-[640px] divide-y divide-bordure text-sm">
-              <caption className="sr-only">Tous les chantiers du référentiel</caption>
-              <thead className="text-left text-xs font-medium uppercase tracking-wide text-encre-2">
-                <tr>
-                  <th scope="col" className="px-4 py-3">Chantier · client</th>
-                  <th scope="col" className="px-4 py-3">Agence</th>
-                  <th scope="col" className="px-4 py-3">Statut</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-bordure">
-                {tries.map((chantier) => (
-                  <tr key={chantier.id}>
-                    <th scope="row" className="px-4 py-3 text-left font-medium text-encre">
-                      <Link
-                        to={lienChantier(chantier.id, undefined)}
-                        className="font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
-                      >
-                        {chantier.nom_canonique}
-                      </Link>
-                      <p className="text-xs font-normal text-encre-2">{chantier.client ?? "Client non renseigné"}</p>
-                    </th>
-                    <td className="px-4 py-3 text-encre-2">{chantier.agence ?? TIRET}</td>
-                    <td className="px-4 py-3">
-                      <span className={`font-medium ${chantier.actif ? "text-conforme" : "text-encre-2"}`}>
-                        {chantier.actif ? "Actif" : "Inactif"}
-                      </span>
-                      {chantier.a_completer && <PastilleACompleter className="ml-2" />}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
     </Carte>
   );
 }
@@ -677,6 +749,12 @@ export function ChantiersListe(): ReactElement {
     agence: parametres.get("agence") || undefined,
   };
   const moisChoisi = mois !== undefined;
+  // Vue choisie (`?vue=tous`, absent = chantiers du mois) et mois des
+  // chantiers (`?mois_chantiers=AAAA-MM`, mois en cours par défaut) : deux
+  // réglages distincts du « Mois de facturation » ci-dessus, qui ne pilote
+  // que les montants.
+  const vue: Vue = parametres.get("vue") === "tous" ? "tous" : "mois";
+  const moisChantiers = lireMois(parametres.get("mois_chantiers")) ?? moisCourantParis();
   const [creationOuverte, setCreationOuverte] = useState(false);
 
   const chantiers = useQuery({ queryKey: CLE_CHANTIERS, queryFn: listerChantiers });
@@ -691,27 +769,50 @@ export function ChantiersListe(): ReactElement {
     queryFn: () => obtenirTableauDeBord(filtres.mois ?? ""),
     enabled: moisChoisi,
   });
+  const duMois = useQuery({
+    queryKey: cleChantiersDuMois(moisApi(moisChantiers), filtres.agence),
+    queryFn: () => listerChantiersDuMois(moisApi(moisChantiers), filtres.agence),
+  });
   const silencieux = useQuery({ queryKey: CLE_CHANTIERS_SILENCIEUX, queryFn: obtenirChantiersSansDepot });
   const depots = useQuery({ queryKey: CLE_DEPOTS_PAR_AGENT, queryFn: obtenirDepotsParAgent });
   const reglages = useQuery({ queryKey: CLE_PARAMETRES, queryFn: listerParametres });
   const delaiSilence = reglages.data?.find((parametre) => parametre.cle === "delai_chantier_silencieux_j")?.valeur;
 
-  function changerFiltre(nom: "mois" | "agence", valeur: string): void {
+  function changerFiltre(nom: "mois" | "mois_chantiers" | "agence", valeur: string): void {
     const suivants = new URLSearchParams(parametres);
     if (valeur.trim() === "") suivants.delete(nom);
     else suivants.set(nom, valeur);
     setParametres(suivants, { replace: true });
   }
 
-  const lignes = moisChoisi
+  function changerVue(valeur: string): void {
+    const suivants = new URLSearchParams(parametres);
+    if (valeur === "tous") suivants.set("vue", "tous");
+    else suivants.delete("vue");
+    setParametres(suivants, { replace: true });
+  }
+
+  const montants = moisChoisi
     ? tableauDeBord.data
       ? depuisTableauDeBord(tableauDeBord.data.chantiers, filtres.agence)
       : undefined
     : bilan.data
       ? depuisBilan(bilan.data)
       : undefined;
-  const chargementListe = moisChoisi ? tableauDeBord.isPending : bilan.isPending;
-  const erreurListe = moisChoisi ? tableauDeBord.isError : bilan.isError;
+  const lignes =
+    montants !== undefined && chantiers.data !== undefined && (vue === "tous" || duMois.data !== undefined)
+      ? lignesDeLaVue(vue, chantiers.data, duMois.data, montants, filtres.agence)
+      : undefined;
+  const chargementListe =
+    (moisChoisi ? tableauDeBord.isPending : bilan.isPending) ||
+    chantiers.isPending ||
+    (vue === "mois" && duMois.isPending);
+  const erreurListe =
+    (moisChoisi ? tableauDeBord.isError : bilan.isError) || chantiers.isError || (vue === "mois" && duMois.isError);
+  const nbChantiersDuMois = duMois.data?.length;
+  const nbTousLesChantiers = chantiers.data?.filter(
+    (chantier) => filtres.agence === undefined || chantier.agence === filtres.agence,
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -742,7 +843,20 @@ export function ChantiersListe(): ReactElement {
       )}
 
       <Carte>
-        <form onSubmit={(evenement) => evenement.preventDefault()} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <form onSubmit={(evenement) => evenement.preventDefault()} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <label htmlFor="filtre-mois-chantiers" className={CLASSES_LABEL}>
+              Mois
+            </label>
+            <input
+              id="filtre-mois-chantiers"
+              type="month"
+              value={moisChantiers}
+              disabled={vue === "tous"}
+              onChange={(evenement) => changerFiltre("mois_chantiers", evenement.target.value)}
+              className={`${CLASSES_CHAMP} disabled:opacity-60`}
+            />
+          </div>
           <div>
             <label htmlFor="filtre-mois" className={CLASSES_LABEL}>
               Mois de facturation
@@ -779,13 +893,24 @@ export function ChantiersListe(): ReactElement {
 
       {silencieux.data && <BandeauSilencieux chantiers={silencieux.data} delaiJours={delaiSilence} />}
 
+      <Filtres
+        options={[
+          {
+            valeur: "mois",
+            libelle: `Chantiers du mois${nbChantiersDuMois === undefined ? "" : ` (${nbChantiersDuMois})`}`,
+          },
+          {
+            valeur: "tous",
+            libelle: `Tous les chantiers${nbTousLesChantiers === undefined ? "" : ` (${nbTousLesChantiers})`}`,
+          },
+        ]}
+        valeur={vue}
+        onChange={changerVue}
+      />
+
       {chargementListe && <p role="status" className="text-sm text-encre-2">Chargement…</p>}
       {erreurListe && <p role="alert" className="text-sm text-alerte">Impossible de charger les chantiers.</p>}
-      {lignes && <ListeChantiers lignes={lignes} mois={mois} />}
-
-      {chantiers.data && (
-        <CarteTousLesChantiers chantiers={chantiers.data} agence={filtres.agence} />
-      )}
+      {lignes && <ListeChantiers lignes={lignes} mois={mois} vue={vue} avecEtat={moisChoisi} />}
 
       {depots.data && <CarteDepotsRecents depots={depots.data} />}
     </div>

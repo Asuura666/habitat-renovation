@@ -176,19 +176,20 @@ def test_liste_chantiers_expose_le_referentiel_complet() -> None:
     """Constat 1 (Important) : `GET /api/bilan/chantiers` (table financière)
     ne remonte que les chantiers ayant déjà au moins un bloc de facture — un
     chantier neuf, pas encore facturé, ou inactif, restait sans aucun lien
-    vers sa fiche. Une carte alimentée par `listerChantiers` (référentiel
-    complet, déjà chargé pour le formulaire de création) doit maintenant les
-    lister tous, avec le statut Actif/Inactif."""
+    vers sa fiche. Depuis le 02/10/2026, la vue « Tous les chantiers » de la
+    liste (alimentée par `listerChantiers`, référentiel complet) les liste
+    tous, avec le statut Actif/Inactif ; l'ancienne carte séparée a disparu."""
     page = _lire("pages", "ChantiersListe.tsx")
 
     assert "Tous les chantiers" in page
-    assert "chantiers={chantiers.data}" in page
-    assert 'chantier.actif ? "Actif" : "Inactif"' in page
+    assert "function CarteTousLesChantiers" not in page
+    assert 'ligne.actif ? "Actif" : "Inactif"' in page
+    assert "chantiers.data" in page
 
-    # Chaque nom du bandeau silencieux mène désormais à la fiche du
-    # chantier (avant : du texte simple, sans lien).
+    # Chaque nom du bandeau silencieux mène à la fiche du chantier (avant :
+    # du texte simple, sans lien).
     bandeau = page.split("function BandeauSilencieux", 1)[1].split(
-        "function CarteTousLesChantiers", 1
+        "const LIBELLES_ROLE", 1
     )[0]
     assert "<Link" in bandeau
     assert "lienChantier(chantier.chantier_id" in bandeau
@@ -318,24 +319,42 @@ def test_fiche_chantier_exporte_les_livraisons_par_fournisseur() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_liste_chantiers_ne_reporte_pas_le_mois_dans_le_referentiel_complet() -> None:
-    """Constat 1 (Important) — volet `ChantiersListe.tsx` : la carte « Tous
-    les chantiers » n'est filtrée que par agence, jamais par mois (un
-    chantier existe indépendamment de toute facturation), mais ses liens
-    reportaient quand même `?mois` : un clic sur un chantier sans facture
-    ce mois-ci ouvrait sa fiche filtrée sur ce mois, qui affichait alors des
-    informations fausses (voir `test_fiche_chantier_dernier_bl_ignore_le_
-    mois_choisi`). Ses liens ne reportent plus aucun mois."""
+def test_liste_chantiers_vue_du_mois_ou_tous_et_carte_repliable() -> None:
+    """Décision d'Ilane du 02/10/2026 : la liste a deux vues (« Chantiers du
+    mois », par défaut, et « Tous les chantiers », `?vue=tous`), un
+    sélecteur « Mois » distinct du « Mois de facturation » (qui ne pilote que
+    les montants), et la carte « sans bon déposé » est repliable, repliée par
+    défaut, son choix retenu sur le navigateur."""
     page = _lire("pages", "ChantiersListe.tsx")
 
-    carte = page.split("function CarteTousLesChantiers", 1)[1]
-    assert "lienChantier(chantier.id, undefined)" in carte
-    assert "lienChantier(chantier.id, mois)" not in carte
-    # La signature de `CarteTousLesChantiers` n'a plus de prop `mois`.
-    signature = page.split("function CarteTousLesChantiers", 1)[1].split(
-        "): ReactElement", 1
+    assert 'parametres.get("vue") === "tous"' in page
+    assert 'lireMois(parametres.get("mois_chantiers"))' in page
+    assert "moisCourantParis()" in page
+    assert "listerChantiersDuMois" in page
+    assert "Chantiers du mois" in page
+    assert "Bons du mois" in page
+    assert "Mois de facturation" in page
+    assert 'disabled={vue === "tous"}' in page
+
+    referentiels = _lire("api", "referentiels.ts")
+    assert "/api/chantiers/du-mois" in referentiels
+
+    bandeau = page.split("function BandeauSilencieux", 1)[1].split(
+        "const LIBELLES_ROLE", 1
     )[0]
-    assert "mois" not in signature
+    assert "aria-expanded={ouvert}" in bandeau
+    assert 'aria-controls="liste-chantiers-silencieux"' in bandeau
+    assert 'type="button"' in bandeau
+    assert "useState(lireSilencieuxOuvert)" in bandeau
+    assert '"habitat.chantiers.silencieux.ouvert"' in page
+    # Lecture et écriture du stockage protégées (navigation privée).
+    for fonction in (
+        "function lireSilencieuxOuvert",
+        "function ecrireSilencieuxOuvert",
+    ):
+        corps = page.split(fonction, 1)[1].split("\n}\n", 1)[0]
+        assert "try {" in corps and "catch" in corps
+    assert "return false;" in page.split("function lireSilencieuxOuvert", 1)[1]
 
 
 def test_fiche_chantier_ligne_livraison_ne_navigue_pas_deux_fois() -> None:
@@ -482,16 +501,6 @@ def test_cartes_telephone_chantiers_sont_entierement_cliquables() -> None:
     assert "<NomChantier" not in carte_chantier
     assert "{nomAffiche(ligne)}" in carte_chantier
 
-    carte_referentiel = page.split("function CarteTousLesChantiers", 1)[1]
-    cartes_telephone = carte_referentiel.split("md:hidden", 1)[1].split("md:block", 1)[
-        0
-    ]
-    assert "block rounded-lg" in cartes_telephone
-    assert "p-3" in cartes_telephone
-    # Une seule balise <Link> dans le gabarit de carte : elle enveloppe tout
-    # le contenu (nom, client/agence, statut), pas seulement le nom.
-    assert cartes_telephone.count("<Link") == 1
-
 
 def test_liens_isoles_chantiers_atteignent_44px() -> None:
     """Constat 1 (Important) : le bandeau silencieux (`ChantiersListe.tsx`)
@@ -501,7 +510,7 @@ def test_liens_isoles_chantiers_atteignent_44px() -> None:
     (`inline-flex min-h-[44px] items-center`)."""
     liste = _lire("pages", "ChantiersListe.tsx")
     bandeau = liste.split("function BandeauSilencieux", 1)[1].split(
-        "function CarteTousLesChantiers", 1
+        "const LIBELLES_ROLE", 1
     )[0]
     assert "inline-flex min-h-[44px] items-center" in bandeau
 
@@ -551,7 +560,8 @@ def test_liste_et_fiche_chantier_affichent_la_pastille_a_completer() -> None:
     assert "#7a4a00" in pastille
 
     liste = _lire("pages", "ChantiersListe.tsx")
-    assert "chantier.a_completer && <PastilleACompleter" in liste
+    assert "chantier.a_completer" in liste
+    assert "ligne.aCompleter && <PastilleACompleter" in liste
 
     fiche = _lire("pages", "FicheChantier.tsx")
     assert "chantier.a_completer && <PastilleACompleter" in fiche
