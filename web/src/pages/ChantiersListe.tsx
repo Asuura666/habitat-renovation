@@ -218,7 +218,11 @@ function destinationLigne(ligne: LigneChantierAffichee, mois: string | undefined
   if (ligne.chantierId === null) {
     return "/a-regler?filtre=rattacher";
   }
-  return lienChantier(ligne.chantierId, mois);
+  // Le mois de facturation n'est reporté que si la ligne a des montants sur
+  // ce mois (02/10/2026) : sinon la fiche s'ouvrirait filtrée sur un mois sans
+  // livraison facturée et afficherait « Aucune livraison enregistrée » -- même
+  // règle que l'ancienne carte « Tous les chantiers » (fix round 2, constat 1).
+  return lienChantier(ligne.chantierId, ligne.factureHt !== null ? mois : undefined);
 }
 
 function NomChantier({ ligne, mois }: { ligne: LigneChantierAffichee; mois: string | undefined }): ReactElement {

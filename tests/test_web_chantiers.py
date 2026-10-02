@@ -286,7 +286,12 @@ def test_fiche_chantier_respecte_le_mois_choisi() -> None:
     assert "tous les mois" in page
 
     liste = _lire("pages", "ChantiersListe.tsx")
-    assert "lienChantier(ligne.chantierId, mois)" in liste
+    # 02/10/2026 : le mois n'est reporté que si la ligne a des montants sur ce
+    # mois (sinon la fiche afficherait un mois sans livraison facturée).
+    assert (
+        "lienChantier(ligne.chantierId, ligne.factureHt !== null ? mois : undefined)"
+        in liste
+    )
     # Revue finale (constat LIENS-5) : mois de l'URL validé et au format
     # `AAAA-MM` partout, converti en `AAAA-MM-01` pour l'API seulement.
     assert 'lireMois(parametres.get("mois"))' in liste
