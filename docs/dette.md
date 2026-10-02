@@ -1728,3 +1728,23 @@ Spécification : `docs/superpowers/specs/2026-10-01-prix-recherche-et-contestati
 - **Au-delà de 500 contestations** pour un fournisseur, les plus anciennes ne
   sont pas listées ; la synthèse ne reçoit que 50 entrées (les plus récentes),
   avec une phrase de troncature.
+
+## Comptes créés au premier envoi Telegram (02/10/2026)
+
+Décision d'Ilane du 02/10/2026 (un employé sans compte avait envoyé un bon le
+matin même : refusé sans que personne ne le sache, le groupe de supervision
+ayant été supprimé le 28/09). Le premier envoi d'un employé inconnu dans le
+groupe des bons crée son compte (`depot_telegram.rattacher_ou_creer_deposant`) ;
+un compte désactivé reste refusé, avec une réponse dans le groupe.
+
+- Toute personne ajoutée au groupe des bons peut déposer : le groupe tient lieu
+  de liste blanche. Les autres groupes restent ignorés.
+- Le compte créé n'a ni mot de passe ni agence, et une adresse technique
+  `telegram-<id>@telegram.invalid` : à compléter dans « Comptes » si
+  l'employé doit se connecter au site.
+- Son nom est le nom Telegram (prénom et nom, sinon pseudo) : à corriger dans
+  « Comptes » s'il est fantaisiste.
+- `TELEGRAM_CHAT_SUPERVISION_ID` de la production désigne toujours un groupe
+  supprimé : les messages de supervision échouent (journalisés), à remplacer
+  par un groupe existant (`.env.prod`, puis redémarrage de l'API).
+

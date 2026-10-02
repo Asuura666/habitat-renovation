@@ -1642,7 +1642,8 @@ contrôles d'accès relus route par route (toutes les routes exigent un compte
 admin, sauf celles prévues pour les employés) ; la protection contre les
 requêtes venues d'un autre site ; l'authentification (hachage argon2, message
 unique en cas d'échec) ; le webhook Telegram (secret comparé en temps
-constant, liste blanche, taille et signature des fichiers) ; les chemins de
+constant, comptes créés au premier envoi dans le seul groupe des bons et
+comptes désactivés refusés, taille et signature des fichiers) ; les chemins de
 fichiers ; l'anti-injection dans les exports CSV ; l'absence de requête SQL
 construite par concaténation ; les secrets (absents du dépôt et des journaux) ;
 les règles R01 à R05, R07 à R10 et R12 à R18 (seuils, comparaisons, détail
@@ -1932,7 +1933,7 @@ et l'audit du 29/09/2026.
 | Socle | Serveur sécurisé, restauration complète exécutée et consignée, `/health` supervisé | Serveur durci (accès par clé, pare-feu, fail2ban, mises à jour automatiques). Restauration rejouée avec succès le 27/09, puis le 30/09 après les corrections de l'audit, sur des ports libres ; pas encore sur un serveur jetable ; pas de supervision externe |
 | Socle | Une facture Unikalo produit la liste exacte de ses blocs | Blocs extraits de la seule facture fournie (août) ; pas de facture de septembre |
 | Collecte | 20 dépôts Telegram consécutifs sans perte, visibles sous 60 s | Dépôts réels réussis en production (dont le 26/09) ; série de 20 dépôts non consignée en recette |
-| Collecte | Dépôt d'un identifiant non rattaché ignoré et signalé | Implémenté et couvert par les tests ; test manuel de recette non consigné |
+| Collecte | Dépôt d'un identifiant non rattaché ignoré et signalé | Remplacé le 02/10/2026 sur décision d'Ilane : le premier envoi d'un employé inconnu crée son compte ; seul un compte désactivé est refusé (réponse dans le groupe) ; couvert par les tests |
 | Extraction | 4 champs justes à au moins 95 % sur 30 photos dont 10 dégradées | **Non mesuré** : 4 photos disponibles |
 | Extraction | Au moins 90 % des lignes justes | **Non mesuré** (4 photos) |
 | Extraction | Aucune erreur silencieuse | Zéro erreur silencieuse sur les 4 photos ; tout écart somme/total passe « à vérifier » |
@@ -1952,7 +1953,7 @@ et l'audit du 29/09/2026.
 | --- | --- | --- |
 | Compte OVH au nom du client et serveur dédié | Socle | Non |
 | Factures PDF natives Unikalo et Point.P d'août et de septembre | Socle | Une facture Unikalo (août), scannée ; aucune facture Point.P ; pas de septembre |
-| Liste des utilisateurs avec leur identifiant Telegram | Collecte | Les employés créent leur compte Telegram dès le 28/09 ; Ilane les ajoute au groupe et crée leurs comptes |
+| Liste des utilisateurs avec leur identifiant Telegram | Collecte | Plus nécessaire depuis le 02/10/2026 : Ilane ajoute l'employé au groupe des bons, son compte se crée à son premier envoi |
 | Au moins 30 photos de BL réelles, dont des cas dégradés | Extraction | 4 photos, envoyées compressées |
 | Liste des chantiers avec leur agence | Extraction | Pas d'import (décision du 27/09) : le client complète les chantiers créés automatiquement « à compléter » |
 | Seuils métier et description d'une livraison semi-remorque | Rapprochement | Seuils par défaut ; semi-remorque non décrite |
