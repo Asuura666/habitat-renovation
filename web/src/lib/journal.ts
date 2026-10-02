@@ -500,6 +500,9 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   email: "E-mail",
   role: "Rôle",
   telegram_user_id: "Identifiant Telegram",
+  // `compte_cree` automatique au premier envoi Telegram (décision d'Ilane du
+  // 02/10/2026, `depot_telegram.rattacher_ou_creer_deposant`).
+  origine: "Origine",
   // `alias_valide` (`referentiels.py::valider_alias`) : nombre de documents
   // et blocs de facture déjà déposés rattachés au chantier en même temps
   // que l'alias — s'affichait brut sur les 4 entrées « Nom de chantier

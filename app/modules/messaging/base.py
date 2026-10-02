@@ -47,6 +47,12 @@ class FichierEntrant:
     # tronquée à 200 caractères). Dernier champ, défaut `None`, pour ne pas
     # casser les constructions existantes qui ne le renseignent pas.
     legende: str | None = None
+    # Nom complet Telegram de l'expéditeur (`first_name` + `last_name`, sinon
+    # `username`), décision d'Ilane du 02/10/2026 : nom du compte créé
+    # automatiquement au premier envoi d'un employé inconnu
+    # (`ingest.depot_telegram.rattacher_ou_creer_deposant`). Dernier champ,
+    # défaut `None`, pour ne pas casser les constructions existantes.
+    expediteur_nom_complet: str | None = None
 
 
 @dataclass(frozen=True)

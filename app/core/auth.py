@@ -86,6 +86,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.db import get_session
+from app.core.verrous import VERROU_ADMINS as _VERROU_ADMINS
 from app.modules.ingest.models import JetonSession, Journal
 from app.modules.ingest.models import Utilisateur as Utilisateur
 
@@ -106,8 +107,9 @@ ROLES_VALIDES = ("admin", "agent")
 # l'une des deux ne commite. Valeur arbitraire mais fixe, jamais réutilisée
 # ailleurs dans le projet (voir `app.modules.ingest.commun.VERROU_CHANTIERS
 # = 727_000_018` pour le seul autre verrou de ce type, une valeur
-# distincte).
-VERROU_ADMINS = 727_000_010
+# distincte). Défini dans `app.core.verrous` (02/10/2026) pour être importable
+# sans lire la configuration (`depot_telegram`).
+VERROU_ADMINS = _VERROU_ADMINS
 
 # Voir la note mypy en tête de fichier : chaque paramétrage générique porte
 # ici son unique `type: ignore[type-var]`.
