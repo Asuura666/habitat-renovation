@@ -208,6 +208,13 @@ async def webhook_telegram(
     # Décision d'Ilane du 02/10/2026 : le premier envoi d'un employé inconnu
     # crée son compte ; seul un compte désactivé est encore refusé.
     deposant = await rattacher_ou_creer_deposant(session, entrant)
+    # FastAPI ne ferme la session de la requête qu'après les tâches de fond
+    # (dépendance `yield`, vérifié avec FastAPI 0.141) : sans ce commit, la
+    # transaction ouverte par la recherche de l'expéditeur garderait sa
+    # connexion pendant toute la lecture du bon (≈ 30 s) et une rafale de
+    # photos épuiserait le pool (incident du 07/10/2026 : 3 photos sur 16
+    # perdues, `TimeoutError` à l'enregistrement).
+    await session.commit()
     if deposant is None:
         background_tasks.add_task(
             refuser_compte_desactive,
