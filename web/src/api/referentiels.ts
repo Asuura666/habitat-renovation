@@ -6,6 +6,7 @@ export type Fournisseur = components["schemas"]["FournisseurReponse"];
 export type ValidationAliasReponse = components["schemas"]["ValidationAliasReponse"];
 export type DepotAgent = components["schemas"]["DepotAgentReponse"];
 export type ChantierSilencieux = components["schemas"]["ChantierSilencieuxReponse"];
+export type ChantierDuMois = components["schemas"]["ChantierDuMoisReponse"];
 export type ResultatFusion = components["schemas"]["ResultatFusionReponse"];
 
 export const CLE_CHANTIERS = ["chantiers"] as const;
@@ -13,6 +14,25 @@ export const CLE_FOURNISSEURS = ["fournisseurs"] as const;
 export const CLE_DEPOTS_PAR_AGENT = ["referentiels", "depots-par-agent"] as const;
 export const CLE_CHANTIERS_SILENCIEUX = ["referentiels", "chantiers-silencieux"] as const;
 export const CLE_AGENCES = ["referentiels", "agences"] as const;
+
+/** Clé de cache des chantiers du mois : sous `CLE_CHANTIERS`, donc invalidée
+ * avec elle quand un chantier est créé. `mois` au format `AAAA-MM-01`. */
+export function cleChantiersDuMois(mois: string, agence: string | undefined): readonly string[] {
+  return ["chantiers", "du-mois", mois, agence ?? ""] as const;
+}
+
+/** `GET /api/chantiers/du-mois` : chantiers qui ont un bon daté du mois ou une
+ * facture du mois (la liste est décidée par le serveur, jamais recalculée
+ * ici). */
+export function listerChantiersDuMois(mois: string, agence: string | undefined): Promise<ChantierDuMois[]> {
+  const params = new URLSearchParams({ mois });
+  if (agence !== undefined) {
+    params.set("agence", agence);
+  }
+  return appelerApi<ChantierDuMois[]>("/api/chantiers/du-mois", {
+    url: `/api/chantiers/du-mois?${params.toString()}`,
+  });
+}
 
 export function listerChantiers(): Promise<Chantier[]> {
   return appelerApi<Chantier[]>("/api/chantiers");

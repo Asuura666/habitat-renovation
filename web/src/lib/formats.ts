@@ -141,6 +141,15 @@ export function lireMois(valeur: string | null | undefined): string | undefined 
   return correspondance === null ? undefined : `${correspondance[1]}-${correspondance[2]}`;
 }
 
+/** Mois courant au format `AAAA-MM`, en heure de Paris (jamais l'UTC : entre
+ * minuit et 2 h à Paris, l'UTC est encore la veille, voire le mois d'avant). */
+export function moisCourantParis(): string {
+  const parties = FORMATEUR_MOIS_PARIS.formatToParts(new Date());
+  const annee = parties.find((partie) => partie.type === "year")?.value ?? "0000";
+  const mois = parties.find((partie) => partie.type === "month")?.value ?? "01";
+  return `${annee}-${mois}`;
+}
+
 /** Mois `AAAA-MM` -> premier jour `AAAA-MM-01`, la forme attendue par
  * l'API (`?mois=` du bilan et du tableau de bord). */
 export function moisApi(mois: string): string {

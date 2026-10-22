@@ -72,14 +72,16 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import Date, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.fuseau import FUSEAU_PARIS
-from app.modules.ingest.models import Chantier, Document, Utilisateur
+from app.modules.ingest.bilan import _condition_mois
+from app.modules.ingest.lecture import TYPES_BL
+from app.modules.ingest.models import BlocFacture, Chantier, Document, Utilisateur
 from app.modules.ingest.referentiels import lire_parametre_decimal
 
 DEPOTS_PAR_AGENT_JOURS_DEFAUT = 30
@@ -250,3 +252,84 @@ async def agences_connues(session: AsyncSession) -> list[str]:
         .order_by(Chantier.agence.asc())
     )
     return [agence for (agence,) in resultat.all()]
+
+
+@dataclass(frozen=True)
+class ChantierDuMois:
+    """Une ligne de `GET /api/chantiers/du-mois` : `nb_bons` et
+    `dernier_bon_le` ne comptent que les bons du mois (`0`/`None` si le
+    chantier n'est là que par sa facture)."""
+
+    chantier_id: uuid.UUID
+    nb_bons: int
+    dernier_bon_le: date | None
+    facture_ce_mois: bool
+
+
+async def chantiers_du_mois(
+    session: AsyncSession, mois: date, agence: str | None
+) -> list[ChantierDuMois]:
+    """Chantiers « du mois » : au moins un bon (BL ou enlèvement non
+    archivé, rattaché au chantier) daté de ce mois, ou facturé ce mois-ci.
+
+    Le mois est celui du bilan (`bilan._condition_mois`, bornes en heure de
+    Paris) : `date_doc` du document, sinon son `created_at` converti en
+    Europe/Paris -- la date du bon prime sur la date de dépôt. Un bloc de
+    facture compte pour le chantier du bloc, à défaut celui de sa facture
+    (même résolution que le bilan), sur une facture non archivée du mois.
+    Les chantiers fusionnés dans un autre sont exclus, comme dans
+    `lister_chantiers` (leurs bons et blocs ont été déplacés vers la
+    cible). `agence` filtre sur l'agence du chantier. Triés par nom."""
+    date_bon = func.coalesce(
+        Document.date_doc,
+        cast(func.timezone("Europe/Paris", Document.created_at), Date),
+    )
+    bons = await session.execute(
+        select(
+            Document.chantier_id,
+            func.count().label("nb_bons"),
+            func.max(date_bon).label("dernier_bon_le"),
+        )
+        .where(
+            Document.type.in_(TYPES_BL),
+            Document.statut != "archive",
+            Document.chantier_id.is_not(None),
+            _condition_mois(mois),
+        )
+        .group_by(Document.chantier_id)
+    )
+    par_bons = {chantier_id: (nb, dernier) for chantier_id, nb, dernier in bons.all()}
+
+    factures = await session.execute(
+        select(func.coalesce(BlocFacture.chantier_id, Document.chantier_id))
+        .select_from(BlocFacture)
+        .join(Document, Document.id == BlocFacture.facture_id)
+        .where(
+            Document.type == "facture",
+            Document.statut != "archive",
+            _condition_mois(mois),
+        )
+        .distinct()
+    )
+    factures_du_mois = {chantier_id for (chantier_id,) in factures.all() if chantier_id}
+
+    ids = set(par_bons) | factures_du_mois
+    if not ids:
+        return []
+    requete = (
+        select(Chantier.id)
+        .where(Chantier.id.in_(ids), Chantier.fusionne_dans_id.is_(None))
+        .order_by(Chantier.nom_canonique.asc(), Chantier.id.asc())
+    )
+    if agence is not None:
+        requete = requete.where(Chantier.agence == agence)
+    retenus = (await session.execute(requete)).scalars().all()
+    return [
+        ChantierDuMois(
+            chantier_id=chantier_id,
+            nb_bons=par_bons.get(chantier_id, (0, None))[0],
+            dernier_bon_le=par_bons.get(chantier_id, (0, None))[1],
+            facture_ce_mois=chantier_id in factures_du_mois,
+        )
+        for chantier_id in retenus
+    ]

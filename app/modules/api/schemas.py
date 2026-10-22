@@ -813,6 +813,18 @@ class ChantierSilencieuxReponse(BaseModel):
     dernier_depot_le: datetime | None
 
 
+class ChantierDuMoisReponse(BaseModel):
+    """Une ligne de `GET /api/chantiers/du-mois` — mêmes attributs qu'
+    `ingest.referentiels_vue.ChantierDuMois`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    chantier_id: uuid.UUID
+    nb_bons: int
+    dernier_bon_le: date | None
+    facture_ce_mois: bool
+
+
 class ParametreReponse(BaseModel):
     """Un seuil administrable avec ses métadonnées de présentation.
 

@@ -1728,3 +1728,45 @@ Spécification : `docs/superpowers/specs/2026-10-01-prix-recherche-et-contestati
 - **Au-delà de 500 contestations** pour un fournisseur, les plus anciennes ne
   sont pas listées ; la synthèse ne reçoit que 50 entrées (les plus récentes),
   avec une phrase de troncature.
+
+## Comptes créés au premier envoi Telegram (02/10/2026)
+
+Décision d'Ilane du 02/10/2026 (un employé sans compte avait envoyé un bon le
+matin même : refusé sans que personne ne le sache, le groupe de supervision
+ayant été supprimé le 28/09). Le premier envoi d'un employé inconnu dans le
+groupe des bons crée son compte (`depot_telegram.rattacher_ou_creer_deposant`) ;
+un compte désactivé reste refusé, avec une réponse dans le groupe.
+
+- Toute personne ajoutée au groupe des bons peut déposer : le groupe tient lieu
+  de liste blanche. Les autres groupes restent ignorés.
+- Le compte créé n'a ni mot de passe ni agence, et une adresse technique
+  `telegram-<id>@telegram.invalid` : à compléter dans « Comptes » si
+  l'employé doit se connecter au site.
+- Son nom est le nom Telegram (prénom et nom, sinon pseudo) : à corriger dans
+  « Comptes » s'il est fantaisiste.
+- `TELEGRAM_CHAT_SUPERVISION_ID` de la production désigne toujours un groupe
+  supprimé : les messages de supervision échouent (journalisés), à remplacer
+  par un groupe existant (`.env.prod`, puis redémarrage de l'API).
+
+
+## Connexions gardées pendant les tâches de fond (07/10/2026)
+
+Incident en production le 07/10/2026 : 16 photos envoyées d'un coup, 3 perdues
+(`TimeoutError` à l'enregistrement, `/health` à 503 pendant 30 s). Cause :
+FastAPI (0.141) ne ferme la session d'une dépendance `yield` (`get_session`)
+qu'**après** les tâches de fond ; la transaction ouverte par la recherche de
+l'expéditeur gardait donc sa connexion pendant toute la lecture du bon, et le
+pool (15 connexions) était épuisé. Corrigé dans le webhook Telegram et dans la
+recherche de prix à la demande (`await session.commit()` avant la tâche de
+fond), avec un test qui reproduit l'incident sur un pool réduit.
+
+**Règle** : toute nouvelle route qui lance une tâche de fond doit rendre la
+connexion de sa session (commit ou rollback) avant de la planifier.
+
+En plus, à la demande d'Ilane : pool agrandi (10 connexions + 10 de
+débordement par instance, 60 s d'attente, `app.core.db.creer_engine`) et
+nouvelle tentative à l'enregistrement d'un bon reçu par Telegram (3 essais,
+pauses de 2 puis 5 s), seulement quand aucune connexion ne s'est libérée à
+temps — rien n'a alors été écrit, donc pas de doublon possible. Non couvert :
+une coupure de la base pendant l'écriture elle-même n'est pas retentée (risque
+de doublon), le bon reste à renvoyer comme avant.

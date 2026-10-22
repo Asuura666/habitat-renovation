@@ -14,10 +14,13 @@ Déroulé (décisions du contrôleur T6, complété T6b, puis L2-T2, L2-T3) :
 5. `lire_update` a renvoyé un `ClicBouton` (L2-T3) : `traiter_clic` part en
    tâche de fond -> 200 (autorisation, mise à jour atomique, journal, accusé
    et édition du message, tout dans `ingest/depot_telegram.py`).
-6. `depot_telegram.utilisateur_rattache` (liste blanche, L2-D7) : expéditeur
-   non rattaché (absent ou compte inactif) -> `signaler_expediteur_inconnu`
+6. Expéditeur sans identifiant Telegram -> `signaler_expediteur_inconnu`
    part en tâche de fond (notification de supervision, aucune écriture ni
-   téléchargement) -> 200.
+   téléchargement) -> 200. Sinon `depot_telegram.rattacher_ou_creer_deposant`
+   (décision d'Ilane du 02/10/2026, remplace la liste blanche stricte
+   L2-D7) : compte actif retrouvé, ou créé au premier envoi ; compte
+   désactivé -> `refuser_compte_desactive` en tâche de fond (supervision et
+   réponse dans le groupe, aucune écriture ni téléchargement) -> 200.
 7. Sinon, `traiter_fichier` part en tâche de fond (`BackgroundTasks`) -> 200
    (téléchargement, écriture, document, OCR Mistral, ligne de supervision
    puis réponse « reçu » avec numéro interne et boutons, L2-D9).
@@ -48,10 +51,11 @@ from app.core.db import get_session
 from app.modules.extract.bl import OPTIONS_OCR_BL
 from app.modules.ingest.depot_telegram import (
     enregistrer_update,
+    rattacher_ou_creer_deposant,
+    refuser_compte_desactive,
     signaler_expediteur_inconnu,
     traiter_clic,
     traiter_fichier,
-    utilisateur_rattache,
 )
 from app.modules.ingest.mistral import ocr_document
 from app.modules.messaging.base import ClicBouton, Messagerie
@@ -192,10 +196,28 @@ async def webhook_telegram(
         )
         return Response(status_code=200)
 
-    deposant = await utilisateur_rattache(session, entrant.expediteur_id)
-    if deposant is None:
+    if entrant.expediteur_id is None:
         background_tasks.add_task(
             signaler_expediteur_inconnu,
+            entrant,
+            messagerie,
+            settings.telegram_chat_supervision_id,
+        )
+        return Response(status_code=200)
+
+    # Décision d'Ilane du 02/10/2026 : le premier envoi d'un employé inconnu
+    # crée son compte ; seul un compte désactivé est encore refusé.
+    deposant = await rattacher_ou_creer_deposant(session, entrant)
+    # FastAPI ne ferme la session de la requête qu'après les tâches de fond
+    # (dépendance `yield`, vérifié avec FastAPI 0.141) : sans ce commit, la
+    # transaction ouverte par la recherche de l'expéditeur garderait sa
+    # connexion pendant toute la lecture du bon (≈ 30 s) et une rafale de
+    # photos épuiserait le pool (incident du 07/10/2026 : 3 photos sur 16
+    # perdues, `TimeoutError` à l'enregistrement).
+    await session.commit()
+    if deposant is None:
+        background_tasks.add_task(
+            refuser_compte_desactive,
             entrant,
             messagerie,
             settings.telegram_chat_supervision_id,
