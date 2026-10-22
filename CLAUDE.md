@@ -84,13 +84,18 @@ puis `docs/roadmap-octobre-2026.md` (demandes de la réunion du 26/09,
 organisation git, phases 1 à 4, suivi), `docs/dette.md` et, avant de toucher
 l'IA, `docs/phase-4-ia.md`.
 
-- **Demandes du 01/10/2026 (onglet Prix), codées, non fusionnées, déployées
-  sur la démo le 01/10 (pas en production)** : branche `feature/prix-contestations-recherche` (bouton
+- **Demandes du 01/10/2026 (onglet Prix), fusionnées (PR #19), déployées
+  sur la démo puis en production le 01/10 (étiquette `mise-en-prod-2026-10-01`)** : branche `feature/prix-contestations-recherche` (bouton
   « Chercher sur internet » sur chaque rangée, contestations dans la grille du
   fournisseur et dans la synthèse de la semaine, migration `0016`, image
-  OpenCode de la démo à reconstruire). À fusionner dans `dev` (PR #19) ; démo déjà
-  à jour (migration 0016, image OpenCode reconstruite) ; production inchangée (IA éteinte). Détail :
+  OpenCode de la démo à reconstruire). Fusionnées dans `dev` le 01/10 (PR #19) ; démo
+  à jour (migration 0016, image OpenCode reconstruite) ; en production, IA et contrôle des prix éteints. Détail :
   README §2.4, §12.10 et `docs/dette.md` (section du 01/10/2026).
+- **02/10 au 22/10/2026** : compte employé créé au premier envoi Telegram
+  (PR #22, production le 02/10), écran Chantiers du mois (PR #23) et
+  correction des photos perdues en rafale (PR #24), en production le 22/10 —
+  déployés **depuis `dev`** avec l'accord d'Ilane ; `main` en retard,
+  passage `dev` → `main` à faire. Détail : README §2.4, §17.7, §22.4.
 - **Livré et en production (30/09/2026, `dev` → `main`, PR #17, étiquette
   `mise-en-prod-2026-09-30`, migration `0015`)** : démo à jour à 07 h 29 UTC,
   production à 07 h 31 UTC (sauvegarde préalable, migration 0014 → 0015,

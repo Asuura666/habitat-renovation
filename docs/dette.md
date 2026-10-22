@@ -1676,7 +1676,7 @@ la mise en production.
 
 ## Recherche à la demande et contestations de prix (01/10/2026)
 
-Branche `feature/prix-contestations-recherche`, non fusionnée ; déployée sur la démo le 01/10/2026, pas en production.
+Branche `feature/prix-contestations-recherche`, fusionnée le 01/10/2026 (PR #19) ; déployée sur la démo puis en production le 01/10/2026 (IA et contrôle des prix éteints en production).
 Spécification : `docs/superpowers/specs/2026-10-01-prix-recherche-et-contestations-design.md`.
 
 - **État des recherches en mémoire.** Les recherches de prix internet lancées
