@@ -524,3 +524,49 @@ def test_callback_query_sans_update_id_renvoie_none() -> None:
     }
 
     assert lire_update(update) is None
+
+
+def test_nom_complet_prenom_et_nom() -> None:
+    """Décision d'Ilane du 02/10/2026 : nom du compte créé automatiquement
+    au premier envoi = prénom et nom Telegram."""
+    update = {
+        "update_id": 140,
+        "message": {
+            "message_id": 40,
+            "chat": {"id": 40},
+            "from": {
+                "id": 4000,
+                "username": "pseudo-invente",
+                "first_name": "Prénom",
+                "last_name": "Inventé",
+            },
+            "photo": [{"file_id": "photo-invente"}],
+        },
+    }
+
+    resultat = lire_update(update)
+
+    assert isinstance(resultat, FichierEntrant)
+    assert resultat.expediteur_nom_complet == "Prénom Inventé"
+    assert resultat.expediteur_nom == "pseudo-invente"
+
+
+def test_nom_complet_repli_sur_le_pseudo_puis_none() -> None:
+    def nom_complet(expediteur: dict[str, object]) -> str | None:
+        resultat = lire_update(
+            {
+                "update_id": 141,
+                "message": {
+                    "message_id": 41,
+                    "chat": {"id": 41},
+                    "from": expediteur,
+                    "photo": [{"file_id": "photo-invente"}],
+                },
+            }
+        )
+        assert isinstance(resultat, FichierEntrant)
+        return resultat.expediteur_nom_complet
+
+    assert nom_complet({"id": 4001, "username": "pseudo-invente"}) == "pseudo-invente"
+    assert nom_complet({"id": 4002, "first_name": "  "}) is None
+    assert nom_complet({"id": 4003}) is None

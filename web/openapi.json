@@ -838,6 +838,66 @@
     }
    }
   },
+  "/api/chantiers/du-mois": {
+   "get": {
+    "summary": "Chantiers Du Mois Endpoint",
+    "operationId": "chantiers_du_mois_endpoint_api_chantiers_du_mois_get",
+    "parameters": [
+     {
+      "name": "mois",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "date",
+       "title": "Mois"
+      }
+     },
+     {
+      "name": "agence",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Agence"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/ChantierDuMoisReponse"
+         },
+         "title": "Response Chantiers Du Mois Endpoint Api Chantiers Du Mois Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/chantiers/{chantier_id}": {
    "put": {
     "summary": "Modifier Chantier Endpoint",
@@ -5328,6 +5388,44 @@
     ],
     "title": "ChantierCreationRequete",
     "description": "Corps de `POST /api/chantiers` : nom obligatoire (1 à 200 caractères,\nblanc refusé), agence et client optionnels."
+   },
+   "ChantierDuMoisReponse": {
+    "properties": {
+     "chantier_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Chantier Id"
+     },
+     "nb_bons": {
+      "type": "integer",
+      "title": "Nb Bons"
+     },
+     "dernier_bon_le": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Dernier Bon Le"
+     },
+     "facture_ce_mois": {
+      "type": "boolean",
+      "title": "Facture Ce Mois"
+     }
+    },
+    "type": "object",
+    "required": [
+     "chantier_id",
+     "nb_bons",
+     "dernier_bon_le",
+     "facture_ce_mois"
+    ],
+    "title": "ChantierDuMoisReponse",
+    "description": "Une ligne de `GET /api/chantiers/du-mois` — mêmes attributs qu'\n`ingest.referentiels_vue.ChantierDuMois`."
    },
    "ChantierModificationRequete": {
     "properties": {

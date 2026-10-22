@@ -30,6 +30,7 @@ d'entrée qui peut lire `app.core`.
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -41,6 +42,7 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.modules.api.schemas import (
     ChantierCreationRequete,
+    ChantierDuMoisReponse,
     ChantierModificationRequete,
     ChantierReponse,
     ChantierSilencieuxReponse,
@@ -71,6 +73,7 @@ from app.modules.ingest.referentiels import (
 from app.modules.ingest.referentiels_vue import (
     DEPOTS_PAR_AGENT_JOURS_DEFAUT,
     agences_connues,
+    chantiers_du_mois,
     chantiers_sans_depot,
     depots_par_agent,
 )
@@ -91,6 +94,20 @@ async def lister_chantiers_endpoint(
 ) -> list[ChantierReponse]:
     chantiers = await lister_chantiers(session)
     return [ChantierReponse.model_validate(chantier) for chantier in chantiers]
+
+
+@router.get("/chantiers/du-mois", response_model=list[ChantierDuMoisReponse])
+async def chantiers_du_mois_endpoint(
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    mois: Annotated[date, Query()],
+    agence: Annotated[str | None, Query()] = None,
+) -> list[ChantierDuMoisReponse]:
+    # Déclarée avant `/chantiers/{chantier_id}` : sinon « du-mois » serait
+    # pris pour un identifiant. `mois` : n'importe quel jour du mois voulu
+    # (le service le ramène à son mois calendaire, comme le bilan).
+    lignes = await chantiers_du_mois(session, mois, agence)
+    return [ChantierDuMoisReponse.model_validate(ligne) for ligne in lignes]
 
 
 @router.post(

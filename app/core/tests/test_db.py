@@ -136,3 +136,19 @@ async def test_base_joignable_faux_et_rapide_si_connexion_pendante(
 
     assert resultat is False
     assert duree < 1.5
+
+
+def test_creer_engine_pool_agrandi_et_attente_allongee() -> None:
+    """Incident du 07/10/2026 (rafale de 16 photos, pool de 15 épuisé) :
+    10 connexions + 10 de débordement, 60 s d'attente d'une connexion."""
+    from app.core.db import POOL_ATTENTE_S, POOL_DEBORDEMENT, POOL_TAILLE, creer_engine
+
+    moteur = creer_engine(
+        "postgresql+asyncpg://inutilise:inutilise@localhost/inutilise"
+    )
+    pool = moteur.sync_engine.pool
+
+    assert (POOL_TAILLE, POOL_DEBORDEMENT, POOL_ATTENTE_S) == (10, 10, 60)
+    assert pool.size() == 10  # type: ignore[attr-defined]
+    assert pool._max_overflow == 10  # type: ignore[attr-defined]
+    assert pool.timeout() == 60  # type: ignore[attr-defined]

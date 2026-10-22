@@ -76,6 +76,7 @@ from __future__ import annotations
 import hmac
 import re
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -205,6 +206,27 @@ def _fichier_depuis_photo(
     )
 
 
+_NOM_COMPLET_MAX = 200
+
+
+def _expediteur_nom_complet(expediteur: dict[str, Any]) -> str | None:
+    """Nom complet Telegram de l'expéditeur (décision d'Ilane du
+    02/10/2026, nom du compte créé automatiquement) : `first_name` et
+    `last_name` séparés par une espace s'il y en a au moins un, sinon
+    `username`, sinon `None` ; tronqué à 200 caractères."""
+    morceaux = [
+        valeur.strip()
+        for valeur in (expediteur.get("first_name"), expediteur.get("last_name"))
+        if isinstance(valeur, str) and valeur.strip()
+    ]
+    if morceaux:
+        return " ".join(morceaux)[:_NOM_COMPLET_MAX]
+    username = expediteur.get("username")
+    if isinstance(username, str) and username.strip():
+        return username.strip()[:_NOM_COMPLET_MAX]
+    return None
+
+
 def _expediteur_nom(expediteur: dict[str, Any]) -> str | None:
     """Nom d'affichage Telegram de l'expéditeur (L2-T2, décision du
     contrôleur) : `username` (sans le `@`, tel que fourni par l'API) si
@@ -331,11 +353,16 @@ def lire_update(update: dict[str, Any]) -> FichierEntrant | ClicBouton | None:
     expediteur_nom = (
         _expediteur_nom(expediteur) if isinstance(expediteur, dict) else None
     )
+    nom_complet = (
+        _expediteur_nom_complet(expediteur) if isinstance(expediteur, dict) else None
+    )
     legende = _legende(message)
 
+    entrant: FichierEntrant | None = None
     photos = message.get("photo")
+    document = message.get("document")
     if isinstance(photos, list):
-        return _fichier_depuis_photo(
+        entrant = _fichier_depuis_photo(
             update_id,
             chat_id,
             message_id,
@@ -344,10 +371,8 @@ def lire_update(update: dict[str, Any]) -> FichierEntrant | ClicBouton | None:
             photos,
             legende,
         )
-
-    document = message.get("document")
-    if isinstance(document, dict):
-        return _fichier_depuis_document(
+    elif isinstance(document, dict):
+        entrant = _fichier_depuis_document(
             update_id,
             chat_id,
             message_id,
@@ -356,8 +381,9 @@ def lire_update(update: dict[str, Any]) -> FichierEntrant | ClicBouton | None:
             document,
             legende,
         )
-
-    return None
+    if entrant is None:
+        return None
+    return replace(entrant, expediteur_nom_complet=nom_complet)
 
 
 def _extension(fichier: FichierEntrant, file_path: str) -> str:

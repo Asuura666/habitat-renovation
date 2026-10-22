@@ -98,17 +98,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import exc as sa_exc
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.fuseau import FUSEAU_PARIS
+from app.core.verrous import VERROU_ADMINS
 from app.modules.ingest.commun import (
     Deposant,
     _ecrire_atomique,
     _journaliser_echec,
     _mime_pour_extension,
     _supprimer_si_existe,
+    logger,
     signature_conforme,
 )
 from app.modules.ingest.extraction_bl import (
@@ -213,6 +216,129 @@ async def signaler_expediteur_inconnu(
         entrant.update_id,
         f"Expéditeur Telegram non rattaché : id {identifiant} · {nom}",
     )
+
+
+# Décision d'Ilane du 02/10/2026 : le premier envoi d'un employé inconnu
+# dans le groupe des bons crée son compte automatiquement (plus de saisie
+# manuelle de l'identifiant Telegram) ; un compte désactivé reste refusé,
+# avec une réponse dans le groupe.
+MESSAGE_COMPTE_DESACTIVE = "Votre compte est désactivé, contactez votre responsable."
+# Adresse technique d'un compte créé depuis Telegram : la colonne `email`
+# est obligatoire et unique ; `.invalid` est un domaine réservé (RFC 2606),
+# jamais joignable.
+_DOMAINE_EMAIL_TELEGRAM = "telegram.invalid"
+
+
+def email_compte_telegram(telegram_user_id: int) -> str:
+    """Adresse technique d'un compte créé automatiquement depuis Telegram."""
+    return f"telegram-{telegram_user_id}@{_DOMAINE_EMAIL_TELEGRAM}"
+
+
+async def rattacher_ou_creer_deposant(
+    session: AsyncSession, entrant: FichierEntrant
+) -> Deposant | None:
+    """Résout l'auteur d'un dépôt Telegram (décision d'Ilane du 02/10/2026,
+    remplace la liste blanche stricte L2-D7) :
+
+    - expéditeur sans identifiant Telegram -> `None` (l'appelant le signale
+      comme inconnu, comme avant) ;
+    - compte actif rattaché à cet identifiant -> son `Deposant` ;
+    - compte rattaché mais désactivé -> `None` (refusé : jamais réactivé
+      automatiquement, pour qu'un admin puisse toujours bloquer quelqu'un) ;
+    - aucun compte -> création d'un compte employé (`agent`, sans mot de
+      passe : il ne se connecte pas au site, il dépose par Telegram), nommé
+      d'après son nom Telegram, journalisé `compte_cree` (auteur `None`,
+      `origine` : premier envoi Telegram), puis son `Deposant`.
+
+    La création prend le même verrou que les créations de comptes de
+    l'écran « Comptes » (`VERROU_ADMINS`) puis relit l'identifiant : deux
+    photos envoyées en même temps par un nouvel employé ne créent qu'un seul
+    compte. Commite la session (le dépôt part ensuite en tâche de fond, dans
+    une autre session)."""
+    telegram_user_id = entrant.expediteur_id
+    if telegram_user_id is None:
+        return None
+    deposant = await utilisateur_rattache(session, telegram_user_id)
+    if deposant is not None:
+        return deposant
+
+    await session.execute(select(func.pg_advisory_xact_lock(VERROU_ADMINS)))
+    existant = (
+        await session.execute(
+            select(
+                Utilisateur.id,
+                Utilisateur.nom,
+                Utilisateur.email,
+                Utilisateur.is_active,
+            ).where(Utilisateur.telegram_user_id == telegram_user_id)
+        )
+    ).first()
+    if existant is not None:
+        await session.commit()
+        if not existant.is_active:
+            return None
+        return Deposant(id=existant.id, nom_affichage=existant.nom or existant.email)
+
+    nom = (
+        entrant.expediteur_nom_complet
+        or entrant.expediteur_nom
+        or f"Employé Telegram {telegram_user_id}"
+    )
+    email = email_compte_telegram(telegram_user_id)
+    utilisateur = Utilisateur(
+        email=email,
+        nom=nom,
+        role="agent",
+        telegram_user_id=telegram_user_id,
+    )
+    session.add(utilisateur)
+    await session.flush()
+    session.add(
+        Journal(
+            utilisateur_id=None,
+            action="compte_cree",
+            cible_table="utilisateur",
+            cible_id=str(utilisateur.id),
+            avant=None,
+            apres={
+                "email": email,
+                "nom": nom,
+                "role": "agent",
+                "agence": None,
+                "telegram_user_id": telegram_user_id,
+                "origine": "Premier envoi Telegram",
+            },
+        )
+    )
+    await session.commit()
+    return Deposant(id=utilisateur.id, nom_affichage=nom)
+
+
+async def refuser_compte_desactive(
+    entrant: FichierEntrant,
+    messagerie: Messagerie,
+    telegram_chat_supervision_id: int,
+) -> None:
+    """Dépôt d'un employé dont le compte est désactivé (décision d'Ilane du
+    02/10/2026) : rien n'est écrit ni téléchargé ; une ligne de supervision
+    et une réponse au message d'origine, dans le groupe des bons, pour qu'il
+    sache que son bon n'est pas pris. Aucun échec d'envoi ne remonte."""
+    identifiant = (
+        entrant.expediteur_id if entrant.expediteur_id is not None else "inconnu"
+    )
+    nom = entrant.expediteur_nom or "nom inconnu"
+    await _envoyer_supervision(
+        messagerie,
+        telegram_chat_supervision_id,
+        entrant.update_id,
+        f"Compte désactivé, dépôt refusé : id {identifiant} · {nom}",
+    )
+    try:
+        await messagerie.repondre(
+            entrant.chat_id, entrant.message_id, MESSAGE_COMPTE_DESACTIVE
+        )
+    except Exception as exc:
+        _journaliser_echec("réponse compte désactivé", entrant.update_id, exc)
 
 
 async def _envoyer_supervision(
@@ -395,6 +521,62 @@ async def _ranger_photo_sans_lever(
         _journaliser_echec("rangement", update_id, exc)
 
 
+# Nouvelle tentative à l'enregistrement d'un bon (demande d'Ilane,
+# 07/10/2026, après l'incident de la rafale de 16 photos) : seulement quand
+# aucune connexion ne s'est libérée à temps (`sqlalchemy.exc.TimeoutError`,
+# levée avant toute écriture : aucun doublon possible). Trois essais au total,
+# pauses de 2 puis 5 s entre eux.
+_PAUSES_ENREGISTREMENT_S: tuple[float, ...] = (2.0, 5.0)
+
+
+async def _inserer_document(
+    sessions: async_sessionmaker[AsyncSession],
+    entrant: FichierEntrant,
+    chemin_final: Path,
+    deposant: Deposant,
+) -> tuple[uuid.UUID, int]:
+    """Insère le `document` du bon reçu et renvoie son identifiant et son
+    numéro interne, en retentant si le pool de connexions est épuisé (voir
+    `_PAUSES_ENREGISTREMENT_S`) ; toute autre erreur remonte aussitôt."""
+    pauses = _PAUSES_ENREGISTREMENT_S
+    for tentative in range(len(pauses) + 1):
+        try:
+            async with sessions() as session:
+                document = Document(
+                    type="bl",
+                    source="telegram",
+                    statut="recu",
+                    fichier_path=str(chemin_final),
+                    telegram_message_id=entrant.message_id,
+                    deposant_id=deposant.id,
+                    photo_compressee=entrant.compresse,
+                    legende=entrant.legende,
+                )
+                session.add(document)
+                # `flush` (pas seulement `commit`) : peuple `document.id` et
+                # `document.numero_interne` (générés côté base, respectivement
+                # `gen_random_uuid()` et l'identité `bigint`) pendant que la
+                # session est encore active, pour les utiliser juste après —
+                # après `commit`, l'attribut est expiré et sa lecture hors
+                # session lèverait (accès implicite interdit en async).
+                await session.flush()
+                document_id = document.id
+                numero_interne = document.numero_interne
+                await session.commit()
+                return document_id, numero_interne
+        except sa_exc.TimeoutError:
+            if tentative == len(pauses):
+                raise
+            logger.warning(
+                "enregistrement du bon retenté (aucune connexion libre) "
+                "pour update_id=%s, essai %s",
+                entrant.update_id,
+                tentative + 2,
+            )
+            await asyncio.sleep(pauses[tentative])
+    raise AssertionError("inaccessible")  # pragma: no cover
+
+
 async def traiter_fichier(
     entrant: FichierEntrant,
     messagerie: Messagerie,
@@ -475,28 +657,9 @@ async def traiter_fichier(
         return
 
     try:
-        async with sessions() as session:
-            document = Document(
-                type="bl",
-                source="telegram",
-                statut="recu",
-                fichier_path=str(chemin_final),
-                telegram_message_id=entrant.message_id,
-                deposant_id=deposant.id,
-                photo_compressee=entrant.compresse,
-                legende=entrant.legende,
-            )
-            session.add(document)
-            # `flush` (pas seulement `commit`) : peuple `document.id` et
-            # `document.numero_interne` (générés côté base, respectivement
-            # `gen_random_uuid()` et l'identité `bigint`) pendant que la
-            # session est encore active, pour les utiliser juste après —
-            # après `commit`, l'attribut est expiré et sa lecture hors
-            # session lèverait (accès implicite interdit en async).
-            await session.flush()
-            document_id = document.id
-            numero_interne = document.numero_interne
-            await session.commit()
+        document_id, numero_interne = await _inserer_document(
+            sessions, entrant, chemin_final, deposant
+        )
     except Exception as exc:
         # Le fichier est déjà écrit sur disque : il ne doit pas rester seul
         # (sans document associé) si l'enregistrement en base échoue.

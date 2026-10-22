@@ -23,12 +23,19 @@ import pytest
 from fastapi import FastAPI, Request
 from httpx import ASGITransport
 from pydantic import SecretStr
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 import app.modules.ingest.router as ingest_router
 from app.core.config import Settings, get_settings
-from app.modules.ingest.depot_telegram import _MESSAGE_ECHEC_AGENT
+from app.modules.ingest.depot_telegram import (
+    _MESSAGE_ECHEC_AGENT,
+    MESSAGE_COMPTE_DESACTIVE,
+)
 from app.modules.ingest.models import Document, Journal, TelegramUpdate, Utilisateur
 from app.modules.ingest.router import get_messagerie, get_ocr, router
 from app.modules.messaging.base import FichierEntrant, FichierTelecharge
@@ -370,54 +377,99 @@ async def test_message_texte_ne_cree_rien_et_ne_repond_pas(
     assert messagerie.supervisions == []
 
 
-async def test_expediteur_inconnu_ne_cree_rien_et_signale_en_supervision(
+async def test_expediteur_inconnu_cree_son_compte_et_depose_le_bon(
     db_session: AsyncSession,
     sessions_test: async_sessionmaker[AsyncSession],
     tmp_path: Path,
 ) -> None:
-    """L2-D7 : un expéditeur non rattaché ne crée aucun document, aucun
-    téléchargement n'est tenté, et un unique message de supervision part
-    (contenant l'identifiant Telegram) — un rejeu du même update n'en
-    envoie pas un second (dédoublonnage acquis avant la résolution de
-    l'expéditeur)."""
+    """Décision d'Ilane du 02/10/2026 (remplace L2-D7) : le premier envoi
+    d'un employé inconnu crée son compte (rôle agent, nom Telegram) et son
+    bon est enregistré comme pour un employé déjà connu ; un second envoi
+    réutilise le même compte."""
     messagerie = MessagerieFactice()
     app_test = _app_test(sessions_test, messagerie, tmp_path)
-    update = _update_photo(46, expediteur_id=123456, expediteur_nom="Inconnu")
+    premier = _update_photo(46, expediteur_id=123456, expediteur_nom="pseudo-invente")
+    premier["message"]["from"].update(first_name="Prénom", last_name="Inventé")
+    second = _update_photo(49, expediteur_id=123456, expediteur_nom="pseudo-invente")
 
-    premiere = await _poster(app_test, update, SECRET_TEST)
-    seconde = await _poster(app_test, update, SECRET_TEST)
+    assert (await _poster(app_test, premier, SECRET_TEST)).status_code == 200
+    assert (await _poster(app_test, second, SECRET_TEST)).status_code == 200
 
-    assert premiere.status_code == 200
-    assert seconde.status_code == 200
-    assert (await db_session.execute(select(Document))).scalars().all() == []
-    assert messagerie.telechargements == 0
-    assert messagerie.reponses == []
+    comptes = (
+        (
+            await db_session.execute(
+                select(Utilisateur).where(Utilisateur.telegram_user_id == 123456)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(comptes) == 1
+    compte = comptes[0]
+    assert (compte.role, compte.nom, compte.is_active) == (
+        "agent",
+        "Prénom Inventé",
+        True,
+    )
+    assert compte.hashed_password is None
 
-    assert len(messagerie.supervisions) == 1
-    chat_id, texte = messagerie.supervisions[0]
-    assert chat_id == CHAT_SUPERVISION_TEST
-    assert "123456" in texte
-    assert "Inconnu" in texte
+    documents = (await db_session.execute(select(Document))).scalars().all()
+    assert len(documents) == 2
+    assert {d.deposant_id for d in documents} == {compte.id}
+    assert messagerie.telechargements == 2
+    assert [texte for _, _, texte, _ in messagerie.reponses] == [
+        f"Reçu — document n° {d.numero_interne}"
+        for d in sorted(documents, key=lambda d: d.numero_interne)
+    ]
 
 
-async def test_expediteur_inactif_traite_comme_inconnu(
+async def test_expediteur_desactive_refuse_avec_reponse_dans_le_groupe(
     db_session: AsyncSession,
     sessions_test: async_sessionmaker[AsyncSession],
     tmp_path: Path,
 ) -> None:
+    """Décision d'Ilane du 02/10/2026 : un compte désactivé n'est jamais
+    réactivé ; le bon est refusé, l'employé reçoit une réponse dans le
+    groupe et une ligne part en supervision."""
     await _creer_utilisateur(db_session, telegram_user_id=888, actif=False)
     messagerie = MessagerieFactice()
     app_test = _app_test(sessions_test, messagerie, tmp_path)
-    update = _update_photo(47, expediteur_id=888)
+    update = _update_photo(47, message_id=9, expediteur_id=888)
 
     reponse = await _poster(app_test, update, SECRET_TEST)
 
     assert reponse.status_code == 200
     assert (await db_session.execute(select(Document))).scalars().all() == []
     assert messagerie.telechargements == 0
-    assert messagerie.reponses == []
+    assert messagerie.reponses == [(555, 9, MESSAGE_COMPTE_DESACTIVE, None)]
     assert len(messagerie.supervisions) == 1
     assert "888" in messagerie.supervisions[0][1]
+
+
+async def test_expediteur_sans_identifiant_ne_cree_rien_et_signale_en_supervision(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Sans identifiant Telegram (ex. administrateur anonyme du groupe),
+    aucun compte ne peut être créé : comportement d'avant (L2-D7)."""
+    avant = (
+        await db_session.execute(select(func.count()).select_from(Utilisateur))
+    ).scalar_one()
+    messagerie = MessagerieFactice()
+    app_test = _app_test(sessions_test, messagerie, tmp_path)
+    update = _update_photo(50, expediteur_id=None)
+
+    reponse = await _poster(app_test, update, SECRET_TEST)
+
+    assert reponse.status_code == 200
+    assert (await db_session.execute(select(Document))).scalars().all() == []
+    apres = (
+        await db_session.execute(select(func.count()).select_from(Utilisateur))
+    ).scalar_one()
+    assert apres == avant
+    assert messagerie.telechargements == 0
+    assert len(messagerie.supervisions) == 1
 
 
 async def test_telechargement_en_echec_signale_supervision_et_repond_echec_agent(
@@ -651,3 +703,34 @@ async def test_get_ocr_facture_options_confidence_scores_granularity_page(
             "options": {"confidence_scores_granularity": "page"},
         }
     ]
+
+
+async def test_la_requete_rend_sa_connexion_avant_la_tache_de_fond(
+    db_session: AsyncSession,
+    url_base_test_prete: str,
+    tmp_path: Path,
+) -> None:
+    """Incident du 07/10/2026 (3 photos sur 16 perdues, `TimeoutError` à
+    l'enregistrement) : FastAPI ne ferme la session de la requête qu'après
+    les tâches de fond ; si elle garde sa connexion (transaction ouverte par
+    la recherche de l'expéditeur), la tâche de fond attend une connexion
+    pendant toute la lecture du bon. Pool réduit à une seule connexion et
+    2 s d'attente : le bon ne s'enregistre que si la requête a rendu la
+    sienne avant la tâche de fond."""
+    await _creer_utilisateur(db_session, telegram_user_id=999)
+    moteur = create_async_engine(
+        url_base_test_prete, pool_size=1, max_overflow=0, pool_timeout=2
+    )
+    try:
+        sessions = async_sessionmaker(moteur, expire_on_commit=False)
+        messagerie = MessagerieFactice()
+        app_test = _app_test(sessions, messagerie, tmp_path)
+
+        reponse = await _poster(app_test, _update_photo(61), SECRET_TEST)
+
+        assert reponse.status_code == 200
+        documents = (await db_session.execute(select(Document))).scalars().all()
+        assert len(documents) == 1
+        assert messagerie.reponses[0][2].startswith("Reçu")
+    finally:
+        await moteur.dispose()

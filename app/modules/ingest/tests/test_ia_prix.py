@@ -35,7 +35,12 @@ from fastapi import BackgroundTasks
 from pydantic import SecretStr
 from sqlalchemy import event, select
 from sqlalchemy.engine import Engine
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.modules.ingest import anomalies, commun, ia_prix, opencode
 from app.modules.ingest.anomalies import AnomalieIntrouvable
@@ -2440,3 +2445,35 @@ async def test_lot_ecarte_les_regles_hors_prix(db_session: AsyncSession) -> None
     lot = await prix_internet_des_anomalies(db_session, [anomalie.id])
 
     assert lot.par_anomalie == {}
+
+
+async def test_lancer_recherche_rend_la_connexion_avant_la_tache_de_fond(
+    db_session: AsyncSession, url_base_test_prete: str
+) -> None:
+    """Incident du 07/10/2026 (même cause que les photos perdues) : la
+    session de la requête n'est fermée qu'après les tâches de fond ; si elle
+    garde sa connexion, la recherche (jusqu'à 5 min) en garde une de plus.
+    Pool de deux connexions (une recherche en prend deux : son travail et
+    l'inscription de l'appel au journal, `opencode._journaliser_appel`),
+    2 s d'attente : la recherche ne s'enregistre que si
+    `lancer_recherche_prix` a rendu la connexion de la requête."""
+    anomalie, _, cle = await _alerte_prix_a_chercher(db_session)
+    await db_session.commit()
+    moteur = create_async_engine(
+        url_base_test_prete, pool_size=2, max_overflow=0, pool_timeout=2
+    )
+    try:
+        sessions = async_sessionmaker(moteur, expire_on_commit=False)
+        background_tasks = BackgroundTasks()
+        # Comme la session de la requête : encore ouverte pendant la tâche.
+        async with sessions() as session:
+            issue = await lancer_recherche_prix(
+                session, sessions, _client_prix_trouve(), background_tasks, anomalie.id
+            )
+            await background_tasks()
+
+        assert issue == "lancee"
+        lignes = await _lignes_prix(db_session)
+        assert [(ligne.cle, ligne.statut) for ligne in lignes] == [(cle, "trouve")]
+    finally:
+        await moteur.dispose()
