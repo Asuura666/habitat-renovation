@@ -1748,3 +1748,25 @@ un compte désactivé reste refusé, avec une réponse dans le groupe.
   supprimé : les messages de supervision échouent (journalisés), à remplacer
   par un groupe existant (`.env.prod`, puis redémarrage de l'API).
 
+
+## Connexions gardées pendant les tâches de fond (07/10/2026)
+
+Incident en production le 07/10/2026 : 16 photos envoyées d'un coup, 3 perdues
+(`TimeoutError` à l'enregistrement, `/health` à 503 pendant 30 s). Cause :
+FastAPI (0.141) ne ferme la session d'une dépendance `yield` (`get_session`)
+qu'**après** les tâches de fond ; la transaction ouverte par la recherche de
+l'expéditeur gardait donc sa connexion pendant toute la lecture du bon, et le
+pool (15 connexions) était épuisé. Corrigé dans le webhook Telegram et dans la
+recherche de prix à la demande (`await session.commit()` avant la tâche de
+fond), avec un test qui reproduit l'incident sur un pool réduit.
+
+**Règle** : toute nouvelle route qui lance une tâche de fond doit rendre la
+connexion de sa session (commit ou rollback) avant de la planifier.
+
+En plus, à la demande d'Ilane : pool agrandi (10 connexions + 10 de
+débordement par instance, 60 s d'attente, `app.core.db.creer_engine`) et
+nouvelle tentative à l'enregistrement d'un bon reçu par Telegram (3 essais,
+pauses de 2 puis 5 s), seulement quand aucune connexion ne s'est libérée à
+temps — rien n'a alors été écrit, donc pas de doublon possible. Non couvert :
+une coupure de la base pendant l'écriture elle-même n'est pas retentée (risque
+de doublon), le bon reste à renvoyer comme avant.

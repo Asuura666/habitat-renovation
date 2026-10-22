@@ -954,6 +954,11 @@ async def lancer_recherche_prix(
     ):
         return "deja_en_cours"
     _RECHERCHES[produit.cle] = _EtatRecherche("en_cours", None, maintenant)
+    # La session de la requête n'est fermée qu'après les tâches de fond
+    # (dépendance FastAPI `yield`) : rendre sa connexion maintenant, sinon
+    # elle reste prise pendant toute la recherche (jusqu'à 5 min) --
+    # incident du 07/10/2026, même cause que les photos perdues.
+    await session.commit()
     background_tasks.add_task(_executer_recherche_prix, produit, sessions, http)
     return "lancee"
 

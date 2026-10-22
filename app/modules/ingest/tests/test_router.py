@@ -24,7 +24,11 @@ from fastapi import FastAPI, Request
 from httpx import ASGITransport
 from pydantic import SecretStr
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 import app.modules.ingest.router as ingest_router
 from app.core.config import Settings, get_settings
@@ -699,3 +703,34 @@ async def test_get_ocr_facture_options_confidence_scores_granularity_page(
             "options": {"confidence_scores_granularity": "page"},
         }
     ]
+
+
+async def test_la_requete_rend_sa_connexion_avant_la_tache_de_fond(
+    db_session: AsyncSession,
+    url_base_test_prete: str,
+    tmp_path: Path,
+) -> None:
+    """Incident du 07/10/2026 (3 photos sur 16 perdues, `TimeoutError` à
+    l'enregistrement) : FastAPI ne ferme la session de la requête qu'après
+    les tâches de fond ; si elle garde sa connexion (transaction ouverte par
+    la recherche de l'expéditeur), la tâche de fond attend une connexion
+    pendant toute la lecture du bon. Pool réduit à une seule connexion et
+    2 s d'attente : le bon ne s'enregistre que si la requête a rendu la
+    sienne avant la tâche de fond."""
+    await _creer_utilisateur(db_session, telegram_user_id=999)
+    moteur = create_async_engine(
+        url_base_test_prete, pool_size=1, max_overflow=0, pool_timeout=2
+    )
+    try:
+        sessions = async_sessionmaker(moteur, expire_on_commit=False)
+        messagerie = MessagerieFactice()
+        app_test = _app_test(sessions, messagerie, tmp_path)
+
+        reponse = await _poster(app_test, _update_photo(61), SECRET_TEST)
+
+        assert reponse.status_code == 200
+        documents = (await db_session.execute(select(Document))).scalars().all()
+        assert len(documents) == 1
+        assert messagerie.reponses[0][2].startswith("Reçu")
+    finally:
+        await moteur.dispose()

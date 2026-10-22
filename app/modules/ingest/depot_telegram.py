@@ -98,6 +98,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import exc as sa_exc
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -110,6 +111,7 @@ from app.modules.ingest.commun import (
     _journaliser_echec,
     _mime_pour_extension,
     _supprimer_si_existe,
+    logger,
     signature_conforme,
 )
 from app.modules.ingest.extraction_bl import (
@@ -519,6 +521,62 @@ async def _ranger_photo_sans_lever(
         _journaliser_echec("rangement", update_id, exc)
 
 
+# Nouvelle tentative à l'enregistrement d'un bon (demande d'Ilane,
+# 07/10/2026, après l'incident de la rafale de 16 photos) : seulement quand
+# aucune connexion ne s'est libérée à temps (`sqlalchemy.exc.TimeoutError`,
+# levée avant toute écriture : aucun doublon possible). Trois essais au total,
+# pauses de 2 puis 5 s entre eux.
+_PAUSES_ENREGISTREMENT_S: tuple[float, ...] = (2.0, 5.0)
+
+
+async def _inserer_document(
+    sessions: async_sessionmaker[AsyncSession],
+    entrant: FichierEntrant,
+    chemin_final: Path,
+    deposant: Deposant,
+) -> tuple[uuid.UUID, int]:
+    """Insère le `document` du bon reçu et renvoie son identifiant et son
+    numéro interne, en retentant si le pool de connexions est épuisé (voir
+    `_PAUSES_ENREGISTREMENT_S`) ; toute autre erreur remonte aussitôt."""
+    pauses = _PAUSES_ENREGISTREMENT_S
+    for tentative in range(len(pauses) + 1):
+        try:
+            async with sessions() as session:
+                document = Document(
+                    type="bl",
+                    source="telegram",
+                    statut="recu",
+                    fichier_path=str(chemin_final),
+                    telegram_message_id=entrant.message_id,
+                    deposant_id=deposant.id,
+                    photo_compressee=entrant.compresse,
+                    legende=entrant.legende,
+                )
+                session.add(document)
+                # `flush` (pas seulement `commit`) : peuple `document.id` et
+                # `document.numero_interne` (générés côté base, respectivement
+                # `gen_random_uuid()` et l'identité `bigint`) pendant que la
+                # session est encore active, pour les utiliser juste après —
+                # après `commit`, l'attribut est expiré et sa lecture hors
+                # session lèverait (accès implicite interdit en async).
+                await session.flush()
+                document_id = document.id
+                numero_interne = document.numero_interne
+                await session.commit()
+                return document_id, numero_interne
+        except sa_exc.TimeoutError:
+            if tentative == len(pauses):
+                raise
+            logger.warning(
+                "enregistrement du bon retenté (aucune connexion libre) "
+                "pour update_id=%s, essai %s",
+                entrant.update_id,
+                tentative + 2,
+            )
+            await asyncio.sleep(pauses[tentative])
+    raise AssertionError("inaccessible")  # pragma: no cover
+
+
 async def traiter_fichier(
     entrant: FichierEntrant,
     messagerie: Messagerie,
@@ -599,28 +657,9 @@ async def traiter_fichier(
         return
 
     try:
-        async with sessions() as session:
-            document = Document(
-                type="bl",
-                source="telegram",
-                statut="recu",
-                fichier_path=str(chemin_final),
-                telegram_message_id=entrant.message_id,
-                deposant_id=deposant.id,
-                photo_compressee=entrant.compresse,
-                legende=entrant.legende,
-            )
-            session.add(document)
-            # `flush` (pas seulement `commit`) : peuple `document.id` et
-            # `document.numero_interne` (générés côté base, respectivement
-            # `gen_random_uuid()` et l'identité `bigint`) pendant que la
-            # session est encore active, pour les utiliser juste après —
-            # après `commit`, l'attribut est expiré et sa lecture hors
-            # session lèverait (accès implicite interdit en async).
-            await session.flush()
-            document_id = document.id
-            numero_interne = document.numero_interne
-            await session.commit()
+        document_id, numero_interne = await _inserer_document(
+            sessions, entrant, chemin_final, deposant
+        )
     except Exception as exc:
         # Le fichier est déjà écrit sur disque : il ne doit pas rester seul
         # (sans document associé) si l'enregistrement en base échoue.

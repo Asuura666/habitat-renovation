@@ -49,9 +49,23 @@ class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
+# Pool de connexions (incident du 07/10/2026 : une rafale de 16 photos
+# Telegram a épuisé le pool par défaut, 5 + 10 connexions, en 30 s) : 10
+# connexions + 10 de débordement par instance, 60 s d'attente d'une
+# connexion. Chaque instance a sa propre base (`max_connections` = 100).
+POOL_TAILLE = 10
+POOL_DEBORDEMENT = 10
+POOL_ATTENTE_S = 60
+
+
 def creer_engine(url: str) -> AsyncEngine:
-    """Crée l'`AsyncEngine` SQLAlchemy pour l'URL donnée."""
-    return create_async_engine(url)
+    """Crée l'`AsyncEngine` SQLAlchemy pour l'URL donnée (pool ci-dessus)."""
+    return create_async_engine(
+        url,
+        pool_size=POOL_TAILLE,
+        max_overflow=POOL_DEBORDEMENT,
+        pool_timeout=POOL_ATTENTE_S,
+    )
 
 
 def creer_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
