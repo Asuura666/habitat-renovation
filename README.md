@@ -237,6 +237,14 @@ résumé) ; rien d'autre ne change dans l'IA.
 | 7b | Voir les contestations (et leur commentaire) dans la grille de prix du fournisseur | **D3** : un lien « N contestations » sur la rangée du produit déplie l'historique, plus une section « Contestations de prix » sous le tableau (produits retirés de la grille compris). **D4** : les prix « ignorés » n'y figurent pas | **Fait le 01/10/2026 (PR #19) ; en ligne sur la démo et production depuis le 01/10/2026**. Marche sans IA : en production, utile dès que le contrôle des prix y sera allumé (aujourd'hui éteint, donc aucune alerte de prix à contester) |
 | 7c | Les contestations dans le résumé de la semaine fait par l'IA | **D4** : contestations seulement (pas les prix ignorés) ; **D2** : démo seulement | **Fait le 01/10/2026 (PR #19) ; en ligne sur la démo et production depuis le 01/10/2026** (migration 0016, consigne de l'agent `habitat-synthese` modifiée, image OpenCode de la démo reconstruite) ; sans effet en production tant que l'IA y est éteinte |
 
+**Demandes d'Ilane du 02/10/2026 et incident du 07/10/2026.**
+
+| # | Demande | Décision d'Ilane | État au 22/10/2026 |
+| --- | --- | --- | --- |
+| 8a | Un employé sans compte doit pouvoir déposer dès son premier envoi (un bon avait été refusé le 02/10 sans que personne le sache) | Compte employé créé automatiquement au premier envoi dans le groupe des bons ; un compte désactivé reste refusé, avec une réponse dans le groupe | **Fait** (PR #22), en production depuis le 02/10 ; 6 comptes créés ainsi au 22/10 |
+| 8b | Écran Chantiers : par défaut les chantiers du mois, un bouton pour tous, un filtre par mois ; carte des chantiers sans bon repliable | Chantier « du mois » = un bon **ou** une facture du mois ; nouveau filtre « Mois », « Mois de facturation » gardé pour les montants ; carte repliée par défaut | **Fait** (PR #23), en production depuis le 22/10 |
+| 9 | Incident du 07/10 : 3 photos perdues sur 16 envoyées d'un coup | Corriger la cause ; plus de connexions, plus d'attente et une nouvelle tentative à l'enregistrement | **Fait** (PR #24), en production depuis le 22/10 |
+
 ### 2.5 Ce que le client a demandé avant, dans le cahier des charges
 
 Le cahier des charges (`docs/cahier-des-charges.md`, daté du 16/09/2026 à
@@ -291,6 +299,9 @@ de démonstration.
 | **Corrections de l'audit** | 29–30/09 | Les 13 constats importants, en cinq groupes : recalculs après correction, codes répétés, « Conforme » strict et R10, chantiers à numéro, sauvegardes et restauration (PR #16) | Oui (30/09) |
 | **Mise en production du 30/09** | 30/09 | `dev` vers `main` (PR #17, étiquette `mise-en-prod-2026-09-30`), migration 0015, rapprochement rejoué | Oui (démo 07 h 29 UTC, production 07 h 31 UTC) |
 | **Recherche à la demande et contestations de prix** | 01/10 | Bouton « Chercher sur internet » sur chaque rangée de l'onglet Prix ; contestations visibles dans la grille du fournisseur (sur la rangée et dans une section) ; contestations dans la synthèse de la semaine ; migration 0016 | **Oui** (01/10, 13 h 55 UTC, étiquette `mise-en-prod-2026-10-01`), IA et contrôle des prix éteints ; démo à 13 h 11 UTC |
+| **Compte employé automatique** | 02/10 | Compte créé au premier envoi Telegram d'un employé ; compte désactivé refusé avec une réponse dans le groupe (PR #22) | Oui (02/10, depuis `dev`) |
+| **Écran Chantiers du mois** | 02/10 | Vue « Chantiers du mois » (bon ou facture du mois) ou « Tous les chantiers », filtre « Mois », carte des chantiers sans bon repliable ; route `GET /api/chantiers/du-mois` (PR #23) | Oui (22/10, depuis `dev`) |
+| **Photos envoyées en rafale** | 07/10 | Connexion rendue avant la tâche de fond, pool agrandi (10 + 10, 60 s), nouvelle tentative à l'enregistrement d'un bon (PR #24) | Oui (22/10, depuis `dev`) |
 
 ### 3.2 Par écran
 
@@ -301,7 +312,7 @@ de démonstration.
 | Connexion | `/connexion` | Public | Se connecter (cookie httpOnly, 12 h glissantes) | 17/09 |
 | Vue d'ensemble | `/` | Admin | Sélecteur de mois ; chiffres du mois (facturé, conforme, écart, sans bon, montant des bons reçus, problèmes à régler, BL reçus/facturés) ; chantiers triés par montant à vérifier, avec pastille d'état ; problèmes prioritaires ; carte « Commentaires de la semaine » (IA ; affiche aussi le nombre de contestations de prix depuis le 01/10 ; IA allumée seulement sur la démo) ; export Excel du détail du mois | 23/09 (refonte) ; carte IA 28/09 |
 | À régler | `/a-regler`, `/a-regler/:id` | Admin | Liste unique de ce qui attend une décision (problèmes ouverts, documents à corriger, chantiers à rattacher), filtrable ; détail avec « pourquoi c'est signalé » chiffré, liens vers la facture et le bon ; traiter exige un commentaire (« Contesté auprès du fournisseur » ou « C'est normal, ignorer ») ; choix du chantier sur une alerte R18 ; avis de l'IA sur une alerte de prix | 23/09 ; R18 27/09 ; avis IA 28/09 |
-| Chantiers | `/chantiers`, `/chantiers/:id` | Admin | Liste et création ; filtre agence ; fiche (client, agence, livraisons cliquables, quatre chiffres, modification) ; chantiers « à compléter » ; **fusion** de deux chantiers | 23/09 ; à compléter et fusion 27/09 |
+| Chantiers | `/chantiers`, `/chantiers/:id` | Admin | Vue « Chantiers du mois » (par défaut) ou « Tous les chantiers », filtres « Mois », « Mois de facturation » et agence, carte des chantiers sans bon repliable (22/10) ; création ; fiche (client, agence, livraisons cliquables, quatre chiffres, modification) ; chantiers « à compléter » ; **fusion** de deux chantiers | 23/09 ; à compléter et fusion 27/09 |
 | Fournisseurs | `/fournisseurs`, `/fournisseurs/:id` | Admin | Liste ; fiche avec chantiers concernés, **filtre par mois**, problèmes ouverts ; lien vers la grille de prix | 23/09 ; mois 27/09 |
 | Grille de prix | `/fournisseurs/:id/prix` | Admin | Prix en vigueur, recherche, ajout ou modification (nouvelle ligne d'historique), retrait, import Excel avec aperçu, modèle à télécharger ; **contestations** : lien « ⚑ N contestation(s) » sous un produit contesté qui déplie son historique (date, bon, prix du bon, prix de la grille, auteur, commentaire), et section « Contestations de prix (N) » sous le tableau, groupée par produit, avec la mention « absent de la grille » pour un produit retiré (section absente s'il n'y en a aucune ; la recherche de la grille ne la filtre pas) | 28/09 ; contestations 01/10 (démo et production) |
 | Livraisons | `/livraisons` | Admin | Bons « Conforme » (et autres états), filtrables par mois, agence, chantier, fournisseur ; clic vers le bon | 27/09 |
@@ -823,6 +834,7 @@ Liste relue dans les décorateurs `@router.*` de `app/modules/api/*.py`
 | | `POST /api/anomalies/{id}/traitement` | admin | Traiter ou ignorer (commentaire obligatoire) |
 | Référentiels | `GET/POST /api/chantiers`, `GET/PUT /api/chantiers/{id}` | admin | Liste, création, fiche, modification |
 | | `POST /api/chantiers/{id}/fusionner` | admin | Fusion de deux chantiers |
+| | `GET /api/chantiers/du-mois?mois=…&agence=…` (22/10) | admin | Chantiers ayant un bon ou une facture du mois, avec leur nombre de bons du mois |
 | | `GET /api/fournisseurs` | admin | Liste |
 | | `POST /api/alias-chantier/{id}/validation`, `POST /api/articles/{id}/validation` | admin | Validation d'un alias, d'un article |
 | | `GET /api/referentiels/depots-par-agent`, `.../chantiers-silencieux`, `.../agences` | admin | Statistiques et listes |
@@ -1305,7 +1317,7 @@ sur le serveur dédié n'est pas fait** (section 23).
 | Port local | `127.0.0.1:8450` | `127.0.0.1:8451` |
 | Domaine | https://habitat.ellumena.fr | https://demo.habitat.ellumena.fr |
 | Données | Réelles | Fictives (script de remplissage hors dépôt) |
-| Version déployée au 01/10/2026 | Étiquette `mise-en-prod-2026-10-01` (01/10, 13 h 55 UTC), migration 0016, IA éteinte, contrôle des prix éteint | Même code (01/10, 13 h 11 UTC), migration 0016, IA allumée, image OpenCode reconstruite |
+| Version déployée au 22/10/2026 | `dev` `fb4d5c9` (22/10, 22 h 00 UTC, depuis `dev`), migration 0016, IA éteinte, contrôle des prix éteint | Même code (22/10, 22 h 01 UTC), migration 0016, IA allumée |
 
 ### 17.3 Fichiers Compose
 
@@ -1343,7 +1355,9 @@ procédures générales : `docs/deploiement-et-tests.md`. **Déploiements réels
 faits** : démo le 28/09 à 18 h 24 UTC, production le 28/09 vers 19 h UTC
 (coupure d'environ 25 secondes) ; démo le 30/09 à 07 h 29 UTC, production le
 30/09 à 07 h 31 UTC (coupure d'environ 15 secondes) ; démo le 01/10 à 13 h 11 UTC,
-production le 01/10 à 13 h 55 UTC (coupure d'environ 14 secondes) ; à chaque fois avec
+production le 01/10 à 13 h 55 UTC (coupure d'environ 14 secondes) ; production le
+02/10 à 16 h 17 UTC et démo à 16 h 18 UTC ; production le 22/10 à 22 h 00 UTC
+et démo à 22 h 01 UTC (coupure d'environ 30 secondes) ; à chaque fois avec
 sauvegarde préalable de chaque base et de l'image précédente. Ordre propre aux
 corrections de l'audit (sauvegarde, reconstruction de l'API, rejeu du
 rapprochement, contrôle des alias) : `docs/deploiement-corrections-audit.md`.
@@ -1381,6 +1395,18 @@ d'environ 14 secondes). Vérifié après coup : `/health` à 200, révision 0016
 `prix_controle_bl_actif` à 0 en base, inchangé). En production, seules les
 contestations dans la grille du fournisseur sont donc utilisables, et
 seulement quand le contrôle des prix sera allumé.
+
+### 17.7 Passages en production du 02/10 et du 22/10/2026 (faits, depuis `dev`)
+
+Avec l'accord d'Ilane, la production a été mise à jour directement depuis
+`dev`, sans attendre le passage `dev` → `main` : le 02/10 à 16 h 17 UTC
+(PR #22, compte employé automatique, urgent) puis le 22/10 à 22 h 00 UTC
+(PR #23 et #24 : écran Chantiers du mois, correction des photos perdues en
+rafale). Aucune migration ; sauvegarde de la base et de l'image précédente à
+chaque fois ; IA et contrôle des prix toujours éteints, vérifiés après coup.
+L'arbre de déploiement est détaché sur `fb4d5c9`. **`main` est en retard** sur
+la production (étiquette `mise-en-prod-2026-10-01`) : le passage `dev` →
+`main` et une nouvelle étiquette restent à faire.
 ## 18. Exploitation
 
 ### 18.1 Sauvegardes (restic)
@@ -1684,7 +1710,7 @@ D'après `docs/roadmap-octobre-2026.md` §2.
 - Chaque lot sur une branche `feature/<nom>` partie de `dev`, terminée par une
   **PR vers `dev`** ; la session qui a fait le lot fusionne sa PR quand la
   relecture finale est verte (commit de fusion, historique tâche par tâche
-  conservé). Vingt et une PR au 01/10/2026 (#1 à #21).
+  conservé). Vingt-quatre PR au 22/10/2026 (#1 à #24).
 - **`dev` → `main` seulement avec l'accord d'Ilane**, avant un déploiement ;
   le déploiement se fait depuis `main` (étiquettes `mise-en-prod-octobre-2026`
   posée le 28/09, puis `mise-en-prod-2026-09-30` posée le 30/09).
@@ -1722,7 +1748,8 @@ D'après `docs/roadmap-octobre-2026.md` §2.
 
 ### 22.1 Lot par lot et phase par phase
 
-387 commits sur `main` (du 16/09/2026, « init : dépôt vide », au 01/10/2026).
+387 commits sur `main` (du 16/09/2026, « init : dépôt vide », au 01/10/2026) ;
+`dev` en compte quelques-uns de plus au 22/10/2026, en production mais pas encore dans `main`.
 Étiquettes Git : `lot-1` à `lot-5`, `refonte-front`,
 `mise-en-prod-octobre-2026`, `mise-en-prod-2026-09-30`, `mise-en-prod-2026-10-01`.
 
@@ -1755,7 +1782,7 @@ D'après `docs/roadmap-octobre-2026.md` §2.
 | Recherche à la demande et contestations de prix | 01/10 | Demandes d'Ilane du 01/10 : bouton de recherche sur chaque rangée de l'onglet Prix, contestations dans la grille et dans la synthèse, migration 0016 (sept tâches de code commitées sur `feature/prix-contestations-recherche`) | Codé, relu, fusionné (PR #19 puis #20) | **Oui**, le 01/10 (démo 13 h 11 UTC, production 13 h 55 UTC ; IA et contrôle des prix éteints en production) |
 | Lot 6 — Livraison | — | Recette sur deux mois réels, documentation, formation, remise du dépôt étiqueté, procès-verbal | **Non commencé** | — |
 
-### 22.2 Les vingt et une PR
+### 22.2 Les vingt-quatre PR
 
 | PR | Date | Contenu |
 | --- | --- | --- |
@@ -1779,7 +1806,10 @@ D'après `docs/roadmap-octobre-2026.md` §2.
 | #18 | 30/09–01/10 | Documentation après la mise en production du 30/09 |
 | #19 | 01/10 | Recherche internet à la demande, contestations dans la grille et dans le résumé de la semaine (migration 0016) |
 | #20 | 01/10 | `dev` → `main` : mise en production du 01/10 |
-| #21 | 01/10 | Documentation : état du 01/10 (fusion, démo, production) |
+| #21 | 01/10–22/10 | Documentation : état du 01/10 puis du 22/10 (fusions, démo, production) |
+| #22 | 02/10 | Compte employé créé au premier envoi Telegram, compte désactivé refusé avec réponse |
+| #23 | 02/10–22/10 | Écran Chantiers : chantiers du mois ou tous, filtre Mois, carte repliable |
+| #24 | 07/10–22/10 | Photos perdues en rafale : connexion rendue avant la tâche de fond, pool agrandi, nouvelle tentative |
 
 ### 22.3 Déroulé jour par jour
 
@@ -1821,16 +1851,30 @@ D'après `docs/roadmap-octobre-2026.md` §2.
   spécification, code et documentation sur la branche
   `feature/prix-contestations-recherche` (depuis `dev`), **fusionnée le 01/10
   (PR #19), déployée sur la démo puis en production le 01/10**.
+- **02/10** : un employé sans compte avait déposé un bon, refusé sans que
+  personne le sache (groupe de supervision supprimé) : compte employé créé
+  automatiquement au premier envoi (PR #22), en production le jour même
+  depuis `dev` ; le bon de ce matin-là ajouté à la main (document n° 7) ;
+  demande de l'écran Chantiers du mois (PR #23).
+- **07/10** : 16 photos envoyées d'un coup, 3 perdues ; cause trouvée
+  (connexion gardée pendant la lecture du bon) et corrigée, avec pool agrandi
+  et nouvelle tentative (PR #24).
+- **22/10** : PR #23 et #24 fusionnées et déployées (production 22 h 00 UTC,
+  démo 22 h 01 UTC).
 
-### 22.4 État au 01/10/2026
+### 22.4 État au 22/10/2026
 
-- **En production** : la version `mise-en-prod-2026-10-01` (01/10/2026,
-  13 h 55 UTC : phases 1 à 4, Laboratoire IA, prix internet à plusieurs
-  sources, corrections de l'audit, demandes du 01/10, migration 0016), IA
-  **éteinte**, contrôle des prix éteint. Chantiers
-  créés automatiquement « à compléter » par la reprise du 28/09 ; comptes des
-  employés, mot de passe admin, import des grilles : à faire par Ilane.
-- **Sur la démo** : la même version (01/10/2026, 13 h 11 UTC), IA allumée.
+- **En production** : le code de `dev` `fb4d5c9` (22/10/2026, 22 h 00 UTC :
+  phases 1 à 4, Laboratoire IA, prix internet à plusieurs sources, corrections
+  de l'audit, demandes du 01/10 et du 02/10, correction du 07/10, migration
+  0016), IA **éteinte**, contrôle des prix éteint. L'application sert : 6
+  comptes employés créés au premier envoi, une quarantaine de bons déposés du
+  08/10 au 22/10 ; **42 bons « à vérifier » attendent la validation du
+  client** (c'est à lui de les vérifier). Mot de passe admin et import des
+  grilles : à faire par Ilane ; fournisseur Clim+ pas encore créé.
+- **Sur la démo** : le même code (22/10/2026, 22 h 01 UTC), IA allumée.
+- **`main`** : en retard sur la production (étiquette
+  `mise-en-prod-2026-10-01`) ; passage `dev` → `main` à faire.
 - **Déployé** : décisions d'Ilane du 29/09 (Conforme strict, R10 visible,
   chantiers à numéro).
 - **Non commencé** : lot 6. **Bloqué** : Drive, lecteur Point.P (aucun
@@ -1841,8 +1885,9 @@ D'après `docs/roadmap-octobre-2026.md` §2.
   la semaine, migration 0016). En production, IA et contrôle des prix restent éteints.
 - **Préparé, non validé, hors de ce passage** : scripts de supervision
   (`feature/exploitation-2`).
-- **Ouvert** : F-04 (aucune alerte si une sauvegarde manque) et les constats
-  mineurs de l'audit (`docs/dette.md`).
+- **Ouvert** : F-04 (aucune alerte si une sauvegarde manque), le groupe
+  Telegram de supervision supprimé (les messages de supervision échouent) et
+  les constats mineurs de l'audit (`docs/dette.md`).
 
 ---
 
