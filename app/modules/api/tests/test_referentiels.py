@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import itertools
 import uuid
+from datetime import date
 from pathlib import Path
 
 import httpx
@@ -35,6 +36,7 @@ from app.modules.ingest.models import (
     Article,
     Chantier,
     ChantierAlias,
+    Document,
     Fournisseur,
     Utilisateur,
 )
@@ -1105,3 +1107,86 @@ async def test_agences_admin_200(
 
     assert reponse.status_code == 200
     assert reponse.json() == ["Agence API Testeur"]
+
+
+# --------------------------------------------------------------------------
+# GET /api/chantiers/du-mois
+# --------------------------------------------------------------------------
+
+
+async def test_chantiers_du_mois_agent_renvoie_403(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    agent = await _creer_utilisateur(
+        db_session, email="agent.dumois1@example.invalid", role="agent"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=agent.email)
+
+    reponse = await _requete(
+        app_test, "GET", "/api/chantiers/du-mois?mois=2026-09-01", cookie=cookie
+    )
+
+    assert reponse.status_code == 403
+
+
+async def test_chantiers_du_mois_admin_200_et_forme(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.dumois1@example.invalid", role="admin"
+    )
+    chantier = await _creer_chantier(db_session, nom="Chantier du mois API")
+    db_session.add(
+        Document(
+            type="bl",
+            source="telegram",
+            statut="recu",
+            fichier_path=f"chemin-invente-{uuid.uuid4()}.jpg",
+            chantier_id=chantier.id,
+            date_doc=date(2026, 9, 12),
+        )
+    )
+    await db_session.commit()
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test, "GET", "/api/chantiers/du-mois?mois=2026-09-01", cookie=cookie
+    )
+    autre_mois = await _requete(
+        app_test, "GET", "/api/chantiers/du-mois?mois=2026-08-01", cookie=cookie
+    )
+
+    assert reponse.status_code == 200
+    assert reponse.json() == [
+        {
+            "chantier_id": str(chantier.id),
+            "nb_bons": 1,
+            "dernier_bon_le": "2026-09-12",
+            "facture_ce_mois": False,
+        }
+    ]
+    assert autre_mois.json() == []
+
+
+async def test_chantiers_du_mois_mois_invalide_renvoie_422(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    admin = await _creer_utilisateur(
+        db_session, email="admin.dumois2@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test, "GET", "/api/chantiers/du-mois?mois=pas-un-mois", cookie=cookie
+    )
+
+    assert reponse.status_code == 422

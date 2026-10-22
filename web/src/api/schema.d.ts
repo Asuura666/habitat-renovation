@@ -342,6 +342,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chantiers/du-mois": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Chantiers Du Mois Endpoint */
+        get: operations["chantiers_du_mois_endpoint_api_chantiers_du_mois_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chantiers/{chantier_id}": {
         parameters: {
             query?: never;
@@ -1894,6 +1911,24 @@ export interface components {
             agence?: string | null;
             /** Client */
             client?: string | null;
+        };
+        /**
+         * ChantierDuMoisReponse
+         * @description Une ligne de `GET /api/chantiers/du-mois` — mêmes attributs qu'
+         *     `ingest.referentiels_vue.ChantierDuMois`.
+         */
+        ChantierDuMoisReponse: {
+            /**
+             * Chantier Id
+             * Format: uuid
+             */
+            chantier_id: string;
+            /** Nb Bons */
+            nb_bons: number;
+            /** Dernier Bon Le */
+            dernier_bon_le: string | null;
+            /** Facture Ce Mois */
+            facture_ce_mois: boolean;
         };
         /**
          * ChantierModificationRequete
@@ -4436,6 +4471,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChantierReponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chantiers_du_mois_endpoint_api_chantiers_du_mois_get: {
+        parameters: {
+            query: {
+                mois: string;
+                agence?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChantierDuMoisReponse"][];
                 };
             };
             /** @description Validation Error */
