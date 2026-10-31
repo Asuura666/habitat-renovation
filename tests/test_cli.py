@@ -2691,3 +2691,89 @@ def test_cli_chantiers_alias_suspects(
         assert asyncio.run(_nb()) == 1
     finally:
         asyncio.run(_nettoyer_alias_en_attente(db_engine, fournisseur_id, chantier_id))
+
+
+# ---------------------------------------------------------------------------
+# `importer-historique-prix` (lot 2 du 31/10/2026, B4) -- câblage CLI
+# seulement, la logique est testée dans `test_historique_prix.py`.
+# ---------------------------------------------------------------------------
+
+
+def test_cli_importer_historique_prix_affiche_le_bilan(
+    _env_bl_test: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from app.modules.ingest.historique_prix import BilanImportHistorique
+
+    fichier = tmp_path / "controle.xlsx"
+    fichier.write_bytes(b"contenu-invente")
+    recu: dict[str, Any] = {}
+
+    async def _service(session: object, **kwargs: Any) -> BilanImportHistorique:
+        recu.update(kwargs)
+        return BilanImportHistorique(lues=10, importees=7, deja_presentes=3, erreurs=2)
+
+    monkeypatch.setattr(cli, "importer_historique_prix", _service)
+    code = cli.main(
+        [
+            "importer-historique-prix",
+            "--fournisseur",
+            "Négoce Inventé",
+            "--fichier",
+            str(fichier),
+            "--feuille",
+            "HISTORIQUE X",
+            "--source",
+            "Fichier de contrôle inventé",
+            "--simulation",
+        ]
+    )
+
+    assert code == 0
+    assert recu == {
+        "fournisseur_nom": "Négoce Inventé",
+        "contenu": b"contenu-invente",
+        "feuille": "HISTORIQUE X",
+        "source": "Fichier de contrôle inventé",
+        "simulation": True,
+    }
+    sortie = capsys.readouterr().out
+    assert "Simulation : rien n'est écrit." in sortie
+    assert "lignes lues : 10" in sortie
+    assert "importées : 7" in sortie
+    assert "déjà présentes : 3" in sortie
+    assert "illisibles : 2" in sortie
+
+
+def test_cli_importer_historique_prix_erreurs_lisibles(
+    _env_bl_test: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from app.modules.ingest.historique_prix import FournisseurNonTrouve
+
+    arguments = [
+        "importer-historique-prix",
+        "--fournisseur",
+        "Inconnu",
+        "--feuille",
+        "H",
+        "--source",
+        "S",
+    ]
+    # Fichier absent : code 1 avant tout accès à la base.
+    assert cli.main([*arguments, "--fichier", str(tmp_path / "absent.xlsx")]) == 1
+    assert "fichier introuvable" in capsys.readouterr().err
+
+    fichier = tmp_path / "controle.xlsx"
+    fichier.write_bytes(b"x")
+
+    async def _service(session: object, **kwargs: Any) -> None:
+        raise FournisseurNonTrouve("Inconnu")
+
+    monkeypatch.setattr(cli, "importer_historique_prix", _service)
+    assert cli.main([*arguments, "--fichier", str(fichier)]) == 1
+    assert "aucun fournisseur nommé" in capsys.readouterr().err

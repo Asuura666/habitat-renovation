@@ -1017,6 +1017,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/grilles/fournisseurs/{fournisseur_id}/produits/{cle_produit}/historique-complet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Historique Complet Endpoint
+         * @description Lot 2 du 31/10/2026 (B4) : tout l'historique d'un produit -- versions
+         *     de la grille, prix vus sur les bons et factures du fournisseur, prix
+         *     observés importés. Trié par date décroissante, 100 lignes au plus.
+         */
+        get: operations["historique_complet_endpoint_api_grilles_fournisseurs__fournisseur_id__produits__cle_produit__historique_complet_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/grilles/fournisseurs/{fournisseur_id}/contestations": {
         parameters: {
             query?: never;
@@ -2526,6 +2548,42 @@ export interface components {
             chantier_brut: string | null;
             /** Chantier Id */
             chantier_id: string | null;
+        };
+        /**
+         * EntreeHistoriqueReponse
+         * @description `GET /api/grilles/fournisseurs/{id}/produits/{cle}/historique-complet`
+         *     -- mêmes attributs qu'`ingest.historique_prix.EntreeHistorique` (lot 2
+         *     du 31/10/2026, B4). `type` : `grille`, `document` ou `observe`.
+         */
+        EntreeHistoriqueReponse: {
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "grille" | "document" | "observe";
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Origine */
+            origine: string;
+            /** Prix Ht */
+            prix_ht: string;
+            /** Remise Pct */
+            remise_pct: string | null;
+            /** Prix Net */
+            prix_net: string | null;
+            /** Unite */
+            unite: string | null;
+            /** Quantite */
+            quantite: string | null;
+            /** Numero Document */
+            numero_document: string | null;
+            /** Document Id */
+            document_id: string | null;
+            /** Type Document */
+            type_document: string | null;
         };
         /**
          * ErreurImportReponse
@@ -5752,6 +5810,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LigneHistoriqueReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    historique_complet_endpoint_api_grilles_fournisseurs__fournisseur_id__produits__cle_produit__historique_complet_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fournisseur_id: string;
+                cle_produit: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntreeHistoriqueReponse"][];
                 };
             };
             /** @description Validation Error */

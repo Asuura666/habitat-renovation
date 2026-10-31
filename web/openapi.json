@@ -3180,6 +3180,60 @@
     }
    }
   },
+  "/api/grilles/fournisseurs/{fournisseur_id}/produits/{cle_produit}/historique-complet": {
+   "get": {
+    "summary": "Historique Complet Endpoint",
+    "description": "Lot 2 du 31/10/2026 (B4) : tout l'historique d'un produit -- versions\nde la grille, prix vus sur les bons et factures du fournisseur, prix\nobservés importés. Trié par date décroissante, 100 lignes au plus.",
+    "operationId": "historique_complet_endpoint_api_grilles_fournisseurs__fournisseur_id__produits__cle_produit__historique_complet_get",
+    "parameters": [
+     {
+      "name": "fournisseur_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Fournisseur Id"
+      }
+     },
+     {
+      "name": "cle_produit",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Cle Produit"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/EntreeHistoriqueReponse"
+         },
+         "title": "Response Historique Complet Endpoint Api Grilles Fournisseurs  Fournisseur Id  Produits  Cle Produit  Historique Complet Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/grilles/fournisseurs/{fournisseur_id}/contestations": {
    "get": {
     "summary": "Contestations Fournisseur Endpoint",
@@ -7028,6 +7082,130 @@
     ],
     "title": "DocumentReponse",
     "description": "Une ligne de `GET /api/documents` (`confirmation` ajouté au Ruling\nL2-R8, correction de revue L2-T7 : le front ne doit plus dériver\nvérifié/écart à partir de `statut`, qui suit une tout autre logique —\nvoir `ingest/service.py::lister_documents` ; `fournisseur`/\n`chantier_brut` ajoutés en L3-T8a pour un aperçu utile dans la liste ;\n`chantier_id` ajouté au tour de correction 1 de Task 8 — le filtre\n`?chantier=` de la liste « Documents » ne peut comparer un identifiant\nde chantier connu (`?chantier=<id>`, résolu par `GET /api/chantiers`)\nqu'à un identifiant, jamais à un préfixe de texte brut non normalisé\n(`chantier_brut`) ; `date_doc` ajouté au tour de correction 2 — pour un\nBL/enlèvement, la date du bon telle qu'imprimée (sa date de livraison),\npas sa date de dépôt (`cree_le`) : le filtre `?mois=` de la liste\n« Documents » comparait tout document sur `cree_le`, ce qui excluait un\nBL de son mois de livraison réel quand il est déposé un autre mois."
+   },
+   "EntreeHistoriqueReponse": {
+    "properties": {
+     "type": {
+      "type": "string",
+      "enum": [
+       "grille",
+       "document",
+       "observe"
+      ],
+      "title": "Type"
+     },
+     "date": {
+      "type": "string",
+      "format": "date",
+      "title": "Date"
+     },
+     "origine": {
+      "type": "string",
+      "title": "Origine"
+     },
+     "prix_ht": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Prix Ht"
+     },
+     "remise_pct": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Remise Pct"
+     },
+     "prix_net": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Prix Net"
+     },
+     "unite": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unite"
+     },
+     "quantite": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Quantite"
+     },
+     "numero_document": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Numero Document"
+     },
+     "document_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Id"
+     },
+     "type_document": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Type Document"
+     }
+    },
+    "type": "object",
+    "required": [
+     "type",
+     "date",
+     "origine",
+     "prix_ht",
+     "remise_pct",
+     "prix_net",
+     "unite",
+     "quantite",
+     "numero_document",
+     "document_id",
+     "type_document"
+    ],
+    "title": "EntreeHistoriqueReponse",
+    "description": "`GET /api/grilles/fournisseurs/{id}/produits/{cle}/historique-complet`\n-- mêmes attributs qu'`ingest.historique_prix.EntreeHistorique` (lot 2\ndu 31/10/2026, B4). `type` : `grille`, `document` ou `observe`."
    },
    "ErreurImportReponse": {
     "properties": {

@@ -1458,6 +1458,26 @@ class LigneHistoriqueReponse(BaseModel):
     created_at: datetime
 
 
+class EntreeHistoriqueReponse(BaseModel):
+    """`GET /api/grilles/fournisseurs/{id}/produits/{cle}/historique-complet`
+    -- mêmes attributs qu'`ingest.historique_prix.EntreeHistorique` (lot 2
+    du 31/10/2026, B4). `type` : `grille`, `document` ou `observe`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    type: Literal["grille", "document", "observe"]
+    date: date
+    origine: str
+    prix_ht: Decimal
+    remise_pct: Decimal | None
+    prix_net: Decimal | None
+    unite: str | None
+    quantite: Decimal | None
+    numero_document: str | None
+    document_id: uuid.UUID | None
+    type_document: str | None
+
+
 class ContestationReponse(BaseModel):
     """`GET /api/grilles/fournisseurs/{id}/contestations` -- mêmes attributs
     qu'`ingest.contestations_prix.Contestation` (sans le fournisseur, déjà

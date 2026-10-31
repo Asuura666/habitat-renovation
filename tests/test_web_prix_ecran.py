@@ -84,3 +84,23 @@ def test_journal_connait_les_actions_de_grille_de_prix() -> None:
         assert f'{action}: "' in journal
     for cible in ("grille_import", "grille_prix"):
         assert f'"{cible}"' in journal
+
+
+def test_grille_fournisseur_deplie_l_historique_d_un_produit() -> None:
+    """Lot 2, B4 (31/10/2026) : « quand on clique sur le produit dans la
+    grille, on peut voir tout l'historique du produit »."""
+    page = (SRC / "pages" / "GrilleFournisseur.tsx").read_text()
+    client = (SRC / "api" / "grilles.ts").read_text()
+
+    assert "historique-complet" in client
+    assert 'components["schemas"]["EntreeHistoriqueReponse"]' in client
+    assert "obtenirHistoriqueProduit" in client
+    for chaine in (
+        "HistoriqueProduit",
+        "BoutonHistorique",
+        "Historique ▾",
+        "Aucun historique pour ce produit.",
+        "obtenirHistoriqueProduit",
+        "entree.origine",
+    ):
+        assert chaine in page, chaine

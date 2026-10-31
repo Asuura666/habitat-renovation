@@ -7,19 +7,23 @@ import {
   apercevoirImportGrille,
   cleContestations,
   cleGrilleFournisseur,
+  cleHistoriqueProduit,
   type ContestationPrix,
+  type EntreeHistorique,
   type ProduitGrille,
   enregistrerPrixGrille,
   importerGrille,
   listerContestations,
   obtenirGrilleFournisseur,
+  obtenirHistoriqueProduit,
   type SaisiePrixGrille,
   retirerProduitGrille,
   urlModeleGrille,
 } from "../api/grilles";
 import { ErreurApi } from "../api/client";
 import { CLE_FOURNISSEURS, listerFournisseurs } from "../api/referentiels";
-import { estMontantNul, formaterDate, formaterMontant, TIRET } from "../lib/formats";
+import { estMontantNul, formaterDate, formaterMontant, formaterQuantite, TIRET } from "../lib/formats";
+import { lienBon } from "../lib/liens";
 import { Bouton, Carte, EnTetePage, EtatVide, FilAriane } from "../ui";
 import { titreRegle } from "../ui/libelles";
 
@@ -323,6 +327,91 @@ function BoutonContestations({
   );
 }
 
+/** Bouton-lien qui déplie ou replie tout l'historique d'un produit
+ * (lot 2 du 31/10/2026, B4). */
+function BoutonHistorique({ deplie, surBasculer }: { deplie: boolean; surBasculer: () => void }): ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={surBasculer}
+      aria-expanded={deplie}
+      className="mt-1 block text-xs font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
+    >
+      {deplie ? "Historique ▴" : "Historique ▾"}
+    </button>
+  );
+}
+
+/** Un prix de l'historique : date, prix (net pour une version de grille),
+ * unité, quantité, puis l'origine en français ; le numéro du bon ou de la
+ * facture est un lien quand il est connu. */
+function LigneHistorique({ entree }: { entree: EntreeHistorique }): ReactElement {
+  const aUneRemise = entree.remise_pct !== null && !estMontantNul(entree.remise_pct);
+  return (
+    <li className="border-l-2 border-bordure pl-3">
+      <p className="text-encre">
+        <span className="text-encre-2">{formaterDate(entree.date)}</span> ·{" "}
+        <span className="font-mono font-medium">{formaterMontant(entree.prix_net ?? entree.prix_ht)}</span>
+        {aUneRemise && (
+          <span className="ml-1 text-xs text-encre-2">
+            ({formaterMontant(entree.prix_ht)} − {entree.remise_pct} %)
+          </span>
+        )}
+        {entree.unite !== null && <span className="text-encre-2"> / {entree.unite}</span>}
+        {entree.quantite !== null && <span className="text-encre-2"> · quantité {formaterQuantite(entree.quantite)}</span>}
+      </p>
+      <p className="text-xs text-encre-2">
+        {entree.document_id !== null ? (
+          <Link to={lienBon(entree.document_id)} className="font-medium text-accent underline">
+            {entree.origine}
+          </Link>
+        ) : (
+          entree.origine
+        )}
+        {entree.document_id === null && entree.numero_document !== null && <> · facture {entree.numero_document}</>}
+      </p>
+    </li>
+  );
+}
+
+/** Tout l'historique d'un produit, chargé à l'ouverture seulement. */
+function HistoriqueProduit({
+  fournisseurId,
+  cleProduit,
+}: {
+  fournisseurId: string;
+  cleProduit: string;
+}): ReactElement {
+  const historique = useQuery({
+    queryKey: cleHistoriqueProduit(fournisseurId, cleProduit),
+    queryFn: () => obtenirHistoriqueProduit(fournisseurId, cleProduit),
+  });
+  if (historique.isPending) {
+    return (
+      <p role="status" className="text-sm text-encre-2">
+        Chargement…
+      </p>
+    );
+  }
+  if (historique.isError) {
+    return (
+      <p role="alert" className="text-sm text-alerte">
+        Impossible de charger l'historique de ce produit.
+      </p>
+    );
+  }
+  if (historique.data.length === 0) {
+    return <p className="text-sm text-encre-2">Aucun historique pour ce produit.</p>;
+  }
+  return (
+    <ul className="space-y-2 text-sm">
+      {historique.data.map((entree, index) => (
+        <LigneHistorique key={`${entree.type}-${entree.date}-${index}`} entree={entree} />
+      ))}
+    </ul>
+  );
+}
+
 /** Une rangée de la grille, en carte (téléphone) — mêmes informations que
  * le tableau ci-dessous (spec §9). */
 function CarteProduit({
@@ -333,6 +422,9 @@ function CarteProduit({
   contestations,
   deplie,
   surBasculer,
+  fournisseurId,
+  historiqueDeplie,
+  surBasculerHistorique,
 }: {
   produit: ProduitGrille;
   surModifier: () => void;
@@ -341,11 +433,15 @@ function CarteProduit({
   contestations: readonly ContestationPrix[];
   deplie: boolean;
   surBasculer: () => void;
+  fournisseurId: string;
+  historiqueDeplie: boolean;
+  surBasculerHistorique: () => void;
 }): ReactElement {
   return (
     <li className="rounded-carte border border-bordure bg-surface p-4">
       <p className="font-medium text-encre">{produit.designation}</p>
       <p className="text-sm text-encre-2">{produit.reference ?? "Sans référence"}</p>
+      <BoutonHistorique deplie={historiqueDeplie} surBasculer={surBasculerHistorique} />
       {contestations.length > 0 && (
         <BoutonContestations nombre={contestations.length} deplie={deplie} surBasculer={surBasculer} />
       )}
@@ -374,6 +470,11 @@ function CarteProduit({
           <dd className="text-encre">{produit.famille ?? TIRET}</dd>
         </div>
       </dl>
+      {historiqueDeplie && (
+        <div className="mt-3">
+          <HistoriqueProduit fournisseurId={fournisseurId} cleProduit={produit.cle_produit} />
+        </div>
+      )}
       {deplie && contestations.length > 0 && (
         <div className="mt-3">
           <HistoriqueContestations contestations={contestations} />
@@ -709,6 +810,19 @@ export function GrilleFournisseur(): ReactElement {
   // Produits dont l'historique de contestations est déplié (par produit).
   const [clesDepliees, setClesDepliees] = useState<ReadonlySet<string>>(new Set());
 
+  // Produits dont tout l'historique est déplié (lot 2, B4).
+  const [clesHistorique, setClesHistorique] = useState<ReadonlySet<string>>(new Set());
+
+  function basculerHistorique(cle: string): void {
+    setClesHistorique((courantes) => {
+      const suivantes = new Set(courantes);
+      if (!suivantes.delete(cle)) {
+        suivantes.add(cle);
+      }
+      return suivantes;
+    });
+  }
+
   function basculerContestations(cle: string): void {
     setClesDepliees((courantes) => {
       const suivantes = new Set(courantes);
@@ -858,6 +972,9 @@ export function GrilleFournisseur(): ReactElement {
                   contestations={contestationsParCle.get(produit.cle_produit) ?? []}
                   deplie={clesDepliees.has(produit.cle_produit)}
                   surBasculer={() => basculerContestations(produit.cle_produit)}
+                  fournisseurId={fournisseurId ?? ""}
+                  historiqueDeplie={clesHistorique.has(produit.cle_produit)}
+                  surBasculerHistorique={() => basculerHistorique(produit.cle_produit)}
                 />
               ))}
             </ul>
@@ -880,6 +997,7 @@ export function GrilleFournisseur(): ReactElement {
                   {grille.data.produits.map((produit) => {
                     const sesContestations = contestationsParCle.get(produit.cle_produit) ?? [];
                     const deplie = clesDepliees.has(produit.cle_produit);
+                    const historiqueDeplie = clesHistorique.has(produit.cle_produit);
                     return (
                     <Fragment key={produit.cle_produit}>
                     <tr>
@@ -888,6 +1006,10 @@ export function GrilleFournisseur(): ReactElement {
                         {produit.reference !== null && (
                           <p className="mt-0.5 text-xs font-normal text-encre-2">{produit.reference}</p>
                         )}
+                        <BoutonHistorique
+                          deplie={historiqueDeplie}
+                          surBasculer={() => basculerHistorique(produit.cle_produit)}
+                        />
                         {sesContestations.length > 0 && (
                           <BoutonContestations
                             nombre={sesContestations.length}
@@ -926,6 +1048,13 @@ export function GrilleFournisseur(): ReactElement {
                         </div>
                       </td>
                     </tr>
+                    {historiqueDeplie && (
+                      <tr>
+                        <td colSpan={6} className="bg-fond px-5 py-3">
+                          <HistoriqueProduit fournisseurId={fournisseurId ?? ""} cleProduit={produit.cle_produit} />
+                        </td>
+                      </tr>
+                    )}
                     {deplie && sesContestations.length > 0 && (
                       <tr>
                         <td colSpan={6} className="bg-fond px-5 py-3">

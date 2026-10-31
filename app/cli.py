@@ -98,6 +98,15 @@
   type et les chantiers rattachés par la référence ; code 1 si un bon n'a pas
   pu être relu. `--simulation` n'écrit rien et ne dénombre que les bons
   concernés.
+- `python -m app.cli importer-historique-prix --fournisseur NOM --fichier X.xlsx
+  --feuille "HISTORIQUE POINT P" --source "Fichier de contrôle ..."
+  [--simulation]` (lot 2 du 31/10/2026) : range les lignes d'une feuille
+  d'historique d'un fichier de contrôle dans `prix_observe`
+  (`ingest.historique_prix.importer_historique_prix`) pour l'historique d'un
+  produit ; jamais dans la grille. Idempotent (une ligne identique n'est pas
+  réimportée). Affiche les lignes lues, importées, déjà présentes et
+  illisibles ; code 1 si le fichier, la feuille ou le fournisseur est
+  introuvable. `--simulation` ne s'écrit rien.
 - `python -m app.cli synthese-commentaires [--semaine AAAA-MM-JJ]` (T4,
   phase 4 IA, spec §4.5) : génère la synthèse hebdomadaire des commentaires
   de lignes — toute la logique (période, plafond, appel à l'IA, écriture)
@@ -196,6 +205,8 @@ from app.core.db import creer_engine, creer_sessionmaker
 from app.core.fuseau import FUSEAU_PARIS
 from app.modules.extract.bl import OPTIONS_OCR_BL
 from app.modules.extract.facture import FactureIllisible
+from app.modules.extract.grille_excel import FichierGrilleInvalide
+from app.modules.extract.historique_prix import FeuilleIntrouvable
 from app.modules.extract.verification import (
     SEUIL_CONFIANCE_DEFAUT,
     TOLERANCE_TOTAL_DEFAUT,
@@ -204,6 +215,11 @@ from app.modules.ingest.factures import (
     blocs_avec_reception,
     formater_blocs,
     lire_facture,
+)
+from app.modules.ingest.historique_prix import (
+    FournisseurAmbigu,
+    FournisseurNonTrouve,
+    importer_historique_prix,
 )
 from app.modules.ingest.ia_prix import (
     BilanIA,
@@ -885,6 +901,63 @@ async def _recalculer_bons(*, simulation: bool) -> int:
     return 1 if bilan.echecs else 0
 
 
+async def _importer_historique_prix(
+    *,
+    fournisseur: str,
+    fichier: Path,
+    feuille: str,
+    source: str,
+    simulation: bool,
+) -> int:
+    """Implémentation de `importer-historique-prix` (lot 2 du 31/10/2026) :
+    toute la logique est dans `ingest.historique_prix` ; cette CLI lit le
+    fichier, construit ses dépendances et affiche le bilan (aucune valeur du
+    fichier). Code 1 si le fichier, la feuille ou le fournisseur ne sont pas
+    utilisables."""
+    try:
+        contenu = await asyncio.to_thread(fichier.read_bytes)
+    except OSError:
+        print(f"fichier introuvable ou illisible : {fichier}", file=sys.stderr)
+        return 1
+
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            bilan = await importer_historique_prix(
+                session,
+                fournisseur_nom=fournisseur,
+                contenu=contenu,
+                feuille=feuille,
+                source=source,
+                simulation=simulation,
+            )
+    except FournisseurNonTrouve:
+        print(f"aucun fournisseur nommé « {fournisseur} »", file=sys.stderr)
+        return 1
+    except FournisseurAmbigu:
+        print(f"plusieurs fournisseurs nommés « {fournisseur} »", file=sys.stderr)
+        return 1
+    except FeuilleIntrouvable as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    except FichierGrilleInvalide as exc:
+        print(f"fichier refusé : {exc}", file=sys.stderr)
+        return 1
+    finally:
+        await engine.dispose()
+
+    if simulation:
+        print("Simulation : rien n'est écrit.")
+    print(
+        f"Feuille « {feuille} » : lignes lues : {bilan.lues} · "
+        f"importées : {bilan.importees} · déjà présentes : {bilan.deja_presentes} · "
+        f"illisibles : {bilan.erreurs}"
+    )
+    return 0
+
+
 def _semaine_lundi(valeur: str) -> date:
     """Type argparse de `--semaine` (T4, même mécanique que `--seuil` de
     `rapport-ocr`, ruling R13) : une date lisible (`AAAA-MM-JJ`) tombant un
@@ -1398,6 +1471,22 @@ def _construire_parser() -> argparse.ArgumentParser:
         help="N'écrit rien : affiche le fournisseur qui serait trouvé par bon",
     )
 
+    parser_historique = sous_parsers.add_parser(
+        "importer-historique-prix",
+        help=(
+            "Range les prix d'une feuille d'historique d'un fichier de "
+            "contrôle pour l'historique d'un produit (jamais dans la grille)"
+        ),
+    )
+    parser_historique.add_argument("--fournisseur", required=True)
+    parser_historique.add_argument("--fichier", required=True, type=Path)
+    parser_historique.add_argument("--feuille", required=True)
+    parser_historique.add_argument("--source", required=True)
+    parser_historique.add_argument(
+        "--simulation",
+        action="store_true",
+        help="N'écrit rien : compte seulement les lignes qui seraient importées",
+    )
     parser_recalculer_bons = sous_parsers.add_parser(
         "recalculer-bons",
         help=(
@@ -1511,6 +1600,16 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_chantiers_alias_suspects())
     if args.commande == "ranger-photos":
         return asyncio.run(_ranger_photos())
+    if args.commande == "importer-historique-prix":
+        return asyncio.run(
+            _importer_historique_prix(
+                fournisseur=args.fournisseur,
+                fichier=args.fichier,
+                feuille=args.feuille,
+                source=args.source,
+                simulation=args.simulation,
+            )
+        )
     if args.commande == "recalculer-bons":
         return asyncio.run(_recalculer_bons(simulation=args.simulation))
     if args.commande == "resoudre-fournisseurs":
