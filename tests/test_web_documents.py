@@ -614,3 +614,18 @@ def test_libelles_de_lecture_en_francais_courant() -> None:
     detail = (WEB / "pages" / "DocumentDetail.tsx").read_text()
     assert "Chantier indiqué sur le bon" in detail
     assert "Relire le document" in detail
+
+
+def test_facture_detail_propose_d_archiver() -> None:
+    """Lot 2, B1 (31/10/2026) : « Pour les factures, j'arrive pas à enlever
+    le document » -- même bouton que sur un bon, avec commentaire."""
+    page = (WEB / "pages" / "FactureDetail.tsx").read_text()
+
+    for chaine in (
+        "archiverDocument",
+        "Archiver",
+        "Commentaire (obligatoire)",
+        "Confirmer l'archivage",
+        'donnees.statut !== "archive"',
+    ):
+        assert chaine in page, chaine
