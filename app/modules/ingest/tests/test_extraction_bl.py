@@ -728,3 +728,93 @@ async def test_enregistrer_extraction_bl_ligne_eco_type_ligne_sans_article(
         .all()
     )
     assert articles_eco == []
+
+
+# --------------------------------------------------------------------------
+# Lot 2 du 31/10/2026, A2 : fournisseur reconnu par son SIREN ou sa TVA, la
+# confiance de lecture du nom ne compte plus.
+# --------------------------------------------------------------------------
+
+
+def _reponse_nom_fournisseur_incertain() -> dict[str, Any]:
+    reponse = _reponse_synthetique()
+    for mot in reponse["pages"][0]["confidence_scores"]["word_confidence_scores"]:
+        if mot["text"] == " PEINTURES":
+            mot["confidence"] = 0.10
+    return reponse
+
+
+def _motifs_fournisseur_confiance(document: Document) -> list[dict[str, Any]]:
+    return [
+        m
+        for m in _motifs(document)
+        if m["code"] == "confiance_faible" and m["champ"] == "fournisseur"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("champs", "raison"),
+    [
+        ({"tva": "FR00000000000"}, "Fournisseur confirmé par son numéro de TVA"),
+        ({"siret": "000 000 000 12345"}, "Fournisseur confirmé par son SIREN"),
+    ],
+    ids=["par TVA", "par SIREN"],
+)
+async def test_fournisseur_reconnu_par_siren_ou_tva_retire_la_confiance_faible(
+    db_session: AsyncSession, champs: dict[str, str], raison: str
+) -> None:
+    db_session.add(Fournisseur(nom="Négoce Exemple", **champs))
+    await db_session.commit()
+    document = await _creer_document(db_session)
+
+    resultat = await enregistrer_extraction_bl(
+        db_session, document.id, _reponse_nom_fournisseur_incertain()
+    )
+
+    await db_session.refresh(document)
+    assert _motifs_fournisseur_confiance(document) == []
+    assert resultat.statut == "recu"
+    assert document.statut == "recu"
+    assert document.extraction is not None
+    assert all(m["champ"] != "fournisseur" for m in document.extraction["motifs"])
+    journal = await _journal_extraction(db_session, document.id)
+    assert journal.apres is not None
+    assert journal.apres["motifs_leves"] == [{"champ": "fournisseur", "raison": raison}]
+
+
+async def test_fournisseur_reconnu_par_le_nom_garde_la_confiance_faible(
+    db_session: AsyncSession,
+) -> None:
+    await _creer_fournisseur_peintures_exemple(db_session)
+    document = await _creer_document(db_session)
+
+    resultat = await enregistrer_extraction_bl(
+        db_session, document.id, _reponse_nom_fournisseur_incertain()
+    )
+
+    await db_session.refresh(document)
+    assert len(_motifs_fournisseur_confiance(document)) == 1
+    assert resultat.statut == "a_verifier"
+    journal = await _journal_extraction(db_session, document.id)
+    assert journal.apres is not None
+    assert journal.apres["motifs_leves"] == []
+
+
+async def test_relance_fournisseur_par_tva_leve_le_motif_mais_reste_a_verifier(
+    db_session: AsyncSession,
+) -> None:
+    db_session.add(Fournisseur(nom="Négoce Exemple", tva="FR00000000000"))
+    await db_session.commit()
+    document = await _creer_document(db_session)
+
+    resultat = await enregistrer_extraction_bl(
+        db_session,
+        document.id,
+        _reponse_nom_fournisseur_incertain(),
+        relance=True,
+    )
+
+    await db_session.refresh(document)
+    assert _motifs_fournisseur_confiance(document) == []
+    assert resultat.nb_motifs == 0
+    assert document.statut == "a_verifier"  # une relance reste à vérifier

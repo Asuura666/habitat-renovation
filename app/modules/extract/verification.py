@@ -20,7 +20,7 @@ aucun log, aucun appel réseau (R17) : entrées et sorties en dataclasses.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -318,6 +318,23 @@ def verifier_bl(
             )
 
     return tuple(motifs)
+
+
+def retirer_motifs_confirmes(
+    motifs: Sequence[Motif], champs_confirmes: frozenset[str]
+) -> tuple[Motif, ...]:
+    """Retire les motifs `CONFIANCE_FAIBLE` des champs dont la lecture est
+    confirmée par ailleurs (lot 2 du 31/10/2026) : fournisseur reconnu par
+    son SIREN ou sa TVA, chantier reconnu dans le référentiel. Les autres
+    motifs du champ (absent, illisible, inconnu…) et ceux des autres champs
+    sont conservés tels quels, dans le même ordre."""
+    return tuple(
+        motif
+        for motif in motifs
+        if not (
+            motif.code is CodeMotif.CONFIANCE_FAIBLE and motif.champ in champs_confirmes
+        )
+    )
 
 
 # --------------------------------------------------------------------------

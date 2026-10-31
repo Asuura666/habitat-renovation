@@ -894,3 +894,48 @@ def test_bl_a_verifier_fixtures_reelles_sans_lever() -> None:
         except Exception:
             ok = False
     assert ok, "l'analyse d'une réponse OCR réelle ne doit pas lever"
+
+
+# --------------------------------------------------------------------------
+# retirer_motifs_confirmes (lot 2 du 31/10/2026, A2)
+# --------------------------------------------------------------------------
+
+
+def _motif_test(code: CodeMotif, champ: str | None) -> Motif:
+    return Motif(code=code, champ=champ, detail={"champ": champ or ""})
+
+
+def test_retirer_motifs_confirmes_retire_la_confiance_faible_du_champ_confirme() -> (
+    None
+):
+    from app.modules.extract.verification import retirer_motifs_confirmes
+
+    motifs = (
+        _motif_test(CodeMotif.CONFIANCE_FAIBLE, "fournisseur"),
+        _motif_test(CodeMotif.CONFIANCE_FAIBLE, "numero"),
+    )
+
+    reste = retirer_motifs_confirmes(motifs, frozenset({"fournisseur"}))
+
+    assert reste == (motifs[1],)
+
+
+def test_retirer_motifs_confirmes_ne_touche_pas_aux_autres_codes_du_champ() -> None:
+    from app.modules.extract.verification import retirer_motifs_confirmes
+
+    motifs = (
+        _motif_test(CodeMotif.CHAMP_ABSENT, "fournisseur"),
+        _motif_test(CodeMotif.FOURNISSEUR_INCONNU, "fournisseur"),
+        _motif_test(CodeMotif.VALEUR_ILLISIBLE, "fournisseur"),
+    )
+
+    assert retirer_motifs_confirmes(motifs, frozenset({"fournisseur"})) == motifs
+
+
+def test_retirer_motifs_confirmes_sans_champ_confirme_ne_change_rien() -> None:
+    from app.modules.extract.verification import retirer_motifs_confirmes
+
+    motifs = (_motif_test(CodeMotif.CONFIANCE_FAIBLE, "fournisseur"),)
+
+    assert retirer_motifs_confirmes(motifs, frozenset()) == motifs
+    assert retirer_motifs_confirmes((), frozenset({"fournisseur"})) == ()
