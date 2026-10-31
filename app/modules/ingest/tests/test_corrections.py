@@ -1153,6 +1153,31 @@ async def test_relancer_extraction_remplace_valeurs_reste_a_verifier(
     assert journal.apres is None
 
 
+async def test_relancer_extraction_ecran_garde_a_verifier_sans_motif(
+    db_session: AsyncSession, admin: Utilisateur, tmp_path: Path
+) -> None:
+    """Non-régression : la relance depuis l'écran (nouvelle lecture demandée
+    par un humain) reste `a_verifier` même sans aucun motif."""
+    fournisseur = await _creer_fournisseur(
+        db_session, nom="Peintures Exemple", aliases=["Peintures Exemple SAS"]
+    )
+    chemin = tmp_path / "photo.jpg"
+    chemin.write_bytes(b"contenu-invente")
+    document = await _creer_document(
+        db_session,
+        statut="a_verifier",
+        fournisseur=fournisseur,
+        fichier_path=str(chemin),
+    )
+
+    detail = await relancer_extraction(
+        db_session, document.id, tmp_path, _ocr_synthetique, auteur_id=admin.id
+    )
+
+    assert detail.statut == "a_verifier"
+    assert detail.motifs == []
+
+
 async def test_relancer_extraction_journal_survit_a_la_reprise_sur_doublon(
     db_session: AsyncSession,
     admin: Utilisateur,

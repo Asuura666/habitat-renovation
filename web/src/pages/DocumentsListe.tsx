@@ -46,8 +46,8 @@ const OPTIONS_FILTRE: OptionFiltre[] = [
  * les deux onglets historiques (`BlDeposes`/`FacturesListe`).
  *
  * Constats de revue corrigés ici (tour de correction 1) : `chantierId`
- * (identifiant, ajouté à `DocumentReponse`), `numeroInterne`, `deposant` et
- * `confirmation` avaient disparu de la liste unifiée par rapport à l'ancien
+ * (identifiant, ajouté à `DocumentReponse`), `numeroInterne` et `deposant`
+ * avaient disparu de la liste unifiée par rapport à l'ancien
  * `BlDeposes.tsx` ; `dateDoc`/`totalHt`/`confianceReduite` (une facture
  * seulement) par rapport à l'ancien `FacturesListe.tsx`. `chantierId` vaut
  * `null` pour une facture (l'API ne rattache un chantier qu'aux livraisons
@@ -73,7 +73,6 @@ interface LigneListe {
   totalHt: string | null;
   confianceReduite: boolean;
   deposant: string | null;
-  confirmation: "verifiee" | "ecart" | null;
 }
 
 function libelleTypeDocument(type: string): string {
@@ -115,7 +114,6 @@ function depuisDocument(document: DocumentResume): LigneListe {
     totalHt: null,
     confianceReduite: false,
     deposant: document.deposant,
-    confirmation: document.confirmation,
   };
 }
 
@@ -139,7 +137,6 @@ function depuisFacture(facture: FactureResume): LigneListe {
     totalHt: facture.total_ht,
     confianceReduite: facture.confiance_reduite,
     deposant: null,
-    confirmation: null,
   };
 }
 
@@ -206,27 +203,6 @@ function BadgeConfianceReduite(): ReactElement {
   return (
     <span className="inline-flex shrink-0 items-center rounded-full bg-[#fbe9c6] px-2 py-0.5 text-xs font-medium text-[#7a4a00]">
       Lecture incertaine
-    </span>
-  );
-}
-
-function libelleConfirmationCourt(confirmation: "verifiee" | "ecart"): string {
-  return confirmation === "verifiee" ? "Quantités vérifiées" : "Écart signalé";
-}
-
-/** Confirmation des quantités d'un bon (repris de l'ancien
- * `BlDeposes.tsx`, perdu par la fusion — constat de revue) : seulement le
- * statut ici (« qui et quand » figure dans le détail du bon, `PageBl.tsx`
- * — spec « et/ou »), pour ne pas surcharger la liste. */
-function BadgeConfirmation({ confirmation }: { confirmation: "verifiee" | "ecart" }): ReactElement {
-  const classes = confirmation === "verifiee" ? "text-conforme" : "text-ecart-texte";
-  return (
-    <span className={`inline-flex shrink-0 items-center gap-1.5 text-xs font-medium ${classes}`}>
-      <span
-        aria-hidden="true"
-        className={`h-2 w-2 shrink-0 rounded-full ${confirmation === "verifiee" ? "bg-conforme" : "bg-ecart"}`}
-      />
-      {libelleConfirmationCourt(confirmation)}
     </span>
   );
 }
@@ -352,7 +328,6 @@ function CarteLigne({ ligne }: { ligne: LigneListe }): ReactElement {
             {ligne.confianceReduite && <BadgeConfianceReduite />}
           </div>
         </div>
-        {ligne.confirmation !== null && <BadgeConfirmation confirmation={ligne.confirmation} />}
         <p className="mt-2 text-xs text-encre-2">Déposé le {formaterDateHeure(ligne.creeLe)}</p>
       </Link>
     </li>
@@ -406,7 +381,6 @@ function LigneTableau({ ligne }: { ligne: LigneListe }): ReactElement {
         <div className="flex flex-col items-start gap-1.5">
           <PastilleStatut ligne={ligne} />
           {ligne.confianceReduite && <BadgeConfianceReduite />}
-          {ligne.confirmation !== null && <BadgeConfirmation confirmation={ligne.confirmation} />}
         </div>
       </td>
     </tr>

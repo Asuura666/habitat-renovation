@@ -152,7 +152,7 @@ async def test_put_parametre_admin_modifie_et_journalise(
     # (phase 3) ne sont eux jamais masqués -- voir les tests de masquage
     # plus bas dans ce fichier pour les deux drapeaux couverts
     # indépendamment.
-    assert len(liste.json()) == 18
+    assert len(liste.json()) == 17
     assert modification.status_code == 200
     assert modification.json()["valeur"] == "6.5"
 
@@ -234,7 +234,7 @@ async def test_get_parametres_toutes_les_cles_quand_les_deux_controles_actifs(
     ) as client:
         reponse = await client.get("/api/parametres")
 
-    assert len(reponse.json()) == 22
+    assert len(reponse.json()) == 21
 
 
 async def test_put_parametre_masque_renvoie_422_comme_une_cle_inconnue(

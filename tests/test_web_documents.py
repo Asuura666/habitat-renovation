@@ -33,7 +33,6 @@ def test_page_bl_contrat() -> None:
         "Ouvrir en grand",
         "Livré et facturé",
         "Corriger la lecture du bon",
-        "Quantités vérifiées par l'équipe",
         "obtenirComparaisonBl",
         "Prix unit.",
         "Contrôle",
@@ -47,6 +46,12 @@ def test_page_bl_contrat() -> None:
         assert chaine in page, chaine
 
     assert "alt={`Photo du bon de livraison" in page
+
+    # Décision d'Ilane du 31/10/2026 : plus de confirmation des quantités
+    # affichée sur la page d'un bon.
+    assert "Quantités vérifiées" not in page
+    assert "texteConfirmation" not in page
+    assert "donnees.confirmation" not in page
 
     # Sans jargon visible (spec §5) : aucun code de règle brut, aucun des
     # mots interdits dans les chaînes affichées. Mots entiers seulement
@@ -238,8 +243,12 @@ def test_documents_liste_reintroduit_les_champs_perdus_par_la_fusion() -> None:
     # sur la largeur du tableau) — le déposant reste affiché, plus jamais
     # dans une colonne à part.
     assert "Déposé par {ligne.deposant}" in page
-    assert "confirmation: document.confirmation" in page
-    assert "BadgeConfirmation" in page
+    # Décision d'Ilane du 31/10/2026 : la confirmation des quantités n'est
+    # plus affichée dans la liste.
+    assert "confirmation" not in page
+    assert "BadgeConfirmation" not in page
+    assert "Quantités vérifiées" not in page
+    assert "Écart signalé" not in page
     assert "totalHt: facture.total_ht" in page
     assert "confianceReduite: facture.confiance_reduite" in page
     assert "BadgeConfianceReduite" in page
