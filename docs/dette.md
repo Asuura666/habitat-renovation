@@ -1770,3 +1770,39 @@ pauses de 2 puis 5 s), seulement quand aucune connexion ne s'est libérée à
 temps — rien n'a alors été écrit, donc pas de doublon possible. Non couvert :
 une coupure de la base pendant l'écriture elle-même n'est pas retentée (risque
 de doublon), le bon reste à renvoyer comme avant.
+
+
+## Confirmation des quantités retirée, rattachement des bons aux fournisseurs (31/10/2026)
+
+Décisions d'Ilane du 31/10/2026 (branche `feature/sans-confirmation-et-fournisseurs`).
+
+- **Plus de boutons sous « Reçu — document n° X ».** Le bot répond toujours
+  « Reçu », sans « Quantités vérifiées » / « Écart constaté ». **Les boutons
+  des messages déjà envoyés continuent de marcher comme avant**
+  (`traiter_clic` et la lecture des clics sont inchangés) : un ancien clic
+  « Écart constaté » peut donc encore produire un problème « Écart signalé par
+  l'équipe » dans « À régler ».
+- **Règle R15 retirée.** Elle reste dans le moteur (les invariants « toutes les
+  règles » restent vrais) mais `ingest.commun.REGLES_RETIREES = {"R15"}` fait
+  partie en permanence de `regles_desactivees()` : le suivi ne l'évalue plus,
+  les lectures et les comptes la masquent, le réglage `delai_confirmation_bl_h`
+  est masqué dans Réglages (sa valeur reste en base, sans effet). La page d'un
+  bon et la liste des documents n'affichent plus la confirmation.
+- **Problèmes R15 déjà ouverts fermés** par la migration `0017` : statut
+  `traitee`, commentaire « Confirmation des quantités retirée (31/10/2026) »,
+  sans auteur, plus une ligne de journal `anomalie_traitee` chacun ; le
+  `downgrade` ne rouvre rien. Non couvert : les colonnes `document.confirme_le`
+  et `confirme_par` restent en base et dans l'API (un ancien clic les renseigne
+  encore), seule l'interface les cache.
+- **Commande `python -m app.cli resoudre-fournisseurs [--simulation]`.** Après
+  la création des fournisseurs manquants (Point.P, Cedeo, Rexel…), rattache les
+  bons déjà reçus sans rappeler Mistral, à partir de `document.ocr_brut`.
+  Concerne les bons `bl`/`enlevement` non archivés, sans fournisseur, jamais
+  corrigés ni validés à la main (aucune entrée de journal `document_corrige`,
+  `lignes_corrigees` ni `document_valide`). Passe par le chemin de
+  `relancer_extraction` (`corrections.rejouer_extraction_depuis_reponse`) :
+  même rapprochement, même journal `extraction_relancee` (auteur vide, « Sans
+  nouvel OCR »). À lancer d'abord avec `--simulation` ; la relecture peut
+  aussi changer le chantier ou les lignes, comme une relance depuis l'écran.
+  Limite : une lecture gardée sans fournisseur lisible ne sera jamais
+  rattachée (il faut corriger le bon à la main).

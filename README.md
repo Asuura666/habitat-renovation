@@ -144,7 +144,7 @@ Deux rôles applicatifs seulement (`docs/cahier-des-charges.md` §3) :
 | Rôle | Qui | Ce qu'il fait | Ce qu'il voit |
 | --- | --- | --- | --- |
 | admin | Le dirigeant, les personnes qu'il désigne, le comptable | Dépose les factures, traite les problèmes, valide les référentiels, gère les comptes, règle les seuils | Tout, toutes agences |
-| agent | Agents travaux, chefs de chantier (« employé » à l'écran) | Photographient leurs BL dans Telegram, confirment les quantités | Leurs propres dépôts (écran Documents) |
+| agent | Agents travaux, chefs de chantier (« employé » à l'écran) | Photographient leurs BL dans Telegram | Leurs propres dépôts (écran Documents) |
 | Prestataire | Ilane | Déploiement, exploitation, support | Accès serveur ; aucun compte applicatif nominatif hors recette |
 
 Au dernier récapitulatif (28/09/2026), le compte de production était le
@@ -358,8 +358,9 @@ tâche de fond : téléchargement, vérification de la signature du fichier,
 écriture du fichier, enregistrement du document (statut `recu`), OCR Mistral,
 extraction et normalisation, rattachement du chantier, rapprochement si un
 numéro de BL a été lu, enfin une ligne de supervision et un accusé « Reçu,
-document n° N » avec deux boutons (« Quantités vérifiées », « Écart
-constaté »). Le bot ignore les messages texte seuls. Détail :
+document n° N », sans bouton (la confirmation des quantités est retirée
+depuis le 31/10/2026 ; les boutons des messages déjà envoyés fonctionnent
+encore). Le bot ignore les messages texte seuls. Détail :
 `ARCHITECTURE.md` §5.1.
 
 **Dépôt d'une facture (PDF).** L'admin dépose le PDF sur l'écran Documents
@@ -465,7 +466,7 @@ positif et un test négatif par règle (`app/modules/rules/tests/`).
 | R12 | Bon facturé deux fois | Doublon de facturation | Haute | — | Active |
 | R13 | Avoir sans achat d'origine | Ligne négative sans ligne positive d'origine | Moyenne | — | Active |
 | R14 | Chantier à rattacher | Alias de chantier non résolu après un délai | Moyenne | `delai_alias_non_resolu_h` (48 h) | Contrôle différé |
-| R15 | Quantités non confirmées par l'équipe | BL sans confirmation après un délai | Basse | `delai_confirmation_bl_h` (24 h) | Contrôle différé |
+| R15 | Quantités non confirmées par l'équipe | BL sans confirmation après un délai | Basse | `delai_confirmation_bl_h` (24 h, masqué) | **Retirée le 31/10/2026** : jamais produite ni comptée (`REGLES_RETIREES`), problèmes ouverts fermés par la migration 0017 |
 | R16 | Chantier sans bon déposé récemment | Aucun BL déposé depuis un délai | Basse | `delai_chantier_silencieux_j` (7 jours) | Contrôle différé |
 | R17 | Quantité inhabituelle pour le conditionnement | Conditionnement inhabituel | Moyenne | — | Active |
 | R18 | Chantier à confirmer | Nom lu et légende Telegram désignent deux chantiers différents (ou plusieurs candidats à égalité) | Moyenne | `seuil_ressemblance_chantier_pct` (90 %) | Active (point d'entrée `evaluer_chantier`, appelé au rattachement) |
@@ -765,6 +766,8 @@ source de vérité unique du schéma (`ARCHITECTURE.md` §4).
 | 0014 | Tables de l'IA : `appel_ia`, `synthese_commentaires`, `synthese_action`, `explication_alerte`, `prix_internet` |
 | 0015 | `prix_internet.offres` (jusqu'à cinq offres) et reprise des prix déjà trouvés comme une offre unique |
 | 0016 | `synthese_commentaires.nb_contestations` (entier non nul, 0 par défaut) ; branche `feature/prix-contestations-recherche`, **appliquée sur la démo puis en production le 01/10/2026** |
+
+| 0017 | Fermeture des problèmes R15 encore ouverts (statut `traitee`, commentaire « Confirmation des quantités retirée (31/10/2026) », une ligne de journal `anomalie_traitee` chacun) ; aucune structure modifiée, `downgrade` sans effet sur les données ; branche `feature/sans-confirmation-et-fournisseurs`, **pas encore déployée** |
 
 **En production au 01/10/2026 : jusqu'à la révision 0016.** La 0015 a été
 appliquée sur la démo puis en production le 30/09 (sauvegarde d'abord,
@@ -1277,11 +1280,12 @@ commande interactive). D'après `app/cli.py`.
 | `fournisseur-definir --nom [--siret] [--tva] [--alias …] [--agence …]` | Crée ou met à jour un fournisseur (jamais créé automatiquement) | toujours 0 |
 | `rapport-ocr <dossier> --sortie <md> [--seuil] [--appeler-ocr]` | Mesure le taux d'erreur OCR sur des photos annotées | 2 : dossier introuvable ou vide |
 | `rapprocher --facture <uuid>` ou `--tout` | Rejoue le rapprochement (idempotent) | `--facture` : 2 si introuvable ; `--tout` : 1 si au moins un échec |
-| `controles-differes` | Évalue R06 (si activée), R14, R15, R16 | toujours 0 |
+| `controles-differes` | Évalue R06 (si activée), R14, R16 (R15 retirée le 31/10/2026) | toujours 0 |
 | `controler-prix [--depuis AAAA-MM-JJ]` | Recontrôle les prix de tous les bons non archivés depuis une date (1er du mois précédent par défaut) | — |
 | `drive-sync [--limite 1..1000]` | Synchronise les documents en attente vers Google Drive | 1 : au moins un échec ; 2 : configuration Drive absente ou invalide |
 | `rattacher-chantiers` | Reprise, au déploiement, des noms de chantier en attente et des bons sans chantier (idempotente) | toujours 0 |
 | `chantiers-alias-suspects` | Liste, en lecture seule, les noms de chantier appris dont les nombres diffèrent de ceux du chantier (« … 13 » appris sur « … 12 ») ; diagnostic manuel, à ne pas planifier ni copier ailleurs (la sortie contient des noms de chantier) | toujours 0 |
+| `resoudre-fournisseurs [--simulation]` | Après la création des fournisseurs manquants, rattache les bons `bl`/`enlevement` non archivés sans fournisseur, **sans rappeler l'OCR** (lecture gardée dans `document.ocr_brut`) ; ignore les bons corrigés ou validés à la main ; `--simulation` n'écrit rien et nomme le fournisseur qui serait trouvé par bon | 1 : au moins un bon n'a pas pu être relu |
 | `ranger-photos` | (Re)construit le rangement des photos sous `bl/<AAAA>/<MM>/…` (idempotente) | toujours 0 |
 | `synthese-commentaires [--semaine AAAA-MM-JJ]` | Génère la synthèse hebdomadaire des commentaires | 1 : échec de génération ; 2 : date invalide ou pas un lundi |
 | `ia-prix` | Explique les alertes de prix puis cherche un prix internet (tâche planifiée) | 1 seulement si toutes les tentatives échouent faute d'IA joignable |
@@ -2099,7 +2103,7 @@ comptable et un service de résultats Google Shopping pour les prix « cachés �
 | À compléter | État d'un chantier créé automatiquement, sans agence ni client renseignés |
 | À vérifier | Statut d'un document dont l'extraction a détecté une incohérence, en attente de validation par un admin |
 | Conforme | Livraison dont le bon est validé, comparé sans écart, et sans autre problème ouvert (définition stricte décidée le 29/09, déployée le 30/09) |
-| Contrôle différé | Règle évaluée une fois par jour par une tâche planifiée (R06, R14, R15, R16) |
+| Contrôle différé | Règle évaluée une fois par jour par une tâche planifiée (R06, R14, R16 ; R15 retirée le 31/10/2026) |
 | Interrupteur (drapeau) | Variable d'environnement ou réglage qui active ou désactive un groupe de règles, sans redéploiement |
 | OpenCode | Logiciel serveur qui relaie les demandes de l'application vers le modèle de langage ; conteneur interne, jamais exposé |
 | Laboratoire IA | Page d'essai de l'IA réservée aux admins ; un essai n'enregistre rien |
