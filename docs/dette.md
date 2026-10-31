@@ -1829,3 +1829,15 @@ Décisions d'Ilane du 31/10/2026 (branche `feature/sans-confirmation-et-fourniss
   chemin que `resoudre-fournisseurs`. Limite : la simulation compte les bons
   concernés mais ne prévoit pas ce qui serait levé (les règles dépendent de
   l'écriture du rattachement).
+
+## Lignes : chiffres plutôt que position du texte (31/10/2026, A6)
+
+- La confiance d'une ligne ne repose plus que sur la quantité, le prix unitaire et
+  le montant, cherchés ensemble dans une seule ligne de texte ; le code et la
+  désignation ne comptent plus. Si quantité x prix unitaire ne tombe pas sur le
+  montant (au centime près), la ligne reste incertaine. Le schéma de lecture ne
+  porte pas de remise : une ligne remisée peut échouer ce contrôle à tort.
+- La consigne d'annotation précise que le nombre qui précède la désignation est le
+  nombre de conditionnements ; elle ne vaut que pour les nouvelles lectures. Les
+  bons existants profitent de la nouvelle confiance via `recalculer-bons`, pas de
+  la nouvelle consigne.

@@ -644,26 +644,80 @@ def test_bl_a_verifier_numero_detecte_none_si_absent() -> None:
     assert bl.numero_detecte is None
 
 
-def test_bl_a_verifier_confiance_ligne_minimum_des_trois_champs() -> None:
-    ligne = LigneBL(
+def _ligne_a6(
+    *,
+    code_conf: str = "0.9",
+    quantite: str | None = "4",
+    pu: str | None = "10",
+    montant: str | None = "40",
+    conf_q: str | None = "0.5",
+    conf_pu: str | None = "0.6",
+    conf_m: str | None = "0.7",
+) -> LigneBL:
+    def nombre(brut: str | None, conf: str | None) -> NombreLu:
+        return NombreLu(
+            brut=brut,
+            valeur=Decimal(brut) if brut is not None else None,
+            confiance=Decimal(conf) if conf is not None else None,
+        )
+
+    return LigneBL(
         ordre=0,
-        code=_texte("AB1234", Decimal("0.9")),
-        designation=_texte("DESIGNATION", Decimal("0.1")),  # ignorée
+        code=_texte("AB1234", Decimal(code_conf)),
+        designation=_texte("DESIGNATION", Decimal("0.1")),
         quantite_conditionnements=NombreLu(
             brut="4", valeur=Decimal("4"), confiance=Decimal("0.05")
-        ),  # ignorée (L3-D24/L3-T6b : n'entre pas dans la confiance de ligne)
-        quantite=NombreLu(brut="4", valeur=Decimal("4"), confiance=Decimal("0.5")),
-        unite=_texte("U", Decimal("0.1")),  # ignorée
-        pu_ht=NombreLu(
-            brut="10", valeur=Decimal("10"), confiance=Decimal("0.1")
-        ),  # ignorée
-        montant_ht=NombreLu(brut="40", valeur=Decimal("40"), confiance=Decimal("0.7")),
+        ),
+        quantite=nombre(quantite, conf_q),
+        unite=_texte("U", Decimal("0.1")),
+        pu_ht=nombre(pu, conf_pu),
+        montant_ht=nombre(montant, conf_m),
     )
-    extrait = _bl_extrait_minimal(lignes=(ligne,))
 
-    bl = bl_a_verifier(extrait)
 
-    assert bl.lignes[0].confiance == Decimal("0.5")
+def _confiance_a6(**champs: Any) -> Decimal | None:
+    extrait = _bl_extrait_minimal(lignes=(_ligne_a6(**champs),))
+    return bl_a_verifier(extrait).lignes[0].confiance
+
+
+def test_confiance_ligne_minimum_quantite_pu_montant() -> None:
+    assert _confiance_a6() == Decimal("0.5")
+    assert _confiance_a6(conf_q="0.9", conf_pu="0.6") == Decimal("0.6")
+
+
+def test_confiance_ligne_ignore_le_code() -> None:
+    assert _confiance_a6(code_conf="0", conf_q="0.9", conf_pu="0.9", conf_m="0.9") == (
+        Decimal("0.9")
+    )
+
+
+def test_confiance_ligne_arithmetique_fausse_vaut_zero() -> None:
+    """Quantité x prix différent du montant : incertaine."""
+    assert _confiance_a6(
+        quantite="1",
+        pu="234.60",
+        montant="51.05",
+        conf_q="0.99",
+        conf_pu="0.99",
+        conf_m="0.99",
+    ) == Decimal("0")
+
+
+def test_confiance_ligne_arithmetique_juste_garde_la_confiance() -> None:
+    assert _confiance_a6(
+        quantite="500",
+        pu="0.4692",
+        montant="234.60",
+        conf_q="0.97",
+        conf_pu="0.95",
+        conf_m="0.99",
+    ) == Decimal("0.95")
+
+
+def test_confiance_ligne_sans_prix_pas_de_controle_arithmetique() -> None:
+    assert _confiance_a6(
+        quantite="3", pu=None, montant="999", conf_q="0.9", conf_pu=None, conf_m="0.8"
+    ) == Decimal("0.8")
 
 
 def test_bl_a_verifier_confiance_ligne_none_si_les_trois_sont_nulles() -> None:

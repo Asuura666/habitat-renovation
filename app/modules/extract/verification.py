@@ -27,6 +27,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
+from .arithmetique import controle_arithmetique_ligne
 from .bl import BLExtrait, LigneBL, normaliser_numero_bl
 from .facture import Facture
 
@@ -122,17 +123,27 @@ class BLAVerifier:
 
 
 def _confiance_ligne(ligne: LigneBL) -> Decimal | None:
-    """Confiance d'une ligne (L3-D3) : minimum des confiances non nulles de
-    `code`, `quantite` et `montant_ht` (la désignation, l'unité et le prix
-    unitaire ne comptent pas). `None` si les trois sont nulles (aucun score
-    disponible, ou aucune des trois valeurs n'a été retrouvée pour l'une
-    d'elles alors que les autres n'ont pas de score — cas très improbable,
-    mais on ne distingue pas ces deux origines ici)."""
+    """Confiance d'une ligne (A6, lot 2 du 31/10/2026) : minimum des
+    confiances non nulles de `quantite`, `pu_ht` et `montant_ht`, cherchées
+    ensemble dans une seule ligne de texte (`confiance.confiances_ligne`). Le
+    code et la désignation ne comptent plus (chez Unikalo le modèle range le
+    nombre de colis dans le code). Si quantité x prix unitaire ne tombe pas
+    sur le montant (`arithmetique.controle_arithmetique_ligne`), la ligne
+    reste incertaine quelle que soit la confiance : `0`. Sans prix unitaire,
+    pas de contrôle arithmétique. `None` si aucune des trois valeurs n'a de
+    score et que le contrôle ne dit rien."""
+    if (
+        controle_arithmetique_ligne(
+            ligne.quantite.valeur, ligne.pu_ht.valeur, ligne.montant_ht.valeur
+        )
+        is False
+    ):
+        return Decimal("0")
     confiances = [
         c
         for c in (
-            ligne.code.confiance,
             ligne.quantite.confiance,
+            ligne.pu_ht.confiance,
             ligne.montant_ht.confiance,
         )
         if c is not None
