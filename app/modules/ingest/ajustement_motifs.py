@@ -103,7 +103,29 @@ def ajuster_motifs(
             leves.append({"champ": "chantier_brut", "raison": raison_chantier})
         restants = apres
 
-    if chantier is not None and chantier.methode == "référence de commande":
+    if (
+        chantier is not None
+        and chantier.methode == "décision humaine conservée"
+        and chantier.chantier_nom is not None
+    ):
+        # Un humain a choisi : pas de garde « à compléter ».
+        apres = tuple(
+            m
+            for m in restants
+            if not (
+                m.champ == "chantier_brut"
+                and m.code in (CodeMotif.CONFIANCE_FAIBLE, CodeMotif.CHAMP_ABSENT)
+            )
+        )
+        if len(apres) != len(restants):
+            leves.append(
+                {
+                    "champ": "chantier_brut",
+                    "raison": f"Chantier choisi à la main : {chantier.chantier_nom}",
+                }
+            )
+        restants = apres
+    elif chantier is not None and chantier.methode == "référence de commande":
         if chantier.chantier_nom is not None:
             apres = tuple(
                 m

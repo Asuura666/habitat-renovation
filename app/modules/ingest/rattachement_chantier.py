@@ -67,7 +67,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, inspect, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -395,6 +395,64 @@ async def _r18_deja_decidee(session: AsyncSession, document_id: uuid.UUID) -> bo
     return resultat.first() is not None
 
 
+async def _choix_humain_en_vigueur(
+    session: AsyncSession, document_id: uuid.UUID
+) -> bool:
+    """Vrai si le chantier de ce bon a été choisi à la main (journal
+    `chantier_choisi`) et qu'aucune correction d'en-tête (`document_corrige`)
+    n'est plus récente : la relecture ne l'écrase pas (31/10/2026)."""
+    cible = str(document_id)
+    dernier_choix = (
+        await session.execute(
+            select(func.max(Journal.created_at)).where(
+                Journal.cible_table == "document",
+                Journal.cible_id == cible,
+                Journal.action == "chantier_choisi",
+            )
+        )
+    ).scalar_one()
+    if dernier_choix is None:
+        return False
+    derniere_correction = (
+        await session.execute(
+            select(func.max(Journal.created_at)).where(
+                Journal.cible_table == "document",
+                Journal.cible_id == cible,
+                Journal.action == "document_corrige",
+            )
+        )
+    ).scalar_one()
+    return derniere_correction is None or derniere_correction <= dernier_choix
+
+
+async def _decision_humaine_conservee(
+    session: AsyncSession, document: Document
+) -> ResultatRattachement:
+    """Sortie anticipée commune (R18 déjà décidée, chantier choisi à la main) :
+    `document.chantier_id` reste tel quel, anomalies intactes."""
+    nom: str | None = None
+    a_completer = False
+    if document.chantier_id is not None:
+        retenu = (
+            await session.execute(
+                select(Chantier.nom_canonique, Chantier.a_completer).where(
+                    Chantier.id == document.chantier_id
+                )
+            )
+        ).first()
+        if retenu is not None:
+            nom, a_completer = retenu
+    return ResultatRattachement(
+        chantier_id=document.chantier_id,
+        methode="décision humaine conservée",
+        score=None,
+        cree=False,
+        alerte=False,
+        chantier_nom=nom,
+        chantier_a_completer=a_completer,
+    )
+
+
 async def rattacher_chantier_document(
     session: AsyncSession, document: Document
 ) -> ResultatRattachement:
@@ -403,6 +461,12 @@ async def rattacher_chantier_document(
     (`document.legende`) — spec §2.3, brief étapes 1 à 9. Ne commite jamais :
     c'est l'appelant qui décide du périmètre transactionnel."""
     await session.execute(select(func.pg_advisory_xact_lock(VERROU_CHANTIERS)))
+
+    # `document.id` peut être expiré (rejeu après un rollback) : l'identité de
+    # l'objet reste lisible sans accès à la base.
+    identite = inspect(document).identity
+    if identite is not None and await _choix_humain_en_vigueur(session, identite[0]):
+        return await _decision_humaine_conservee(session, document)
 
     seuil = int(
         await lire_parametre_decimal(
@@ -458,13 +522,7 @@ async def rattacher_chantier_document(
             # chantier_id` (qui vaudrait `None` ici) et avant
             # `synchroniser_anomalies` (qui ne rouvrirait de toute façon
             # jamais une R18 `traitee`/`ignoree`, L4-D12).
-            return ResultatRattachement(
-                chantier_id=document.chantier_id,
-                methode="décision humaine conservée",
-                score=None,
-                cree=False,
-                alerte=False,
-            )
+            return await _decision_humaine_conservee(session, document)
         methode = "alerte"
         alerte = True
     # TypeDecision.AUCUN : chantier_id/methode restent `None` (comme aujourd'hui).

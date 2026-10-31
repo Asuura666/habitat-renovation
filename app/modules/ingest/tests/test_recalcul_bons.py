@@ -203,3 +203,141 @@ async def test_simulation_n_ecrit_rien(
         .all()
     )
     assert journaux == []
+
+
+# --------------------------------------------------------------------------
+# Un chantier choisi à la main (`chantier_choisi`) n'est jamais écrasé par la
+# relecture ; il lève les motifs de lecture du chantier (correction 1).
+# --------------------------------------------------------------------------
+
+
+async def _bon_avec_chantier_choisi(
+    db_session: AsyncSession, *, avec_correction_apres: bool = False
+) -> tuple[Document, Chantier]:
+    choisi = Chantier(nom_canonique="Choisi Main", a_completer=True)
+    db_session.add(choisi)
+    await db_session.commit()
+    bon = await _creer_bon(
+        db_session,
+        _reponse(nom_incertain=True),
+        codes=(("confiance_faible", "chantier_brut"),),
+    )
+    bon.chantier_id = choisi.id
+    db_session.add(
+        Journal(
+            utilisateur_id=None,
+            action="chantier_choisi",
+            cible_table="document",
+            cible_id=str(bon.id),
+            avant={"chantier_id": None},
+            apres={"chantier_id": str(choisi.id)},
+        )
+    )
+    await db_session.commit()
+    if avec_correction_apres:
+        # Hors `corriges_a_la_main` pour ce test : on appelle le rattachement.
+        db_session.add(
+            Journal(
+                utilisateur_id=None,
+                action="document_corrige",
+                cible_table="document",
+                cible_id=str(bon.id),
+                avant={},
+                apres={},
+            )
+        )
+        await db_session.commit()
+    return bon, choisi
+
+
+async def test_recalcul_garde_le_chantier_choisi_et_leve_le_motif(
+    db_session: AsyncSession, tmp_path: Path
+) -> None:
+    await _referentiel(db_session)
+    bon, choisi = await _bon_avec_chantier_choisi(db_session)
+    # La lecture donne « MAISON TEST » : sans protection, elle écraserait.
+    reponse = _reponse(nom_incertain=False)
+    for mot in reponse["pages"][0]["confidence_scores"]["word_confidence_scores"]:
+        if mot["text"] == " MAISON":
+            mot["confidence"] = 0.10
+    bon.ocr_brut = reponse
+    await db_session.commit()
+
+    bilan = await recalculer_bons(db_session, tmp_path)
+
+    await db_session.refresh(bon)
+    assert bon.chantier_id == choisi.id
+    assert bilan.motifs_leves.get("confiance_faible") == 1
+    assert all(
+        not (m["code"] == "confiance_faible" and m["champ"] == "chantier_brut")
+        for m in bon.motifs or []
+    )
+    assert bon.statut == "recu"
+
+
+async def test_resolution_fournisseurs_garde_le_chantier_choisi(
+    db_session: AsyncSession, tmp_path: Path
+) -> None:
+    from app.modules.ingest.resolution_fournisseurs import (
+        resoudre_fournisseurs_des_bons,
+    )
+
+    await _referentiel(db_session)
+    bon, choisi = await _bon_avec_chantier_choisi(db_session)
+
+    await resoudre_fournisseurs_des_bons(db_session, tmp_path)
+
+    await db_session.refresh(bon)
+    assert bon.fournisseur_id is not None
+    assert bon.chantier_id == choisi.id
+
+
+async def test_correction_plus_recente_que_le_choix_re_resout_normalement(
+    db_session: AsyncSession,
+) -> None:
+    from app.modules.ingest.rattachement_chantier import (
+        rattacher_chantier_document,
+    )
+
+    db_session.add(Chantier(nom_canonique="Maison Test", a_completer=False))
+    await db_session.commit()
+    bon, choisi = await _bon_avec_chantier_choisi(
+        db_session, avec_correction_apres=True
+    )
+    bon.chantier_brut = "MAISON TEST"
+    await db_session.flush()
+
+    resultat = await rattacher_chantier_document(db_session, bon)
+
+    assert resultat.methode == "ressemblance"
+    assert bon.chantier_id != choisi.id
+
+
+async def test_r18_traitee_est_toujours_conservee_et_leve_le_motif() -> None:
+    import uuid as _uuid
+
+    from app.modules.extract.verification import CodeMotif, Motif
+    from app.modules.ingest.ajustement_motifs import ajuster_motifs
+    from app.modules.ingest.rattachement_chantier import ResultatRattachement
+
+    motifs = [
+        Motif(CodeMotif.CONFIANCE_FAIBLE, "chantier_brut", {}),
+        Motif(CodeMotif.CHAMP_ABSENT, "chantier_brut", {}),
+        Motif(CodeMotif.CONFIANCE_FAIBLE, "numero", {}),
+    ]
+    resultat = ResultatRattachement(
+        chantier_id=_uuid.uuid4(),
+        methode="décision humaine conservée",
+        score=None,
+        cree=False,
+        alerte=False,
+        chantier_nom="Choisi",
+        chantier_a_completer=True,
+    )
+
+    ajuste = ajuster_motifs(motifs, methode_fournisseur=None, chantier=resultat)
+
+    assert [m.champ for m in ajuste.motifs] == ["numero"]
+    assert ajuste.leves == (
+        {"champ": "chantier_brut", "raison": "Chantier choisi à la main : Choisi"},
+    )
