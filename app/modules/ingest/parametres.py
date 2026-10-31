@@ -130,7 +130,7 @@ DEFINITIONS_PARAMETRES: tuple[DefinitionParametre, ...] = (
         "seuil_ressemblance_chantier_pct",
         "Ressemblance minimale d'un nom de chantier",
         "%",
-        Decimal("90"),
+        Decimal("80"),
         Decimal("50"),
         Decimal("100"),
         True,

@@ -104,7 +104,7 @@ from app.modules.normalize.texte import nombres_differents, normaliser_libelle
 from app.modules.rules.engine import REGLES_CHANTIER, evaluer_chantier
 from app.modules.rules.modeles import ChantierIncertainControle
 
-SEUIL_RESSEMBLANCE_DEFAUT = Decimal("90")
+SEUIL_RESSEMBLANCE_DEFAUT = Decimal("80")
 
 
 @dataclass(frozen=True)

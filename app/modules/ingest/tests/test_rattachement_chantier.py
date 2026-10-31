@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import func, select
@@ -1063,3 +1064,10 @@ async def test_alias_suspects_liste_sans_rien_modifier(
     assert s.appris_le is not None
     nb = (await db_session.execute(select(func.count(ChantierAlias.id)))).scalar_one()
     assert nb == 3
+
+
+def test_seuil_de_ressemblance_par_defaut_est_80() -> None:
+    """Décision d'Ilane du 31/10/2026 : « un pourcentage minimum 80% »."""
+    from app.modules.ingest.rattachement_chantier import SEUIL_RESSEMBLANCE_DEFAUT
+
+    assert Decimal("80") == SEUIL_RESSEMBLANCE_DEFAUT
