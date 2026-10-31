@@ -757,6 +757,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bilan/livraisons.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bilan Livraisons Csv Endpoint
+         * @description Lot 2, B3 : la liste des livraisons (lignes de facture et bons pas
+         *     encore facturés) en CSV, mêmes filtres que la route JSON.
+         */
+        get: operations["bilan_livraisons_csv_endpoint_api_bilan_livraisons_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/journal": {
         parameters: {
             query?: never;
@@ -3112,11 +3133,8 @@ export interface components {
          *     fournisseur déjà fixés par l'URL, contrairement à `LigneBilanBlReponse`).
          */
         LigneLivraisonReponse: {
-            /**
-             * Bloc Id
-             * Format: uuid
-             */
-            bloc_id: string;
+            /** Bloc Id */
+            bloc_id: string | null;
             /** Numero Bl */
             numero_bl: string | null;
             /** Date Bl */
@@ -3125,11 +3143,8 @@ export interface components {
             statut_rapprochement: string | null;
             /** Bl Document Id */
             bl_document_id: string | null;
-            /**
-             * Facture Id
-             * Format: uuid
-             */
-            facture_id: string;
+            /** Facture Id */
+            facture_id: string | null;
             /** Chantier Id */
             chantier_id: string | null;
             /** Chantier */
@@ -3142,8 +3157,10 @@ export interface components {
              * Categorie
              * @enum {string}
              */
-            categorie: "conforme" | "a_verifier" | "sans_bon";
+            categorie: "conforme" | "a_verifier" | "sans_bon" | "probleme_ouvert" | "recu";
             montants: components["schemas"]["MontantsBilanReponse"];
+            /** Facture */
+            facture: boolean;
         };
         /**
          * LigneSaisieRequete
@@ -5230,6 +5247,40 @@ export interface operations {
             query?: {
                 mois?: string | null;
                 agence?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Export CSV UTF-8 du bilan. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bilan_livraisons_csv_endpoint_api_bilan_livraisons_csv_get: {
+        parameters: {
+            query?: {
+                mois?: string | null;
+                agence?: string | null;
+                chantier?: string | null;
+                fournisseur?: string | null;
             };
             header?: never;
             path?: never;

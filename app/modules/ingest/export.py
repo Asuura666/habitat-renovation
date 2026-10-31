@@ -68,6 +68,7 @@ from app.modules.ingest.bilan import (
     LigneBilanChantier,
     LigneBilanDetail,
     LigneBilanFournisseur,
+    LigneLivraison,
 )
 
 _ENTETES_CHANTIERS: tuple[str, ...] = (
@@ -120,6 +121,17 @@ _ENTETES_DETAIL: tuple[str, ...] = (
     "Quantité BL appariée",
     "Anomalies ouvertes",
     "Règles concernées",
+)
+
+_ENTETES_LIVRAISONS: tuple[str, ...] = (
+    "Date",
+    "N° BL",
+    "Chantier",
+    "Fournisseur",
+    "Facturé",
+    "État",
+    "Montant HT",
+    "Problèmes",
 )
 
 # Mêmes libellés que le front (`web/src/pages/BilanFournisseur.tsx
@@ -311,3 +323,49 @@ def csv_bilan_detail(lignes: Sequence[LigneBilanDetail]) -> str:
     jamais une deuxième requête) et le docstring d'en-tête pour les deux
     écarts assumés par rapport à eux."""
     return _ecrire_csv(_ENTETES_DETAIL, [_ligne_csv_detail(ligne) for ligne in lignes])
+
+
+# --------------------------------------------------------------------------
+# Liste des livraisons (lot 2, B3, 31/10/2026) : lignes de facture et bons
+# pas encore facturés, comme à l'écran.
+# --------------------------------------------------------------------------
+
+
+def _libelle_etat_livraison(ligne: LigneLivraison) -> str:
+    """Mêmes libellés que `TableauLivraisons.tsx::libelleEtatBon`."""
+    if ligne.categorie == "conforme":
+        return "Conforme"
+    if ligne.categorie == "a_verifier":
+        return "À vérifier"
+    if ligne.categorie == "probleme_ouvert":
+        return "Problème ouvert"
+    if ligne.categorie == "recu":
+        return "Reçu"
+    return (
+        "Livré sans bon"
+        if ligne.statut_rapprochement == "pas_de_bon"
+        else "Jamais reçu"
+    )
+
+
+def _ligne_csv_livraison(ligne: LigneLivraison) -> tuple[str, ...]:
+    date_bl = ligne.date_bl.isoformat() if ligne.date_bl is not None else None
+    return (
+        _cellule(date_bl),
+        _cellule(ligne.numero_bl),
+        _cellule(ligne.chantier),
+        _cellule(ligne.fournisseur),
+        "Oui" if ligne.facture else "Non",
+        _libelle_etat_livraison(ligne),
+        _formater_montant(ligne.montants.facture_ht) if ligne.facture else "",
+        str(ligne.montants.nb_anomalies_ouvertes),
+    )
+
+
+def csv_livraisons(lignes: Sequence[LigneLivraison]) -> str:
+    """`GET /api/bilan/livraisons` en CSV : une ligne par livraison, la
+    colonne « Facturé » dit Oui (ligne de facture) ou Non (bon pas encore
+    retrouvé sur une facture, montant vide)."""
+    return _ecrire_csv(
+        _ENTETES_LIVRAISONS, [_ligne_csv_livraison(ligne) for ligne in lignes]
+    )

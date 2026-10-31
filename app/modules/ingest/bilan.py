@@ -123,7 +123,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -1169,18 +1169,143 @@ class LigneLivraison:
     principe que `LigneBilanChantier.chantier_id`) ; `fournisseur_id`/
     `fournisseur` suivent la même règle pour le fournisseur."""
 
-    bloc_id: uuid.UUID
+    bloc_id: uuid.UUID | None
     numero_bl: str | None
     date_bl: date | None
     statut_rapprochement: str | None
     bl_document_id: uuid.UUID | None
-    facture_id: uuid.UUID
+    facture_id: uuid.UUID | None
     chantier_id: uuid.UUID | None
     chantier: str | None
     fournisseur_id: uuid.UUID | None
     fournisseur: str | None
     categorie: str
     montants: MontantsBilan
+    # Lot 2, B3 : vrai pour une ligne de facture (un bloc), faux pour un bon
+    # ou un enlèvement pas encore retrouvé sur une facture (`bloc_id` et
+    # `facture_id` valent alors `None`, `bl_document_id` est le bon lui-même ;
+    # `categorie` vaut `a_verifier`, `probleme_ouvert` ou `recu`).
+    facture: bool = True
+
+
+def _montants_vides(nb_anomalies_ouvertes: int) -> MontantsBilan:
+    """Montants d'un bon qui n'est sur aucune facture : rien n'est facturé,
+    seul le nombre de problèmes ouverts est renseigné."""
+    zero = Decimal("0")
+    return MontantsBilan(
+        facture_ht=zero,
+        rapproche=zero,
+        en_ecart=zero,
+        non_justifie=zero,
+        nb_anomalies_ouvertes=nb_anomalies_ouvertes,
+        conforme=zero,
+        a_verifier=zero,
+        facture_a_verifier=zero,
+    )
+
+
+def _date_du_bon(date_doc: date | None, created_at: datetime) -> date:
+    """Date d'un bon : celle du document, sinon son jour de dépôt à Paris
+    (même repli que `_condition_mois`)."""
+    return (
+        date_doc if date_doc is not None else created_at.astimezone(FUSEAU_PARIS).date()
+    )
+
+
+async def _bons_sans_facture(
+    session: AsyncSession,
+    *,
+    mois: date | None,
+    agence: str | None,
+    chantier_id: uuid.UUID | None,
+    fournisseur_id: uuid.UUID | None,
+    exclues: frozenset[str],
+) -> list[LigneLivraison]:
+    """Lot 2, B3 : les bons et enlèvements non archivés qu'aucun bloc d'une
+    facture non archivée ne cite (`bloc_facture.bl_document_id`) -- une
+    facture archivée libère ses bons, qui redeviennent « non facturés ».
+    Mêmes filtres que les blocs ; le mois est celui du bon lui-même."""
+    facture_porteuse = aliased(Document)
+    cite_par_une_facture = (
+        select(BlocFacture.id)
+        .join(facture_porteuse, facture_porteuse.id == BlocFacture.facture_id)
+        .where(
+            BlocFacture.bl_document_id == Document.id,
+            facture_porteuse.statut != "archive",
+        )
+        .exists()
+    )
+    problemes = (
+        select(func.count(Anomalie.id))
+        .where(
+            Anomalie.document_id == Document.id,
+            Anomalie.statut == "ouverte",
+            Anomalie.regle.not_in(exclues) if exclues else true(),
+        )
+        .correlate(Document)
+        .scalar_subquery()
+    )
+    requete = (
+        select(
+            Document.id,
+            Document.numero,
+            Document.date_doc,
+            Document.created_at,
+            Document.statut,
+            Document.chantier_id,
+            Chantier.nom_canonique.label("chantier"),
+            Document.fournisseur_id,
+            Fournisseur.nom.label("fournisseur"),
+            problemes.label("nb_problemes"),
+        )
+        .select_from(Document)
+        .outerjoin(Chantier, Chantier.id == Document.chantier_id)
+        .outerjoin(Fournisseur, Fournisseur.id == Document.fournisseur_id)
+        .where(
+            Document.type.in_(TYPES_BL),
+            Document.statut != "archive",
+            ~cite_par_une_facture,
+        )
+    )
+    if mois is not None:
+        requete = requete.where(_condition_mois(mois))
+    if chantier_id is not None:
+        requete = requete.where(Document.chantier_id == chantier_id)
+    if fournisseur_id is not None:
+        requete = requete.where(Document.fournisseur_id == fournisseur_id)
+    if agence is not None:
+        requete = requete.where(
+            Document.chantier_id.in_(
+                select(Chantier.id).where(Chantier.agence == agence)
+            )
+        )
+
+    resultat: list[LigneLivraison] = []
+    for ligne in (await session.execute(requete)).all():
+        if ligne.statut == "a_verifier":
+            categorie = "a_verifier"
+        elif ligne.nb_problemes > 0:
+            categorie = "probleme_ouvert"
+        else:
+            categorie = "recu"
+        resultat.append(
+            LigneLivraison(
+                bloc_id=None,
+                numero_bl=ligne.numero,
+                date_bl=_date_du_bon(ligne.date_doc, ligne.created_at),
+                statut_rapprochement=None,
+                bl_document_id=ligne.id,
+                facture_id=None,
+                chantier_id=ligne.chantier_id,
+                chantier=ligne.chantier,
+                fournisseur_id=ligne.fournisseur_id,
+                fournisseur=ligne.fournisseur,
+                categorie=categorie,
+                montants=_montants_vides(ligne.nb_problemes),
+                facture=False,
+            )
+        )
+    return resultat
 
 
 async def lister_livraisons(
@@ -1290,7 +1415,7 @@ async def lister_livraisons(
     )
 
     lignes = (await session.execute(requete)).all()
-    return [
+    livraisons = [
         LigneLivraison(
             bloc_id=ligne.bloc_id,
             numero_bl=ligne.numero_bl,
@@ -1307,6 +1432,26 @@ async def lister_livraisons(
         )
         for ligne in lignes
     ]
+    livraisons += await _bons_sans_facture(
+        session,
+        mois=mois,
+        agence=agence,
+        chantier_id=chantier_id,
+        fournisseur_id=fournisseur_id,
+        exclues=exclues,
+    )
+    # Date décroissante (sans date en fin de liste), puis numéro, puis
+    # identifiant : le même ordre pour les lignes de facture et les bons.
+    livraisons.sort(
+        key=lambda ligne: (
+            ligne.date_bl is None,
+            -ligne.date_bl.toordinal() if ligne.date_bl is not None else 0,
+            ligne.numero_bl is None,
+            ligne.numero_bl or "",
+            str(ligne.bloc_id or ligne.bl_document_id),
+        )
+    )
+    return livraisons
 
 
 # --------------------------------------------------------------------------

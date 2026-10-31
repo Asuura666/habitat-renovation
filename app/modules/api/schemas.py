@@ -691,18 +691,22 @@ class LigneLivraisonReponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    bloc_id: uuid.UUID
+    bloc_id: uuid.UUID | None
     numero_bl: str | None
     date_bl: date | None
     statut_rapprochement: str | None
     bl_document_id: uuid.UUID | None
-    facture_id: uuid.UUID
+    facture_id: uuid.UUID | None
     chantier_id: uuid.UUID | None
     chantier: str | None
     fournisseur_id: uuid.UUID | None
     fournisseur: str | None
-    categorie: Literal["conforme", "a_verifier", "sans_bon"]
+    categorie: Literal["conforme", "a_verifier", "sans_bon", "probleme_ouvert", "recu"]
     montants: MontantsBilanReponse
+    # Lot 2, B3 : faux pour un bon ou un enlèvement pas encore retrouvé sur
+    # une facture (`bloc_id` et `facture_id` valent alors `None`,
+    # `bl_document_id` est le bon lui-même).
+    facture: bool
 
 
 # --------------------------------------------------------------------------

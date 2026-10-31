@@ -2385,6 +2385,104 @@
     }
    }
   },
+  "/api/bilan/livraisons.csv": {
+   "get": {
+    "summary": "Bilan Livraisons Csv Endpoint",
+    "description": "Lot 2, B3 : la liste des livraisons (lignes de facture et bons pas\nencore facturés) en CSV, mêmes filtres que la route JSON.",
+    "operationId": "bilan_livraisons_csv_endpoint_api_bilan_livraisons_csv_get",
+    "parameters": [
+     {
+      "name": "mois",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Mois"
+      }
+     },
+     {
+      "name": "agence",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Agence"
+      }
+     },
+     {
+      "name": "chantier",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uuid"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Chantier"
+      }
+     },
+     {
+      "name": "fournisseur",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uuid"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Fournisseur"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Export CSV UTF-8 du bilan.",
+      "content": {
+       "text/csv": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/journal": {
    "get": {
     "summary": "Lister Journal Endpoint",
@@ -8556,8 +8654,15 @@
    "LigneLivraisonReponse": {
     "properties": {
      "bloc_id": {
-      "type": "string",
-      "format": "uuid",
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
       "title": "Bloc Id"
      },
      "numero_bl": {
@@ -8607,8 +8712,15 @@
       "title": "Bl Document Id"
      },
      "facture_id": {
-      "type": "string",
-      "format": "uuid",
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
       "title": "Facture Id"
      },
      "chantier_id": {
@@ -8662,12 +8774,18 @@
       "enum": [
        "conforme",
        "a_verifier",
-       "sans_bon"
+       "sans_bon",
+       "probleme_ouvert",
+       "recu"
       ],
       "title": "Categorie"
      },
      "montants": {
       "$ref": "#/components/schemas/MontantsBilanReponse"
+     },
+     "facture": {
+      "type": "boolean",
+      "title": "Facture"
      }
     },
     "type": "object",
@@ -8683,7 +8801,8 @@
      "fournisseur_id",
      "fournisseur",
      "categorie",
-     "montants"
+     "montants",
+     "facture"
     ],
     "title": "LigneLivraisonReponse",
     "description": "Une ligne de `GET /api/bilan/livraisons` (Task 13, mise en production\ndu 1er octobre) -- mêmes attributs qu'`ingest.bilan.LigneLivraison` :\nceux de `LigneBilanBlReponse`, plus le chantier et le fournisseur de\nchaque ligne (cette liste n'est jamais imbriquée sous un chantier et un\nfournisseur déjà fixés par l'URL, contrairement à `LigneBilanBlReponse`)."
