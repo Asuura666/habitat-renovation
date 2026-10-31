@@ -13,6 +13,7 @@ décision du contrôleur) et ne compare qu'une égalité, jamais une valeur.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -691,16 +692,70 @@ def test_confiance_ligne_ignore_le_code() -> None:
     )
 
 
-def test_confiance_ligne_arithmetique_fausse_vaut_zero() -> None:
-    """Quantité x prix différent du montant : incertaine."""
+def test_confiance_ligne_arithmetique_fausse_garde_la_confiance_de_lecture() -> None:
+    """Le calcul faux est signalé par un motif dédié, pas par un « 0 % »."""
     assert _confiance_a6(
-        quantite="1",
-        pu="234.60",
-        montant="51.05",
+        quantite="6",
+        pu="14.80",
+        montant="89.70",
         conf_q="0.99",
-        conf_pu="0.99",
-        conf_m="0.99",
-    ) == Decimal("0")
+        conf_pu="0.98",
+        conf_m="0.97",
+    ) == Decimal("0.97")
+
+
+def _vue_avec_ligne(**champs: Any) -> BLAVerifier:
+    return bl_a_verifier(_bl_extrait_minimal(lignes=(_ligne_a6(**champs),)))
+
+
+def test_calcul_incoherent_pose_un_motif_sans_confiance_faible() -> None:
+    vue = _vue_avec_ligne(
+        quantite="6",
+        pu="14.80",
+        montant="89.70",
+        conf_q="0.2",
+        conf_pu="0.2",
+        conf_m="0.2",
+    )
+
+    motifs = verifier_bl(
+        vue, seuil_confiance=SEUIL_CONFIANCE_DEFAUT, tolerance=Decimal("1000")
+    )
+
+    sur_la_ligne = [m for m in motifs if m.champ == "ligne:0"]
+    assert [m.code for m in sur_la_ligne] == [CodeMotif.CALCUL_LIGNE_INCOHERENT]
+    assert sur_la_ligne[0].detail == {
+        "quantite": "6",
+        "pu_ht": "14.80",
+        "montant_ht": "89.70",
+        "produit": "88.80",
+    }
+
+
+def test_calcul_juste_et_confiance_basse_donne_confiance_faible() -> None:
+    vue = _vue_avec_ligne(conf_q="0.2")
+
+    motifs = verifier_bl(
+        vue, seuil_confiance=SEUIL_CONFIANCE_DEFAUT, tolerance=Decimal("1000")
+    )
+
+    assert [m.code for m in motifs if m.champ == "ligne:0"] == [
+        CodeMotif.CONFIANCE_FAIBLE
+    ]
+
+
+def test_calcul_incoherent_sans_confiances_est_signale_aussi() -> None:
+    """Vérification structurelle seule (`confiances` None) : le calcul faux
+    reste un fait des chiffres lus."""
+    vue = replace(
+        _vue_avec_ligne(quantite="6", pu="14.80", montant="89.70"), confiances=None
+    )
+
+    motifs = verifier_bl(
+        vue, seuil_confiance=SEUIL_CONFIANCE_DEFAUT, tolerance=Decimal("1000")
+    )
+
+    assert CodeMotif.CALCUL_LIGNE_INCOHERENT in [m.code for m in motifs]
 
 
 def test_confiance_ligne_arithmetique_juste_garde_la_confiance() -> None:

@@ -27,7 +27,11 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
-from .arithmetique import controle_arithmetique_ligne
+from .arithmetique import (
+    controle_arithmetique_ligne,
+    decimales_du_brut,
+    produit_attendu,
+)
 from .bl import BLExtrait, LigneBL, normaliser_numero_bl
 from .facture import Facture
 
@@ -53,6 +57,9 @@ class CodeMotif(StrEnum):
     # posé par ingest (lot 2 du 31/10/2026) : pas de chantier écrit sur le bon,
     # et la référence de commande ne correspond à aucun chantier connu.
     REFERENCE_CHANTIER_INCONNUE = "reference_chantier_inconnue"
+    # A6 : quantité x prix unitaire ne tombe pas sur le montant lu (champ
+    # `ligne:<ordre>`, comme `confiance_faible` d'une ligne).
+    CALCUL_LIGNE_INCOHERENT = "calcul_ligne_incoherent"
 
 
 @dataclass(frozen=True)
@@ -97,7 +104,10 @@ class LigneAVerifier:
     montant_ht: Decimal | None
     confiance: (
         Decimal | None
-    )  # minimum des confiances non nulles de code, quantité, montant
+    )  # minimum des confiances non nulles de quantité, prix unitaire, montant
+    # A6 : quantité, prix, montant lu et produit attendu (chaînes) quand le
+    # contrôle arithmétique échoue, sinon `None`.
+    calcul_incoherent: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -123,22 +133,12 @@ class BLAVerifier:
 
 
 def _confiance_ligne(ligne: LigneBL) -> Decimal | None:
-    """Confiance d'une ligne (A6, lot 2 du 31/10/2026) : minimum des
+    """Confiance de lecture d'une ligne (A6, lot 2 du 31/10/2026) : minimum des
     confiances non nulles de `quantite`, `pu_ht` et `montant_ht`, cherchées
     ensemble dans une seule ligne de texte (`confiance.confiances_ligne`). Le
     code et la désignation ne comptent plus (chez Unikalo le modèle range le
-    nombre de colis dans le code). Si quantité x prix unitaire ne tombe pas
-    sur le montant (`arithmetique.controle_arithmetique_ligne`), la ligne
-    reste incertaine quelle que soit la confiance : `0`. Sans prix unitaire,
-    pas de contrôle arithmétique. `None` si aucune des trois valeurs n'a de
-    score et que le contrôle ne dit rien."""
-    if (
-        controle_arithmetique_ligne(
-            ligne.quantite.valeur, ligne.pu_ht.valeur, ligne.montant_ht.valeur
-        )
-        is False
-    ):
-        return Decimal("0")
+    nombre de colis dans le code). `None` si aucune des trois n'a de score.
+    Le contrôle arithmétique est à part (`_calcul_incoherent`)."""
     confiances = [
         c
         for c in (
@@ -149,6 +149,33 @@ def _confiance_ligne(ligne: LigneBL) -> Decimal | None:
         if c is not None
     ]
     return min(confiances) if confiances else None
+
+
+def _calcul_incoherent(ligne: LigneBL) -> dict[str, str] | None:
+    """Détail du calcul si quantité x prix unitaire ne tombe pas sur le montant
+    lu (tolérance selon les décimales du prix tel que lu), sinon `None` --
+    y compris quand le contrôle est impossible (prix absent)."""
+    quantite, pu, montant = (
+        ligne.quantite.valeur,
+        ligne.pu_ht.valeur,
+        ligne.montant_ht.valeur,
+    )
+    if (
+        controle_arithmetique_ligne(
+            quantite, pu, montant, decimales_pu=decimales_du_brut(ligne.pu_ht.brut)
+        )
+        is not False
+        or quantite is None
+        or pu is None
+        or montant is None
+    ):
+        return None
+    return {
+        "quantite": str(quantite),
+        "pu_ht": str(pu),
+        "montant_ht": str(montant),
+        "produit": str(produit_attendu(quantite, pu)),
+    }
 
 
 def bl_a_verifier(extrait: BLExtrait) -> BLAVerifier:
@@ -181,6 +208,7 @@ def bl_a_verifier(extrait: BLExtrait) -> BLAVerifier:
             ordre=ligne.ordre,
             montant_ht=ligne.montant_ht.valeur,
             confiance=_confiance_ligne(ligne),
+            calcul_incoherent=_calcul_incoherent(ligne),
         )
         for ligne in extrait.lignes
     )
@@ -264,12 +292,25 @@ def verifier_bl(
                     _motif_confiance_faible(champ, confiance, seuil_confiance)
                 )
         for ligne in bl.lignes:
+            if ligne.calcul_incoherent is not None:
+                continue  # un seul motif par ligne : le calcul faux, ci-dessous
             if ligne.confiance is None or ligne.confiance < seuil_confiance:
                 motifs.append(
                     _motif_confiance_faible(
                         f"ligne:{ligne.ordre}", ligne.confiance, seuil_confiance
                     )
                 )
+
+    # 2bis. Contrôle arithmétique des lignes (A6) : indépendant des scores.
+    for ligne in bl.lignes:
+        if ligne.calcul_incoherent is not None:
+            motifs.append(
+                Motif(
+                    code=CodeMotif.CALCUL_LIGNE_INCOHERENT,
+                    champ=f"ligne:{ligne.ordre}",
+                    detail=dict(ligne.calcul_incoherent),
+                )
+            )
 
     # 3. Réconciliation somme des lignes / total (L3-D25, constat 11 : un BL
     # sans total lu part toujours « à vérifier », qu'il ait ou non des

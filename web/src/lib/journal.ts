@@ -394,6 +394,7 @@ const LIBELLES_CODE_MOTIF: Record<string, string> = {
   fournisseur_inconnu: "Fournisseur inconnu du référentiel",
   numero_en_double: "Numéro en double",
   reference_chantier_inconnue: "Chantier de la référence de commande inconnu",
+  calcul_ligne_incoherent: "Calcul d'une ligne incohérent",
 };
 
 function libelleCodeMotif(code: string): string {

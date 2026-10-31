@@ -1841,3 +1841,8 @@ Décisions d'Ilane du 31/10/2026 (branche `feature/sans-confirmation-et-fourniss
   nombre de conditionnements ; elle ne vaut que pour les nouvelles lectures. Les
   bons existants profitent de la nouvelle confiance via `recalculer-bons`, pas de
   la nouvelle consigne.
+- Le contrôle de calcul tolère un centime plus la moitié de la dernière décimale
+  imprimée du prix, fois la quantité (les prix imprimés sont arrondis). Il signale
+  un motif dédié (« calcul de ligne incohérent ») et non une confiance à 0 %. Il
+  n'est pas rejoué après une correction humaine des lignes (la personne a revu les
+  chiffres).
