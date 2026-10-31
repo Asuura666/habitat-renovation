@@ -112,6 +112,7 @@ from app.modules.ingest.models import (
     Journal,
     Utilisateur,
 )
+from app.modules.ingest.recalcul_bons import BilanRecalcul
 from app.modules.ingest.resolution_fournisseurs import BilanResolution
 from app.modules.ingest.router import DELAI_OCR_BL
 
@@ -1763,6 +1764,86 @@ def test_resoudre_fournisseurs_refuse_un_argument_inconnu() -> None:
         cli.main(["resoudre-fournisseurs", "--inconnu"])
 
     assert exc_info.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# `recalculer-bons` (lot 2 du 31/10/2026) -- câblage CLI seulement, la logique
+# (`ingest.recalcul_bons`) est testée dans `test_recalcul_bons.py`.
+# ---------------------------------------------------------------------------
+
+
+def test_cli_recalculer_bons_affiche_le_bilan(
+    _env_bl_test: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("DOCS_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    recu: dict[str, Any] = {}
+
+    async def _service(
+        session: object, docs_dir: Path, *, simulation: bool = False
+    ) -> BilanRecalcul:
+        recu.update(docs_dir=docs_dir, simulation=simulation)
+        return BilanRecalcul(
+            examines=10,
+            passes_a_recu=6,
+            motifs_leves={"confiance_faible": 4, "champ_absent": 2},
+            chantiers_par_reference=1,
+            ignores=3,
+            echecs=0,
+        )
+
+    monkeypatch.setattr(cli, "recalculer_bons", _service)
+    try:
+        code = cli.main(["recalculer-bons"])
+    finally:
+        get_settings.cache_clear()
+
+    assert code == 0
+    assert recu == {"docs_dir": tmp_path, "simulation": False}
+    sortie = capsys.readouterr().out
+    assert "Bons examinés : 10 · passés à « reçu » : 6" in sortie
+    assert "chantiers rattachés par la référence de commande : 1" in sortie
+    assert "ignorés (corrigés à la main) : 3" in sortie
+    assert "confiance_faible : 4" in sortie and "champ_absent : 2" in sortie
+
+
+def test_cli_recalculer_bons_simulation_code_1_si_echec(
+    _env_bl_test: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("DOCS_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    recu: dict[str, Any] = {}
+
+    async def _service(
+        session: object, docs_dir: Path, *, simulation: bool = False
+    ) -> BilanRecalcul:
+        recu["simulation"] = simulation
+        return BilanRecalcul(
+            examines=2,
+            passes_a_recu=0,
+            motifs_leves={},
+            chantiers_par_reference=0,
+            ignores=0,
+            echecs=1,
+        )
+
+    monkeypatch.setattr(cli, "recalculer_bons", _service)
+    try:
+        code = cli.main(["recalculer-bons", "--simulation"])
+    finally:
+        get_settings.cache_clear()
+
+    assert code == 1
+    assert recu == {"simulation": True}
+    sortie = capsys.readouterr().out
+    assert "Simulation : rien n'est écrit." in sortie
+    assert "non relus (erreur) : 1" in sortie
 
 
 # ---------------------------------------------------------------------------

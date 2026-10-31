@@ -1806,3 +1806,26 @@ Décisions d'Ilane du 31/10/2026 (branche `feature/sans-confirmation-et-fourniss
   aussi changer le chantier ou les lignes, comme une relance depuis l'écran.
   Limite : une lecture gardée sans fournisseur lisible ne sera jamais
   rattachée (il faut corriger le bon à la main).
+
+## Règles de lecture des bons (31/10/2026, lot 2 partie A)
+
+- **Seuil de ressemblance d'un chantier : 80 % par défaut.** La production avait
+  déjà 80 enregistré (pas de migration). Les anciens textes qui citent 90 %
+  (README, cahier des charges, recettes d'octobre) ne sont pas tous réécrits.
+- **Confirmation de la lecture.** Un fournisseur reconnu par son SIREN ou sa TVA,
+  un chantier reconnu (nom connu, ressemblance) ou donné par la légende ne
+  laissent plus le motif « lecture incertaine » ; un chantier « à compléter »
+  (créé automatiquement) ne confirme jamais rien. Non couvert : un chantier
+  reconnu sous le seuil reste créé « à compléter » (pas de proposition de
+  chantier proche).
+- **Chantier vide : référence de commande.** Lue seulement si ni nom ni légende ;
+  jamais de création de chantier ni d'alias appris depuis une référence. Une
+  référence qui ne correspond à aucun chantier laisse le bon sans chantier avec un
+  motif dédié (`reference_chantier_inconnue`). Après une correction humaine, le
+  rattachement n'est pas relancé quand seule la référence de commande change :
+  le motif posé à la lecture est conservé tel quel.
+- **Commande `python -m app.cli recalculer-bons [--simulation]`.** Applique ces
+  règles aux bons `a_verifier` déjà reçus, sans rappeler Mistral, par le même
+  chemin que `resoudre-fournisseurs`. Limite : la simulation compte les bons
+  concernés mais ne prévoit pas ce qui serait levé (les règles dépendent de
+  l'écriture du rattachement).

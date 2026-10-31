@@ -87,6 +87,17 @@
   rattachés, toujours inconnus et ignorés ; code 1 si au moins un bon n'a pas
   pu être relu, 0 sinon. Un bon qui n'a plus aucun motif passe à `recu`. Aucune
   valeur client affichée.
+- `python -m app.cli recalculer-bons [--simulation]` (lot 2 du 31/10/2026) :
+  applique aux bons `bl`/`enlevement` non archivés et `a_verifier` les règles
+  de lecture (fournisseur reconnu par SIREN/TVA et chantier reconnu ou donné
+  par la légende : la confiance de lecture du nom ne compte plus ; chantier
+  vide lu dans la référence de commande) **sans rappeler l'OCR**, depuis
+  `document.ocr_brut` -- `ingest.recalcul_bons.recalculer_bons`, qui réutilise
+  le chemin de `resoudre-fournisseurs`. Jamais un bon corrigé ou validé à la
+  main. Affiche les bons examinés, passés à « reçu », les points levés par
+  type et les chantiers rattachés par la référence ; code 1 si un bon n'a pas
+  pu être relu. `--simulation` n'écrit rien et ne dénombre que les bons
+  concernés.
 - `python -m app.cli synthese-commentaires [--semaine AAAA-MM-JJ]` (T4,
   phase 4 IA, spec §4.5) : génère la synthèse hebdomadaire des commentaires
   de lignes — toute la logique (période, plafond, appel à l'IA, écriture)
@@ -223,6 +234,7 @@ from app.modules.ingest.rattachement_chantier import (
     lister_alias_suspects,
     reprendre_chantiers,
 )
+from app.modules.ingest.recalcul_bons import recalculer_bons
 from app.modules.ingest.referentiels import definir_fournisseur
 from app.modules.ingest.resolution_fournisseurs import resoudre_fournisseurs_des_bons
 from app.modules.ingest.router import DELAI_OCR_BL
@@ -838,6 +850,41 @@ async def _resoudre_fournisseurs(*, simulation: bool) -> int:
     return 1 if bilan.echecs else 0
 
 
+async def _recalculer_bons(*, simulation: bool) -> int:
+    """Implémentation de `recalculer-bons` (lot 2 du 31/10/2026). Toute la
+    logique est dans `ingest.recalcul_bons` ; cette CLI construit ses
+    dépendances (moteur DB, `DOCS_DIR`) et affiche le bilan, sans aucune valeur
+    client ni appel OCR. Code 1 si au moins un bon n'a pas pu être relu."""
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            bilan = await recalculer_bons(
+                session, settings.docs_dir, simulation=simulation
+            )
+    finally:
+        await engine.dispose()
+
+    if simulation:
+        print("Simulation : rien n'est écrit.")
+    texte = (
+        f"Bons examinés : {bilan.examines} · "
+        f"passés à « reçu » : {bilan.passes_a_recu} · "
+        f"chantiers rattachés par la référence de commande : "
+        f"{bilan.chantiers_par_reference} · "
+        f"ignorés (corrigés à la main) : {bilan.ignores}"
+    )
+    if bilan.echecs:
+        texte += f" · non relus (erreur) : {bilan.echecs}"
+    print(texte)
+    if bilan.motifs_leves:
+        print("Points à vérifier levés ou remplacés :")
+        for code, nombre in sorted(bilan.motifs_leves.items()):
+            print(f"  {code} : {nombre}")
+    return 1 if bilan.echecs else 0
+
+
 def _semaine_lundi(valeur: str) -> date:
     """Type argparse de `--semaine` (T4, même mécanique que `--seuil` de
     `rapport-ocr`, ruling R13) : une date lisible (`AAAA-MM-JJ`) tombant un
@@ -1351,6 +1398,21 @@ def _construire_parser() -> argparse.ArgumentParser:
         help="N'écrit rien : affiche le fournisseur qui serait trouvé par bon",
     )
 
+    parser_recalculer_bons = sous_parsers.add_parser(
+        "recalculer-bons",
+        help=(
+            "Applique aux bons à vérifier les règles de lecture (fournisseur "
+            "et chantier confirmés, chantier lu dans la référence de "
+            "commande) à partir de la lecture déjà gardée, sans rappeler "
+            "l'OCR ; les bons corrigés à la main sont ignorés"
+        ),
+    )
+    parser_recalculer_bons.add_argument(
+        "--simulation",
+        action="store_true",
+        help="N'écrit rien : compte seulement les bons qui seraient relus",
+    )
+
     parser_synthese_commentaires = sous_parsers.add_parser(
         "synthese-commentaires",
         help=(
@@ -1449,6 +1511,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_chantiers_alias_suspects())
     if args.commande == "ranger-photos":
         return asyncio.run(_ranger_photos())
+    if args.commande == "recalculer-bons":
+        return asyncio.run(_recalculer_bons(simulation=args.simulation))
     if args.commande == "resoudre-fournisseurs":
         return asyncio.run(_resoudre_fournisseurs(simulation=args.simulation))
     if args.commande == "synthese-commentaires":
