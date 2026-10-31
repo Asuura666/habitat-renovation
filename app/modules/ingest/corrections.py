@@ -1246,9 +1246,31 @@ async def relancer_extraction(
     if not isinstance(reponse, dict) or not isinstance(reponse.get("pages"), list):
         raise LectureImpossible(_MESSAGE_LECTURE_IMPOSSIBLE)
 
+    return await rejouer_extraction_depuis_reponse(
+        session, document, reponse, docs_dir, auteur_id=auteur_id
+    )
+
+
+async def rejouer_extraction_depuis_reponse(
+    session: AsyncSession,
+    document: Document,
+    reponse: dict[str, Any],
+    docs_dir: Path,
+    *,
+    auteur_id: uuid.UUID | None,
+    sans_nouvel_ocr: bool = False,
+) -> DocumentDetail:
+    """Rejoue l'extraction d'un BL à partir d'une réponse OCR **déjà en
+    main** : le chemin unique de `relancer_extraction` (réponse venant d'un
+    nouvel appel OCR) et de `ingest.resolution_fournisseurs` (réponse déjà
+    gardée dans `document.ocr_brut`, décision d'Ilane du 31/10/2026 : aucun
+    nouvel appel OCR). `sans_nouvel_ocr` ne change que le journal
+    `extraction_relancee` (`apres.origine`) ; `auteur_id` vide pour une
+    commande d'exploitation."""
+    document_id = document.id
     # Capturé avant toute écriture (jamais mutée entre-temps) : ces valeurs
     # sont celles du journal `avant`, écrit seulement une fois l'extraction
-    # elle-même commitée (voir le docstring ci-dessus).
+    # elle-même commitée (voir le docstring de `relancer_extraction`).
     nb_lignes_avant = await _nombre_lignes(session, document_id)
     avant = {
         **_valeurs_document_pour_journal(document),
@@ -1264,7 +1286,11 @@ async def relancer_extraction(
             cible_table="document",
             cible_id=str(document_id),
             avant=avant,
-            apres=None,
+            apres=(
+                {"origine": "Sans nouvel OCR (lecture déjà gardée)"}
+                if sans_nouvel_ocr
+                else None
+            ),
         )
     )
     await session.commit()

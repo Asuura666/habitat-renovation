@@ -49,7 +49,7 @@
   suivi de comptes et taux, jamais une valeur du document client (décision
   du contrôleur).
 - `python -m app.cli controles-differes` (L4-T11) : évalue les quatre règles
-  de suivi (R06, R14, R15, R16 — délais du CDC §5, L4-D14) via
+  de suivi (R06, R14, R16 ; R15 retirée le 31/10/2026 — délais du CDC §5, L4-D14) via
   `ingest.suivi.controles_differes` et affiche le nombre d'anomalies de
   suivi ouvertes après synchronisation. Idempotente, sans argument (l'heure
   d'exécution est lue une fois, `datetime.now(UTC)`) ; à lancer
@@ -76,6 +76,16 @@
   (cron, hors périmètre de cette tâche). Toujours code 0 (un échec individuel
   est absorbé et journalisé par `ingest.rangement.ranger_document`, jamais
   remonté ici).
+- `python -m app.cli resoudre-fournisseurs [--simulation]` (décision d'Ilane
+  du 31/10/2026) : après la création des fournisseurs manquants, rattache les
+  bons déjà reçus (`bl`/`enlevement` non archivés, sans fournisseur, jamais
+  corrigés ni validés à la main) **sans rappeler l'OCR**, à partir de la
+  lecture gardée (`document.ocr_brut`) --
+  `ingest.resolution_fournisseurs.resoudre_fournisseurs_des_bons`, qui rejoue
+  le chemin de `relancer_extraction`. `--simulation` n'écrit rien et affiche,
+  par bon, le fournisseur qui serait trouvé. Affiche les bons relus,
+  rattachés, toujours inconnus et ignorés ; code 1 si au moins un bon n'a pas
+  pu être relu, 0 sinon. Aucune valeur client affichée.
 - `python -m app.cli synthese-commentaires [--semaine AAAA-MM-JJ]` (T4,
   phase 4 IA, spec §4.5) : génère la synthèse hebdomadaire des commentaires
   de lignes — toute la logique (période, plafond, appel à l'IA, écriture)
@@ -213,6 +223,7 @@ from app.modules.ingest.rattachement_chantier import (
     reprendre_chantiers,
 )
 from app.modules.ingest.referentiels import definir_fournisseur
+from app.modules.ingest.resolution_fournisseurs import resoudre_fournisseurs_des_bons
 from app.modules.ingest.router import DELAI_OCR_BL
 from app.modules.ingest.suivi import controles_differes
 from app.modules.jobs.drive import ClientGoogleDrive, JetonCompteServiceGoogle
@@ -792,6 +803,40 @@ async def _ranger_photos() -> int:
     return 0
 
 
+async def _resoudre_fournisseurs(*, simulation: bool) -> int:
+    """Implémentation de `resoudre-fournisseurs` (31/10/2026). Toute la
+    logique est dans `ingest.resolution_fournisseurs` ; cette CLI ne fait que
+    construire ses dépendances (moteur DB, `DOCS_DIR`) et afficher le bilan.
+    Aucune clé OCR n'est lue ni utilisée. Code 1 si au moins un bon n'a pas pu
+    être relu."""
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            bilan = await resoudre_fournisseurs_des_bons(
+                session, settings.docs_dir, simulation=simulation
+            )
+    finally:
+        await engine.dispose()
+
+    if simulation:
+        print("Simulation : rien n'est écrit.")
+        for ligne in bilan.lignes:
+            trouve = ligne.fournisseur if ligne.fournisseur else "toujours inconnu"
+            print(f"Document n° {ligne.numero_interne} : {trouve}")
+    texte = (
+        f"Bons relus : {bilan.relus} · "
+        f"rattachés à un fournisseur : {bilan.rattaches} · "
+        f"toujours inconnus : {bilan.inconnus} · "
+        f"ignorés (corrigés à la main) : {bilan.ignores}"
+    )
+    if bilan.echecs:
+        texte += f" · non relus (erreur) : {bilan.echecs}"
+    print(texte)
+    return 1 if bilan.echecs else 0
+
+
 def _semaine_lundi(valeur: str) -> date:
     """Type argparse de `--semaine` (T4, même mécanique que `--seuil` de
     `rapport-ocr`, ruling R13) : une date lisible (`AAAA-MM-JJ`) tombant un
@@ -1227,7 +1272,7 @@ def _construire_parser() -> argparse.ArgumentParser:
     sous_parsers.add_parser(
         "controles-differes",
         help=(
-            "Évalue les règles de suivi (R14, R15, R16, et R06 seulement si "
+            "Évalue les règles de suivi (R14, R16, et R06 seulement si "
             "CONTROLE_LIVRE_NON_FACTURE_ACTIF est vraie) et synchronise "
             "leurs anomalies"
         ),
@@ -1289,6 +1334,20 @@ def _construire_parser() -> argparse.ArgumentParser:
             "<DOCS_DIR>/bl/<AAAA>/<MM>/... (lien physique, jamais une copie) "
             "-- idempotente, à lancer au déploiement puis chaque nuit"
         ),
+    )
+
+    parser_resoudre_fournisseurs = sous_parsers.add_parser(
+        "resoudre-fournisseurs",
+        help=(
+            "Rattache aux fournisseurs créés après coup les bons déjà reçus, "
+            "sans rappeler l'OCR (lecture déjà gardée) ; les bons corrigés à "
+            "la main sont ignorés"
+        ),
+    )
+    parser_resoudre_fournisseurs.add_argument(
+        "--simulation",
+        action="store_true",
+        help="N'écrit rien : affiche le fournisseur qui serait trouvé par bon",
     )
 
     parser_synthese_commentaires = sous_parsers.add_parser(
@@ -1389,6 +1448,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_chantiers_alias_suspects())
     if args.commande == "ranger-photos":
         return asyncio.run(_ranger_photos())
+    if args.commande == "resoudre-fournisseurs":
+        return asyncio.run(_resoudre_fournisseurs(simulation=args.simulation))
     if args.commande == "synthese-commentaires":
         return asyncio.run(_synthese_commentaires(semaine_debut=args.semaine))
     if args.commande == "ia-prix":
