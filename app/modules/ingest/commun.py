@@ -107,6 +107,15 @@ REGLES_PRIX: frozenset[str] = frozenset({"R07", "R08", "R09"})
 # de suivi (R14/R15/R16 restent actives).
 REGLES_LIVRE_NON_FACTURE: frozenset[str] = frozenset({"R06"})
 
+# Règles retirées pour de bon (décision d'Ilane du 31/10/2026) : R15 «
+# Quantités non confirmées par l'équipe » -- la confirmation des quantités
+# par l'équipe n'existe plus. Ensemble permanent, sans drapeau : la règle
+# reste dans le moteur (les invariants « toutes les règles » restent vrais)
+# mais n'est ni évaluée par le suivi, ni lue, ni comptée (même mécanisme que
+# les règles désactivées). Ses problèmes déjà ouverts sont fermés par la
+# migration 0017.
+REGLES_RETIREES: frozenset[str] = frozenset({"R15"})
+
 # Interrupteur général du contrôle des prix des bons (spec §3.4, §6.5).
 CLE_PRIX_CONTROLE_BL_ACTIF = "prix_controle_bl_actif"
 
@@ -157,8 +166,9 @@ def regles_desactivees() -> frozenset[str]:
     indépendants (voir le docstring de module) -- la seule fonction qui
     décide quelles règles sont désactivées dans toute l'application.
     `REGLES_PRIX` et `REGLES_LIVRE_NON_FACTURE` ne se recouvrent jamais,
-    chaque drapeau se lit et s'active indépendamment de l'autre."""
-    desactivees: frozenset[str] = frozenset()
+    chaque drapeau se lit et s'active indépendamment de l'autre. Les règles
+    retirées pour de bon (`REGLES_RETIREES`, R15) en font toujours partie."""
+    desactivees: frozenset[str] = REGLES_RETIREES
     if not controle_prix_actif():
         desactivees |= REGLES_PRIX
     if not controle_livre_non_facture_actif():

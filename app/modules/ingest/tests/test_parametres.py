@@ -31,7 +31,7 @@ async def test_lister_parametres_retourne_toutes_les_cles_et_leurs_bornes(
     22 au total."""
     parametres = await lister_parametres(db_session)
 
-    assert len(parametres) == 22
+    assert len(parametres) == 21
     tolerance = next(p for p in parametres if p.cle == "tolerance_total_ht")
     assert tolerance.valeur == "0.05"
     assert tolerance.libelle == "Tolérance sur le total HT"
@@ -233,7 +233,6 @@ async def test_lister_parametres_masque_les_seuils_de_prix_quand_desactives(
             "delai_ligne_bl_non_facturee_j",
             "delai_alias_non_resolu_h",
             "seuil_ressemblance_chantier_pct",
-            "delai_confirmation_bl_h",
             "delai_chantier_silencieux_j",
             "duree_ignorance_j",
         }
@@ -259,7 +258,6 @@ async def test_lister_parametres_masque_le_seuil_r06_quand_desactive(
             "occurrences_prix_min",
             "delai_alias_non_resolu_h",
             "seuil_ressemblance_chantier_pct",
-            "delai_confirmation_bl_h",
             "delai_chantier_silencieux_j",
             "duree_ignorance_j",
         }
@@ -273,7 +271,7 @@ async def test_lister_parametres_toutes_les_cles_quand_les_deux_controles_actifs
 ) -> None:
     _regler_controles(monkeypatch, prix_actif=True, livre_non_facture_actif=True)
 
-    assert len(await lister_parametres(db_session)) == 22
+    assert len(await lister_parametres(db_session)) == 21
 
 
 @pytest.mark.parametrize(

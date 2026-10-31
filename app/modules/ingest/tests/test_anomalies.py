@@ -21,6 +21,7 @@ from app.modules.ingest.anomalies import (
     AnomalieLue,
     TransitionInterdite,
     compter_anomalies_hautes_ouvertes,
+    compter_anomalies_ouvertes,
     lister_anomalies,
     synchroniser_anomalies,
     traiter_anomalie,
@@ -1155,7 +1156,7 @@ async def test_lister_anomalies_chantier_propre_anomalie_de_suivi(
 async def test_lister_anomalies_chantier_du_document_sans_bloc(
     db_session: AsyncSession,
 ) -> None:
-    """Non-régression : une anomalie de document (sans bloc, ex. R10/R15)
+    """Non-régression : une anomalie de document (sans bloc, ex. R10/R11)
     garde le chantier du document quand `Anomalie.chantier_id` est absent."""
     fournisseur = await _creer_fournisseur(db_session)
     chantier = await _creer_chantier(db_session, nom="Chantier Document")
@@ -1164,7 +1165,7 @@ async def test_lister_anomalies_chantier_du_document_sans_bloc(
     )
     db_session.add(
         Anomalie(
-            regle="R15",
+            regle="R11",
             gravite="moyenne",
             document_id=document.id,
             detail={"a": "1"},
@@ -1426,3 +1427,25 @@ async def test_traiter_anomalie_intouvable(db_session: AsyncSession) -> None:
             commentaire="Peu importe.",
             auteur_id=admin.id,
         )
+
+
+async def test_une_anomalie_r15_ouverte_n_est_ni_listee_ni_comptee(
+    db_session: AsyncSession,
+) -> None:
+    """R15 est retirée pour de bon (31/10/2026) : même une ligne R15 encore
+    ouverte en base (avant la migration 0017) est masquée de toute lecture."""
+    fournisseur = await _creer_fournisseur(db_session)
+    document = await _creer_document(db_session, type_="bl", fournisseur=fournisseur)
+    db_session.add(
+        Anomalie(
+            regle="R15",
+            gravite="basse",
+            document_id=document.id,
+            detail={"a": "1"},
+            statut="ouverte",
+        )
+    )
+    await db_session.commit()
+
+    assert await lister_anomalies(db_session) == []
+    assert await compter_anomalies_ouvertes(db_session) == (0, 0)

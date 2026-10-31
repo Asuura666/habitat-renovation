@@ -580,12 +580,12 @@ async def test_compte_a_regler_vaut_la_liste_de_l_ecran(
     bon_recu = await _creer_document(db_session, statut="recu", numero="BL-INV-1")
     autre_bon = await _creer_document(db_session, statut="recu", numero="BL-INV-2")
     await _creer_anomalie(db_session, document=bon_recu, regle="R11", gravite="haute")
-    await _creer_anomalie(db_session, document=bon_recu, regle="R15", gravite="basse")
+    await _creer_anomalie(db_session, document=bon_recu, regle="R10", gravite="basse")
     await _creer_anomalie(
         db_session, document=autre_bon, regle="R11", gravite="haute", statut="traitee"
     )
     await _creer_anomalie(
-        db_session, document=autre_bon, regle="R15", gravite="haute", statut="ignoree"
+        db_session, document=autre_bon, regle="R10", gravite="haute", statut="ignoree"
     )
     await _creer_document(db_session, statut="a_verifier", numero="BL-INV-3")
     await _creer_alias(

@@ -334,11 +334,17 @@ _CLES_CONTROLE_LIVRE_NON_FACTURE: frozenset[str] = frozenset(
 )
 
 
+# Réglage propre à R15 (retirée pour de bon, 31/10/2026) : toujours masqué.
+_CLES_REGLES_RETIREES: frozenset[str] = frozenset({"delai_confirmation_bl_h"})
+
+
 def _cle_masquee(cle: str) -> bool:
     """Vrai si `cle` appartient à un contrôle désactivé côté serveur --
     unique point de correspondance réglage -> contrôle (voir docstring de
     module). Les deux drapeaux sont indépendants, comme dans
     `ingest.commun.regles_desactivees`."""
+    if cle in _CLES_REGLES_RETIREES:
+        return True
     if cle in _CLES_CONTROLE_PRIX and not controle_prix_actif():
         return True
     return (

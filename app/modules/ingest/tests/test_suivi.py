@@ -346,11 +346,13 @@ async def test_controles_differes_r14_ignore_un_alias_deja_valide(
 # --------------------------------------------------------------------------
 
 
-async def test_controles_differes_r15_declenche_apres_le_delai(
+async def test_controles_differes_r15_n_est_plus_produite(
     db_session: AsyncSession,
 ) -> None:
+    """Décision d'Ilane du 31/10/2026 : un BL jamais confirmé depuis plus du
+    délai ne produit plus de R15."""
     fournisseur = await _creer_fournisseur(db_session)
-    bl = await _creer_document(
+    await _creer_document(
         db_session,
         type_="bl",
         fournisseur=fournisseur,
@@ -359,10 +361,8 @@ async def test_controles_differes_r15_declenche_apres_le_delai(
 
     nb = await controles_differes(db_session, maintenant=_MAINTENANT)
 
-    anomalie = (
-        await db_session.execute(select(Anomalie).where(Anomalie.regle == "R15"))
-    ).scalar_one()
-    assert anomalie.document_id == bl.id and nb == 1
+    lignes = (await db_session.execute(select(Anomalie))).scalars().all()
+    assert lignes == [] and nb == 0
 
 
 async def test_controles_differes_r15_ne_se_declenche_pas_si_confirme(
@@ -499,11 +499,10 @@ async def test_controles_differes_r16_ignore_un_chantier_inactif(
 
 async def test_controles_differes_rejeu_sans_doublon(db_session: AsyncSession) -> None:
     fournisseur = await _creer_fournisseur(db_session)
-    await _creer_document(
+    await _creer_alias(
         db_session,
-        type_="bl",
         fournisseur=fournisseur,
-        created_at=_MAINTENANT - timedelta(hours=25),
+        created_at=_MAINTENANT - timedelta(hours=49),
     )
 
     premier = await controles_differes(db_session, maintenant=_MAINTENANT)
@@ -562,7 +561,8 @@ async def test_controles_differes_compte_toutes_les_regles_de_suivi_ouvertes(
     db_session: AsyncSession,
 ) -> None:
     """Valeur de retour : nombre d'anomalies de suivi ouvertes après
-    synchronisation, toutes règles confondues (R06, R14, R15, R16)."""
+    synchronisation, toutes règles confondues (R06, R14, R16 ; R15 est retirée
+    depuis le 31/10/2026 : le BL non confirmé ci-dessous ne compte pas)."""
     fournisseur = await _creer_fournisseur(db_session)
     await _creer_alias(
         db_session,
@@ -578,4 +578,4 @@ async def test_controles_differes_compte_toutes_les_regles_de_suivi_ouvertes(
 
     nb = await controles_differes(db_session, maintenant=_MAINTENANT)
 
-    assert nb == 2
+    assert nb == 1

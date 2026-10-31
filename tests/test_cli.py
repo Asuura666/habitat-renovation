@@ -1367,9 +1367,9 @@ _PREFIXE_FICHIER_CONTROLES_DIFFERES = "/invente/test-cli-controles-differes-"
 
 
 async def _creer_bl_sans_confirmation(engine: AsyncEngine) -> uuid.UUID:
-    """Un BL déposé il y a plus de 24h, jamais confirmé : matière de R15
-    (`delai_confirmation_bl_h`, défaut 24 — L4-D10), suffisante pour prouver
-    que la CLI appelle bien `controles_differes` et en affiche le compte."""
+    """Un BL déposé il y a plus de 24h, jamais confirmé : ancienne matière de
+    R15, retirée le 31/10/2026 -- le test vérifie désormais qu'il ne produit
+    plus aucune anomalie."""
     sessionmaker = creer_sessionmaker(engine)
     async with sessionmaker() as session:
         document = Document(
@@ -1409,11 +1409,23 @@ async def _nettoyer_bl_controles_differes(engine: AsyncEngine) -> None:
         await session.commit()
 
 
+async def _nb_anomalies_du_document(engine: AsyncEngine, document_id: uuid.UUID) -> int:
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        return (
+            await session.execute(
+                select(func.count())
+                .select_from(Anomalie)
+                .where(Anomalie.document_id == document_id)
+            )
+        ).scalar_one()
+
+
 @pytest.mark.db
 def test_controles_differes_affiche_le_nombre_ouvertes_code_0(
     db_engine: AsyncEngine, _env_bl_test: None, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    asyncio.run(_creer_bl_sans_confirmation(db_engine))
+    document_id = asyncio.run(_creer_bl_sans_confirmation(db_engine))
     try:
         code = cli.main(["controles-differes"])
         sortie = capsys.readouterr().out
@@ -1423,7 +1435,8 @@ def test_controles_differes_affiche_le_nombre_ouvertes_code_0(
             r"^(\d+) anomalies de suivi ouvertes$", sortie.strip()
         )
         assert correspondance is not None, "sortie au format inattendu"
-        assert int(correspondance.group(1)) >= 1
+        # R15 est retirée (31/10/2026) : le BL non confirmé ne produit rien.
+        assert asyncio.run(_nb_anomalies_du_document(db_engine, document_id)) == 0
     finally:
         asyncio.run(_nettoyer_bl_controles_differes(db_engine))
 
