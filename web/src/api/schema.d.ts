@@ -3624,6 +3624,14 @@ export interface components {
             montant_bons_recus: string;
             /** Nb Bons Sans Montant */
             nb_bons_sans_montant: number;
+            /** Nb Bons Mois */
+            nb_bons_mois: number;
+            /** Montant Bons Mois */
+            montant_bons_mois: string;
+            /** Nb Bons A Verifier */
+            nb_bons_a_verifier: number;
+            /** Nb Bons Mois Sans Montant */
+            nb_bons_mois_sans_montant: number;
         };
         /**
          * TotauxMoisReponse

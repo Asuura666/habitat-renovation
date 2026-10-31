@@ -235,6 +235,10 @@ class TableauDeBord:
     nb_bons_recus: int
     montant_bons_recus: Decimal
     nb_bons_sans_montant: int
+    nb_bons_mois: int
+    montant_bons_mois: Decimal
+    nb_bons_a_verifier: int
+    nb_bons_mois_sans_montant: int
 
 
 def _montant_en_jeu(anomalie: AnomalieLue) -> Decimal | None:
@@ -402,6 +406,44 @@ async def _compter_bons_recus(
     )
 
 
+async def _compter_bons_du_mois(
+    session: AsyncSession, *, mois: date
+) -> tuple[int, Decimal, int, int]:
+    """`nb_bons_mois`/`montant_bons_mois`/`nb_bons_a_verifier`/
+    `nb_bons_mois_sans_montant` (lot 2, B6, 31/10/2026 : « sur le cadran des
+    montants des bons je veux que ce soit le CA global de tous les BL même si
+    c'est pas vérifié »). Tous les bons et enlèvements du mois **non
+    archivés**, quel que soit leur statut, avec la même règle de mois que le
+    reste du tableau de bord. `nb_bons_a_verifier` : parmi eux, ceux pas
+    encore confirmés ; `nb_bons_mois_sans_montant` : ceux sans `total_ht` lu
+    (comptés mais jamais dans le montant). Les champs `*_recus` plus haut
+    gardent leur sens (statut `recu` seulement)."""
+    resultat = (
+        await session.execute(
+            select(
+                func.count().label("nb"),
+                func.coalesce(func.sum(Document.total_ht), Decimal("0")).label(
+                    "montant"
+                ),
+                func.count()
+                .filter(Document.statut == "a_verifier")
+                .label("a_verifier"),
+                func.count().filter(Document.total_ht.is_(None)).label("sans_montant"),
+            ).where(
+                Document.type.in_(TYPES_BL),
+                Document.statut != "archive",
+                _condition_mois(mois),
+            )
+        )
+    ).one()
+    return (
+        resultat.nb,
+        resultat.montant,
+        resultat.a_verifier,
+        resultat.sans_montant,
+    )
+
+
 async def _dernier_mois_facture(session: AsyncSession) -> date | None:
     """1er du mois de la facture non archivée la plus récente -- même mois
     que le bilan (L5-D4) : `date_doc`, sinon la date de dépôt en heure de
@@ -451,6 +493,13 @@ async def tableau_de_bord(session: AsyncSession, *, mois: date) -> TableauDeBord
     nb_bons_recus, montant_bons_recus, nb_bons_sans_montant = await _compter_bons_recus(
         session, mois=mois
     )
+
+    (
+        nb_bons_mois,
+        montant_bons_mois,
+        nb_bons_a_verifier,
+        nb_bons_mois_sans_montant,
+    ) = await _compter_bons_du_mois(session, mois=mois)
 
     anomalies_du_mois = await _anomalies_ouvertes_du_mois(session, mois=mois)
     nb_problemes_ouverts = len(anomalies_du_mois)
@@ -502,4 +551,8 @@ async def tableau_de_bord(session: AsyncSession, *, mois: date) -> TableauDeBord
         nb_bons_recus=nb_bons_recus,
         montant_bons_recus=montant_bons_recus,
         nb_bons_sans_montant=nb_bons_sans_montant,
+        nb_bons_mois=nb_bons_mois,
+        montant_bons_mois=montant_bons_mois,
+        nb_bons_a_verifier=nb_bons_a_verifier,
+        nb_bons_mois_sans_montant=nb_bons_mois_sans_montant,
     )

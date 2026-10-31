@@ -32,7 +32,7 @@ def test_vue_ensemble_contenu() -> None:
     for libelle in (
         "Facturé ce mois",
         "Conforme",
-        "Montant des bons reçus",
+        "Montant des bons du mois",
         "Sans bon de livraison",
         "Problèmes à régler",
         "Bons de livraison reçus",
@@ -47,8 +47,15 @@ def test_vue_ensemble_contenu() -> None:
     # identifiants restent employés par la fiche chantier et la fiche
     # fournisseur (`tests/test_web_socle.py::
     # test_tuiles_ecart_utilisent_libelle_ecart_partage`), plus jamais ici.
-    assert "montant_bons_recus" in page
-    assert "nb_bons_sans_montant" in page
+    # Lot 2, B6 (31/10/2026) : la tuile compte tous les bons du mois, même
+    # non vérifiés (« le CA global de tous les BL »).
+    assert "montant_bons_mois" in page
+    assert "nb_bons_mois" in page
+    assert "nb_bons_a_verifier" in page
+    assert "nb_bons_mois_sans_montant" in page
+    assert "Montant des bons du mois" in page
+    assert "Montant des bons reçus" not in page
+    assert "montant_bons_recus" not in page
     # Forme appelée, pas la simple mention (le commentaire de décision
     # ci-dessus les cite en toutes lettres, sans parenthèses, pour expliquer
     # où elles vivent désormais).

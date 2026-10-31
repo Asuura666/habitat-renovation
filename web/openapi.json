@@ -9925,6 +9925,23 @@
      "nb_bons_sans_montant": {
       "type": "integer",
       "title": "Nb Bons Sans Montant"
+     },
+     "nb_bons_mois": {
+      "type": "integer",
+      "title": "Nb Bons Mois"
+     },
+     "montant_bons_mois": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Montant Bons Mois"
+     },
+     "nb_bons_a_verifier": {
+      "type": "integer",
+      "title": "Nb Bons A Verifier"
+     },
+     "nb_bons_mois_sans_montant": {
+      "type": "integer",
+      "title": "Nb Bons Mois Sans Montant"
      }
     },
     "type": "object",
@@ -9941,7 +9958,11 @@
      "dernier_mois_facture",
      "nb_bons_recus",
      "montant_bons_recus",
-     "nb_bons_sans_montant"
+     "nb_bons_sans_montant",
+     "nb_bons_mois",
+     "montant_bons_mois",
+     "nb_bons_a_verifier",
+     "nb_bons_mois_sans_montant"
     ],
     "title": "TableauDeBordReponse",
     "description": "`GET /api/tableau-de-bord` — mêmes attributs\nqu'`ingest.tableau_de_bord.TableauDeBord`."
