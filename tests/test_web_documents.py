@@ -629,3 +629,24 @@ def test_facture_detail_propose_d_archiver() -> None:
         'donnees.statut !== "archive"',
     ):
         assert chaine in page, chaine
+
+
+def test_menu_fournisseur_de_la_correction_est_charge_et_habille() -> None:
+    """Lot 2, B7 (31/10/2026) : « j'arrive pas à choisir le fournisseur, le
+    choix bug, rien ne s'affiche ». Durcissement : la liste est chargée dès
+    que le bon est modifiable (plus seulement à l'ouverture du formulaire),
+    le menu annonce « Chargement… » tant qu'elle n'est pas arrivée et porte
+    les mêmes classes que le sélecteur « Chantier du bon »."""
+    page = (WEB / "pages" / "DocumentDetail.tsx").read_text()
+
+    debut = page.index("const fournisseurs = useQuery({")
+    requete = page[debut : page.index("});", debut)]
+    assert "enabled: document.data?.modifiable === true" in requete
+    assert "enabled: enEditionEntete" not in requete
+
+    debut = page.index('id="entete-fournisseur"')
+    menu = page[debut : page.index("</select>", debut)]
+    assert "Chargement…" in menu
+    assert "bg-surface" in menu
+    assert "text-encre" in menu
+    assert "chargement" in page
