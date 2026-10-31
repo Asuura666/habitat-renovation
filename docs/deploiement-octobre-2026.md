@@ -285,7 +285,7 @@ dépôts sur la production avec un vrai bon, avec l'accord du client).
 - [ ] Fusion de deux chantiers (confirmation, bons déplacés, journal).
 - [ ] Comptes : créer, modifier, changer un mot de passe, retirer puis rétablir l'accès ; impossible de se retirer soi-même ou de retirer le dernier admin.
 - [ ] Photos rangées : `ls /home/debian/habitat-data/<instance>/docs/bl/2026/` (liens `<jour>_<déposant>_<chantier>_n<numéro>`).
-- [ ] Seuil de ressemblance réglable dans Réglages (90 % par défaut).
+- [ ] Seuil de ressemblance réglable dans Réglages (90 % par défaut à l'époque, 80 % depuis le 31/10/2026).
 - [ ] Après `rapprocher --tout` : une facture « à vérifier » à total incohérent affiche son alerte R10 dans « À régler ».
 
 ### 6.2 Phase 3 — commentaires et prix

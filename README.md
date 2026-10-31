@@ -201,7 +201,7 @@ déployé en production (le 28/09/2026, ou le 30/09/2026 pour ce qui est daté d
 | 1d | Fournisseur : même problème d'identifiant | idem | **Fait** (27/09) |
 | 2a | Le nom du chantier, toujours écrit sur le BL, est lu automatiquement et ajouté au tableau de bord | Une seule règle pour les bons et les factures | **Fait** (27/09) |
 | 2b | L'employé indique aussi le nom du chantier en envoyant la photo (confirmation) | La légende de la photo Telegram sert de confirmation | **Fait** (27/09) |
-| 2c | Ressemblance d'au moins 90 % avec un chantier existant : rattaché ; sinon un chantier est créé et l'utilisateur prévenu sur le site | Seuil réglable dans Réglages ; chantier créé « à compléter » (sans agence ni client) et signalé dans « À régler » ; pas d'import de la liste des chantiers (le client complète) | **Fait** (27/09). **Défaut relevé par l'audit, corrigé et déployé le 30/09** : deux noms ne différant que par un numéro ne sont plus jamais rattachés automatiquement (décision d'Ilane du 29/09), ils sont proposés « à confirmer » |
+| 2c | Ressemblance d'au moins 80 % (90 % jusqu'au 31/10/2026) avec un chantier existant : rattaché ; sinon un chantier est créé et l'utilisateur prévenu sur le site | Seuil réglable dans Réglages ; chantier créé « à compléter » (sans agence ni client) et signalé dans « À régler » ; pas d'import de la liste des chantiers (le client complète) | **Fait** (27/09). **Défaut relevé par l'audit, corrigé et déployé le 30/09** : deux noms ne différant que par un numéro ne sont plus jamais rattachés automatiquement (décision d'Ilane du 29/09), ils sont proposés « à confirmer » |
 | 2d | Nom lu et légende désignant deux chantiers différents | Alerte R18, l'humain choisit ; bouton « Fusionner avec… » contre les doublons ; reprise des noms en attente au déploiement | **Fait** (27/09). Reprise faite au déploiement du 28/09 : des chantiers ont été créés « à compléter » ; **à compléter par Ilane et le client** |
 | + | Gestion des comptes par un admin « au cas où » (créer, modifier, supprimer, changer le mot de passe) | Ajout d'Ilane | **Fait** (27/09) : créer, modifier, changer le mot de passe, **retirer ou rétablir l'accès** (pas de suppression définitive : rien n'est supprimé physiquement), garde-fous (jamais soi-même, jamais le dernier admin). Comptes des employés **à créer par Ilane** |
 | + | Photos rangées sur le serveur | `bl/<année>/<mois>/<jour>_<déposant>_<chantier>_n<numéro>` | **Fait** (27/09) : rangement par lien physique + commande `ranger-photos` (nocturne). Ce rangement n'est pas une sauvegarde |
@@ -283,7 +283,7 @@ de démonstration.
 | **Optimisations rapidité et sécurité** | 25/09 | Documents en 0640/0750, fichiers Telegram vérifiés (signature, taille), en-têtes nginx, limite de débit dédiée à la connexion, conteneurs durcis, cache des fichiers du front, données fraîches 30 s, correction d'un N+1, audit des dépendances dans les hooks | Oui (25/09) |
 | **Tuile « Montant des bons reçus »** | nuit du 25 au 26/09 | Sur l'accueil, cette tuile remplace « Écart de quantité » (décision d'Ilane) | Oui |
 | **Démonstration au client** | 26/09 | Démonstration ; demandes consignées le 27/09 dans la roadmap (section 2.4) | — |
-| **Phase 1 — mise en production du 1er octobre** | 27/09 | Légende Telegram, rattachement automatique des chantiers (90 %), R18, fusion de chantiers, reprise des noms en attente, photos rangées, écran Comptes, Journal en noms, fiche fournisseur par mois, « Conforme » cliquable | Oui (28/09) |
+| **Phase 1 — mise en production du 1er octobre** | 27/09 | Légende Telegram, rattachement automatique des chantiers (90 % à l'époque, 80 % depuis le 31/10/2026), R18, fusion de chantiers, reprise des noms en attente, photos rangées, écran Comptes, Journal en noms, fiche fournisseur par mois, « Conforme » cliquable | Oui (28/09) |
 | **Phase 2 — exploitation** | 27/09 | `restore.sh` corrigé et test de restauration rejoué avec succès, sauvegardes restic **locales** nocturnes, tâches planifiées systemd, alerte d'échec Telegram | Oui (timers posés le 27/09, réinstallés le 28/09) ; reste : sauvegardes hors du serveur |
 | **Phase 3 — commentaires** | 27/09 | Commentaires sur chaque ligne de bon (migration 0012), non modifiables | Oui (28/09) |
 | **Phase 3 — lot Prix** | 27–28/09 | Grilles de prix par fournisseur à historique inaltérable (migration 0013), saisie, import Excel avec modèle, contrôle des prix des bons (R19 à R25), page « Prix à vérifier » avec Valider / Contester / Ignorer, réglages | Oui (28/09), **contrôle éteint** |
@@ -310,12 +310,12 @@ de démonstration.
 | Écran | Route | Accès | Ce qu'on y fait | Depuis |
 | --- | --- | --- | --- | --- |
 | Connexion | `/connexion` | Public | Se connecter (cookie httpOnly, 12 h glissantes) | 17/09 |
-| Vue d'ensemble | `/` | Admin | Sélecteur de mois ; chiffres du mois (facturé, conforme, écart, sans bon, montant des bons reçus, problèmes à régler, BL reçus/facturés) ; chantiers triés par montant à vérifier, avec pastille d'état ; problèmes prioritaires ; carte « Commentaires de la semaine » (IA ; affiche aussi le nombre de contestations de prix depuis le 01/10 ; IA allumée seulement sur la démo) ; export Excel du détail du mois | 23/09 (refonte) ; carte IA 28/09 |
+| Vue d'ensemble | `/` | Admin | Sélecteur de mois ; chiffres du mois (facturé, conforme, écart, sans bon, montant des bons du mois, problèmes à régler, BL reçus/facturés) ; chantiers triés par montant à vérifier, avec pastille d'état ; problèmes prioritaires ; carte « Commentaires de la semaine » (IA ; affiche aussi le nombre de contestations de prix depuis le 01/10 ; IA allumée seulement sur la démo) ; export Excel du détail du mois | 23/09 (refonte) ; carte IA 28/09 |
 | À régler | `/a-regler`, `/a-regler/:id` | Admin | Liste unique de ce qui attend une décision (problèmes ouverts, documents à corriger, chantiers à rattacher), filtrable ; détail avec « pourquoi c'est signalé » chiffré, liens vers la facture et le bon ; traiter exige un commentaire (« Contesté auprès du fournisseur » ou « C'est normal, ignorer ») ; choix du chantier sur une alerte R18 ; avis de l'IA sur une alerte de prix | 23/09 ; R18 27/09 ; avis IA 28/09 |
-| Chantiers | `/chantiers`, `/chantiers/:id` | Admin | Vue « Chantiers du mois » (par défaut) ou « Tous les chantiers », filtres « Mois », « Mois de facturation » et agence, carte des chantiers sans bon repliable (22/10) ; création ; fiche (client, agence, livraisons cliquables, quatre chiffres, modification) ; chantiers « à compléter » ; **fusion** de deux chantiers | 23/09 ; à compléter et fusion 27/09 |
+| Chantiers | `/chantiers`, `/chantiers/:id` | Admin | Vue « Chantiers du mois » (par défaut) ou « Tous les chantiers », filtres « Rechercher un chantier » (nom ou client), « Mois », « Mois de facturation » et agence, carte des chantiers sans bon repliable (22/10) ; création ; fiche (client, agence, livraisons cliquables, quatre chiffres, modification) ; chantiers « à compléter » ; **fusion** de deux chantiers | 23/09 ; à compléter et fusion 27/09 |
 | Fournisseurs | `/fournisseurs`, `/fournisseurs/:id` | Admin | Liste ; fiche avec chantiers concernés, **filtre par mois**, problèmes ouverts ; lien vers la grille de prix | 23/09 ; mois 27/09 |
-| Grille de prix | `/fournisseurs/:id/prix` | Admin | Prix en vigueur, recherche, ajout ou modification (nouvelle ligne d'historique), retrait, import Excel avec aperçu, modèle à télécharger ; **contestations** : lien « ⚑ N contestation(s) » sous un produit contesté qui déplie son historique (date, bon, prix du bon, prix de la grille, auteur, commentaire), et section « Contestations de prix (N) » sous le tableau, groupée par produit, avec la mention « absent de la grille » pour un produit retiré (section absente s'il n'y en a aucune ; la recherche de la grille ne la filtre pas) | 28/09 ; contestations 01/10 (démo et production) |
-| Livraisons | `/livraisons` | Admin | Bons « Conforme » (et autres états), filtrables par mois, agence, chantier, fournisseur ; clic vers le bon | 27/09 |
+| Grille de prix | `/fournisseurs/:id/prix` | Admin | Prix en vigueur, recherche, ajout ou modification (nouvelle ligne d'historique), retrait, import Excel avec aperçu, modèle à télécharger ; **contestations** : lien « Historique » sous chaque produit (versions de la grille, prix vus sur les bons et factures, prix observés) et lien « ⚑ N contestation(s) » sous un produit contesté qui déplie son historique (date, bon, prix du bon, prix de la grille, auteur, commentaire), et section « Contestations de prix (N) » sous le tableau, groupée par produit, avec la mention « absent de la grille » pour un produit retiré (section absente s'il n'y en a aucune ; la recherche de la grille ne la filtre pas) | 28/09 ; contestations 01/10 (démo et production) |
+| Livraisons | `/livraisons` | Admin | Lignes de facture et bons pas encore facturés (colonne « Facturé »), filtrables par mois, agence, chantier, fournisseur ; clic vers le bon ; export Excel | 27/09 ; bons non facturés 31/10 |
 | Prix à vérifier | `/prix` | Admin | Une rangée par produit en alerte (prix du bon, grille et sa date, dernier prix facturé et sa date, écart, ressemblance, colonne « Internet » si l'IA est allumée) ; Valider ce prix / Contester (commentaire obligatoire) / Ignorer ; recontrôle des bons. **Colonne « Internet » (si l'IA est allumée) sur toutes les rangées** : bouton « Chercher sur internet », puis « Recherche en cours… », puis le résultat avec « Relancer » (« introuvable » si rien de vérifiable), ou un message court avec « Réessayer » | 28/09 ; prix internet à plusieurs sources 29/09 (production le 30/09) ; bouton sur toutes les rangées 01/10 (démo seulement : IA éteinte en production) |
 | Documents | `/documents`, `/documents/:id`, `/bl/:id` | Admin et agent (ses dépôts) | Liste filtrable ; dépôt d'une facture PDF (admin) ; **page BL** : photo, téléchargement nommé, tableau livré/facturé/prix/contrôle par ligne, correction de lecture, validation, archivage, relance de la lecture, **commentaires par ligne** | 23/09 ; commentaires 27/09 |
 | Comptes | `/comptes` | Admin | Créer, modifier, changer le mot de passe, retirer ou rétablir l'accès | 27/09 |
@@ -379,19 +379,56 @@ somme des lignes ne correspond pas au total passe « à vérifier ».
 sur le document et la légende Telegram sont comparés aux chantiers connus
 par une fonction de ressemblance (0 à 100,
 `normalize/texte.py::ressemblance`) : une ressemblance d'au moins le seuil
-réglable (90 % par défaut) rattache le document ; sinon un chantier est créé
+réglable (80 % par défaut depuis le 31/10/2026, 90 % avant) rattache le document ; sinon un chantier est créé
 automatiquement, marqué « à compléter », et signalé dans « À régler ». Si le
 nom lu et la légende désignent deux chantiers différents, une alerte R18
 « Chantier à confirmer » est levée et un humain choisit. Un admin peut
 fusionner deux chantiers doublons. Exemples inventés : « Villa Test » et
 « VILLA TEST (123) » = 100 (rattaché) ; « Les Pins » et « Les Pins 2 » = 88
-(nouveau chantier). *Défaut relevé par l'audit (section 20) et corrigé le
+(ne diffèrent que par un numéro : jamais rattachés automatiquement, proposés « à confirmer »). *Défaut relevé par l'audit (section 20) et corrigé le
 30/09 : deux noms ne différant que par un numéro (« Lot 12 », « Lot 13 »)
 pouvaient atteindre le seuil ; sur décision d'Ilane, ils ne sont plus jamais
 rattachés automatiquement et sont proposés « à confirmer » (R18). Les alias
 déjà appris ne sont pas revus : la commande `chantiers-alias-suspects`
 (section 16) les liste pour relecture ; elle n'en a signalé aucun, sur la démo
 comme en production, le 30/09.*
+
+**Lecture confirmée et motifs « à vérifier »** (lot 2 du 31/10/2026). Un bon
+n'est « à vérifier » que s'il lui reste un motif. Deux motifs de « lecture
+incertaine » sont levés quand le référentiel confirme la lecture : le
+fournisseur reconnu par son SIREN ou son numéro de TVA, et le chantier reconnu
+(nom connu, ressemblance, légende Telegram) quand ce chantier n'est pas « à
+compléter » (un chantier créé automatiquement ne confirme jamais sa propre
+lecture). L'historique du bon dit ce qui a été confirmé. Quand ni le nom lu ni
+la légende ne donnent de chantier, la « Référence commande client » est lue :
+si elle ressemble à un chantier connu, le bon y est rattaché (jamais de
+création de chantier ni d'alias appris depuis une référence) ; sinon le bon
+reste sans chantier et « À régler » le dit avec la référence lue. Les
+prénoms d'employés, les numéros et les références trop courtes sont ignorés.
+Sur les lignes, la confiance ne repose plus que sur la quantité, le prix
+unitaire et le montant lus ensemble ; une ligne dont quantité x prix ne donne
+pas le montant (au centime près, avec la tolérance des prix arrondis) porte le
+motif « calcul de ligne incohérent ». La commande `recalculer-bons` applique
+ces règles aux bons déjà reçus, sans nouvel appel à l'OCR (section 16).
+
+**Livraisons et bons non facturés** (lot 2 du 31/10/2026). La liste des
+livraisons (fiche chantier, fiche fournisseur, écran « Livraisons ») montre une
+ligne par bloc de facture **et** une ligne par bon ou enlèvement qu'aucune
+facture n'a encore repris, avec une colonne « Facturé » (Oui ou Non) : un bon
+avec un problème se voit donc au bon endroit. Les tuiles et montants
+(Facturé, Conforme, écarts) ne comptent que les factures. Une facture archivée
+(bouton « Archiver » de sa page) ne compte plus nulle part et libère ses bons,
+qui redeviennent « non facturés ». La tuile « Montant des bons du mois » de la
+vue d'ensemble compte tous les bons non archivés du mois, vérifiés ou non
+(« dont N à vérifier », « K sans montant lu »).
+
+**Historique d'un produit** (lot 2 du 31/10/2026). Sur la grille d'un
+fournisseur, « Historique » déplie tout ce qu'on sait d'un produit : les
+versions de la grille et leur origine, les prix vus sur les bons et les
+factures du fournisseur (retrouvés **par la référence** seulement, jamais par
+le nom) et les prix observés importés d'une feuille d'un fichier de contrôle
+(`importer-historique-prix`). Ces prix observés ne vont jamais dans la
+grille.
 
 **Rapprochement BL ↔ facture.** Chaque bloc « Concerne le B.L. n°… » d'une
 facture est comparé au BL du même numéro (reçu, non reçu, « pas de bon ») ;
@@ -469,7 +506,7 @@ positif et un test négatif par règle (`app/modules/rules/tests/`).
 | R15 | Quantités non confirmées par l'équipe | BL sans confirmation après un délai | Basse | `delai_confirmation_bl_h` (24 h, masqué) | **Retirée le 31/10/2026** : jamais produite ni comptée (`REGLES_RETIREES`), problèmes ouverts fermés par la migration 0017 |
 | R16 | Chantier sans bon déposé récemment | Aucun BL déposé depuis un délai | Basse | `delai_chantier_silencieux_j` (7 jours) | Contrôle différé |
 | R17 | Quantité inhabituelle pour le conditionnement | Conditionnement inhabituel | Moyenne | — | Active |
-| R18 | Chantier à confirmer | Nom lu et légende Telegram désignent deux chantiers différents (ou plusieurs candidats à égalité) | Moyenne | `seuil_ressemblance_chantier_pct` (90 %) | Active (point d'entrée `evaluer_chantier`, appelé au rattachement) |
+| R18 | Chantier à confirmer | Nom lu et légende Telegram désignent deux chantiers différents (ou plusieurs candidats à égalité) | Moyenne | `seuil_ressemblance_chantier_pct` (80 %) | Active (point d'entrée `evaluer_chantier`, appelé au rattachement) |
 
 Trois points d'entrée dans le moteur (`app/modules/rules/engine.py`) :
 `evaluer_facture` (R01 à R05, R07 à R13, R17, à chaque rapprochement),
@@ -736,6 +773,12 @@ source de vérité unique du schéma (`ARCHITECTURE.md` §4).
 | `grille_import` | Trace de chaque import Excel (nom et empreinte du fichier, date d'effet, nombre de lignes nouvelles, modifiées, inchangées et en erreur, auteur) |
 | `grille_prix` | Historique des prix par fournisseur : une ligne par changement (référence, désignation, unité, prix catalogue HT, remise, prix net, marque, famille, date d'effet, source saisie/import/validation, auteur) ; **UPDATE, DELETE et TRUNCATE refusés par des déclencheurs PostgreSQL** ; le prix en vigueur est la dernière ligne par produit |
 
+`prix_observe` (migration 0018, 31/10/2026) : prix déjà vus chez un fournisseur,
+importés d'une feuille d'historique (fournisseur, clé de produit, référence,
+désignation, unité, date, prix HT, quantité, numéro de facture, libellé de la
+source) ; jamais lus par le contrôle des prix, seulement affichés dans
+l'historique d'un produit.
+
 ### 9.4 IA (migrations 0014, 0015 et 0016)
 
 | Table | Rôle |
@@ -767,6 +810,7 @@ source de vérité unique du schéma (`ARCHITECTURE.md` §4).
 | 0015 | `prix_internet.offres` (jusqu'à cinq offres) et reprise des prix déjà trouvés comme une offre unique |
 | 0016 | `synthese_commentaires.nb_contestations` (entier non nul, 0 par défaut) ; branche `feature/prix-contestations-recherche`, **appliquée sur la démo puis en production le 01/10/2026** |
 
+| 0018 | Table `prix_observe` (prix observés importés pour l'historique d'un produit) ; branche `feature/regles-lecture-et-livraisons`, **pas encore déployée** |
 | 0017 | Fermeture des problèmes R15 encore ouverts (statut `traitee`, commentaire « Confirmation des quantités retirée (31/10/2026) », une ligne de journal `anomalie_traitee` chacun) ; aucune structure modifiée, `downgrade` sans effet sur les données ; branche `feature/sans-confirmation-et-fournisseurs`, **pas encore déployée** |
 
 **En production au 01/10/2026 : jusqu'à la révision 0016.** La 0015 a été
@@ -844,7 +888,7 @@ Liste relue dans les décorateurs `@router.*` de `app/modules/api/*.py`
 | Bilan | `GET /api/bilan/agences` | admin | Filtre |
 | | `GET /api/bilan/chantiers` (+ `.csv`), `.../{id}/fournisseurs` (+ `.csv`), `.../{id}/fournisseurs/{id}/bl` (+ `.csv`) | admin | Bilan par chantier, détail, exports |
 | | `GET /api/bilan/fournisseurs` (+ `.csv`), `.../{id}/chantiers` (+ `.csv`) | admin | Bilan par fournisseur, détail, exports |
-| | `GET /api/bilan/livraisons` | admin | Livraisons (bons « Conforme » et autres états) |
+| | `GET /api/bilan/livraisons` (+ `.csv`) | admin | Livraisons : lignes de facture et bons pas encore facturés (champ `facture`) |
 | | `GET /api/bilan/detail.csv` | admin | Export détaillé ligne à ligne, toute période |
 | Vue d'ensemble | `GET /api/tableau-de-bord` | admin | Chiffres du mois, état par chantier |
 | Journal, réglages | `GET /api/journal` | admin | Journal |
@@ -853,7 +897,8 @@ Liste relue dans les décorateurs `@router.*` de `app/modules/api/*.py`
 | | `POST /api/comptes/{id}/retirer-acces`, `.../retablir-acces` | admin | Accès (jamais soi-même, jamais le dernier admin) |
 | Commentaires | `GET /api/commentaires/documents/{id}` | tout compte connecté | Commentaires d'un bon (visibilité du bon) |
 | | `POST /api/commentaires/lignes/{id}` | tout compte connecté | Ajoute un commentaire (1 à 1 000 caractères) |
-| Grilles de prix | `GET /api/grilles/modele`, `GET /api/grilles/fournisseurs/{id}`, `.../produits/{cle}/historique` | admin | Modèle Excel, grille en vigueur, historique d'un produit |
+| Grilles de prix | `GET /api/grilles/modele`, `GET /api/grilles/fournisseurs/{id}`, `.../produits/{cle}/historique` | admin | Modèle Excel, grille en vigueur, versions de la grille d'un produit |
+| | `GET /api/grilles/fournisseurs/{id}/produits/{cle}/historique-complet` (31/10) | admin | Tout l'historique d'un produit : versions de la grille, prix vus sur les bons et factures, prix observés ; date décroissante, 100 lignes au plus |
 | | `GET /api/grilles/fournisseurs/{id}/contestations` (01/10) | admin | Contestations de prix du fournisseur, plus récentes d'abord (500 au plus) ; 404 si le fournisseur n'existe pas |
 | | `POST /api/grilles/fournisseurs/{id}/prix`, `.../retrait`, `.../import/apercu`, `.../import` | admin | Saisie, retrait, import avec aperçu puis confirmation |
 | Prix à vérifier | `GET /api/prix/alertes` | admin | Une rangée par produit en alerte |
@@ -1286,6 +1331,8 @@ commande interactive). D'après `app/cli.py`.
 | `rattacher-chantiers` | Reprise, au déploiement, des noms de chantier en attente et des bons sans chantier (idempotente) | toujours 0 |
 | `chantiers-alias-suspects` | Liste, en lecture seule, les noms de chantier appris dont les nombres diffèrent de ceux du chantier (« … 13 » appris sur « … 12 ») ; diagnostic manuel, à ne pas planifier ni copier ailleurs (la sortie contient des noms de chantier) | toujours 0 |
 | `resoudre-fournisseurs [--simulation]` | Après la création des fournisseurs manquants, rattache les bons `bl`/`enlevement` non archivés sans fournisseur, **sans rappeler l'OCR** (lecture gardée dans `document.ocr_brut`) ; ignore les bons corrigés ou validés à la main ; un bon qui n'a plus aucun motif passe à « reçu » (sinon il reste « à vérifier ») ; `--simulation` n'écrit rien et nomme le fournisseur qui serait trouvé par bon | 1 : au moins un bon n'a pas pu être relu |
+| `recalculer-bons [--simulation]` | Applique aux bons `bl`/`enlevement` non archivés et « à vérifier » les règles de lecture (fournisseur et chantier confirmés, chantier lu dans la référence de commande, confiance des lignes) **sans rappeler l'OCR** ; ignore les bons corrigés ou validés à la main ; affiche les bons examinés, passés à « reçu », les points levés par type ; `--simulation` n'écrit rien et ne dénombre que les bons concernés | 1 : au moins un bon n'a pas pu être relu |
+| `importer-historique-prix --fournisseur NOM --fichier X.xlsx --feuille F --source TEXTE [--simulation]` | Range les lignes d'une feuille d'historique (colonnes Date, Facture, Référence, Désignation, Quantité, Unité, Prix HT observé) dans `prix_observe` ; idempotente ; les lignes illisibles sont comptées, jamais inventées ; jamais dans la grille | 1 : fichier, feuille ou fournisseur introuvable (ou ambigu) |
 | `ranger-photos` | (Re)construit le rangement des photos sous `bl/<AAAA>/<MM>/…` (idempotente) | toujours 0 |
 | `synthese-commentaires [--semaine AAAA-MM-JJ]` | Génère la synthèse hebdomadaire des commentaires | 1 : échec de génération ; 2 : date invalide ou pas un lundi |
 | `ia-prix` | Explique les alertes de prix puis cherche un prix internet (tâche planifiée) | 1 seulement si toutes les tentatives échouent faute d'IA joignable |

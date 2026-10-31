@@ -1846,3 +1846,42 @@ Décisions d'Ilane du 31/10/2026 (branche `feature/sans-confirmation-et-fourniss
   un motif dédié (« calcul de ligne incohérent ») et non une confiance à 0 %. Il
   n'est pas rejoué après une correction humaine des lignes (la personne a revu les
   chiffres).
+
+## Écrans du lot 2 (31/10/2026, partie B)
+
+- **Archiver une facture (B1).** Le bouton « Archiver » de la page facture appelle la
+  même route que celui d'un bon ; la facture archivée disparaît du bilan, des
+  tuiles, des livraisons et des problèmes ouverts, et ses bons redeviennent « non
+  facturés » (testé). Une facture archivée par erreur ne se rétablit pas depuis
+  l'application.
+- **Recherche d'un chantier (B2).** Côté écran seulement, sur le nom et le client ;
+  elle n'est pas dans l'adresse de la page (non partageable) et les compteurs des
+  boutons « Chantiers du mois » et « Tous les chantiers » ne la suivent pas. La
+  ligne « Chantier à rattacher » disparaît dès qu'on cherche. Le dépôt n'a pas
+  vitest : la fonction de comparaison est testée en l'exécutant avec Node (le test
+  est ignoré si Node est absent).
+- **Bons dans les livraisons (B3).** Un bon non facturé a pour état « À vérifier »,
+  « Problème ouvert » ou « Reçu » (jamais « Conforme »), sans montant. Un bon
+  n'est « facturé » que si le bloc d'une facture **non archivée** le cite. Le filtre
+  d'état « À vérifier » ne reprend que les bons à vérifier (pas ceux qui ont un
+  problème ouvert). Sur la fiche chantier, les lignes de facture viennent toujours
+  des requêtes par fournisseur et les bons de la liste commune : deux sources. Les
+  exports « Exporter les livraisons <fournisseur> » de la fiche chantier restent
+  ceux des blocs de facture ; l'écran « Livraisons » a son propre export, qui
+  contient aussi les bons.
+- **Montant des bons du mois (B6).** Quatre champs d'API ajoutés
+  (`nb_bons_mois`, `montant_bons_mois`, `nb_bons_a_verifier`,
+  `nb_bons_mois_sans_montant`) ; les trois champs « reçus » d'avant sont gardés
+  tels quels mais l'écran ne les lit plus (à retirer plus tard).
+- **Menu « Fournisseur » de la correction d'un bon (B7).** Bug vu une fois par Ilane
+  (Chrome, PC) puis plus revu ; non reproduit. Durcissement seulement : liste
+  chargée dès que le bon est modifiable, « Chargement… » dans le menu tant qu'elle
+  n'est pas arrivée, mêmes classes que le sélecteur de chantier.
+- **Historique d'un produit (B4).** Les prix vus sur les bons et les factures ne
+  sont retrouvés que par la référence du produit (code lu égal à la référence de
+  la grille, comparé sans espaces ni ponctuation ni casse), jamais par le nom ;
+  un produit de la grille sans référence n'a donc que ses versions et ses prix
+  observés. Les prix observés s'importent par la commande
+  `importer-historique-prix` (pas d'écran) ; deux lignes identiques (même produit,
+  même jour, même facture, même prix, même quantité) comptent pour une seule, y
+  compris dans un même fichier. Cent lignes au plus, sans pagination.
