@@ -269,3 +269,70 @@ async def test_simulation_n_ecrit_rien_et_nomme_le_fournisseur_trouve(
         bon.numero_interne: "Peintures Exemple",
         autre.numero_interne: None,
     }
+
+
+async def _bon_lu_sans_fournisseur(
+    db_session: AsyncSession, reponse: dict[str, Any]
+) -> Document:
+    """Un bon réellement lu une première fois (fournisseur absent du
+    référentiel), comme à la réception."""
+    from app.modules.ingest.extraction_bl import enregistrer_extraction_bl
+
+    bon = await _creer_bon(db_session, avec_ocr=False)
+    await enregistrer_extraction_bl(db_session, bon.id, reponse)
+    await db_session.refresh(bon)
+    return bon
+
+
+def _codes(bon: Document) -> list[str]:
+    return sorted(m["code"] for m in (bon.motifs or []))
+
+
+async def test_bon_dont_le_seul_motif_etait_le_fournisseur_passe_a_recu(
+    db_session: AsyncSession, tmp_path: Path
+) -> None:
+    bon = await _bon_lu_sans_fournisseur(db_session, _reponse())
+    assert bon.statut == "a_verifier"
+    assert _codes(bon) == ["fournisseur_inconnu"]
+    await _creer_fournisseur(db_session, nom="Peintures Exemple", tva="FR00000000000")
+
+    bilan = await resoudre_fournisseurs_des_bons(db_session, tmp_path)
+
+    await db_session.refresh(bon)
+    assert bilan.rattaches == 1
+    assert bon.fournisseur_id is not None
+    assert bon.statut == "recu"
+    assert not bon.motifs
+
+
+async def test_bon_qui_garde_un_autre_motif_reste_a_verifier(
+    db_session: AsyncSession, tmp_path: Path
+) -> None:
+    reponse = _reponse()
+    annotation = json.loads(reponse["document_annotation"])
+    annotation["total_ht"] = "999,00"
+    reponse["document_annotation"] = json.dumps(annotation)
+    bon = await _bon_lu_sans_fournisseur(db_session, reponse)
+    assert "somme_incoherente" in _codes(bon)
+    await _creer_fournisseur(db_session, nom="Peintures Exemple", tva="FR00000000000")
+
+    await resoudre_fournisseurs_des_bons(db_session, tmp_path)
+
+    await db_session.refresh(bon)
+    assert bon.fournisseur_id is not None
+    assert bon.statut == "a_verifier"
+    assert "somme_incoherente" in _codes(bon)
+    assert "fournisseur_inconnu" not in _codes(bon)
+
+
+async def test_bon_deja_recu_sans_fournisseur_est_ignore_pas_inconnu(
+    db_session: AsyncSession, tmp_path: Path
+) -> None:
+    bon = await _creer_bon(db_session, statut="recu")
+    await _creer_fournisseur(db_session, nom="Peintures Exemple", tva="FR00000000000")
+
+    bilan = await resoudre_fournisseurs_des_bons(db_session, tmp_path)
+
+    await db_session.refresh(bon)
+    assert bon.fournisseur_id is None
+    assert (bilan.inconnus, bilan.ignores) == (0, 1)

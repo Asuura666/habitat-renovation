@@ -1277,7 +1277,16 @@ async def rejouer_extraction_depuis_reponse(
         "nb_lignes": str(nb_lignes_avant),
     }
 
-    await enregistrer_extraction_bl(session, document_id, reponse, relance=True)
+    # Même lecture rejouée avec un référentiel enrichi (`sans_nouvel_ocr`) : le
+    # statut suit les motifs restants ; une relance demandée depuis l'écran
+    # reste `a_verifier`.
+    await enregistrer_extraction_bl(
+        session,
+        document_id,
+        reponse,
+        relance=True,
+        statut_selon_motifs=sans_nouvel_ocr,
+    )
 
     session.add(
         Journal(

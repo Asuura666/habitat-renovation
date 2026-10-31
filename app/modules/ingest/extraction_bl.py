@@ -328,9 +328,15 @@ async def enregistrer_extraction_bl(
     reponse: dict[str, Any],
     *,
     relance: bool = False,
+    statut_selon_motifs: bool = False,
 ) -> ResultatExtraction:
     """Lit, contrôle et persiste l'extraction complète d'un BL (L3-T6),
     dans une transaction (commit à la fin, quel que soit le chemin suivi).
+
+    `statut_selon_motifs` (31/10/2026, `ingest.resolution_fournisseurs`) : avec
+    `relance`, le statut suit les motifs (`recu` s'il n'en reste aucun) au lieu
+    de rester `a_verifier` -- la même lecture est rejouée avec un référentiel
+    enrichi, personne n'a demandé de nouvelle lecture.
 
     `relance` (L3-D15, `POST /api/documents/{id}/extraction`) : le document
     reste `a_verifier` même sans aucun motif — seul « Valider »
@@ -356,7 +362,13 @@ async def enregistrer_extraction_bl(
     )
     if relance:
         return await _enregistrer_relecture(
-            session, document, document_id, reponse, seuil, tolerance
+            session,
+            document,
+            document_id,
+            reponse,
+            seuil,
+            tolerance,
+            statut_selon_motifs,
         )
 
     # Premier passage : rien à défaire, chaque écriture commite (le rejeu du
@@ -414,6 +426,7 @@ async def _enregistrer_relecture(
     reponse: dict[str, Any],
     seuil: Decimal,
     tolerance: Decimal,
+    statut_selon_motifs: bool = False,
 ) -> ResultatExtraction:
     """Relecture d'un BL (`relance=True`) : suppression des liens et des
     anciennes lignes, nouvelles lignes, statut et rejeu du rapprochement des
@@ -425,7 +438,15 @@ async def _enregistrer_relecture(
     try:
         await _supprimer_lignes(session, document_id)
         resultat = await _ecrire_extraction(
-            session, document, document_id, reponse, seuil, tolerance, True, False
+            session,
+            document,
+            document_id,
+            reponse,
+            seuil,
+            tolerance,
+            # `relance` des fonctions d'écriture = « forcer a_verifier ».
+            not statut_selon_motifs,
+            False,
         )
         await rapprocher_factures_du_bl(session, document_id, dans_la_transaction=True)
         await session.commit()

@@ -85,7 +85,8 @@
   le chemin de `relancer_extraction`. `--simulation` n'écrit rien et affiche,
   par bon, le fournisseur qui serait trouvé. Affiche les bons relus,
   rattachés, toujours inconnus et ignorés ; code 1 si au moins un bon n'a pas
-  pu être relu, 0 sinon. Aucune valeur client affichée.
+  pu être relu, 0 sinon. Un bon qui n'a plus aucun motif passe à `recu`. Aucune
+  valeur client affichée.
 - `python -m app.cli synthese-commentaires [--semaine AAAA-MM-JJ]` (T4,
   phase 4 IA, spec §4.5) : génère la synthèse hebdomadaire des commentaires
   de lignes — toute la logique (période, plafond, appel à l'IA, écriture)
@@ -1340,8 +1341,8 @@ def _construire_parser() -> argparse.ArgumentParser:
         "resoudre-fournisseurs",
         help=(
             "Rattache aux fournisseurs créés après coup les bons déjà reçus, "
-            "sans rappeler l'OCR (lecture déjà gardée) ; les bons corrigés à "
-            "la main sont ignorés"
+            "sans rappeler l'OCR (lecture déjà gardée) ; un bon sans motif "
+            "restant passe à « reçu » ; les bons corrigés à la main sont ignorés"
         ),
     )
     parser_resoudre_fournisseurs.add_argument(

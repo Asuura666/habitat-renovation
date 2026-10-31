@@ -16,6 +16,10 @@ dépendance OCR.
   (`corrections.rejouer_extraction_depuis_reponse`), jamais une copie : mêmes
   écritures, même rapprochement, même journal `extraction_relancee` (précisé
   « Sans nouvel OCR », auteur vide).
+- Le statut suit les motifs restants : un bon dont le seul motif était
+  « fournisseur inconnu » passe à `recu` (et sort de « À régler ») ; un bon qui
+  garde un autre motif reste `a_verifier`. Seuls les bons `a_verifier` sont
+  relus ; un autre statut est compté parmi les ignorés.
 - Simulation : n'écrit rien ; pour chaque bon, appelle seulement
   `normalize.fournisseur.resoudre_fournisseur` sur les champs lus.
 
@@ -112,6 +116,9 @@ async def resoudre_fournisseurs_des_bons(
         if document is None or document.ocr_brut is None:
             continue  # disparu entre-temps
         reponse = document.ocr_brut
+        if document.statut != "a_verifier":
+            ignores += 1  # même condition que `relancer_extraction`
+            continue
         relus += 1
 
         if simulation:
@@ -123,7 +130,7 @@ async def resoudre_fournisseurs_des_bons(
                 rattaches += 1
             continue
 
-        if not _a_des_pages(reponse) or document.statut != "a_verifier":
+        if not _a_des_pages(reponse):
             inconnus += 1
             continue
         try:
