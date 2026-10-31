@@ -818,3 +818,156 @@ async def test_relance_fournisseur_par_tva_leve_le_motif_mais_reste_a_verifier(
     assert _motifs_fournisseur_confiance(document) == []
     assert resultat.nb_motifs == 0
     assert document.statut == "a_verifier"  # une relance reste à vérifier
+
+
+# --------------------------------------------------------------------------
+# Lot 2 du 31/10/2026, A3 : chantier reconnu dans le référentiel, la
+# confiance de lecture du nom ne compte plus ; chantier donné par la légende,
+# il ne manque plus.
+# --------------------------------------------------------------------------
+
+
+def _reponse_chantier_incertain() -> dict[str, Any]:
+    reponse = _reponse_synthetique()
+    for mot in reponse["pages"][0]["confidence_scores"]["word_confidence_scores"]:
+        if mot["text"] == " MAISON":
+            mot["confidence"] = 0.10
+    return reponse
+
+
+def _reponse_sans_chantier() -> dict[str, Any]:
+    reponse = _reponse_synthetique()
+    annotation = _annotation(reponse)
+    annotation["chantier_brut"] = None
+    reponse["document_annotation"] = json.dumps(annotation)
+    return reponse
+
+
+def _motifs_chantier(document: Document, code: str) -> list[dict[str, Any]]:
+    return [
+        m
+        for m in _motifs(document)
+        if m["code"] == code and m["champ"] == "chantier_brut"
+    ]
+
+
+async def test_chantier_reconnu_retire_la_confiance_faible_du_nom_lu(
+    db_session: AsyncSession,
+) -> None:
+    await _creer_fournisseur_peintures_exemple(db_session)
+    db_session.add(Chantier(nom_canonique="Maison Test", a_completer=False))
+    await db_session.commit()
+    document = await _creer_document(db_session)
+
+    resultat = await enregistrer_extraction_bl(
+        db_session, document.id, _reponse_chantier_incertain()
+    )
+
+    await db_session.refresh(document)
+    assert _motifs_chantier(document, "confiance_faible") == []
+    assert resultat.statut == "recu"
+    assert document.statut == "recu"
+    journal = await _journal_extraction(db_session, document.id)
+    assert journal.apres is not None
+    assert journal.apres["motifs_leves"] == [
+        {
+            "champ": "chantier_brut",
+            "raison": "Lecture du chantier confirmée : Maison Test (100 %)",
+        }
+    ]
+
+
+async def test_chantier_a_completer_ne_confirme_pas_la_lecture(
+    db_session: AsyncSession,
+) -> None:
+    """Un chantier créé automatiquement (« à compléter ») ne confirme rien."""
+    await _creer_fournisseur_peintures_exemple(db_session)
+    db_session.add(Chantier(nom_canonique="Maison Test", a_completer=True))
+    await db_session.commit()
+    document = await _creer_document(db_session)
+
+    resultat = await enregistrer_extraction_bl(
+        db_session, document.id, _reponse_chantier_incertain()
+    )
+
+    await db_session.refresh(document)
+    assert len(_motifs_chantier(document, "confiance_faible")) == 1
+    assert resultat.statut == "a_verifier"
+
+
+async def test_chantier_cree_par_la_lecture_ne_confirme_pas_la_lecture(
+    db_session: AsyncSession,
+) -> None:
+    await _creer_fournisseur_peintures_exemple(db_session)
+    document = await _creer_document(db_session)
+
+    await enregistrer_extraction_bl(
+        db_session, document.id, _reponse_chantier_incertain()
+    )
+
+    await db_session.refresh(document)
+    assert len(_motifs_chantier(document, "confiance_faible")) == 1
+    journal = await _journal_extraction(db_session, document.id)
+    assert journal.apres is not None
+    assert journal.apres["motifs_leves"] == []
+
+
+async def test_chantier_donne_par_la_legende_retire_champ_absent(
+    db_session: AsyncSession,
+) -> None:
+    await _creer_fournisseur_peintures_exemple(db_session)
+    db_session.add(Chantier(nom_canonique="Villa Legende", a_completer=False))
+    await db_session.commit()
+    document = await _creer_document(db_session)
+    document.legende = "Chantier Villa Legende"
+    await db_session.commit()
+
+    resultat = await enregistrer_extraction_bl(
+        db_session, document.id, _reponse_sans_chantier()
+    )
+
+    await db_session.refresh(document)
+    assert document.chantier_id is not None
+    assert _motifs_chantier(document, "champ_absent") == []
+    assert resultat.statut == "recu"
+    journal = await _journal_extraction(db_session, document.id)
+    assert journal.apres is not None
+    assert journal.apres["motifs_leves"] == [
+        {
+            "champ": "chantier_brut",
+            "raison": "Chantier donné par la légende : Villa Legende",
+        }
+    ]
+
+
+async def test_legende_vers_chantier_a_completer_garde_champ_absent(
+    db_session: AsyncSession,
+) -> None:
+    await _creer_fournisseur_peintures_exemple(db_session)
+    db_session.add(Chantier(nom_canonique="Villa Legende", a_completer=True))
+    await db_session.commit()
+    document = await _creer_document(db_session)
+    document.legende = "Chantier Villa Legende"
+    await db_session.commit()
+
+    resultat = await enregistrer_extraction_bl(
+        db_session, document.id, _reponse_sans_chantier()
+    )
+
+    await db_session.refresh(document)
+    assert len(_motifs_chantier(document, "champ_absent")) == 1
+    assert resultat.statut == "a_verifier"
+
+
+async def test_legende_inconnue_cree_un_chantier_et_garde_champ_absent(
+    db_session: AsyncSession,
+) -> None:
+    await _creer_fournisseur_peintures_exemple(db_session)
+    document = await _creer_document(db_session)
+    document.legende = "Chantier Nouveau Lieu"
+    await db_session.commit()
+
+    await enregistrer_extraction_bl(db_session, document.id, _reponse_sans_chantier())
+
+    await db_session.refresh(document)
+    assert len(_motifs_chantier(document, "champ_absent")) == 1

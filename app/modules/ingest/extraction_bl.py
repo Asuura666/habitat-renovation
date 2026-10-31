@@ -579,9 +579,13 @@ async def _extraire_et_committer(
     resultat_chantier = await rattacher_chantier_document(session, document)
 
     # Lot 2 du 31/10/2026 : le référentiel confirme parfois la lecture (SIREN,
-    # TVA) -- les motifs de confiance correspondants sont levés et le statut
-    # recalculé avec la même règle qu'au-dessus.
-    ajuste = ajuster_motifs(motifs, methode_fournisseur=resolution_fournisseur.methode)
+    # TVA, chantier connu ou donné par la légende) -- les motifs concernés sont
+    # levés et le statut recalculé avec la même règle qu'au-dessus.
+    ajuste = ajuster_motifs(
+        motifs,
+        methode_fournisseur=resolution_fournisseur.methode,
+        chantier=resultat_chantier,
+    )
     if ajuste.leves:
         motifs = list(ajuste.motifs)
         statut = "a_verifier" if relance or motifs else "recu"

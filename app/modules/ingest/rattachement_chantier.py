@@ -119,6 +119,10 @@ class ResultatRattachement:
     score: int | None
     cree: bool  # un chantier vient d'être créé (jamais vrai en cas de doublon repris).
     alerte: bool  # R18 ouverte sur le bon (`document.chantier_id` reste `None`).
+    # Lot 2 du 31/10/2026 : le chantier retenu par un rattachement (nom connu,
+    # ressemblance, légende), pour confirmer la lecture (`ajustement_motifs`).
+    chantier_nom: str | None = None
+    chantier_a_completer: bool = False
 
 
 @dataclass(frozen=True)
@@ -461,6 +465,19 @@ async def rattacher_chantier_document(
 
     document.chantier_id = chantier_id
 
+    chantier_nom: str | None = None
+    chantier_a_completer = False
+    if decision.type is TypeDecision.RATTACHER and chantier_id is not None:
+        retenu = (
+            await session.execute(
+                select(Chantier.nom_canonique, Chantier.a_completer).where(
+                    Chantier.id == chantier_id
+                )
+            )
+        ).first()
+        if retenu is not None:
+            chantier_nom, chantier_a_completer = retenu
+
     if (
         decision.apprendre
         and document.fournisseur_id is not None
@@ -494,7 +511,13 @@ async def rattacher_chantier_document(
     )
 
     return ResultatRattachement(
-        chantier_id=chantier_id, methode=methode, score=score, cree=cree, alerte=alerte
+        chantier_id=chantier_id,
+        methode=methode,
+        score=score,
+        cree=cree,
+        alerte=alerte,
+        chantier_nom=chantier_nom,
+        chantier_a_completer=chantier_a_completer,
     )
 
 
