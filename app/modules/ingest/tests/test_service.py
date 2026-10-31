@@ -85,15 +85,6 @@ def _parse_ligne_supervision(texte: str) -> re.Match[str]:
     return match
 
 
-def _boutons_confirmation(numero_interne: int) -> tuple[tuple[str, str], ...]:
-    """Boutons attendus dans la réponse au dépôt (L2-D9) : mêmes libellés et
-    `callback_data` que ceux réellement envoyés par `traiter_fichier`."""
-    return (
-        ("Quantités vérifiées", f"{PREFIXE_QUANTITES_VERIFIEES}:{numero_interne}"),
-        ("Écart constaté", f"{PREFIXE_ECART_CONSTATE}:{numero_interne}"),
-    )
-
-
 async def _ocr_avec_numero_bl(contenu: bytes, mime: str) -> dict[str, Any]:
     """Faux OCR (T6b) : réponse portant un numéro de BL détectable, utilisé
     par les tests qui ne portent pas sur l'OCR lui-même (le document doit
@@ -457,7 +448,7 @@ async def test_traiter_fichier_ecrit_le_fichier_le_document_et_repond(
             entrant.chat_id,
             entrant.message_id,
             f"Reçu — document n° {document.numero_interne}",
-            _boutons_confirmation(document.numero_interne),
+            None,  # plus de boutons (31/10/2026),
         )
     ]
 
@@ -783,7 +774,7 @@ async def test_traiter_fichier_echec_envoi_supervision_nempeche_pas_le_traitemen
             entrant.chat_id,
             entrant.message_id,
             f"Reçu — document n° {document.numero_interne}",
-            _boutons_confirmation(document.numero_interne),
+            None,  # plus de boutons (31/10/2026),
         )
     ]
     assert str(entrant.update_id) in caplog.text
@@ -830,7 +821,7 @@ async def test_traiter_fichier_numero_bl_detecte_remplit_numero_et_type(
             entrant.chat_id,
             entrant.message_id,
             f"Reçu — document n° {document.numero_interne}",
-            _boutons_confirmation(document.numero_interne),
+            None,  # plus de boutons (31/10/2026),
         )
     ]
 
@@ -868,7 +859,7 @@ async def test_traiter_fichier_numero_bl_non_detecte_statut_a_verifier(
             entrant.chat_id,
             entrant.message_id,
             f"Reçu — document n° {document.numero_interne}",
-            _boutons_confirmation(document.numero_interne),
+            None,  # plus de boutons (31/10/2026),
         )
     ]
 
@@ -915,7 +906,7 @@ async def test_traiter_fichier_ocr_en_echec_document_a_verifier_sans_numero(
             entrant.chat_id,
             entrant.message_id,
             f"Reçu — document n° {document.numero_interne}",
-            _boutons_confirmation(document.numero_interne),
+            None,  # plus de boutons (31/10/2026),
         )
     ]
     assert str(entrant.update_id) in caplog.text
@@ -977,7 +968,7 @@ async def test_traiter_fichier_reponse_ocr_malformee_document_a_verifier(
             entrant.chat_id,
             entrant.message_id,
             f"Reçu — document n° {document.numero_interne}",
-            _boutons_confirmation(document.numero_interne),
+            None,  # plus de boutons (31/10/2026),
         )
     ]
     assert str(entrant.update_id) in caplog.text
