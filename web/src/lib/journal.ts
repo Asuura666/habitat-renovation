@@ -393,6 +393,7 @@ const LIBELLES_CODE_MOTIF: Record<string, string> = {
   annotation_illisible: "Annotation illisible",
   fournisseur_inconnu: "Fournisseur inconnu du référentiel",
   numero_en_double: "Numéro en double",
+  reference_chantier_inconnue: "Chantier de la référence de commande inconnu",
 };
 
 function libelleCodeMotif(code: string): string {
@@ -606,6 +607,7 @@ const LIBELLES_VALEUR_PAR_CLE: Record<string, Record<string, string>> = {
     "nom connu": "Nom déjà reconnu",
     ressemblance: "Nom proche d'un chantier connu",
     légende: "Indiqué par l'employé",
+    "référence de commande": "Référence de commande du bon",
     création: "Nouveau chantier",
     alerte: "À confirmer",
     "décision humaine conservée": "Choix déjà fait, conservé",

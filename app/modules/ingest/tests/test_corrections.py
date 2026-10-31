@@ -1302,3 +1302,86 @@ async def test_relancer_extraction_fichier_absent_leve_document_introuvable(
         await relancer_extraction(
             db_session, document.id, tmp_path, _ocr_jamais_appele, auteur_id=_ADMIN_ID
         )
+
+
+# --------------------------------------------------------------------------
+# Lot 2 du 31/10/2026 : un chantier identifié sans nom écrit sur le bon
+# (référence de commande, légende) ne redevient pas « absent » après une
+# correction humaine ; une référence inconnue reste signalée.
+# --------------------------------------------------------------------------
+
+
+async def _bon_sans_chantier_ecrit(db_session: AsyncSession, **champs: Any) -> Document:
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur Reference")
+    document = await _creer_document(
+        db_session,
+        statut="a_verifier",
+        fournisseur=fournisseur,
+        numero="L300",
+        date_doc=date(2026, 1, 1),
+        total_ht=Decimal("10.00"),
+        **champs,
+    )
+    await _creer_ligne(
+        db_session, document=document, ordre=0, montant_ht=Decimal("10.00")
+    )
+    return document
+
+
+async def test_correction_garde_le_chantier_retrouve_par_la_reference(
+    db_session: AsyncSession, admin: Utilisateur
+) -> None:
+    chantier = Chantier(nom_canonique="Kayre", a_completer=False)
+    db_session.add(chantier)
+    await db_session.commit()
+    document = await _bon_sans_chantier_ecrit(
+        db_session, numero_commande="KAYRE", chantier_id=chantier.id
+    )
+
+    detail = await corriger_entete(
+        db_session,
+        document.id,
+        CorrectionEntete(valeurs={"enleve_par": "J. Dupont"}),
+        auteur_id=admin.id,
+    )
+
+    assert detail.motifs == []
+
+
+async def test_correction_garde_la_reference_de_chantier_inconnue(
+    db_session: AsyncSession, admin: Utilisateur
+) -> None:
+    document = await _bon_sans_chantier_ecrit(db_session, numero_commande="CAMBUS")
+    document.motifs = [
+        {
+            "code": "reference_chantier_inconnue",
+            "champ": "chantier_brut",
+            "detail": {"reference": "CAMBUS"},
+        }
+    ]
+    await db_session.commit()
+
+    detail = await corriger_entete(
+        db_session,
+        document.id,
+        CorrectionEntete(valeurs={"enleve_par": "J. Dupont"}),
+        auteur_id=admin.id,
+    )
+
+    assert [m.code for m in detail.motifs] == ["reference_chantier_inconnue"]
+    assert detail.motifs[0].detail == {"reference": "CAMBUS"}
+
+
+async def test_correction_sans_chantier_du_tout_garde_champ_absent(
+    db_session: AsyncSession, admin: Utilisateur
+) -> None:
+    document = await _bon_sans_chantier_ecrit(db_session)
+
+    detail = await corriger_entete(
+        db_session,
+        document.id,
+        CorrectionEntete(valeurs={"enleve_par": "J. Dupont"}),
+        auteur_id=admin.id,
+    )
+
+    assert [m.code for m in detail.motifs] == ["champ_absent"]

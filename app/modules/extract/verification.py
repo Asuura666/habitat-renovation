@@ -49,6 +49,9 @@ class CodeMotif(StrEnum):
     ANNOTATION_ILLISIBLE = "annotation_illisible"  # posé par ingest
     FOURNISSEUR_INCONNU = "fournisseur_inconnu"  # posé par ingest
     NUMERO_EN_DOUBLE = "numero_en_double"  # posé par ingest
+    # posé par ingest (lot 2 du 31/10/2026) : pas de chantier écrit sur le bon,
+    # et la référence de commande ne correspond à aucun chantier connu.
+    REFERENCE_CHANTIER_INCONNUE = "reference_chantier_inconnue"
 
 
 @dataclass(frozen=True)

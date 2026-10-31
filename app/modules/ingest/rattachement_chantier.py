@@ -80,6 +80,7 @@ from app.modules.ingest.models import (
     ChantierAlias,
     Document,
     Journal,
+    Utilisateur,
 )
 from app.modules.ingest.parametres import CLE_SEUIL_RESSEMBLANCE_CHANTIER
 from app.modules.ingest.referentiels import (
@@ -99,6 +100,7 @@ from app.modules.normalize.chantier import (
     decomposer_chantier,
     nom_pour_creation,
     reconnaitre_chantier,
+    reference_utilisable,
 )
 from app.modules.normalize.texte import nombres_differents, normaliser_libelle
 from app.modules.rules.engine import REGLES_CHANTIER, evaluer_chantier
@@ -113,8 +115,8 @@ class ResultatRattachement:
 
     chantier_id: uuid.UUID | None
     # "nom connu" (alias exact) | "ressemblance" (nom lu) | "légende" |
-    # "création" | "alerte" | `None` (aucune des deux sources n'est
-    # exploitable, comme aujourd'hui).
+    # "création" | "alerte" | "référence de commande" (A4) | `None` (aucune
+    # source exploitable, comme aujourd'hui).
     methode: str | None
     score: int | None
     cree: bool  # un chantier vient d'être créé (jamais vrai en cas de doublon repris).
@@ -123,6 +125,10 @@ class ResultatRattachement:
     # ressemblance, légende), pour confirmer la lecture (`ajustement_motifs`).
     chantier_nom: str | None = None
     chantier_a_completer: bool = False
+    # A4 : nom et légende vides, la référence de commande ne correspond à
+    # aucun chantier connu (ou à plusieurs) -- aucun chantier n'est créé.
+    reference_inconnue: str | None = None
+    reference_candidats: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -463,11 +469,38 @@ async def rattacher_chantier_document(
         alerte = True
     # TypeDecision.AUCUN : chantier_id/methode restent `None` (comme aujourd'hui).
 
+    # A4 (lot 2 du 31/10/2026) : ni nom lu ni légende -- la « Référence
+    # commande client » donne parfois le chantier. Jamais de création, jamais
+    # d'alias appris depuis une référence.
+    reference_inconnue: str | None = None
+    reference_candidats: tuple[str, ...] = ()
+    if (
+        decision.type is TypeDecision.AUCUN
+        and lu.etat is EtatCorrespondance.VIDE
+        and legende.etat is EtatCorrespondance.VIDE
+    ):
+        comptes = (await session.execute(select(Utilisateur.nom))).scalars().all()
+        if reference_utilisable(document.numero_commande, comptes):
+            reference = (document.numero_commande or "").strip()
+            lue = reconnaitre_chantier(reference, noms, seuil)
+            if lue.etat is EtatCorrespondance.RECONNU:
+                chantier_id = lue.chantier_id
+                methode = "référence de commande"
+                score = lue.score
+            else:
+                reference_inconnue = reference
+                noms_ref = await _noms_canoniques(session, lue.candidats)
+                reference_candidats = tuple(
+                    sorted(noms_ref[c] for c in lue.candidats if c in noms_ref)
+                )
+
     document.chantier_id = chantier_id
 
     chantier_nom: str | None = None
     chantier_a_completer = False
-    if decision.type is TypeDecision.RATTACHER and chantier_id is not None:
+    if chantier_id is not None and (
+        decision.type is TypeDecision.RATTACHER or methode == "référence de commande"
+    ):
         retenu = (
             await session.execute(
                 select(Chantier.nom_canonique, Chantier.a_completer).where(
@@ -518,6 +551,8 @@ async def rattacher_chantier_document(
         alerte=alerte,
         chantier_nom=chantier_nom,
         chantier_a_completer=chantier_a_completer,
+        reference_inconnue=reference_inconnue,
+        reference_candidats=reference_candidats,
     )
 
 

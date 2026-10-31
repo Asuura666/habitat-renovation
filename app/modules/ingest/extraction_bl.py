@@ -586,7 +586,7 @@ async def _extraire_et_committer(
         methode_fournisseur=resolution_fournisseur.methode,
         chantier=resultat_chantier,
     )
-    if ajuste.leves:
+    if list(ajuste.motifs) != motifs:
         motifs = list(ajuste.motifs)
         statut = "a_verifier" if relance or motifs else "recu"
         document.statut = statut

@@ -36,6 +36,7 @@ from app.modules.ingest.models import (
     Fournisseur,
     Journal,
     Ligne,
+    Utilisateur,
 )
 
 pytestmark = [pytest.mark.anyio, pytest.mark.db]
@@ -971,3 +972,156 @@ async def test_legende_inconnue_cree_un_chantier_et_garde_champ_absent(
 
     await db_session.refresh(document)
     assert len(_motifs_chantier(document, "champ_absent")) == 1
+
+
+# --------------------------------------------------------------------------
+# Lot 2 du 31/10/2026, A4 : chantier vide, lire la « Référence commande
+# client » (`document.numero_commande`).
+# --------------------------------------------------------------------------
+
+
+def _reponse_reference(
+    reference: str, *, chantier: str | None = None
+) -> dict[str, Any]:
+    reponse = _reponse_synthetique()
+    annotation = _annotation(reponse)
+    annotation["chantier_brut"] = chantier
+    annotation["numero_commande"] = reference
+    reponse["document_annotation"] = json.dumps(annotation)
+    return reponse
+
+
+async def _nombre_chantiers(db_session: AsyncSession) -> int:
+    return len((await db_session.execute(select(Chantier.id))).all())
+
+
+async def test_reference_de_commande_reconnue_rattache_le_chantier(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur_peintures_exemple(db_session)
+    kayre = Chantier(nom_canonique="Kayre", a_completer=False)
+    db_session.add(kayre)
+    await db_session.commit()
+    document = await _creer_document(db_session)
+
+    resultat = await enregistrer_extraction_bl(
+        db_session, document.id, _reponse_reference("KAYRE")
+    )
+
+    await db_session.refresh(document)
+    assert document.chantier_id == kayre.id
+    assert _motifs_chantier(document, "champ_absent") == []
+    assert resultat.statut == "recu"
+    journal = await _journal_extraction(db_session, document.id)
+    assert journal.apres is not None
+    assert journal.apres["methode_chantier"] == "référence de commande"
+    assert journal.apres["score_chantier"] == 100
+    assert journal.apres["motifs_leves"] == [
+        {
+            "champ": "chantier_brut",
+            "raison": "Chantier retrouvé par la référence de commande : Kayre",
+        }
+    ]
+    # Aucun apprentissage d'alias depuis une référence.
+    alias = (
+        await db_session.execute(
+            select(ChantierAlias).where(ChantierAlias.fournisseur_id == fournisseur.id)
+        )
+    ).all()
+    assert alias == []
+
+
+async def test_reference_inconnue_ne_cree_pas_de_chantier(
+    db_session: AsyncSession,
+) -> None:
+    await _creer_fournisseur_peintures_exemple(db_session)
+    db_session.add(Chantier(nom_canonique="Kayre", a_completer=False))
+    await db_session.commit()
+    avant = await _nombre_chantiers(db_session)
+    document = await _creer_document(db_session)
+
+    resultat = await enregistrer_extraction_bl(
+        db_session, document.id, _reponse_reference("CAMBUS")
+    )
+
+    await db_session.refresh(document)
+    assert document.chantier_id is None
+    assert await _nombre_chantiers(db_session) == avant
+    assert _motifs_chantier(document, "champ_absent") == []
+    inconnus = _motifs_chantier(document, "reference_chantier_inconnue")
+    assert len(inconnus) == 1
+    assert inconnus[0]["detail"] == {"reference": "CAMBUS"}
+    assert resultat.statut == "a_verifier"
+
+
+async def test_reference_ambigue_liste_les_chantiers_candidats(
+    db_session: AsyncSession,
+) -> None:
+    await _creer_fournisseur_peintures_exemple(db_session)
+    db_session.add_all(
+        [
+            Chantier(nom_canonique="Lot 12", a_completer=False),
+            Chantier(nom_canonique="Lot 13", a_completer=False),
+        ]
+    )
+    await db_session.commit()
+    document = await _creer_document(db_session)
+
+    await enregistrer_extraction_bl(
+        db_session, document.id, _reponse_reference("Lot 14")
+    )
+
+    await db_session.refresh(document)
+    assert document.chantier_id is None
+    inconnus = _motifs_chantier(document, "reference_chantier_inconnue")
+    assert len(inconnus) == 1
+    assert inconnus[0]["detail"] == {
+        "reference": "Lot 14",
+        "candidats": "Lot 12, Lot 13",
+    }
+
+
+@pytest.mark.parametrize("reference", ["LORIS", "1089390591", "AB"])
+async def test_reference_inutilisable_ne_change_rien(
+    db_session: AsyncSession, reference: str
+) -> None:
+    await _creer_fournisseur_peintures_exemple(db_session)
+    db_session.add(Chantier(nom_canonique="Loris", a_completer=False))
+    db_session.add(
+        Utilisateur(
+            email="loris@example.invalid",
+            role="agent",
+            is_active=True,
+            nom="Loris Legras",
+        )
+    )
+    await db_session.commit()
+    document = await _creer_document(db_session)
+
+    await enregistrer_extraction_bl(
+        db_session, document.id, _reponse_reference(reference)
+    )
+
+    await db_session.refresh(document)
+    assert document.chantier_id is None
+    assert len(_motifs_chantier(document, "champ_absent")) == 1
+    assert _motifs_chantier(document, "reference_chantier_inconnue") == []
+
+
+async def test_reference_ignoree_quand_le_nom_du_chantier_est_lu(
+    db_session: AsyncSession,
+) -> None:
+    await _creer_fournisseur_peintures_exemple(db_session)
+    kayre = Chantier(nom_canonique="Kayre", a_completer=False)
+    db_session.add(kayre)
+    await db_session.commit()
+    document = await _creer_document(db_session)
+
+    await enregistrer_extraction_bl(
+        db_session,
+        document.id,
+        _reponse_reference("KAYRE", chantier="MAISON TEST (9900000001)"),
+    )
+
+    await db_session.refresh(document)
+    assert document.chantier_id != kayre.id
