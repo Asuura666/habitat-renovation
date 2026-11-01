@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from app.modules.normalize.chantier import (
     Correspondance,
     DecisionChantier,
@@ -332,3 +334,41 @@ def test_lu_reconnu_legende_ex_aequo_contenant_lu_rattache_toujours() -> None:
         EtatCorrespondance.AMBIGU, libelle="x", score=100, candidats=(A, B)
     )
     assert decider_chantier(lu, legende).type is TypeDecision.RATTACHER
+
+
+# --------------------------------------------------------------------------
+# reference_utilisable (lot 2 du 31/10/2026, A4)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "reference",
+    ["KAYRE", "LA CROIX", "CAMBUS", "SAINT GEORGES", "  Saint-Georges  "],
+)
+def test_reference_utilisable_pour_un_nom_de_chantier(reference: str) -> None:
+    from app.modules.normalize.chantier import reference_utilisable
+
+    assert reference_utilisable(reference, ["Loris Legras", "Fred Martin"]) is True
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [None, "", "   ", "AB", "1089390591", "12 A", "LORIS", "loris legras", "Frédéric"],
+)
+def test_reference_inutilisable(reference: str | None) -> None:
+    from app.modules.normalize.chantier import reference_utilisable
+
+    noms = ["Loris Legras", "Frédéric Dupont"]
+    assert reference_utilisable(reference, noms) is False
+
+
+def test_reference_dont_un_mot_n_est_pas_dans_un_compte_reste_utilisable() -> None:
+    from app.modules.normalize.chantier import reference_utilisable
+
+    assert reference_utilisable("LORIS CAMBUS", ["Loris Legras"]) is True
+
+
+def test_reference_sans_aucun_compte() -> None:
+    from app.modules.normalize.chantier import reference_utilisable
+
+    assert reference_utilisable("KAYRE", []) is True

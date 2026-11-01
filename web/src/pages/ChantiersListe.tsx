@@ -40,6 +40,7 @@ import {
   moisCourantParis,
   TIRET,
 } from "../lib/formats";
+import { correspondRecherche } from "../lib/recherche";
 import { Bouton, Carte, EnTetePage, type Etat, EtatVide, Filtres, PastilleACompleter, PastilleEtat } from "../ui";
 
 const CLASSES_CHAMP =
@@ -760,6 +761,8 @@ export function ChantiersListe(): ReactElement {
   const vue: Vue = parametres.get("vue") === "tous" ? "tous" : "mois";
   const moisChantiers = lireMois(parametres.get("mois_chantiers")) ?? moisCourantParis();
   const [creationOuverte, setCreationOuverte] = useState(false);
+  // Lot 2, B2 : recherche par nom (et client), côté écran seulement.
+  const [recherche, setRecherche] = useState("");
 
   const chantiers = useQuery({ queryKey: CLE_CHANTIERS, queryFn: listerChantiers });
   const agences = useQuery({ queryKey: CLE_AGENCES, queryFn: obtenirAgences });
@@ -803,10 +806,11 @@ export function ChantiersListe(): ReactElement {
     : bilan.data
       ? depuisBilan(bilan.data)
       : undefined;
-  const lignes =
+  const toutesLesLignes =
     montants !== undefined && chantiers.data !== undefined && (vue === "tous" || duMois.data !== undefined)
       ? lignesDeLaVue(vue, chantiers.data, duMois.data, montants, filtres.agence)
       : undefined;
+  const lignes = toutesLesLignes?.filter((ligne) => correspondRecherche(recherche, ligne.nom, ligne.client));
   const chargementListe =
     (moisChoisi ? tableauDeBord.isPending : bilan.isPending) ||
     chantiers.isPending ||
@@ -847,7 +851,21 @@ export function ChantiersListe(): ReactElement {
       )}
 
       <Carte>
-        <form onSubmit={(evenement) => evenement.preventDefault()} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <form onSubmit={(evenement) => evenement.preventDefault()} className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label htmlFor="filtre-recherche" className={CLASSES_LABEL}>
+              Rechercher un chantier
+            </label>
+            <input
+              id="filtre-recherche"
+              type="search"
+              value={recherche}
+              onChange={(evenement) => setRecherche(evenement.target.value)}
+              placeholder="Nom ou client"
+              autoComplete="off"
+              className={CLASSES_CHAMP}
+            />
+          </div>
           <div>
             <label htmlFor="filtre-mois-chantiers" className={CLASSES_LABEL}>
               Mois

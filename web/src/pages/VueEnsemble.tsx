@@ -326,17 +326,16 @@ function sousTexteBonsRecus(nbManquants: number): string {
   return `${nbManquants} bon${nbManquants > 1 ? "s" : ""} à réclamer`;
 }
 
-/** Sous-texte de la tuile « Montant des bons reçus » (décision d'Ilane,
- * 25/09/2026, remplace « Écart de quantité » — voir docstring de module) :
- * « N bon(s) reçu(s) » avec l'accord pluriel usuel (mise en forme
- * d'affichage, pas une règle métier — le compte lui-même vient tel quel du
- * serveur), puis « · M sans montant lu » seulement quand au moins un bon
- * reçu n'a pas de montant exploitable (beaucoup de bons n'ont pas de prix
- * imprimé) — jamais un pourcentage ni une comparaison calculée ici. */
-function sousTexteMontantBonsRecus(nbRecus: number, nbSansMontant: number): string {
-  const base =
-    nbRecus === 0 ? "aucun bon reçu" : `${nbRecus} bon${nbRecus > 1 ? "s" : ""} reçu${nbRecus > 1 ? "s" : ""}`;
-  return nbSansMontant > 0 ? `${base} · ${nbSansMontant} sans montant lu` : base;
+/** Sous-texte de la tuile « Montant des bons du mois » (lot 2, B6,
+ * 31/10/2026 : le montant compte tous les bons du mois, même pas encore
+ * vérifiés) : « N bon(s) · dont M à vérifier · K sans montant lu », les
+ * parties à zéro étant omises. Mise en forme d'affichage seulement : les
+ * comptes viennent tels quels du serveur. */
+function sousTexteMontantBonsDuMois(nbBons: number, nbAVerifier: number, nbSansMontant: number): string {
+  const parties = [nbBons === 0 ? "aucun bon" : `${nbBons} bon${nbBons > 1 ? "s" : ""}`];
+  if (nbAVerifier > 0) parties.push(`dont ${nbAVerifier} à vérifier`);
+  if (nbSansMontant > 0) parties.push(`${nbSansMontant} sans montant lu`);
+  return parties.join(" · ");
 }
 
 /** Vue d'ensemble (Task 5, maquette `Main`) — écran d'accueil de l'admin :
@@ -348,8 +347,7 @@ function sousTexteMontantBonsRecus(nbRecus: number, nbSansMontant: number): stri
  * un montant, chaque valeur vient telle quelle de `GET /api/tableau-de-
  * bord`, y compris le nombre de bons à réclamer depuis la revue finale).
  * Décision d'Ilane du 25/09/2026 : la 3e tuile, autrefois « Écart de
- * quantité » (`totaux.en_ecart`), affiche désormais « Montant des bons
- * reçus » — l'accueil se construisait uniquement à partir des factures, un
+ * quantité » (`totaux.en_ecart`), affiche désormais « Montant des bons du mois » — l'accueil se construisait uniquement à partir des factures, un
  * bon validé mais pas encore retrouvé sur une facture n'y apparaissait
  * nulle part. `libelleEcart`/`sousTexteEcart` restent utilisés par la
  * fiche chantier et la fiche fournisseur, seul cet écran change. */
@@ -461,9 +459,13 @@ export function VueEnsemble(): ReactElement {
               vers={`/livraisons?mois=${moisPourApi}&etat=conforme`}
             />
             <Chiffre
-              libelle="Montant des bons reçus"
-              valeur={formaterMontant(donnees.montant_bons_recus)}
-              sousTexte={sousTexteMontantBonsRecus(donnees.nb_bons_recus, donnees.nb_bons_sans_montant)}
+              libelle="Montant des bons du mois"
+              valeur={formaterMontant(donnees.montant_bons_mois)}
+              sousTexte={sousTexteMontantBonsDuMois(
+                donnees.nb_bons_mois,
+                donnees.nb_bons_a_verifier,
+                donnees.nb_bons_mois_sans_montant,
+              )}
             />
             <Chiffre
               libelle="Sans bon de livraison"

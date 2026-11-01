@@ -10,7 +10,7 @@ organisation d'ensemble : `docs/roadmap-octobre-2026.md`.
 
 | # | Tâche | Commits |
 | --- | --- | --- |
-| 1 | Migration 0011 (légende, chantier à compléter, fusion), seuil de ressemblance (90 %) | socle commun (PR #1) |
+| 1 | Migration 0011 (légende, chantier à compléter, fusion), seuil de ressemblance (90 % à l'époque, 80 % depuis le 31/10/2026) | socle commun (PR #1) |
 | 2 | Ressemblance (0-100, sans casse/accents/ponctuation/ordre des mots) et table de décision | socle commun |
 | 3 | Règle R18 « Chantier à confirmer » | socle commun |
 | 4 | Légende de la photo Telegram lue, conservée, affichée | `830928d` |

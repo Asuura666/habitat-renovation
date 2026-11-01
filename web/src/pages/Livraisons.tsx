@@ -2,7 +2,7 @@ import type { ReactElement } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
 
-import { cleLivraisons, type FiltresLivraisons, type LigneLivraison, listerLivraisons } from "../api/bilan";
+import { cleLivraisons, type FiltresLivraisons, type LigneLivraison, listerLivraisons, urlExportLivraisons } from "../api/bilan";
 import { type LivraisonAffichee, TableauLivraisons } from "../components/TableauLivraisons";
 import { libelleMois, lireMois, moisApi } from "../lib/formats";
 import { EnTetePage } from "../ui";
@@ -85,7 +85,13 @@ export function Livraisons(): ReactElement {
         surtitre={surtitre}
         titre="Livraisons"
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href={urlExportLivraisons(filtres)}
+              className="inline-flex min-h-[44px] items-center rounded-lg border border-bordure bg-surface px-4 py-2 text-sm font-medium text-encre outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+            >
+              Exporter pour Excel
+            </a>
             <label htmlFor="filtre-mois" className="text-sm text-encre-2">
               Mois
             </label>

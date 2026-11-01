@@ -290,3 +290,22 @@ def nom_pour_creation(brut: str | None) -> str | None:
     reste = sans_prefixe[: code.start()] if code is not None else sans_prefixe
     nom = " ".join(reste.split())
     return nom or None
+
+
+def reference_utilisable(
+    reference: str | None, noms_comptes: Sequence[str | None]
+) -> bool:
+    """Une « Référence commande client » peut-elle désigner un chantier ?
+    (lot 2 du 31/10/2026, A4.) Non si elle est vide, a moins de 3 lettres,
+    est surtout faite de chiffres (un numéro de commande) ou si tous ses mots
+    sont des mots du nom d'un compte (le prénom d'un employé : « LORIS » pour
+    « Loris Legras »). Comparaison insensible à la casse et aux accents."""
+    mots = normaliser_libelle(reference).split()
+    if not mots:
+        return False
+    lettres = sum(c.isalpha() for mot in mots for c in mot)
+    chiffres = sum(c.isdigit() for mot in mots for c in mot)
+    if lettres < 3 or chiffres > lettres:
+        return False
+    lus = set(mots)
+    return not any(lus <= set(normaliser_libelle(nom).split()) for nom in noms_comptes)

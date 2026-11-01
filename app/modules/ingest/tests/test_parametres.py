@@ -51,7 +51,7 @@ async def test_seuil_ressemblance_chantier_liste_avec_defaut(
     `_CLES_CONTROLE_LIVRE_NON_FACTURE`)."""
     parametres = await lister_parametres(db_session)
     seuil = next(p for p in parametres if p.cle == "seuil_ressemblance_chantier_pct")
-    assert Decimal(seuil.valeur) == Decimal("90")
+    assert Decimal(seuil.valeur) == Decimal("80")
     assert seuil.unite == "%"
     assert seuil.minimum == "50"
     assert seuil.maximum == "100"

@@ -1806,3 +1806,82 @@ Décisions d'Ilane du 31/10/2026 (branche `feature/sans-confirmation-et-fourniss
   aussi changer le chantier ou les lignes, comme une relance depuis l'écran.
   Limite : une lecture gardée sans fournisseur lisible ne sera jamais
   rattachée (il faut corriger le bon à la main).
+
+## Règles de lecture des bons (31/10/2026, lot 2 partie A)
+
+- **Seuil de ressemblance d'un chantier : 80 % par défaut.** La production avait
+  déjà 80 enregistré (pas de migration). Les anciens textes qui citent 90 %
+  (README, cahier des charges, recettes d'octobre) ne sont pas tous réécrits.
+- **Confirmation de la lecture.** Un fournisseur reconnu par son SIREN ou sa TVA,
+  un chantier reconnu (nom connu, ressemblance) ou donné par la légende ne
+  laissent plus le motif « lecture incertaine » ; un chantier « à compléter »
+  (créé automatiquement) ne confirme jamais rien. Non couvert : un chantier
+  reconnu sous le seuil reste créé « à compléter » (pas de proposition de
+  chantier proche).
+- **Chantier vide : référence de commande.** Lue seulement si ni nom ni légende ;
+  jamais de création de chantier ni d'alias appris depuis une référence. Une
+  référence qui ne correspond à aucun chantier laisse le bon sans chantier avec un
+  motif dédié (`reference_chantier_inconnue`). Après une correction humaine, le
+  rattachement n'est pas relancé quand seule la référence de commande change :
+  le motif posé à la lecture est conservé tel quel.
+- **Commande `python -m app.cli recalculer-bons [--simulation]`.** Applique ces
+  règles aux bons `a_verifier` déjà reçus, sans rappeler Mistral, par le même
+  chemin que `resoudre-fournisseurs`. Limite : la simulation compte les bons
+  concernés mais ne prévoit pas ce qui serait levé (les règles dépendent de
+  l'écriture du rattachement).
+
+## Lignes : chiffres plutôt que position du texte (31/10/2026, A6)
+
+- La confiance d'une ligne ne repose plus que sur la quantité, le prix unitaire et
+  le montant, cherchés ensemble dans une seule ligne de texte ; le code et la
+  désignation ne comptent plus. Si quantité x prix unitaire ne tombe pas sur le
+  montant (au centime près), la ligne reste incertaine. Le schéma de lecture ne
+  porte pas de remise : une ligne remisée peut échouer ce contrôle à tort.
+- La consigne d'annotation précise que le nombre qui précède la désignation est le
+  nombre de conditionnements ; elle ne vaut que pour les nouvelles lectures. Les
+  bons existants profitent de la nouvelle confiance via `recalculer-bons`, pas de
+  la nouvelle consigne.
+- Le contrôle de calcul tolère un centime plus la moitié de la dernière décimale
+  imprimée du prix, fois la quantité (les prix imprimés sont arrondis). Il signale
+  un motif dédié (« calcul de ligne incohérent ») et non une confiance à 0 %. Il
+  n'est pas rejoué après une correction humaine des lignes (la personne a revu les
+  chiffres).
+
+## Écrans du lot 2 (31/10/2026, partie B)
+
+- **Archiver une facture (B1).** Le bouton « Archiver » de la page facture appelle la
+  même route que celui d'un bon ; la facture archivée disparaît du bilan, des
+  tuiles, des livraisons et des problèmes ouverts, et ses bons redeviennent « non
+  facturés » (testé). Une facture archivée par erreur ne se rétablit pas depuis
+  l'application.
+- **Recherche d'un chantier (B2).** Côté écran seulement, sur le nom et le client ;
+  elle n'est pas dans l'adresse de la page (non partageable) et les compteurs des
+  boutons « Chantiers du mois » et « Tous les chantiers » ne la suivent pas. La
+  ligne « Chantier à rattacher » disparaît dès qu'on cherche. Le dépôt n'a pas
+  vitest : la fonction de comparaison est testée en l'exécutant avec Node (le test
+  est ignoré si Node est absent).
+- **Bons dans les livraisons (B3).** Un bon non facturé a pour état « À vérifier »,
+  « Problème ouvert » ou « Reçu » (jamais « Conforme »), sans montant. Un bon
+  n'est « facturé » que si le bloc d'une facture **non archivée** le cite. Le filtre
+  d'état « À vérifier » ne reprend que les bons à vérifier (pas ceux qui ont un
+  problème ouvert). Sur la fiche chantier, les lignes de facture viennent toujours
+  des requêtes par fournisseur et les bons de la liste commune : deux sources. Les
+  exports « Exporter les livraisons <fournisseur> » de la fiche chantier restent
+  ceux des blocs de facture ; l'écran « Livraisons » a son propre export, qui
+  contient aussi les bons.
+- **Montant des bons du mois (B6).** Quatre champs d'API ajoutés
+  (`nb_bons_mois`, `montant_bons_mois`, `nb_bons_a_verifier`,
+  `nb_bons_mois_sans_montant`) ; les trois champs « reçus » d'avant sont gardés
+  tels quels mais l'écran ne les lit plus (à retirer plus tard).
+- **Menu « Fournisseur » de la correction d'un bon (B7).** Bug vu une fois par Ilane
+  (Chrome, PC) puis plus revu ; non reproduit. Durcissement seulement : liste
+  chargée dès que le bon est modifiable, « Chargement… » dans le menu tant qu'elle
+  n'est pas arrivée, mêmes classes que le sélecteur de chantier.
+- **Historique d'un produit (B4).** Les prix vus sur les bons et les factures ne
+  sont retrouvés que par la référence du produit (code lu égal à la référence de
+  la grille, comparé sans espaces ni ponctuation ni casse), jamais par le nom ;
+  un produit de la grille sans référence n'a donc que ses versions et ses prix
+  observés. Les prix observés s'importent par la commande
+  `importer-historique-prix` (pas d'écran) ; deux lignes identiques (même produit,
+  même jour, même facture, même prix, même quantité) comptent pour une seule, y
+  compris dans un même fichier. Cent lignes au plus, sans pagination.

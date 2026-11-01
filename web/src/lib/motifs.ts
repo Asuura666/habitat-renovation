@@ -8,7 +8,7 @@
  * back-end en ajoute un que ce fichier ne connaît pas encore).
  */
 
-import { formaterMontant } from "./formats";
+import { formaterMontant, formaterQuantite } from "./formats";
 import type { components } from "../api/schema";
 
 export type Motif = components["schemas"]["MotifReponse"];
@@ -90,6 +90,23 @@ export function libelleMotif(motif: Motif): string {
         `Numéro « ${valeur(motif.detail, "numero")} » déjà utilisé par le document ` +
         `n° ${valeur(motif.detail, "numero_interne_existant")}`
       );
+    case "calcul_ligne_incoherent":
+      // A6 (31/10/2026) : quantité x prix unitaire ne donne pas le montant lu.
+      return (
+        `${champ} : ${formaterQuantite(motif.detail["quantite"] ?? null)} × ` +
+        `${montant(motif.detail, "pu_ht")} = ${montant(motif.detail, "produit")}, ` +
+        `mais le montant lu est ${montant(motif.detail, "montant_ht")} — à vérifier sur la photo`
+      );
+    case "reference_chantier_inconnue": {
+      // Lot 2 du 31/10/2026 : aucun chantier écrit sur le bon, et la
+      // référence de commande ne désigne aucun chantier connu (`candidats`
+      // seulement si elle ressemble à plusieurs).
+      const reference = valeur(motif.detail, "reference");
+      const candidats = motif.detail["candidats"];
+      return candidats !== undefined
+        ? `Pas de chantier écrit sur le bon ; la référence de commande « ${reference} » ressemble à plusieurs chantiers : ${candidats}`
+        : `Pas de chantier écrit sur le bon ; la référence de commande « ${reference} » ne correspond à aucun chantier connu`;
+    }
     default:
       return motif.code;
   }

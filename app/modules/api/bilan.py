@@ -96,6 +96,7 @@ from app.modules.ingest.export import (
     csv_bilan_chantiers,
     csv_bilan_detail,
     csv_bilan_fournisseurs,
+    csv_livraisons,
 )
 
 router = APIRouter()
@@ -348,4 +349,27 @@ async def bilan_detail_csv_endpoint(
     lignes = await bilan_detail(session, mois=mois, agence=agence)
     return _reponse_csv(
         csv_bilan_detail(lignes), nom_fichier=_nom_fichier_csv("detail", mois)
+    )
+
+
+@router.get("/bilan/livraisons.csv", response_class=Response, responses=_REPONSES_CSV)
+async def bilan_livraisons_csv_endpoint(
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    mois: Annotated[date | None, Query()] = None,
+    agence: Annotated[str | None, Query()] = None,
+    chantier: Annotated[uuid.UUID | None, Query()] = None,
+    fournisseur: Annotated[uuid.UUID | None, Query()] = None,
+) -> Response:
+    """Lot 2, B3 : la liste des livraisons (lignes de facture et bons pas
+    encore facturés) en CSV, mêmes filtres que la route JSON."""
+    lignes = await lister_livraisons(
+        session,
+        mois=mois,
+        agence=agence,
+        chantier_id=chantier,
+        fournisseur_id=fournisseur,
+    )
+    return _reponse_csv(
+        csv_livraisons(lignes), nom_fichier=_nom_fichier_csv("livraisons", mois)
     )

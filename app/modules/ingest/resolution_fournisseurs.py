@@ -66,13 +66,23 @@ class BilanResolution:
     lignes: tuple[LigneSimulation, ...]  # rempli en simulation seulement
 
 
-async def _candidats(session: AsyncSession) -> list[tuple[Any, int]]:
+async def candidats_bons(
+    session: AsyncSession, *, sans_fournisseur: bool
+) -> list[tuple[Any, int]]:
+    """Bons et enlèvements non archivés dont la lecture est gardée ;
+    `sans_fournisseur` : seulement ceux sans fournisseur (résolution), sinon
+    seulement ceux à vérifier (recalcul, `ingest.recalcul_bons`)."""
+    condition = (
+        Document.fournisseur_id.is_(None)
+        if sans_fournisseur
+        else Document.statut == "a_verifier"
+    )
     lignes = await session.execute(
         select(Document.id, Document.numero_interne)
         .where(
             Document.type.in_(("bl", "enlevement")),
             Document.statut != "archive",
-            Document.fournisseur_id.is_(None),
+            condition,
             Document.ocr_brut.is_not(None),
         )
         .order_by(Document.numero_interne)
@@ -80,7 +90,7 @@ async def _candidats(session: AsyncSession) -> list[tuple[Any, int]]:
     return [(ligne.id, ligne.numero_interne) for ligne in lignes]
 
 
-async def _corriges_a_la_main(session: AsyncSession, ids: list[Any]) -> set[str]:
+async def corriges_a_la_main(session: AsyncSession, ids: list[Any]) -> set[str]:
     if not ids:
         return set()
     lignes = await session.execute(
@@ -95,15 +105,44 @@ async def _corriges_a_la_main(session: AsyncSession, ids: list[Any]) -> set[str]
     return {cible for (cible,) in lignes if cible is not None}
 
 
-def _a_des_pages(reponse: Any) -> bool:
+def a_des_pages(reponse: Any) -> bool:
     return isinstance(reponse, dict) and isinstance(reponse.get("pages"), list)
+
+
+async def rejouer_bon(
+    session: AsyncSession, document: Document, reponse: dict[str, Any], docs_dir: Path
+) -> bool:
+    """Rejoue la lecture gardée d'un bon par le chemin unique de
+    `relancer_extraction` (sans nouvel OCR). Partagé avec
+    `ingest.recalcul_bons`. Vrai si la relecture a abouti ; sinon la
+    transaction est annulée, l'échec journalisé (numéro interne et type de
+    l'exception seulement) et le résultat est faux."""
+    numero_interne = document.numero_interne
+    try:
+        await rejouer_extraction_depuis_reponse(
+            session,
+            document,
+            reponse,
+            docs_dir,
+            auteur_id=None,
+            sans_nouvel_ocr=True,
+        )
+    except Exception as exc:
+        await session.rollback()
+        logger.error(
+            "résolution des fournisseurs : bon n° %s non relu : %s",
+            numero_interne,
+            type(exc).__name__,
+        )
+        return False
+    return True
 
 
 async def resoudre_fournisseurs_des_bons(
     session: AsyncSession, docs_dir: Path, *, simulation: bool = False
 ) -> BilanResolution:
-    candidats = await _candidats(session)
-    a_la_main = await _corriges_a_la_main(session, [i for i, _ in candidats])
+    candidats = await candidats_bons(session, sans_fournisseur=True)
+    a_la_main = await corriges_a_la_main(session, [i for i, _ in candidats])
     a_relire = [(i, n) for i, n in candidats if str(i) not in a_la_main]
     ignores = len(candidats) - len(a_relire)
 
@@ -130,27 +169,12 @@ async def resoudre_fournisseurs_des_bons(
                 rattaches += 1
             continue
 
-        if not _a_des_pages(reponse):
+        if not a_des_pages(reponse):
             inconnus += 1
             continue
-        try:
-            await rejouer_extraction_depuis_reponse(
-                session,
-                document,
-                reponse,
-                docs_dir,
-                auteur_id=None,
-                sans_nouvel_ocr=True,
-            )
-        except Exception as exc:
-            await session.rollback()
+        if not await rejouer_bon(session, document, reponse, docs_dir):
             echecs += 1
             relus -= 1
-            logger.error(
-                "résolution des fournisseurs : bon n° %s non relu : %s",
-                numero_interne,
-                type(exc).__name__,
-            )
             continue
         fournisseur_id = (
             await session.execute(
@@ -175,7 +199,7 @@ async def resoudre_fournisseurs_des_bons(
 def _fournisseur_trouve(reponse: Any, referentiel: list[Any]) -> str | None:
     """Nom du fournisseur du référentiel que la résolution trouverait pour la
     lecture gardée (`None` : toujours inconnu ou lecture inexploitable)."""
-    if not _a_des_pages(reponse):
+    if not a_des_pages(reponse):
         return None
     try:
         extrait = analyser_bl(reponse)

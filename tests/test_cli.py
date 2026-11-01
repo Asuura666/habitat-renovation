@@ -112,6 +112,7 @@ from app.modules.ingest.models import (
     Journal,
     Utilisateur,
 )
+from app.modules.ingest.recalcul_bons import BilanRecalcul
 from app.modules.ingest.resolution_fournisseurs import BilanResolution
 from app.modules.ingest.router import DELAI_OCR_BL
 
@@ -1766,6 +1767,86 @@ def test_resoudre_fournisseurs_refuse_un_argument_inconnu() -> None:
 
 
 # ---------------------------------------------------------------------------
+# `recalculer-bons` (lot 2 du 31/10/2026) -- câblage CLI seulement, la logique
+# (`ingest.recalcul_bons`) est testée dans `test_recalcul_bons.py`.
+# ---------------------------------------------------------------------------
+
+
+def test_cli_recalculer_bons_affiche_le_bilan(
+    _env_bl_test: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("DOCS_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    recu: dict[str, Any] = {}
+
+    async def _service(
+        session: object, docs_dir: Path, *, simulation: bool = False
+    ) -> BilanRecalcul:
+        recu.update(docs_dir=docs_dir, simulation=simulation)
+        return BilanRecalcul(
+            examines=10,
+            passes_a_recu=6,
+            motifs_leves={"confiance_faible": 4, "champ_absent": 2},
+            chantiers_par_reference=1,
+            ignores=3,
+            echecs=0,
+        )
+
+    monkeypatch.setattr(cli, "recalculer_bons", _service)
+    try:
+        code = cli.main(["recalculer-bons"])
+    finally:
+        get_settings.cache_clear()
+
+    assert code == 0
+    assert recu == {"docs_dir": tmp_path, "simulation": False}
+    sortie = capsys.readouterr().out
+    assert "Bons examinés : 10 · passés à « reçu » : 6" in sortie
+    assert "chantiers rattachés par la référence de commande : 1" in sortie
+    assert "ignorés (corrigés à la main) : 3" in sortie
+    assert "confiance_faible : 4" in sortie and "champ_absent : 2" in sortie
+
+
+def test_cli_recalculer_bons_simulation_code_1_si_echec(
+    _env_bl_test: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("DOCS_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    recu: dict[str, Any] = {}
+
+    async def _service(
+        session: object, docs_dir: Path, *, simulation: bool = False
+    ) -> BilanRecalcul:
+        recu["simulation"] = simulation
+        return BilanRecalcul(
+            examines=2,
+            passes_a_recu=0,
+            motifs_leves={},
+            chantiers_par_reference=0,
+            ignores=0,
+            echecs=1,
+        )
+
+    monkeypatch.setattr(cli, "recalculer_bons", _service)
+    try:
+        code = cli.main(["recalculer-bons", "--simulation"])
+    finally:
+        get_settings.cache_clear()
+
+    assert code == 1
+    assert recu == {"simulation": True}
+    sortie = capsys.readouterr().out
+    assert "Simulation : rien n'est écrit." in sortie
+    assert "non relus (erreur) : 1" in sortie
+
+
+# ---------------------------------------------------------------------------
 # `synthese-commentaires` (T4, phase 4 IA) — câblage CLI seulement, la
 # logique métier (`ingest.ia_synthese.generer_synthese`) est déjà testée dans
 # `app/modules/ingest/tests/test_ia_synthese.py`.
@@ -2610,3 +2691,89 @@ def test_cli_chantiers_alias_suspects(
         assert asyncio.run(_nb()) == 1
     finally:
         asyncio.run(_nettoyer_alias_en_attente(db_engine, fournisseur_id, chantier_id))
+
+
+# ---------------------------------------------------------------------------
+# `importer-historique-prix` (lot 2 du 31/10/2026, B4) -- câblage CLI
+# seulement, la logique est testée dans `test_historique_prix.py`.
+# ---------------------------------------------------------------------------
+
+
+def test_cli_importer_historique_prix_affiche_le_bilan(
+    _env_bl_test: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from app.modules.ingest.historique_prix import BilanImportHistorique
+
+    fichier = tmp_path / "controle.xlsx"
+    fichier.write_bytes(b"contenu-invente")
+    recu: dict[str, Any] = {}
+
+    async def _service(session: object, **kwargs: Any) -> BilanImportHistorique:
+        recu.update(kwargs)
+        return BilanImportHistorique(lues=10, importees=7, deja_presentes=3, erreurs=2)
+
+    monkeypatch.setattr(cli, "importer_historique_prix", _service)
+    code = cli.main(
+        [
+            "importer-historique-prix",
+            "--fournisseur",
+            "Négoce Inventé",
+            "--fichier",
+            str(fichier),
+            "--feuille",
+            "HISTORIQUE X",
+            "--source",
+            "Fichier de contrôle inventé",
+            "--simulation",
+        ]
+    )
+
+    assert code == 0
+    assert recu == {
+        "fournisseur_nom": "Négoce Inventé",
+        "contenu": b"contenu-invente",
+        "feuille": "HISTORIQUE X",
+        "source": "Fichier de contrôle inventé",
+        "simulation": True,
+    }
+    sortie = capsys.readouterr().out
+    assert "Simulation : rien n'est écrit." in sortie
+    assert "lignes lues : 10" in sortie
+    assert "importées : 7" in sortie
+    assert "déjà présentes : 3" in sortie
+    assert "illisibles : 2" in sortie
+
+
+def test_cli_importer_historique_prix_erreurs_lisibles(
+    _env_bl_test: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from app.modules.ingest.historique_prix import FournisseurNonTrouve
+
+    arguments = [
+        "importer-historique-prix",
+        "--fournisseur",
+        "Inconnu",
+        "--feuille",
+        "H",
+        "--source",
+        "S",
+    ]
+    # Fichier absent : code 1 avant tout accès à la base.
+    assert cli.main([*arguments, "--fichier", str(tmp_path / "absent.xlsx")]) == 1
+    assert "fichier introuvable" in capsys.readouterr().err
+
+    fichier = tmp_path / "controle.xlsx"
+    fichier.write_bytes(b"x")
+
+    async def _service(session: object, **kwargs: Any) -> None:
+        raise FournisseurNonTrouve("Inconnu")
+
+    monkeypatch.setattr(cli, "importer_historique_prix", _service)
+    assert cli.main([*arguments, "--fichier", str(fichier)]) == 1
+    assert "aucun fournisseur nommé" in capsys.readouterr().err

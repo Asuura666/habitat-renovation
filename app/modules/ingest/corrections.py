@@ -87,11 +87,14 @@ from app.modules.extract.verification import (
     SEUIL_CONFIANCE_DEFAUT,
     TOLERANCE_TOTAL_DEFAUT,
     BLAVerifier,
+    CodeMotif,
     LigneAVerifier,
     Motif,
+    motif_depuis_json,
     motif_en_json,
     verifier_bl,
 )
+from app.modules.ingest.ajustement_motifs import motifs_chantier_apres_correction
 from app.modules.ingest.anomalies import synchroniser_anomalies
 from app.modules.ingest.extraction_bl import (
     CLE_SEUIL_CONFIANCE_OCR,
@@ -666,7 +669,35 @@ async def _recalculer_motifs_structurels(
         illisibles=frozenset(),
         numero_detecte=None,
     )
-    return verifier_bl(vue, seuil_confiance=seuil, tolerance=tolerance)
+    motifs = verifier_bl(vue, seuil_confiance=seuil, tolerance=tolerance)
+
+    # Lot 2 du 31/10/2026 : sans nom écrit sur le bon, un chantier identifié
+    # par la référence de commande ou la légende ne manque pas ; une référence
+    # inconnue déjà signalée reste signalée.
+    chantier_identifie = False
+    if document.chantier_id is not None:
+        a_completer = (
+            await session.execute(
+                select(Chantier.a_completer).where(Chantier.id == document.chantier_id)
+            )
+        ).scalar_one_or_none()
+        chantier_identifie = (
+            a_completer is False or not (document.legende or "").strip()
+        )
+    precedent = next(
+        (
+            motif_depuis_json(m)
+            for m in (document.motifs or [])
+            if m.get("code") == CodeMotif.REFERENCE_CHANTIER_INCONNUE.value
+        ),
+        None,
+    )
+    return motifs_chantier_apres_correction(
+        motifs,
+        chantier_brut=document.chantier_brut,
+        chantier_identifie=chantier_identifie,
+        motif_reference_precedent=precedent,
+    )
 
 
 def _statut_apres_correction(statut_actuel: str, motifs: tuple[Motif, ...]) -> str:

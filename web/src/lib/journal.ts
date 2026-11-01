@@ -393,6 +393,8 @@ const LIBELLES_CODE_MOTIF: Record<string, string> = {
   annotation_illisible: "Annotation illisible",
   fournisseur_inconnu: "Fournisseur inconnu du référentiel",
   numero_en_double: "Numéro en double",
+  reference_chantier_inconnue: "Chantier de la référence de commande inconnu",
+  calcul_ligne_incoherent: "Calcul d'une ligne incohérent",
 };
 
 function libelleCodeMotif(code: string): string {
@@ -468,6 +470,9 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   nb_lignes: "Lignes",
   lignes: "Lignes",
   motifs: "Points à vérifier",
+  // `extraction_bl.py` (lot 2 du 31/10/2026) : motifs retirés parce que le
+  // référentiel confirme la lecture, chacun avec sa raison.
+  motifs_leves: "Points levés",
   chantier_libelle: "Nom de chantier lu",
   methode_chantier: "Chantier retrouvé via",
   methode_fournisseur: "Fournisseur retrouvé via",
@@ -603,6 +608,7 @@ const LIBELLES_VALEUR_PAR_CLE: Record<string, Record<string, string>> = {
     "nom connu": "Nom déjà reconnu",
     ressemblance: "Nom proche d'un chantier connu",
     légende: "Indiqué par l'employé",
+    "référence de commande": "Référence de commande du bon",
     création: "Nouveau chantier",
     alerte: "À confirmer",
     "décision humaine conservée": "Choix déjà fait, conservé",
@@ -703,6 +709,16 @@ function formaterMotifs(codes: unknown[]): string {
     return "Aucun.";
   }
   return codes.map((code) => libelleCodeMotif(typeof code === "string" ? code : String(code))).join(", ");
+}
+
+/** `motifs_leves` (`extraction_bl.py`, `ajustement_motifs.py`) : une phrase
+ * par point levé (« Lecture du chantier confirmée : AGUIRRE (85 %) »),
+ * rédigée par le serveur -- affichée telle quelle. */
+function formaterMotifsLeves(leves: unknown[]): string {
+  const phrases = leves
+    .map((l) => (estObjet(l) && typeof l.raison === "string" ? l.raison : null))
+    .filter((p): p is string => p !== null);
+  return phrases.length === 0 ? "Aucun." : phrases.join(" · ");
 }
 
 /** Nombre de lignes, en tête du détail (`formaterLignes` ci-dessous) —
@@ -836,6 +852,9 @@ function valeurDetail(cle: string, contexte: Record<string, unknown>, noms: Reco
   }
   if (cle === "motifs" && Array.isArray(brute)) {
     return formaterMotifs(brute);
+  }
+  if (cle === "motifs_leves" && Array.isArray(brute)) {
+    return formaterMotifsLeves(brute);
   }
   if (cle === "lignes" && Array.isArray(brute)) {
     return formaterLignes(brute);

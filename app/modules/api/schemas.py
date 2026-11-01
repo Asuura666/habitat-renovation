@@ -691,18 +691,22 @@ class LigneLivraisonReponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    bloc_id: uuid.UUID
+    bloc_id: uuid.UUID | None
     numero_bl: str | None
     date_bl: date | None
     statut_rapprochement: str | None
     bl_document_id: uuid.UUID | None
-    facture_id: uuid.UUID
+    facture_id: uuid.UUID | None
     chantier_id: uuid.UUID | None
     chantier: str | None
     fournisseur_id: uuid.UUID | None
     fournisseur: str | None
-    categorie: Literal["conforme", "a_verifier", "sans_bon"]
+    categorie: Literal["conforme", "a_verifier", "sans_bon", "probleme_ouvert", "recu"]
     montants: MontantsBilanReponse
+    # Lot 2, B3 : faux pour un bon ou un enlèvement pas encore retrouvé sur
+    # une facture (`bloc_id` et `facture_id` valent alors `None`,
+    # `bl_document_id` est le bon lui-même).
+    facture: bool
 
 
 # --------------------------------------------------------------------------
@@ -783,6 +787,10 @@ class TableauDeBordReponse(BaseModel):
     nb_bons_recus: int
     montant_bons_recus: Decimal
     nb_bons_sans_montant: int
+    nb_bons_mois: int
+    montant_bons_mois: Decimal
+    nb_bons_a_verifier: int
+    nb_bons_mois_sans_montant: int
 
 
 class DepotAgentReponse(BaseModel):
@@ -1448,6 +1456,26 @@ class LigneHistoriqueReponse(BaseModel):
     ligne_libelle: str | None
     auteur: str | None
     created_at: datetime
+
+
+class EntreeHistoriqueReponse(BaseModel):
+    """`GET /api/grilles/fournisseurs/{id}/produits/{cle}/historique-complet`
+    -- mêmes attributs qu'`ingest.historique_prix.EntreeHistorique` (lot 2
+    du 31/10/2026, B4). `type` : `grille`, `document` ou `observe`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    type: Literal["grille", "document", "observe"]
+    date: date
+    origine: str
+    prix_ht: Decimal
+    remise_pct: Decimal | None
+    prix_net: Decimal | None
+    unite: str | None
+    quantite: Decimal | None
+    numero_document: str | None
+    document_id: uuid.UUID | None
+    type_document: str | None
 
 
 class ContestationReponse(BaseModel):

@@ -511,3 +511,74 @@ def test_csv_bilan_detail_libelle_avec_point_virgule_echappe() -> None:
     assert '"Désignation; avec point-virgule"' in contenu
     assert lignes[1][10] == "Désignation; avec point-virgule"
     assert len(lignes[1]) == len(lignes[0])
+
+
+def test_csv_livraisons_colonne_facture_et_bon_sans_montant() -> None:
+    """Lot 2, B3 : l'export de la liste des livraisons suit l'écran -- une
+    colonne « Facturé » (Oui/Non), le montant vide pour un bon non facturé."""
+    from app.modules.ingest.bilan import LigneLivraison
+    from app.modules.ingest.export import csv_livraisons
+
+    facturee = LigneLivraison(
+        bloc_id=uuid.uuid4(),
+        numero_bl="L001",
+        date_bl=date(2026, 8, 3),
+        statut_rapprochement="recu",
+        bl_document_id=None,
+        facture_id=uuid.uuid4(),
+        chantier_id=None,
+        chantier="Chantier A",
+        fournisseur_id=None,
+        fournisseur="Fournisseur A",
+        categorie="conforme",
+        montants=_montants(facture_ht=Decimal("12.50")),
+        facture=True,
+    )
+    bon = LigneLivraison(
+        bloc_id=None,
+        numero_bl="L002",
+        date_bl=date(2026, 8, 4),
+        statut_rapprochement=None,
+        bl_document_id=uuid.uuid4(),
+        facture_id=None,
+        chantier_id=None,
+        chantier=None,
+        fournisseur_id=None,
+        fournisseur="Fournisseur A",
+        categorie="probleme_ouvert",
+        montants=_montants(facture_ht=Decimal("0")),
+        facture=False,
+    )
+
+    lignes = list(
+        csv.reader(io.StringIO(csv_livraisons([facturee, bon])), delimiter=";")
+    )
+
+    assert lignes[0] == [
+        "Date",
+        "N° BL",
+        "Chantier",
+        "Fournisseur",
+        "Facturé",
+        "État",
+        "Montant HT",
+        "Problèmes",
+    ]
+    assert lignes[1][:7] == [
+        "2026-08-03",
+        "L001",
+        "Chantier A",
+        "Fournisseur A",
+        "Oui",
+        "Conforme",
+        "12,50",
+    ]
+    assert lignes[2][:7] == [
+        "2026-08-04",
+        "L002",
+        "",
+        "Fournisseur A",
+        "Non",
+        "Problème ouvert",
+        "",
+    ]

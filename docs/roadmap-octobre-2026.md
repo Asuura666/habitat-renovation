@@ -49,7 +49,7 @@ Un audit complet a eu lieu le 29/09 ; ses corrections (13 constats importants) s
 **2. Identification des chantiers**
 - Le nom du chantier est toujours écrit sur le BL : il est lu automatiquement et ajouté au tableau de bord de suivi.
 - L'employé qui envoie la photo indique aussi le nom du chantier : sert de confirmation.
-- Quand l'OCR récupère le nom du chantier sur le BL, on cherche un chantier existant avec une ressemblance d'au moins 90 % : trouvé → le BL est rattaché à ce chantier ; pas trouvé → un nouveau chantier est créé et l'utilisateur est prévenu sur le site.
+- Quand l'OCR récupère le nom du chantier sur le BL, on cherche un chantier existant avec une ressemblance d'au moins 90 % (80 % par défaut depuis le 31/10/2026) : trouvé → le BL est rattaché à ce chantier ; pas trouvé → un nouveau chantier est créé et l'utilisateur est prévenu sur le site.
 
 **3. Grilles de prix fournisseurs**
 - Chaque fournisseur a sa grille de prix.
@@ -78,7 +78,7 @@ Un audit complet a eu lieu le 29/09 ; ses corrections (13 constats importants) s
 
 - Priorité au 1er octobre : points 1 et 2.
 - Ajouts : **gestion des comptes par un admin** (créer, modifier, supprimer, changer le mot de passe — il n'y aura qu'Ilane et les dirigeants, mais ils la veulent « au cas où ») ; **photos rangées sur le serveur** dans `bl/<année>/<mois>/`, nommées avec le jour, le déposant et le chantier.
-- Chantiers : légende de la photo Telegram = nom tapé par l'employé ; si nom lu et légende désignent deux chantiers différents → **alerte, l'humain décide** ; bouton de fusion contre les doublons ; seuil 90 % réglable ; chantier créé « à compléter » (sans agence ni client) ; pas d'import de la liste des chantiers (le client complétera) ; une seule règle pour les bons et les factures.
+- Chantiers : légende de la photo Telegram = nom tapé par l'employé ; si nom lu et légende désignent deux chantiers différents → **alerte, l'humain décide** ; bouton de fusion contre les doublons ; seuil 90 % réglable (80 % par défaut depuis le 31/10/2026) ; chantier créé « à compléter » (sans agence ni client) ; pas d'import de la liste des chantiers (le client complétera) ; une seule règle pour les bons et les factures.
 - Point 3 : **historique complet de toutes les modifications de prix en base** (jamais écrasé), non affiché mais facilement retraçable, par fournisseur.
 - Points 3-4-5 : la **page de prix doit rester simple**, peu d'informations d'un coup, directement utiles. On affiche le prix du BL à côté du prix de la grille et de l'historique **avec la date de chaque prix**, plus le **taux de ressemblance** ; **l'humain décide**. Les fournisseurs publient une nouvelle grille chaque année ; notre système construit la grille propre du client avec tout l'historique.
 - Unités : **tout garder**, avec les différences selon l'unité (seau/kg…), prix catalogue, remise, net.
@@ -227,7 +227,7 @@ Plan : `docs/superpowers/plans/2026-09-27-mise-en-production-1er-octobre.md`
 | — | Relecture finale, PR vers `dev` | 1 h 30 |
 | — | Déploiement (après `dev` → `main` avec l'accord d'Ilane) : dumps, démo puis production, migration, `rattacher-chantiers`, `ranger-photos` | 45 min |
 
-Exemples du seuil de 90 % : « Villa Test » / « VILLA TEST (123) » = 100
+Exemples du seuil de 90 % (80 % par défaut depuis le 31/10/2026, les exemples ci-dessous datent de l'époque) : « Villa Test » / « VILLA TEST (123) » = 100
 (rattaché) ; « Résidence des Tilleuls » / « tilleuls residence » = 90
 (rattaché) ; « Les Pins » / « Les Pins 2 » = 88 (nouveau chantier) ;
 « Ormeaux » / « Résidence les Ormeaux » = 50 (nouveau chantier, à fusionner).

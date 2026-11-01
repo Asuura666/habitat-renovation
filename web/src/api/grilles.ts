@@ -18,6 +18,7 @@ export type ImportEffectue = components["schemas"]["ImportEffectueReponse"];
 export type LigneComparee = components["schemas"]["LigneCompareeGrilleReponse"];
 export type ProduitAbsent = components["schemas"]["ProduitAbsentReponse"];
 export type ContestationPrix = components["schemas"]["ContestationReponse"];
+export type EntreeHistorique = components["schemas"]["EntreeHistoriqueReponse"];
 export type ErreurImportLigne = components["schemas"]["ErreurImportReponse"];
 
 export function cleGrilleFournisseur(
@@ -62,6 +63,31 @@ export function listerContestations(fournisseurId: string): Promise<Contestation
   return appelerApi<ContestationPrix[]>("/api/grilles/fournisseurs/{fournisseur_id}/contestations", {
     url: `/api/grilles/fournisseurs/${fournisseurId}/contestations`,
   });
+}
+
+/** Clé de requête de l'historique d'un produit, sous `["grille", fournisseurId]`
+ * comme les contestations (rafraîchie par les mêmes invalidations). */
+export function cleHistoriqueProduit(
+  fournisseurId: string,
+  cleProduit: string,
+): readonly [string, string, string, string] {
+  return ["grille", fournisseurId, "historique", cleProduit] as const;
+}
+
+/** `GET /api/grilles/fournisseurs/{id}/produits/{cle}/historique-complet`
+ * (admin, lot 2 du 31/10/2026) : versions de la grille, prix vus sur les
+ * bons et factures du fournisseur et prix observés importés, du plus récent
+ * au plus ancien, 100 lignes au plus. */
+export function obtenirHistoriqueProduit(
+  fournisseurId: string,
+  cleProduit: string,
+): Promise<EntreeHistorique[]> {
+  return appelerApi<EntreeHistorique[]>(
+    "/api/grilles/fournisseurs/{fournisseur_id}/produits/{cle_produit}/historique-complet",
+    {
+      url: `/api/grilles/fournisseurs/${fournisseurId}/produits/${encodeURIComponent(cleProduit)}/historique-complet`,
+    },
+  );
 }
 
 /** Corps de `POST /api/grilles/fournisseurs/{id}/prix` (saisie manuelle,

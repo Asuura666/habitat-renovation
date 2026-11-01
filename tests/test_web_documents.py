@@ -614,3 +614,39 @@ def test_libelles_de_lecture_en_francais_courant() -> None:
     detail = (WEB / "pages" / "DocumentDetail.tsx").read_text()
     assert "Chantier indiqué sur le bon" in detail
     assert "Relire le document" in detail
+
+
+def test_facture_detail_propose_d_archiver() -> None:
+    """Lot 2, B1 (31/10/2026) : « Pour les factures, j'arrive pas à enlever
+    le document » -- même bouton que sur un bon, avec commentaire."""
+    page = (WEB / "pages" / "FactureDetail.tsx").read_text()
+
+    for chaine in (
+        "archiverDocument",
+        "Archiver",
+        "Commentaire (obligatoire)",
+        "Confirmer l'archivage",
+        'donnees.statut !== "archive"',
+    ):
+        assert chaine in page, chaine
+
+
+def test_menu_fournisseur_de_la_correction_est_charge_et_habille() -> None:
+    """Lot 2, B7 (31/10/2026) : « j'arrive pas à choisir le fournisseur, le
+    choix bug, rien ne s'affiche ». Durcissement : la liste est chargée dès
+    que le bon est modifiable (plus seulement à l'ouverture du formulaire),
+    le menu annonce « Chargement… » tant qu'elle n'est pas arrivée et porte
+    les mêmes classes que le sélecteur « Chantier du bon »."""
+    page = (WEB / "pages" / "DocumentDetail.tsx").read_text()
+
+    debut = page.index("const fournisseurs = useQuery({")
+    requete = page[debut : page.index("});", debut)]
+    assert "enabled: document.data?.modifiable === true" in requete
+    assert "enabled: enEditionEntete" not in requete
+
+    debut = page.index('id="entete-fournisseur"')
+    menu = page[debut : page.index("</select>", debut)]
+    assert "Chargement…" in menu
+    assert "bg-surface" in menu
+    assert "text-encre" in menu
+    assert "chargement" in page

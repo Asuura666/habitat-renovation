@@ -86,6 +86,7 @@ from app.modules.extract.verification import (
     motif_en_json,
     verifier_bl,
 )
+from app.modules.ingest.ajustement_motifs import ajuster_motifs
 from app.modules.ingest.commun import logger
 from app.modules.ingest.models import Document, Journal, Ligne
 from app.modules.ingest.prix_bl import controler_prix_bl_sans_echec
@@ -576,6 +577,24 @@ async def _extraire_et_committer(
     # `document.chantier_id`, apprend un alias le cas échéant et
     # synchronise R18).
     resultat_chantier = await rattacher_chantier_document(session, document)
+
+    # Lot 2 du 31/10/2026 : le référentiel confirme parfois la lecture (SIREN,
+    # TVA, chantier connu ou donné par la légende) -- les motifs concernés sont
+    # levés et le statut recalculé avec la même règle qu'au-dessus.
+    ajuste = ajuster_motifs(
+        motifs,
+        methode_fournisseur=resolution_fournisseur.methode,
+        chantier=resultat_chantier,
+    )
+    if list(ajuste.motifs) != motifs:
+        motifs = list(ajuste.motifs)
+        statut = "a_verifier" if relance or motifs else "recu"
+        document.statut = statut
+        document.motifs = [motif_en_json(m) for m in motifs]
+        document.extraction = {
+            **extraction_en_json(extrait),
+            "motifs": [motif_en_json(m) for m in motifs],
+        }
     decompose_chantier = decomposer_chantier(document.chantier_brut)
     chantier_libelle = (
         decompose_chantier.libelle if decompose_chantier is not None else None
@@ -628,6 +647,7 @@ async def _extraire_et_committer(
                 "statut": statut,
                 "nb_lignes": len(extrait.lignes),
                 "motifs": [m.code.value for m in motifs],
+                "motifs_leves": list(ajuste.leves),
                 "fournisseur_id": (
                     str(fournisseur_id) if fournisseur_id is not None else None
                 ),

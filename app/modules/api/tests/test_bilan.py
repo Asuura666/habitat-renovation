@@ -1166,6 +1166,7 @@ async def test_get_bilan_livraisons_admin_200(
     # validé dans ce scénario, il est donc « à vérifier », jamais « conforme ».
     assert ligne["categorie"] == "a_verifier"
     assert ligne["montants"]["facture_a_verifier"] == "0"
+    assert ligne["facture"] is True
 
 
 async def test_get_bilan_livraisons_filtre_chantier_et_fournisseur_transmis(
@@ -1230,3 +1231,65 @@ async def test_get_bilan_livraisons_mois_malforme_422(
     )
 
     assert reponse.status_code == 422
+
+
+async def test_get_bilan_livraisons_inclut_les_bons_non_factures(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Lot 2, B3 : un bon qu'aucune facture ne cite apparaît avec
+    `facture = false` et son identifiant dans `bl_document_id`."""
+    chantier = await _creer_chantier(db_session, nom="Bon seul")
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur Bon Seul")
+    bon = Document(
+        type="bl",
+        source="telegram",
+        statut="recu",
+        fichier_path=f"chemin-invente-{uuid.uuid4()}.jpg",
+        chantier_id=chantier.id,
+        fournisseur_id=fournisseur.id,
+    )
+    db_session.add(bon)
+    await db_session.commit()
+    await db_session.refresh(bon)
+    await _creer_utilisateur(
+        db_session, email="admin.bilan21@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.bilan21@example.invalid")
+
+    reponse = await _requete(app_test, "/api/bilan/livraisons", cookie=cookie)
+
+    assert reponse.status_code == 200
+    lignes = reponse.json()
+    assert len(lignes) == 1
+    assert lignes[0]["facture"] is False
+    assert lignes[0]["bl_document_id"] == str(bon.id)
+    assert lignes[0]["bloc_id"] is None
+    assert lignes[0]["facture_id"] is None
+    assert lignes[0]["categorie"] == "recu"
+    assert lignes[0]["chantier"] == "Bon seul"
+
+
+async def test_get_bilan_livraisons_csv_colonne_facture(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    await _scenario_simple(db_session)
+    await _creer_utilisateur(
+        db_session, email="admin.bilan22@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.bilan22@example.invalid")
+
+    reponse = await _requete(app_test, "/api/bilan/livraisons.csv", cookie=cookie)
+
+    assert reponse.status_code == 200
+    assert reponse.headers["content-type"].startswith("text/csv")
+    texte = reponse.content.decode("utf-8-sig")
+    assert texte.splitlines()[0] == (
+        "Date;N° BL;Chantier;Fournisseur;Facturé;État;Montant HT;Problèmes"
+    )
+    assert ";Oui;" in texte

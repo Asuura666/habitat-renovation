@@ -1274,3 +1274,53 @@ async def test_tableau_de_bord_bon_sans_date_doc_range_selon_created_at(
 
     tdb_juillet = await tableau_de_bord(db_session, mois=_JUILLET)
     assert tdb_juillet.nb_bons_recus == 0
+
+
+# --------------------------------------------------------------------------
+# Montant de tous les bons du mois (lot 2, B6, 31/10/2026) : « dans la vue
+# d'ensemble le CA des BL doit être affiché même si cela n'a pas été réglé ».
+# --------------------------------------------------------------------------
+
+
+async def test_bons_du_mois_comptent_tous_les_statuts_sauf_archive(
+    db_session: AsyncSession,
+) -> None:
+    await _creer_bon(db_session, statut="recu", total_ht=Decimal("100.00"))
+    await _creer_bon(
+        db_session,
+        type_bon="enlevement",
+        statut="a_verifier",
+        total_ht=Decimal("40.00"),
+    )
+    await _creer_bon(db_session, statut="a_verifier", total_ht=None)
+    await _creer_bon(db_session, statut="archive", total_ht=Decimal("999.00"))
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    assert tdb.nb_bons_mois == 3
+    assert tdb.montant_bons_mois == Decimal("140.00")
+    assert tdb.nb_bons_a_verifier == 2
+    assert tdb.nb_bons_mois_sans_montant == 1
+    # Les anciens champs gardent leur sens (bons « reçus » seulement).
+    assert tdb.nb_bons_recus == 1
+    assert tdb.montant_bons_recus == Decimal("100.00")
+
+
+async def test_bons_du_mois_ignorent_un_autre_mois_et_les_factures(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    await _creer_bon(db_session, date_doc=date(2026, 7, 15), statut="a_verifier")
+    await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-BONS-MOIS",
+        date_doc=date(2026, 9, 5),
+    )
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    assert tdb.nb_bons_mois == 0
+    assert tdb.montant_bons_mois == Decimal("0")
+    assert tdb.nb_bons_a_verifier == 0
+    assert tdb.nb_bons_mois_sans_montant == 0

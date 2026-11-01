@@ -39,6 +39,7 @@ from app.modules.ingest.models import (
     Fournisseur,
     GrillePrix,
     Ligne,
+    PrixObserve,
     Utilisateur,
 )
 from app.modules.ingest.tests.test_contestations_prix import _creer_anomalie_fermee
@@ -767,3 +768,77 @@ async def test_import_aucune_ligne_valide_renvoie_422(
 
     assert reponse.status_code == 422
     assert (await db_session.execute(select(GrillePrix))).scalars().all() == []
+
+
+# --------------------------------------------------------------------------
+# Historique complet d'un produit (lot 2 du 31/10/2026, B4)
+# --------------------------------------------------------------------------
+
+
+async def test_historique_complet_admin_et_agent(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    await _creer_utilisateur(
+        db_session, email="admin.histcomplet@example.invalid", role="admin"
+    )
+    await _creer_utilisateur(
+        db_session, email="agent.histcomplet@example.invalid", role="agent"
+    )
+    fournisseur = await _creer_fournisseur(db_session)
+    db_session.add(
+        GrillePrix(
+            fournisseur_id=fournisseur.id,
+            cle_produit="ref:ab12",
+            reference="AB12",
+            designation="Enduit",
+            prix_ht=Decimal("10.00"),
+            prix_net=Decimal("10.00"),
+            date_effet=date(2026, 8, 1),
+            source="saisie",
+        )
+    )
+    db_session.add(
+        PrixObserve(
+            fournisseur_id=fournisseur.id,
+            cle_produit="ref:ab12",
+            designation="Enduit",
+            date_observation=date(2026, 7, 1),
+            prix_ht=Decimal("9.50"),
+            piece="F-1",
+            source_libelle="Fichier inventé",
+        )
+    )
+    await db_session.commit()
+    app_test = _app_test(sessions_test, tmp_path)
+    url = (
+        f"/api/grilles/fournisseurs/{fournisseur.id}"
+        "/produits/ref:ab12/historique-complet"
+    )
+
+    cookie_agent = await _login(app_test, email="agent.histcomplet@example.invalid")
+    refus = await _requete(app_test, "GET", url, cookie=cookie_agent)
+    assert refus.status_code == 403
+
+    cookie = await _login(app_test, email="admin.histcomplet@example.invalid")
+    reponse = await _requete(app_test, "GET", url, cookie=cookie)
+
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert [(e["type"], e["date"]) for e in corps] == [
+        ("grille", "2026-08-01"),
+        ("observe", "2026-07-01"),
+    ]
+    assert corps[0]["origine"] == "Saisi à l'écran"
+    assert corps[0]["prix_ht"] == "10.00"
+    assert corps[1]["origine"] == "Fichier inventé"
+    assert corps[1]["numero_document"] == "F-1"
+
+    inconnu = await _requete(
+        app_test,
+        "GET",
+        f"/api/grilles/fournisseurs/{uuid.uuid4()}/produits/ref:x/historique-complet",
+        cookie=cookie,
+    )
+    assert inconnu.status_code == 404

@@ -1,8 +1,11 @@
-import { type ReactElement, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Link, useLocation, useParams } from "react-router";
+import { type FormEvent, type ReactElement, useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 
+import { ErreurApi } from "../api/client";
+import { archiverDocument } from "../api/documents";
 import { type BlocFacture, cleFacture, obtenirFacture } from "../api/factures";
+import { invaliderApresChangementAnomalies } from "../api/invalidations";
 import { formaterDate, formaterMontant, formaterPoints, formaterQuantite, TIRET } from "../lib/formats";
 import { lienBon } from "../lib/liens";
 import { libelleMotif } from "../lib/motifs";
@@ -191,6 +194,10 @@ function LivraisonCarte({ bloc }: { bloc: BlocFacture }): ReactElement {
 export function FactureDetail(): ReactElement {
   const { id } = useParams<{ id: string }>();
   const { hash } = useLocation();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [archivageOuvert, setArchivageOuvert] = useState(false);
+  const [commentaireArchivage, setCommentaireArchivage] = useState("");
 
   const facture = useQuery({
     queryKey: id !== undefined ? cleFacture(id) : ["factures", "sans-identifiant"],
@@ -208,6 +215,23 @@ export function FactureDetail(): ReactElement {
       window.document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView({ block: "start" });
     }
   }, [factureChargee, hash]);
+
+  // Lot 2, B1 (31/10/2026) : « Pour les factures, j'arrive pas à enlever le
+  // document ». Même route et même bouton que sur un bon ; la facture
+  // archivée ne compte plus nulle part (le serveur refait les contrôles),
+  // on revient donc à la liste des documents.
+  const mutationArchivage = useMutation({
+    mutationFn: (commentaire: string) => archiverDocument(id ?? "", commentaire),
+    onSuccess: async () => {
+      await invaliderApresChangementAnomalies(queryClient);
+      navigate("/documents");
+    },
+  });
+
+  function soumettreArchivage(evenement: FormEvent<HTMLFormElement>): void {
+    evenement.preventDefault();
+    mutationArchivage.mutate(commentaireArchivage);
+  }
 
   if (id === undefined) {
     return (
@@ -289,6 +313,60 @@ export function FactureDetail(): ReactElement {
               <li key={index}>{libelleMotif(motif)}</li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {donnees.statut !== "archive" && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setArchivageOuvert((valeur) => !valeur)}
+            className="inline-flex min-h-[44px] items-center rounded-md border border-alerte/50 px-4 py-2 text-sm font-medium text-alerte outline-none hover:bg-[#f9dedc] focus-visible:ring-2 focus-visible:ring-alerte"
+          >
+            Archiver
+          </button>
+          {archivageOuvert && (
+            <form
+              onSubmit={soumettreArchivage}
+              className="mt-4 space-y-3 rounded-lg border border-alerte/30 bg-[#f9dedc] p-4"
+            >
+              <div>
+                <label htmlFor="commentaire-archivage" className="mb-1 block text-xs font-medium text-encre">
+                  Commentaire (obligatoire)
+                </label>
+                <textarea
+                  id="commentaire-archivage"
+                  value={commentaireArchivage}
+                  onChange={(evenement) => setCommentaireArchivage(evenement.target.value)}
+                  rows={2}
+                  className="w-full rounded-md border border-bordure px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="submit"
+                  disabled={commentaireArchivage.trim() === "" || mutationArchivage.isPending}
+                  className="inline-flex min-h-[44px] items-center rounded-md bg-alerte px-4 py-2 text-sm font-medium text-white outline-none hover:bg-alerte/90 focus-visible:ring-2 focus-visible:ring-alerte focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Confirmer l'archivage
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setArchivageOuvert(false)}
+                  className="inline-flex min-h-[44px] items-center text-sm font-medium text-encre-2 underline outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  Annuler
+                </button>
+              </div>
+              {mutationArchivage.isError && (
+                <p role="alert" className="text-sm text-alerte">
+                  {mutationArchivage.error instanceof ErreurApi
+                    ? mutationArchivage.error.detail
+                    : "Une erreur est survenue, réessayez."}
+                </p>
+              )}
+            </form>
+          )}
         </div>
       )}
 

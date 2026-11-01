@@ -1,7 +1,7 @@
 import { type MouseEvent, type ReactElement } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
-import type { LigneBilanBl } from "../api/bilan";
+import type { LigneBilanBl, LigneLivraison } from "../api/bilan";
 import { formaterDate, formaterMontant, TIRET } from "../lib/formats";
 import { EtatVide, Filtres, type OptionFiltre } from "../ui";
 
@@ -11,10 +11,13 @@ import { EtatVide, Filtres, type OptionFiltre } from "../ui";
  * structurel accepte donc l'un ou l'autre sans conversion -- extrait de
  * `FicheChantier.tsx` (revue finale de la refonte du front), qui ne
  * connaissait jusqu'ici que `LigneBilanBl`. */
-type LivraisonMontants = Pick<
-  LigneBilanBl,
-  "statut_rapprochement" | "bl_document_id" | "facture_id" | "montants" | "categorie"
->;
+type LivraisonMontants = Pick<LigneBilanBl, "statut_rapprochement" | "bl_document_id" | "montants"> & {
+  facture_id: string | null;
+  categorie: CategorieLivraison;
+  /** Lot 2, B3 : faux pour un bon pas encore retrouvé sur une facture
+   * (absent ou vrai pour une ligne de facture). */
+  facture?: boolean;
+};
 
 /** Une livraison affichée par ce composant, sur les trois écrans qui le
  * montent (fiche chantier, fiche fournisseur, `/livraisons`). `chantier`
@@ -22,7 +25,8 @@ type LivraisonMontants = Pick<
  * fournisseur, `/livraisons`) -- la fiche chantier, qui fixe déjà le
  * chantier par son URL, ne le renseigne pas. */
 export interface LivraisonAffichee {
-  blocId: string;
+  /** `null` pour un bon pas encore facturé (aucun bloc de facture). */
+  blocId: string | null;
   numeroBl: string | null;
   dateBl: string | null;
   fournisseur: string;
@@ -34,17 +38,26 @@ export interface LivraisonAffichee {
  * de « Conforme », décision d'Ilane du 29/09/2026 : bon validé, comparé sans
  * écart, aucun autre problème ouvert). Le front n'a aucune règle propre : il
  * affiche ce champ et filtre dessus. */
-export type CategorieLivraison = LigneBilanBl["categorie"];
+export type CategorieLivraison = LigneLivraison["categorie"];
 
 const CLASSES_POINT_STATUT: Record<CategorieLivraison, string> = {
   conforme: "bg-conforme",
   a_verifier: "bg-ecart",
   sans_bon: "bg-alerte",
+  probleme_ouvert: "bg-alerte",
+  recu: "bg-encre-2",
 };
+
+/** Vrai pour une ligne de facture, faux pour un bon pas encore facturé. */
+function estFacturee(ligne: LivraisonMontants): boolean {
+  return ligne.facture !== false;
+}
 
 function libelleEtatBon(ligne: LivraisonMontants): string {
   if (ligne.categorie === "conforme") return "Conforme";
   if (ligne.categorie === "a_verifier") return "À vérifier";
+  if (ligne.categorie === "probleme_ouvert") return "Problème ouvert";
+  if (ligne.categorie === "recu") return "Reçu";
   return ligne.statut_rapprochement === "pas_de_bon" ? "Livré sans bon" : "Jamais reçu";
 }
 
@@ -64,13 +77,16 @@ function EtatBon({ ligne }: { ligne: LivraisonMontants }): ReactElement {
 /** Destination d'une livraison : la page du BL quand la photo a été
  * retrouvée par le rapprochement, sinon la facture qui la cite. */
 export function lienLivraison(ligne: LivraisonMontants): string {
-  return ligne.bl_document_id !== null ? `/bl/${ligne.bl_document_id}` : `/documents/${ligne.facture_id}`;
+  return ligne.bl_document_id !== null ? `/bl/${ligne.bl_document_id}` : `/documents/${ligne.facture_id ?? ""}`;
 }
 
 /** Problèmes d'une livraison précise : « À régler » filtré sur cette
  * livraison (`?blocId=`), exactement les problèmes comptés dans la colonne
  * « Problèmes » (anomalies ouvertes portées par la livraison). */
 function lienProblemesLivraison(livraison: LivraisonAffichee): string {
+  // Un bon pas encore facturé n'a pas de bloc : ses problèmes se voient sur
+  // sa propre page.
+  if (livraison.blocId === null) return lienLivraison(livraison.ligne);
   return `/a-regler?${new URLSearchParams({ blocId: livraison.blocId }).toString()}`;
 }
 
@@ -95,11 +111,14 @@ function LigneLivraisonCarte({ livraison }: { livraison: LivraisonAffichee }): R
             </p>
           </div>
           <p className="font-mono text-sm tabular-nums text-encre">
-            {formaterMontant(livraison.ligne.montants.facture_ht)}
+            {estFacturee(livraison.ligne) ? formaterMontant(livraison.ligne.montants.facture_ht) : TIRET}
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
           <EtatBon ligne={livraison.ligne} />
+          <span className="text-encre-2">
+            Facturé : {estFacturee(livraison.ligne) ? "Oui" : "Non"}
+          </span>
           <span className="text-encre-2">
             {nbProblemes} problème{nbProblemes > 1 ? "s" : ""}
           </span>
@@ -163,8 +182,9 @@ function LigneLivraisonTableau({
       <td className="py-2.5 pr-2">
         <EtatBon ligne={livraison.ligne} />
       </td>
+      <td className="py-2.5 pr-2 text-encre">{estFacturee(livraison.ligne) ? "Oui" : "Non"}</td>
       <td className="py-2.5 pr-2 text-right font-mono tabular-nums text-encre">
-        {formaterMontant(livraison.ligne.montants.facture_ht)}
+        {estFacturee(livraison.ligne) ? formaterMontant(livraison.ligne.montants.facture_ht) : TIRET}
       </td>
       <td className="py-2.5 pr-2 text-right text-encre">
         {livraison.ligne.montants.nb_anomalies_ouvertes > 0 ? (
@@ -203,6 +223,7 @@ function TableauLivraisonsOrdi({
             {colonneChantier && <th scope="col" className="py-2 pr-2">Chantier</th>}
             <th scope="col" className="py-2 pr-2">Fournisseur</th>
             <th scope="col" className="py-2 pr-2">Bon de livraison</th>
+            <th scope="col" className="py-2 pr-2">Facturé</th>
             <th scope="col" className="py-2 pr-2 text-right">Montant</th>
             <th scope="col" className="py-2 pr-2 text-right">Problèmes</th>
           </tr>
@@ -210,7 +231,7 @@ function TableauLivraisonsOrdi({
         <tbody className="divide-y divide-bordure">
           {livraisons.map((livraison) => (
             <LigneLivraisonTableau
-              key={livraison.blocId}
+              key={livraison.blocId ?? livraison.ligne.bl_document_id ?? ""}
               livraison={livraison}
               colonneChantier={colonneChantier}
               naviguer={() => navigate(lienLivraison(livraison.ligne))}
@@ -292,7 +313,7 @@ export function TableauLivraisons({
         <>
           <ul className="space-y-3 md:hidden">
             {filtrees.map((livraison) => (
-              <LigneLivraisonCarte key={livraison.blocId} livraison={livraison} />
+              <LigneLivraisonCarte key={livraison.blocId ?? livraison.ligne.bl_document_id ?? ""} livraison={livraison} />
             ))}
           </ul>
           <TableauLivraisonsOrdi livraisons={filtrees} colonneChantier={colonneChantier} />
