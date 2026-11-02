@@ -1901,3 +1901,24 @@ Décisions d'Ilane du 31/10/2026 (branche `feature/sans-confirmation-et-fourniss
 - **Encart Factures.** Le filtre de mois de la carte suit celui de la page ;
   l'agence n'est pas appliquée. Le lien « Voir tout » vers les documents filtrés
   sur le fournisseur n'a pas été ajouté.
+
+## Lot 4 du 02/11/2026
+
+- **Prénoms d'employés dans le nom de chantier lu.** Les mots du nom d'un compte
+  (`utilisateur.nom`, trois lettres au moins, casse et accents ignorés) et les
+  mots de liaison « pour », « par », « pris », « prs », « cde », « commande »,
+  « commandé », « enlevé » sont retirés du nom lu avant la reconnaissance et la
+  création (`normalize/chantier.py::retirer_employes_du_chantier`). Limites :
+  un chantier dont le nom est aussi un mot du nom d'un compte (client homonyme
+  d'un employé) est vidé ; un mot de liaison est toujours retiré, même dans un
+  vrai nom de chantier ; la légende Telegram n'est pas nettoyée (seul le nom lu
+  l'est) ; les noms de chantier appris avant le 02/11 ne sont pas revus (les
+  bons existants passent par `recalculer-bons`, les alias appris restent).
+- **Fusion de fournisseurs.** `fournisseur-fusionner` ne traite pas deux
+  documents de même numéro chez les deux fournisseurs : elle refuse (rien n'est
+  supprimé) et la décision se prend à la main. Les prix de la source rejoignent
+  l'historique de la cible (`grille_prix`, inaltérable) : le déclencheur de la
+  migration 0013 est désactivé le temps de la transaction, ce qui demande que
+  l'utilisateur de la base soit propriétaire de la table. Le nom de la source
+  devient un alias de la cible : si la cible est ensuite reconnue par ce nom,
+  c'est voulu. Pas d'écran : commande seulement.

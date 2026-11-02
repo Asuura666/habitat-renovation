@@ -99,6 +99,10 @@ from app.modules.extract.bl import OPTIONS_OCR_BL
 from app.modules.extract.facture import Facture, FactureIllisible
 from app.modules.extract.reponses_ia import OffreLue, PrixInternetLu
 from app.modules.extract.verification import SEUIL_CONFIANCE_DEFAUT
+from app.modules.ingest.fusion_fournisseur import (
+    FusionFournisseurImpossible,
+    ResultatFusionFournisseur,
+)
 from app.modules.ingest.ia_prix import BilanIA, LigneEssai, ProduitEssai
 from app.modules.ingest.ia_synthese import ResultatSynthese
 from app.modules.ingest.mistral import ErreurOCR
@@ -2777,3 +2781,76 @@ def test_cli_importer_historique_prix_erreurs_lisibles(
     monkeypatch.setattr(cli, "importer_historique_prix", _service)
     assert cli.main([*arguments, "--fichier", str(fichier)]) == 1
     assert "aucun fournisseur nommé" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# `fournisseur-fusionner` (lot 4 du 02/11/2026) -- câblage CLI seulement, la
+# logique (`ingest.fusion_fournisseur`) est testée dans
+# `test_fusion_fournisseur.py`.
+# ---------------------------------------------------------------------------
+
+
+def test_cli_fournisseur_fusionner_affiche_les_nombres_et_commite(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    appels: dict[str, Any] = {}
+
+    async def _service(session: Any, **kwargs: Any) -> ResultatFusionFournisseur:
+        appels.update(kwargs)
+        return ResultatFusionFournisseur(
+            source_nom="Source Test",
+            cible_nom="Cible Test",
+            simulation=kwargs["simulation"],
+            deplacees={"document": 3, "article": 2},
+            doublons={"chantier_alias": 1},
+            reconduites={"anomalie": 1},
+            alias_ajoutes=("Source Test",),
+        )
+
+    monkeypatch.setattr(cli, "fusionner_fournisseurs", _service)
+    code = cli.main(
+        ["fournisseur-fusionner", "--source", "Source Test", "--cible", "Cible Test"]
+    )
+    sortie = capsys.readouterr().out
+    assert code == 0
+    assert appels == {
+        "source_nom": "Source Test",
+        "cible_nom": "Cible Test",
+        "simulation": False,
+    }
+    assert "Source Test" in sortie and "Cible Test" in sortie
+    assert "document : 3" in sortie and "article : 2" in sortie
+    assert "chantier_alias : 1" in sortie
+    assert "Simulation" not in sortie
+
+
+def test_cli_fournisseur_fusionner_simulation_et_refus(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def _refus(session: Any, **kwargs: Any) -> ResultatFusionFournisseur:
+        raise FusionFournisseurImpossible("Fournisseur introuvable : Nulle Part")
+
+    monkeypatch.setattr(cli, "fusionner_fournisseurs", _refus)
+    code = cli.main(
+        [
+            "fournisseur-fusionner",
+            "--source",
+            "Nulle Part",
+            "--cible",
+            "Cible Test",
+            "--simulation",
+        ]
+    )
+    sortie = capsys.readouterr()
+    assert code == 1
+    assert "Fournisseur introuvable : Nulle Part" in sortie.out + sortie.err
+
+
+def test_cli_fournisseur_fusionner_exige_source_et_cible() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["fournisseur-fusionner", "--source", "A"])
+    assert exc_info.value.code == 2

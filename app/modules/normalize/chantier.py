@@ -309,3 +309,73 @@ def reference_utilisable(
         return False
     lus = set(mots)
     return not any(lus <= set(normaliser_libelle(nom).split()) for nom in noms_comptes)
+
+
+# Mots de liaison d'un bon qui désignent la personne, jamais le chantier
+# (« POUR LORIS », « PRS PAR YVAN », « CDE ... »), comparés après
+# `normaliser_libelle` (casse et accents ignorés).
+_MOTS_DE_LIAISON = frozenset(
+    {"pour", "par", "pris", "prs", "cde", "commande", "enleve"}
+)
+_SEPARATEURS = " \t/,;|:-"
+_SENTINELLE = "\x00"
+_SEPARATEURS_RE = re.escape(_SEPARATEURS)
+_RUN_SENTINELLES_RE = re.compile(
+    rf"[{_SEPARATEURS_RE}]*(?:{_SENTINELLE}[{_SEPARATEURS_RE}]*)+"
+)
+_PARENTHESES_VIDES_RE = re.compile(r"\(\s*\)")
+_GROUPE_UNIQUE_RE = re.compile(r"^\(([^()]*)\)$")
+
+
+def _mots_des_comptes(noms_comptes: Sequence[str | None]) -> frozenset[str]:
+    """Mots des noms de compte (prénoms, noms) d'au moins trois lettres : les
+    particules (« de », « le ») ne doivent jamais vider un nom de chantier."""
+    return frozenset(
+        mot
+        for nom in noms_comptes
+        for mot in normaliser_libelle(nom).split()
+        if len(mot) >= 3 and mot.isalpha()
+    )
+
+
+def retirer_employes_du_chantier(
+    brut: str | None, noms_comptes: Sequence[str | None]
+) -> str | None:
+    """Nom de chantier lu sans la personne qui commande ou enlève
+    (lot 4 du 02/11/2026, D2) : retire les mots qui sont des mots du nom d'un
+    compte (`utilisateur.nom`) et les mots de liaison « pour », « par »,
+    « pris », « prs », « cde », « commande », « commandé », « enlevé »
+    (casse et accents ignorés), ainsi que les séparateurs et parenthèses qui
+    n'entourent plus rien. « <CHANTIER> (<PRÉNOM>) » -> « <CHANTIER> » ;
+    « <PRÉNOM> (<CHANTIER>) » -> « <CHANTIER> » (parenthèses ôtées quand elles
+    sont tout ce qui reste). Plus rien -> `None` (le nom lu compte comme
+    vide). Aucun mot retiré -> le texte est rendu inchangé. Limite : un
+    chantier dont le nom est un mot du nom d'un compte serait vidé
+    (`docs/dette.md`)."""
+    if brut is None:
+        return None
+    retires = _mots_des_comptes(noms_comptes) | _MOTS_DE_LIAISON
+    nombre = 0
+
+    def _remplacer(trouve: re.Match[str]) -> str:
+        nonlocal nombre
+        mot = trouve.group(0)
+        if normaliser_libelle(mot) in retires:
+            nombre += 1
+            return _SENTINELLE
+        return mot
+
+    traite = re.sub(r"\w+", _remplacer, brut)
+    if nombre == 0:
+        return brut
+
+    def _recoller(trouve: re.Match[str]) -> str:
+        return " / " if re.search(r"[/,;|]", trouve.group(0)) else " "
+
+    traite = _RUN_SENTINELLES_RE.sub(_recoller, traite)
+    traite = _PARENTHESES_VIDES_RE.sub("", traite).strip(_SEPARATEURS)
+    seul = _GROUPE_UNIQUE_RE.match(traite)
+    if seul is not None:
+        traite = seul.group(1).strip(_SEPARATEURS)
+    traite = " ".join(traite.split())
+    return traite if any(c.isalnum() for c in traite) else None
