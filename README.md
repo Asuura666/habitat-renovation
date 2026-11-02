@@ -405,6 +405,14 @@ si elle ressemble à un chantier connu, le bon y est rattaché (jamais de
 création de chantier ni d'alias appris depuis une référence) ; sinon le bon
 reste sans chantier et « À régler » le dit avec la référence lue. Les
 prénoms d'employés, les numéros et les références trop courtes sont ignorés.
+Depuis le 02/11/2026, le nom de chantier lu est aussi nettoyé avant d'être
+comparé et avant la création d'un chantier : les mots qui sont des mots du nom
+d'un compte (prénoms et noms des employés, trois lettres au moins) et les mots
+de liaison « pour », « par », « pris », « prs », « cde », « commande »,
+« commandé », « enlevé » en sont retirés (« LES SOURCES (PRÉNOM) » devient
+« LES SOURCES » ; « POUR PRÉNOM » devient vide, on passe alors à la légende
+puis à la référence de commande). Le nom lu enregistré sur le bon ne change
+pas ; `recalculer-bons` applique ce nettoyage aux bons déjà reçus.
 Sur les lignes, la confiance ne repose plus que sur la quantité, le prix
 unitaire et le montant lus ensemble ; une ligne dont quantité x prix ne donne
 pas le montant (au centime près, avec la tolérance des prix arrondis) porte le
@@ -1334,6 +1342,7 @@ commande interactive). D'après `app/cli.py`.
 | `utilisateur-creer --email --nom --role {admin,agent} --agence [--telegram-id]` | Crée un compte (mot de passe interactif) | 2 : mots de passe différents, trop court, e-mail ou identifiant Telegram déjà pris |
 | `utilisateur-desactiver --email` | Désactive un compte | 2 : compte introuvable |
 | `fournisseur-definir --nom [--siret] [--tva] [--alias …] [--agence …]` | Crée ou met à jour un fournisseur (jamais créé automatiquement) | toujours 0 |
+| `fournisseur-fusionner --source NOM --cible NOM [--simulation]` | Fusionne un fournisseur dans un autre (par exemple un fournisseur créé à tort) : tout ce que porte la source (bons, noms de chantier appris, articles, agences, grilles et historique de prix) passe à la cible, le nom et les alias de la source deviennent des alias de la cible, le SIRET et la TVA de la cible ne changent pas, puis la source est supprimée ; en cas de conflit (même nom de chantier appris, même article, même agence) la ligne de la cible est gardée ; une seule transaction, journal `fournisseur_fusionne` ; `--simulation` n'écrit rien et affiche les nombres de lignes par table ; refus clair si source = cible, si l'un des deux n'existe pas ou si deux documents portent le même numéro chez les deux fournisseurs | 1 : fusion refusée |
 | `rapport-ocr <dossier> --sortie <md> [--seuil] [--appeler-ocr]` | Mesure le taux d'erreur OCR sur des photos annotées | 2 : dossier introuvable ou vide |
 | `rapprocher --facture <uuid>` ou `--tout` | Rejoue le rapprochement (idempotent) | `--facture` : 2 si introuvable ; `--tout` : 1 si au moins un échec |
 | `controles-differes` | Évalue R06 (si activée), R14, R16 (R15 retirée le 31/10/2026) | toujours 0 |
