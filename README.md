@@ -310,10 +310,10 @@ de démonstration.
 | Écran | Route | Accès | Ce qu'on y fait | Depuis |
 | --- | --- | --- | --- | --- |
 | Connexion | `/connexion` | Public | Se connecter (cookie httpOnly, 12 h glissantes) | 17/09 |
-| Vue d'ensemble | `/` | Admin | Sélecteur de mois ; chiffres du mois (facturé, conforme, écart, sans bon, montant des bons du mois, problèmes à régler, BL reçus/facturés) ; chantiers triés par montant à vérifier, avec pastille d'état ; problèmes prioritaires ; carte « Commentaires de la semaine » (IA ; affiche aussi le nombre de contestations de prix depuis le 01/10 ; IA allumée seulement sur la démo) ; export Excel du détail du mois | 23/09 (refonte) ; carte IA 28/09 |
+| Vue d'ensemble | `/` | Admin | Sélecteur de mois ; chiffres du mois (facturé, conforme, écart, sans bon, montant des bons du mois, problèmes à régler, BL reçus/facturés) ; ligne « N factures ce mois-ci → » vers la liste des factures ; **suivi des chantiers du mois** (02/11) : chantiers ayant un bon ou une facture dans le mois, avec nombre et montant des bons, bons à vérifier, problèmes ouverts et facturé (« Pas encore » sinon), triés par montant des bons, plus une ligne « Sans chantier » ; problèmes prioritaires ; carte « Commentaires de la semaine » (IA ; affiche aussi le nombre de contestations de prix depuis le 01/10 ; IA allumée seulement sur la démo) ; export Excel du détail du mois | 23/09 (refonte) ; carte IA 28/09 |
 | À régler | `/a-regler`, `/a-regler/:id` | Admin | Liste unique de ce qui attend une décision (problèmes ouverts, documents à corriger, chantiers à rattacher), filtrable ; détail avec « pourquoi c'est signalé » chiffré, liens vers la facture et le bon ; traiter exige un commentaire (« Contesté auprès du fournisseur » ou « C'est normal, ignorer ») ; choix du chantier sur une alerte R18 ; avis de l'IA sur une alerte de prix | 23/09 ; R18 27/09 ; avis IA 28/09 |
 | Chantiers | `/chantiers`, `/chantiers/:id` | Admin | Vue « Chantiers du mois » (par défaut) ou « Tous les chantiers », filtres « Rechercher un chantier » (nom ou client), « Mois », « Mois de facturation » et agence, carte des chantiers sans bon repliable (22/10) ; création ; fiche (client, agence, livraisons cliquables, quatre chiffres, modification) ; chantiers « à compléter » ; **fusion** de deux chantiers | 23/09 ; à compléter et fusion 27/09 |
-| Fournisseurs | `/fournisseurs`, `/fournisseurs/:id` | Admin | Liste ; fiche avec chantiers concernés, **filtre par mois**, problèmes ouverts ; lien vers la grille de prix | 23/09 ; mois 27/09 |
+| Fournisseurs | `/fournisseurs`, `/fournisseurs/:id` | Admin | Liste ; fiche avec carte « Factures » (non archivées, suit le mois, lien vers chaque facture), chantiers concernés, **filtre par mois**, problèmes ouverts ; lien vers la grille de prix | 23/09 ; mois 27/09 ; factures 02/11 |
 | Grille de prix | `/fournisseurs/:id/prix` | Admin | Prix en vigueur, recherche, ajout ou modification (nouvelle ligne d'historique), retrait, import Excel avec aperçu, modèle à télécharger ; **contestations** : lien « Historique » sous chaque produit (versions de la grille, prix vus sur les bons et factures, prix observés) et lien « ⚑ N contestation(s) » sous un produit contesté qui déplie son historique (date, bon, prix du bon, prix de la grille, auteur, commentaire), et section « Contestations de prix (N) » sous le tableau, groupée par produit, avec la mention « absent de la grille » pour un produit retiré (section absente s'il n'y en a aucune ; la recherche de la grille ne la filtre pas) | 28/09 ; contestations 01/10 (démo et production) |
 | Livraisons | `/livraisons` | Admin | Lignes de facture et bons pas encore facturés (colonne « Facturé »), filtrables par mois, agence, chantier, fournisseur ; clic vers le bon ; export Excel | 27/09 ; bons non facturés 31/10 |
 | Prix à vérifier | `/prix` | Admin | Une rangée par produit en alerte (prix du bon, grille et sa date, dernier prix facturé et sa date, écart, ressemblance, colonne « Internet » si l'IA est allumée) ; Valider ce prix / Contester (commentaire obligatoire) / Ignorer ; recontrôle des bons. **Colonne « Internet » (si l'IA est allumée) sur toutes les rangées** : bouton « Chercher sur internet », puis « Recherche en cours… », puis le résultat avec « Relancer » (« introuvable » si rien de vérifiable), ou un message court avec « Réessayer » | 28/09 ; prix internet à plusieurs sources 29/09 (production le 30/09) ; bouton sur toutes les rangées 01/10 (démo seulement : IA éteinte en production) |
@@ -421,6 +421,17 @@ avec un problème se voit donc au bon endroit. Les tuiles et montants
 qui redeviennent « non facturés ». La tuile « Montant des bons du mois » de la
 vue d'ensemble compte tous les bons non archivés du mois, vérifiés ou non
 (« dont N à vérifier », « K sans montant lu »).
+
+**Suivi des chantiers, montants des bons et encart Factures** (lot 3 du
+02/11/2026). La colonne « Montant » des livraisons montre, pour un bon pas
+encore facturé, le montant lu sur le bon, même s'il est à vérifier ou a un
+problème (« — » seulement si aucun montant n'a été lu) ; l'export Excel suit.
+Le cadre « Chantiers » de la vue d'ensemble liste les chantiers qui ont au
+moins un bon dans le mois, même non facturés (`suivi_chantiers` dans
+`GET /api/tableau-de-bord`) ; l'ancienne liste `chantiers` est gardée telle
+quelle dans l'API mais l'écran ne la lit plus. La fiche fournisseur a une carte
+« Factures » (`GET /api/factures?fournisseur=…&mois=…&archivees=false`) et la
+vue d'ensemble un raccourci vers `/documents?filtre=factures`.
 
 **Historique d'un produit** (lot 2 du 31/10/2026). Sur la grille d'un
 fournisseur, « Historique » déplie tout ce qu'on sait d'un produit : les

@@ -1861,7 +1861,7 @@ Décisions d'Ilane du 31/10/2026 (branche `feature/sans-confirmation-et-fourniss
   vitest : la fonction de comparaison est testée en l'exécutant avec Node (le test
   est ignoré si Node est absent).
 - **Bons dans les livraisons (B3).** Un bon non facturé a pour état « À vérifier »,
-  « Problème ouvert » ou « Reçu » (jamais « Conforme »), sans montant. Un bon
+  « Problème ouvert » ou « Reçu » (jamais « Conforme »), avec le montant lu sur le bon depuis le lot 3. Un bon
   n'est « facturé » que si le bloc d'une facture **non archivée** le cite. Le filtre
   d'état « À vérifier » ne reprend que les bons à vérifier (pas ceux qui ont un
   problème ouvert). Sur la fiche chantier, les lignes de facture viennent toujours
@@ -1885,3 +1885,19 @@ Décisions d'Ilane du 31/10/2026 (branche `feature/sans-confirmation-et-fourniss
   `importer-historique-prix` (pas d'écran) ; deux lignes identiques (même produit,
   même jour, même facture, même prix, même quantité) comptent pour une seule, y
   compris dans un même fichier. Cent lignes au plus, sans pagination.
+
+## Lot 3 du 02/11/2026
+
+- **Montant d'un bon.** Seules les lignes de bons non facturés portent
+  `montant_bon` ; une ligne de facture garde le montant facturé (le montant du
+  bon cité n'est pas relu). La somme des montants de la colonne mélange donc
+  facturé et lu sur bon : l'écran n'en fait aucun total.
+- **Suivi des chantiers.** `suivi_chantiers` s'ajoute à `chantiers` (gardé pour
+  compatibilité, plus lu par l'écran : à retirer plus tard, comme les champs
+  « reçus »). La colonne « Problèmes » compte les problèmes ouverts du mois
+  attribués au chantier par le bilan (bons et factures), pas ceux d'autres mois.
+  Le tri « Sans chantier » suit le montant comme les autres lignes. La pastille
+  d'état de l'ancien cadre n'est plus affichée.
+- **Encart Factures.** Le filtre de mois de la carte suit celui de la page ;
+  l'agence n'est pas appliquée. Le lien « Voir tout » vers les documents filtrés
+  sur le fournisseur n'a pas été ajouté.
