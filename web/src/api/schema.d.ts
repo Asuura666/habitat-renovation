@@ -3628,6 +3628,29 @@ export interface components {
             famille?: string | null;
         };
         /**
+         * SuiviChantierReponse
+         * @description Lot 3, C2 : une ligne de `suivi_chantiers` dans `GET /api/tableau-de-
+         *     bord` -- mêmes attributs qu'`ingest.tableau_de_bord.SuiviChantier`.
+         *     `chantier_id` et `nom_canonique` valent `None` pour la ligne « Sans
+         *     chantier » ; `facture_ht` vaut `None` tant que rien n'est facturé.
+         */
+        SuiviChantierReponse: {
+            /** Chantier Id */
+            chantier_id: string | null;
+            /** Nom Canonique */
+            nom_canonique: string | null;
+            /** Nb Bons */
+            nb_bons: number;
+            /** Montant Bons */
+            montant_bons: string;
+            /** Nb Bons A Verifier */
+            nb_bons_a_verifier: number;
+            /** Nb Problemes */
+            nb_problemes: number;
+            /** Facture Ht */
+            facture_ht: string | null;
+        };
+        /**
          * SyntheseAccueilReponse
          * @description Réponse de `GET /api/ia/synthese` — mêmes attributs
          *     qu'`ingest.ia_synthese.SyntheseAccueil`.
@@ -3718,6 +3741,11 @@ export interface components {
              * @default 0
              */
             nb_factures_mois: number;
+            /**
+             * Suivi Chantiers
+             * @default []
+             */
+            suivi_chantiers: components["schemas"]["SuiviChantierReponse"][];
         };
         /**
          * TotauxMoisReponse

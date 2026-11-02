@@ -736,6 +736,23 @@ class TotauxMoisReponse(BaseModel):
     facture_a_verifier: Decimal
 
 
+class SuiviChantierReponse(BaseModel):
+    """Lot 3, C2 : une ligne de `suivi_chantiers` dans `GET /api/tableau-de-
+    bord` -- mêmes attributs qu'`ingest.tableau_de_bord.SuiviChantier`.
+    `chantier_id` et `nom_canonique` valent `None` pour la ligne « Sans
+    chantier » ; `facture_ht` vaut `None` tant que rien n'est facturé."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    chantier_id: uuid.UUID | None
+    nom_canonique: str | None
+    nb_bons: int
+    montant_bons: Decimal
+    nb_bons_a_verifier: int
+    nb_problemes: int
+    facture_ht: Decimal | None
+
+
 class ChantierTableauReponse(BaseModel):
     """Une ligne de `chantiers` dans `GET /api/tableau-de-bord` — mêmes
     attributs qu'`ingest.tableau_de_bord.ChantierTableau`. `chantier_id`
@@ -795,6 +812,7 @@ class TableauDeBordReponse(BaseModel):
     nb_bons_a_verifier: int
     nb_bons_mois_sans_montant: int
     nb_factures_mois: int = 0
+    suivi_chantiers: list[SuiviChantierReponse] = []
 
 
 class DepotAgentReponse(BaseModel):

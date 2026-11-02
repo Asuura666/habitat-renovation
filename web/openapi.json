@@ -10135,6 +10135,74 @@
     "title": "SaisiePrixRequete",
     "description": "Corps de `POST /api/grilles/fournisseurs/{id}/prix` (spec §7.4) :\n`date_effet` absente -> aujourd'hui, résolu par le routeur (le service\nne connaît que des dates déjà choisies, comme `ingest.grilles.SaisiePrix`\nl'exige)."
    },
+   "SuiviChantierReponse": {
+    "properties": {
+     "chantier_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chantier Id"
+     },
+     "nom_canonique": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Nom Canonique"
+     },
+     "nb_bons": {
+      "type": "integer",
+      "title": "Nb Bons"
+     },
+     "montant_bons": {
+      "type": "string",
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Montant Bons"
+     },
+     "nb_bons_a_verifier": {
+      "type": "integer",
+      "title": "Nb Bons A Verifier"
+     },
+     "nb_problemes": {
+      "type": "integer",
+      "title": "Nb Problemes"
+     },
+     "facture_ht": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Facture Ht"
+     }
+    },
+    "type": "object",
+    "required": [
+     "chantier_id",
+     "nom_canonique",
+     "nb_bons",
+     "montant_bons",
+     "nb_bons_a_verifier",
+     "nb_problemes",
+     "facture_ht"
+    ],
+    "title": "SuiviChantierReponse",
+    "description": "Lot 3, C2 : une ligne de `suivi_chantiers` dans `GET /api/tableau-de-\nbord` -- mêmes attributs qu'`ingest.tableau_de_bord.SuiviChantier`.\n`chantier_id` et `nom_canonique` valent `None` pour la ligne « Sans\nchantier » ; `facture_ht` vaut `None` tant que rien n'est facturé."
+   },
    "SyntheseAccueilReponse": {
     "properties": {
      "ia_active": {
@@ -10313,6 +10381,14 @@
       "type": "integer",
       "title": "Nb Factures Mois",
       "default": 0
+     },
+     "suivi_chantiers": {
+      "items": {
+       "$ref": "#/components/schemas/SuiviChantierReponse"
+      },
+      "type": "array",
+      "title": "Suivi Chantiers",
+      "default": []
      }
     },
     "type": "object",

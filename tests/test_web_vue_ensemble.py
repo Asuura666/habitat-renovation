@@ -26,7 +26,7 @@ def test_vue_ensemble_contenu() -> None:
     assert "obtenirTableauDeBord" in page
     assert "useSearchParams" in page
     assert 'type="month"' in page
-    assert "PastilleEtat" in page
+    assert "SectionChantiers" in page
 
     # Les six tuiles chiffrées (maquette `Main`, brief T5) — libellés exacts.
     for libelle in (
@@ -63,8 +63,9 @@ def test_vue_ensemble_contenu() -> None:
     assert "sousTexteEcart(" not in page
     assert "controlePrixActif" not in page
 
-    assert "Chantier à rattacher" in page
-    assert "Aucune facture ce mois-ci." in page
+    assert "Sans chantier" in page
+    assert "Aucun bon ce mois-ci." in page
+    assert "Aucune facture ce mois-ci." not in page
     assert "Exporter pour Excel" in page
 
     # Tableau (ordinateur) / cartes empilées (téléphone).
@@ -194,7 +195,7 @@ def test_vue_ensemble_liens_vers_la_fiche_et_le_probleme() -> None:
     chantier non rattaché mène à « À régler » filtré sur les chantiers à
     rattacher."""
     page = (SRC / "pages" / "VueEnsemble.tsx").read_text()
-    assert "lienChantier(chantier.chantier_id, mois)" in page
+    assert "lienChantier(ligne.chantier_id, mois)" in page
     assert "`/a-regler/${priorite.anomalie.id}`" in page
     liens = (SRC / "lib" / "liens.ts").read_text()
     assert 'LIEN_CHANTIERS_A_RATTACHER = "/a-regler?filtre=rattacher"' in liens
@@ -209,9 +210,8 @@ def test_vue_ensemble_tableau_aligne_et_client_nomme() -> None:
     page = (SRC / "pages" / "VueEnsemble.tsx").read_text()
     assert "<table" in page
     assert "grid-cols-[2.2fr_1.4fr_1fr_1fr_1fr]" not in page
-    assert '"Client non renseigné"' in page
     assert "dernier_mois_facture" in page
-    assert "dernier mois facturé" in page
+    assert "Dernier mois facturé" in page
 
 
 def test_mois_de_l_url_valide_partout() -> None:
@@ -314,3 +314,22 @@ def test_vue_ensemble_annonce_les_factures_du_mois() -> None:
     assert "nb_factures_mois" in page
     assert "/documents?filtre=factures" in page
     assert "ce mois-ci" in page
+
+
+def test_vue_ensemble_suit_les_chantiers_du_mois_meme_non_factures() -> None:
+    """Lot 3, C2 (02/11/2026) : « même si ce n'est pas encore facturé, on peut
+    voir le suivi des chantiers du mois en cours » -- le cadre se construit
+    sur `suivi_chantiers`, plus sur les seules factures."""
+    page = (SRC / "pages" / "VueEnsemble.tsx").read_text()
+
+    assert "donnees.suivi_chantiers" in page
+    assert "donnees.chantiers" not in page
+    for chaine in (
+        "Montant des bons",
+        "nb_bons_a_verifier",
+        "nb_problemes",
+        '"Pas encore"',
+        '"Sans chantier"',
+        "Aucun bon ce mois-ci.",
+    ):
+        assert chaine in page, chaine
