@@ -17,6 +17,21 @@ export function listerFactures(): Promise<FactureResume[]> {
   return appelerApi<FactureResume[]>("/api/factures");
 }
 
+/** Lot 3, C3 : les factures non archivées d'un fournisseur, éventuellement
+ * d'un mois (`mois` au format `AAAA-MM-01`) -- encart « Factures » de la
+ * fiche fournisseur. */
+export function listerFacturesFournisseur(fournisseurId: string, mois?: string): Promise<FactureResume[]> {
+  const params = new URLSearchParams({ fournisseur: fournisseurId, archivees: "false" });
+  if (mois) {
+    params.set("mois", mois);
+  }
+  return appelerApi<FactureResume[]>("/api/factures", { url: `/api/factures?${params.toString()}` });
+}
+
+export function cleFacturesFournisseur(fournisseurId: string, mois?: string): readonly unknown[] {
+  return ["factures", "fournisseur", fournisseurId, mois ?? null] as const;
+}
+
 export function obtenirFacture(id: string): Promise<FactureDetail> {
   // `chemin` reste le modèle littéral du schéma (route garantie exister) ;
   // `url` porte l'identifiant réel (voir `api/client.ts`).

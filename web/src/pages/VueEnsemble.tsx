@@ -16,14 +16,13 @@ import {
   Chiffre,
   EnTetePage,
   EtatVide,
-  PastilleEtat,
   phraseProbleme,
   titreRegle,
 } from "../ui";
 import { formaterMontant, libelleMois, lireMois, mentionFactureAVerifier, moisApi, TIRET } from "../lib/formats";
 import { lienChantier } from "../lib/liens";
 
-type Chantier = TableauDeBord["chantiers"][number];
+type SuiviChantier = TableauDeBord["suivi_chantiers"][number];
 type Priorite = TableauDeBord["priorites"][number];
 
 /** `AAAA-MM`, mois restreint à `01`-`12` (correction de revue, tour 1 :
@@ -65,39 +64,31 @@ function prenomAffiche(nom: string | null, email: string): string {
   return source.split(/\s+/)[0] ?? source;
 }
 
-/** Nom affiché d'un chantier : celui non résolu (brief T5) porte le nom
- * fixe « Chantier à rattacher » et renvoie vers l'écran « À régler » plutôt
- * que vers une fiche chantier qui n'existe pas encore pour lui. */
-function nomChantier(chantier: Chantier): string {
-  return chantier.nom_canonique ?? "Chantier à rattacher";
+/** Nom affiché d'une ligne du suivi : la ligne `chantier_id === null`
+ * regroupe les bons sans chantier. */
+function nomSuivi(ligne: SuiviChantier): string {
+  return ligne.nom_canonique ?? "Sans chantier";
 }
 
-/** « Client · agence », avec « Client non renseigné » plutôt que l'agence
- * seule, qui se lisait comme un nom de client (revue finale, constat
- * ECRAN-19 — même libellé que l'écran « Chantiers »). */
-function clientEtAgence(chantier: Chantier): string {
-  if (chantier.chantier_id === null) {
-    return TIRET;
-  }
-  const client = chantier.client ?? "Client non renseigné";
-  return chantier.agence !== null ? `${client} · ${chantier.agence}` : client;
+/** Facturé du mois, ou « Pas encore » tant que rien n'est facturé pour ce
+ * chantier (lot 3, C2). */
+function libelleFacture(ligne: SuiviChantier): string {
+  return ligne.facture_ht !== null ? formaterMontant(ligne.facture_ht) : "Pas encore";
 }
 
-/** Nombre de problèmes ouverts d'un chantier, ou tiret cadratin quand il
- * n'y en a aucun (maquette `Main`) — valeur déjà comptée côté serveur,
- * jamais recalculée ici. */
-function nbProblemesChantier(chantier: Chantier): string {
-  const nb = chantier.montants.nb_anomalies_ouvertes;
-  return nb > 0 ? String(nb) : TIRET;
+/** Nombre de problèmes, ou tiret quand il n'y en a aucun — valeur déjà
+ * comptée côté serveur, jamais recalculée ici. */
+function nbProblemesSuivi(ligne: SuiviChantier): string {
+  return ligne.nb_problemes > 0 ? String(ligne.nb_problemes) : TIRET;
 }
 
-/** Ligne du tableau (ordinateur) : un vrai `<table>` (revue finale, constat
- * COUVERTURE-6 — chaque ligne était une grille indépendante, une pastille
- * longue élargissait sa colonne dans sa seule ligne et désalignait le
- * tableau). Toute la ligne ouvre le chantier (clic), et le nom porte le
- * vrai lien pour le clavier et les lecteurs d'écran — même motif que la
- * carte « Livraisons » de la fiche chantier. */
-function LigneChantier({ chantier, lien }: { chantier: Chantier; lien: string }): ReactElement {
+function nbBonsAVerifier(ligne: SuiviChantier): string {
+  return ligne.nb_bons_a_verifier > 0 ? String(ligne.nb_bons_a_verifier) : TIRET;
+}
+
+/** Ligne du tableau (ordinateur) : toute la ligne ouvre le chantier (clic),
+ * et le nom porte le vrai lien pour le clavier et les lecteurs d'écran. */
+function LigneChantier({ ligne, lien }: { ligne: SuiviChantier; lien: string }): ReactElement {
   const navigate = useNavigate();
 
   function gererClic(evenement: MouseEvent<HTMLTableRowElement>): void {
@@ -116,44 +107,45 @@ function LigneChantier({ chantier, lien }: { chantier: Chantier; lien: string })
           to={lien}
           className="font-medium text-encre outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
         >
-          {nomChantier(chantier)}
+          {nomSuivi(ligne)}
         </Link>
-        <span className="block text-xs text-encre-2">{clientEtAgence(chantier)}</span>
       </th>
-      <td className="py-3 pr-3">
-        <PastilleEtat etat={chantier.etat} />
-      </td>
-      <td className="py-3 pr-3 text-right font-mono">{formaterMontant(chantier.montants.facture_ht)}</td>
-      <td className="py-3 pr-3 text-right font-mono">{formaterMontant(chantier.a_verifier)}</td>
-      <td className="py-3 pr-1 text-right">{nbProblemesChantier(chantier)}</td>
+      <td className="py-3 pr-3 text-right">{ligne.nb_bons}</td>
+      <td className="py-3 pr-3 text-right font-mono">{formaterMontant(ligne.montant_bons)}</td>
+      <td className="py-3 pr-3 text-right">{nbBonsAVerifier(ligne)}</td>
+      <td className="py-3 pr-3 text-right">{nbProblemesSuivi(ligne)}</td>
+      <td className="py-3 pr-1 text-right font-mono">{libelleFacture(ligne)}</td>
     </tr>
   );
 }
 
-function CarteChantier({ chantier, lien }: { chantier: Chantier; lien: string }): ReactElement {
+function CarteChantier({ ligne, lien }: { ligne: SuiviChantier; lien: string }): ReactElement {
   return (
     <li>
       <Link
         to={lien}
         className="block rounded-carte border border-bordure bg-surface p-4 outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
-        <p className="font-medium text-encre">{nomChantier(chantier)}</p>
-        <p className="text-xs text-encre-2">{clientEtAgence(chantier)}</p>
-        <div className="mt-3">
-          <PastilleEtat etat={chantier.etat} />
-        </div>
-        <dl className="mt-3 grid grid-cols-3 gap-2 text-sm">
+        <p className="font-medium text-encre">{nomSuivi(ligne)}</p>
+        <p className="text-xs text-encre-2">
+          {ligne.nb_bons} bon{ligne.nb_bons > 1 ? "s" : ""}
+        </p>
+        <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
           <div>
-            <dt className="text-xs text-encre-2">Facturé</dt>
-            <dd className="font-mono">{formaterMontant(chantier.montants.facture_ht)}</dd>
+            <dt className="text-xs text-encre-2">Montant des bons</dt>
+            <dd className="font-mono">{formaterMontant(ligne.montant_bons)}</dd>
           </div>
           <div>
-            <dt className="text-xs text-encre-2">À vérifier</dt>
-            <dd className="font-mono">{formaterMontant(chantier.a_verifier)}</dd>
+            <dt className="text-xs text-encre-2">Facturé</dt>
+            <dd className="font-mono">{libelleFacture(ligne)}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-encre-2">Bons à vérifier</dt>
+            <dd>{nbBonsAVerifier(ligne)}</dd>
           </div>
           <div>
             <dt className="text-xs text-encre-2">Problèmes</dt>
-            <dd>{nbProblemesChantier(chantier)}</dd>
+            <dd>{nbProblemesSuivi(ligne)}</dd>
           </div>
         </dl>
       </Link>
@@ -161,63 +153,44 @@ function CarteChantier({ chantier, lien }: { chantier: Chantier; lien: string })
   );
 }
 
-function SectionChantiers({
-  chantiers,
-  mois,
-  dernierMoisFacture,
-}: {
-  chantiers: Chantier[];
-  mois: string;
-  dernierMoisFacture: string | undefined;
-}): ReactElement {
-  // Revue finale (constats ECRAN-4, COUVERTURE-3) : la fiche s'ouvre sur le
-  // mois affiché ici — elle montre alors les mêmes montants que la ligne
-  // cliquée, sa pastille d'état et ses quatre chiffres.
-  const lien = (chantier: Chantier): string => lienChantier(chantier.chantier_id, mois);
+/** Lot 3, C2 : « même si ce n'est pas encore facturé, on peut voir le suivi
+ * des chantiers du mois en cours ». Une ligne par chantier qui a un bon ou
+ * une facture dans le mois, plus « Sans chantier » ; tri et comptes faits
+ * par le serveur. */
+function SectionChantiers({ suivi, mois }: { suivi: SuiviChantier[]; mois: string }): ReactElement {
+  // La fiche s'ouvre sur le mois affiché ici ; « Sans chantier » mène à
+  // « À régler » filtré sur les chantiers à rattacher (`lienChantier(null)`).
+  const lien = (ligne: SuiviChantier): string => lienChantier(ligne.chantier_id, mois);
 
-  if (chantiers.length === 0) {
-    return (
-      <div className="space-y-3">
-        <EtatVide message="Aucune facture ce mois-ci." />
-        {/* Revue finale (constat COUVERTURE-26) : les factures fournisseur
-            sont mensuelles (celle d'août arrive en septembre) — le serveur
-            indique le dernier mois facturé, un clic suffit pour y aller. */}
-        {dernierMoisFacture !== undefined && dernierMoisFacture !== mois && (
-          <Link
-            to={`/?mois=${dernierMoisFacture}`}
-            className="inline-flex min-h-[44px] items-center text-sm font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            Voir {libelleMois(dernierMoisFacture)}, dernier mois facturé →
-          </Link>
-        )}
-      </div>
-    );
+  if (suivi.length === 0) {
+    return <EtatVide message="Aucun bon ce mois-ci." />;
   }
   return (
     <>
       {/* Cartes empilées — téléphone (< md) */}
       <ul className="space-y-3 md:hidden">
-        {chantiers.map((chantier) => (
-          <CarteChantier key={chantier.chantier_id ?? "a-rattacher"} chantier={chantier} lien={lien(chantier)} />
+        {suivi.map((ligne) => (
+          <CarteChantier key={ligne.chantier_id ?? "sans-chantier"} ligne={ligne} lien={lien(ligne)} />
         ))}
       </ul>
 
       {/* Tableau — ordinateur (>= md) */}
       <div className="hidden overflow-x-auto md:block">
         <table className="w-full text-sm text-encre">
-          <caption className="sr-only">Chantiers du mois</caption>
+          <caption className="sr-only">Suivi des chantiers du mois</caption>
           <thead className="border-b border-bordure text-left text-xs font-medium uppercase tracking-wide text-encre-2">
             <tr>
-              <th scope="col" className="pb-2 pl-1 pr-3">Chantier · client</th>
-              <th scope="col" className="pb-2 pr-3">État</th>
-              <th scope="col" className="pb-2 pr-3 text-right">Facturé</th>
+              <th scope="col" className="pb-2 pl-1 pr-3">Chantier</th>
+              <th scope="col" className="pb-2 pr-3 text-right">Bons</th>
+              <th scope="col" className="pb-2 pr-3 text-right">Montant des bons</th>
               <th scope="col" className="pb-2 pr-3 text-right">À vérifier</th>
-              <th scope="col" className="pb-2 pr-1 text-right">Problèmes</th>
+              <th scope="col" className="pb-2 pr-3 text-right">Problèmes</th>
+              <th scope="col" className="pb-2 pr-1 text-right">Facturé</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-fond">
-            {chantiers.map((chantier) => (
-              <LigneChantier key={chantier.chantier_id ?? "a-rattacher"} chantier={chantier} lien={lien(chantier)} />
+            {suivi.map((ligne) => (
+              <LigneChantier key={ligne.chantier_id ?? "sans-chantier"} ligne={ligne} lien={lien(ligne)} />
             ))}
           </tbody>
         </table>
@@ -317,6 +290,12 @@ function SectionPriorites({
 function sousTexteProblemes(nbUrgentsDuMois: number, compte: CompteARegler | undefined): string {
   const urgents = `dont ${nbUrgentsDuMois} urgent${nbUrgentsDuMois > 1 ? "s" : ""}`;
   return compte === undefined ? urgents : `${urgents} · ${compte.nb_problemes}\u00a0en tout, tous mois confondus`;
+}
+
+/** Lot 3, C3 : « 2 factures ce mois-ci → » (nombre lu tel quel du serveur). */
+function libelleFacturesDuMois(nombre: number): string {
+  if (nombre === 0) return "Aucune facture ce mois-ci, voir les factures →";
+  return `${nombre} facture${nombre > 1 ? "s" : ""} ce mois-ci →`;
 }
 
 function sousTexteBonsRecus(nbManquants: number): string {
@@ -490,13 +469,30 @@ export function VueEnsemble(): ReactElement {
             />
           </section>
 
+          {/* Lot 3, C3 : « je trouve pas la facture » -- raccourci discret vers
+              la liste des factures. */}
+          <Link
+            to="/documents?filtre=factures"
+            className="inline-flex min-h-[44px] items-center text-sm font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            {libelleFacturesDuMois(donnees.nb_factures_mois)}
+          </Link>
+          {/* Complément discret (lot 3, C2) : le cadre « Chantiers » n'est plus
+              vide faute de facture, ce raccourci vers le dernier mois facturé
+              n'est qu'une commodité (les factures arrivent avec un mois de
+              retard). */}
+          {dernierMoisFacture !== undefined && dernierMoisFacture !== mois && (
+            <Link
+              to={`/?mois=${dernierMoisFacture}`}
+              className="ml-4 inline-flex min-h-[44px] items-center text-xs text-encre-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Dernier mois facturé : {libelleMois(dernierMoisFacture)}
+            </Link>
+          )}
+
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
             <Carte titre="Chantiers" className="xl:col-span-2">
-              <SectionChantiers
-                chantiers={donnees.chantiers}
-                mois={mois}
-                dernierMoisFacture={dernierMoisFacture}
-              />
+              <SectionChantiers suivi={donnees.suivi_chantiers} mois={mois} />
             </Carte>
 
             <Carte titre="À régler en priorité" className="flex flex-col">

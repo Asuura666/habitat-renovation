@@ -91,7 +91,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Lister Factures Endpoint */
+        /**
+         * Lister Factures Endpoint
+         * @description Lot 3, C3 : filtres facultatifs `fournisseur`, `mois` (un jour du mois)
+         *     et `archivees=false` (écarte les factures archivées).
+         */
         get: operations["lister_factures_endpoint_api_factures_get"];
         put?: never;
         /** Deposer Facture Pdf */
@@ -3219,6 +3223,8 @@ export interface components {
             montants: components["schemas"]["MontantsBilanReponse"];
             /** Facture */
             facture: boolean;
+            /** Montant Bon */
+            montant_bon?: string | null;
         };
         /**
          * LigneSaisieRequete
@@ -3622,6 +3628,29 @@ export interface components {
             famille?: string | null;
         };
         /**
+         * SuiviChantierReponse
+         * @description Lot 3, C2 : une ligne de `suivi_chantiers` dans `GET /api/tableau-de-
+         *     bord` -- mêmes attributs qu'`ingest.tableau_de_bord.SuiviChantier`.
+         *     `chantier_id` et `nom_canonique` valent `None` pour la ligne « Sans
+         *     chantier » ; `facture_ht` vaut `None` tant que rien n'est facturé.
+         */
+        SuiviChantierReponse: {
+            /** Chantier Id */
+            chantier_id: string | null;
+            /** Nom Canonique */
+            nom_canonique: string | null;
+            /** Nb Bons */
+            nb_bons: number;
+            /** Montant Bons */
+            montant_bons: string;
+            /** Nb Bons A Verifier */
+            nb_bons_a_verifier: number;
+            /** Nb Problemes */
+            nb_problemes: number;
+            /** Facture Ht */
+            facture_ht: string | null;
+        };
+        /**
          * SyntheseAccueilReponse
          * @description Réponse de `GET /api/ia/synthese` — mêmes attributs
          *     qu'`ingest.ia_synthese.SyntheseAccueil`.
@@ -3707,6 +3736,16 @@ export interface components {
             nb_bons_a_verifier: number;
             /** Nb Bons Mois Sans Montant */
             nb_bons_mois_sans_montant: number;
+            /**
+             * Nb Factures Mois
+             * @default 0
+             */
+            nb_factures_mois: number;
+            /**
+             * Suivi Chantiers
+             * @default []
+             */
+            suivi_chantiers: components["schemas"]["SuiviChantierReponse"][];
         };
         /**
          * TotauxMoisReponse
@@ -4032,7 +4071,11 @@ export interface operations {
     };
     lister_factures_endpoint_api_factures_get: {
         parameters: {
-            query?: never;
+            query?: {
+                fournisseur?: string | null;
+                mois?: string | null;
+                archivees?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4046,6 +4089,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FactureResumeReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

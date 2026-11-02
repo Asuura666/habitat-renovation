@@ -290,3 +290,21 @@ def test_fiche_fournisseur_tuile_conforme_ouvre_les_livraisons_conformes() -> No
     assert "useLocation" in page
     assert 'hash === "#livraisons"' in page
     assert 'getElementById("livraisons")?.scrollIntoView' in page
+
+
+def test_fiche_fournisseur_a_une_carte_factures() -> None:
+    """Lot 3, C3 (02/11/2026) : « je trouve pas la facture, on devrait
+    rajouter un encart facture » -- la fiche liste les factures non
+    archivées du fournisseur, avec un lien vers chacune."""
+    from pathlib import Path
+
+    web = Path(__file__).parents[1] / "web" / "src"
+    fiche = (web / "pages" / "FicheFournisseur.tsx").read_text()
+    client = (web / "api" / "factures.ts").read_text()
+
+    assert 'aria-label="Factures"' in fiche
+    assert "listerFacturesFournisseur" in fiche
+    assert "Aucune facture" in fiche
+    assert "`/documents/${facture.id}`" in fiche
+    assert "archivees" in client
+    assert "fournisseur" in client

@@ -133,7 +133,7 @@ définition de "quel bon appartient à ce mois".
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Literal
@@ -155,7 +155,8 @@ from app.modules.ingest.bilan import (
 )
 from app.modules.ingest.commun import regles_masquees
 from app.modules.ingest.lecture import TYPES_BL
-from app.modules.ingest.models import Document
+from app.modules.ingest.models import Chantier, Document
+from app.modules.ingest.referentiels_vue import chantiers_du_mois
 
 Etat = Literal["a_rattacher", "bl_manquant", "prix", "quantites", "a_voir", "conforme"]
 
@@ -209,6 +210,23 @@ class ChantierTableau:
 
 
 @dataclass(frozen=True)
+class SuiviChantier:
+    """Lot 3, C2 : une ligne du suivi des chantiers du mois, facturés ou non.
+    `chantier_id`/`nom_canonique` valent `None` pour la ligne « Sans
+    chantier ». `montant_bons` : somme des `total_ht` lus sur les bons du
+    mois (vérifiés ou non) ; `facture_ht` : montant facturé du mois, `None`
+    si rien n'est encore facturé pour ce chantier."""
+
+    chantier_id: uuid.UUID | None
+    nom_canonique: str | None
+    nb_bons: int
+    montant_bons: Decimal
+    nb_bons_a_verifier: int
+    nb_problemes: int
+    facture_ht: Decimal | None
+
+
+@dataclass(frozen=True)
 class ProblemePrioritaire:
     """Une anomalie ouverte du mois retenue parmi les priorités affichées à
     l'accueil (quatre au plus, voir docstring de module)."""
@@ -239,6 +257,10 @@ class TableauDeBord:
     montant_bons_mois: Decimal
     nb_bons_a_verifier: int
     nb_bons_mois_sans_montant: int
+    # Lot 3, C3 : factures non archivées du mois (« N factures ce mois-ci »).
+    nb_factures_mois: int = 0
+    # Lot 3, C2 : suivi des chantiers du mois, même non facturés.
+    suivi_chantiers: list[SuiviChantier] = field(default_factory=list)
 
 
 def _montant_en_jeu(anomalie: AnomalieLue) -> Decimal | None:
@@ -444,6 +466,88 @@ async def _compter_bons_du_mois(
     )
 
 
+async def _compter_factures_du_mois(session: AsyncSession, *, mois: date) -> int:
+    """Lot 3, C3 : nombre de factures non archivées du mois (même règle de
+    mois que le reste du tableau de bord)."""
+    return (
+        await session.execute(
+            select(func.count()).where(
+                Document.type == "facture",
+                Document.statut != "archive",
+                _condition_mois(mois),
+            )
+        )
+    ).scalar_one()
+
+
+async def _suivi_chantiers(
+    session: AsyncSession,
+    *,
+    mois: date,
+    lignes_bilan: list[LigneBilanChantier],
+    anomalies_par_chantier: dict[uuid.UUID | None, list[AnomalieLue]],
+) -> list[SuiviChantier]:
+    """Lot 3, C2 : « même si ce n'est pas encore facturé, on peut voir le
+    suivi des chantiers du mois en cours ». Les chantiers sont ceux de
+    `referentiels_vue.chantiers_du_mois` (au moins un bon dans le mois, ou
+    une facture du mois), plus une ligne « Sans chantier » (`chantier_id`
+    `None`) s'il y a des bons sans chantier ou des blocs non rattachés.
+    Trié par montant des bons décroissant."""
+    bons = {
+        chantier_id: (nb, montant, a_verifier)
+        for chantier_id, nb, montant, a_verifier in (
+            await session.execute(
+                select(
+                    Document.chantier_id,
+                    func.count(),
+                    func.coalesce(func.sum(Document.total_ht), Decimal("0")),
+                    func.count().filter(Document.statut == "a_verifier"),
+                )
+                .where(
+                    Document.type.in_(TYPES_BL),
+                    Document.statut != "archive",
+                    _condition_mois(mois),
+                )
+                .group_by(Document.chantier_id)
+            )
+        ).all()
+    }
+    factures = {ligne.chantier_id: ligne.montants.facture_ht for ligne in lignes_bilan}
+    du_mois = await chantiers_du_mois(session, mois, None)
+    ids: list[uuid.UUID | None] = [ligne.chantier_id for ligne in du_mois]
+    if None in bons or None in factures:
+        ids.append(None)
+    noms: dict[uuid.UUID | None, str | None] = {None: None}
+    vrais_ids = [i for i in ids if i is not None]
+    if vrais_ids:
+        noms.update(
+            (
+                await session.execute(
+                    select(Chantier.id, Chantier.nom_canonique).where(
+                        Chantier.id.in_(vrais_ids)
+                    )
+                )
+            )
+            .tuples()
+            .all()
+        )
+    zero = Decimal("0")
+    suivi = [
+        SuiviChantier(
+            chantier_id=chantier_id,
+            nom_canonique=noms.get(chantier_id),
+            nb_bons=bons.get(chantier_id, (0, zero, 0))[0],
+            montant_bons=bons.get(chantier_id, (0, zero, 0))[1],
+            nb_bons_a_verifier=bons.get(chantier_id, (0, zero, 0))[2],
+            nb_problemes=len(anomalies_par_chantier.get(chantier_id, [])),
+            facture_ht=factures.get(chantier_id),
+        )
+        for chantier_id in ids
+    ]
+    suivi.sort(key=lambda ligne: (-ligne.montant_bons, ligne.nom_canonique or ""))
+    return suivi
+
+
 async def _dernier_mois_facture(session: AsyncSession) -> date | None:
     """1er du mois de la facture non archivée la plus récente -- même mois
     que le bilan (L5-D4) : `date_doc`, sinon la date de dépôt en heure de
@@ -555,4 +659,11 @@ async def tableau_de_bord(session: AsyncSession, *, mois: date) -> TableauDeBord
         montant_bons_mois=montant_bons_mois,
         nb_bons_a_verifier=nb_bons_a_verifier,
         nb_bons_mois_sans_montant=nb_bons_mois_sans_montant,
+        nb_factures_mois=await _compter_factures_du_mois(session, mois=mois),
+        suivi_chantiers=await _suivi_chantiers(
+            session,
+            mois=mois,
+            lignes_bilan=lignes_bilan,
+            anomalies_par_chantier=anomalies_par_chantier,
+        ),
     )

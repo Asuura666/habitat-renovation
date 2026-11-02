@@ -342,6 +342,49 @@ async def test_lister_factures_vide(db_session: AsyncSession) -> None:
     assert await lister_factures(db_session) == []
 
 
+async def test_lister_factures_filtre_fournisseur_mois_et_archivees(
+    db_session: AsyncSession,
+) -> None:
+    """Lot 3, C3 : l'encart « Factures » de la fiche fournisseur demande les
+    factures non archivées d'un fournisseur, éventuellement d'un mois."""
+    from datetime import date
+
+    un = await _creer_fournisseur(db_session, nom="Fournisseur Un")
+    deux = await _creer_fournisseur(db_session, nom="Fournisseur Deux")
+    aout = await _creer_facture(
+        db_session, fournisseur=un, numero="F-AOUT", date_doc=date(2026, 8, 5)
+    )
+    septembre = await _creer_facture(
+        db_session, fournisseur=un, numero="F-SEPT", date_doc=date(2026, 9, 5)
+    )
+    archivee = await _creer_facture(
+        db_session,
+        fournisseur=un,
+        numero="F-ARCH",
+        date_doc=date(2026, 8, 6),
+        statut="archive",
+    )
+    await _creer_facture(
+        db_session, fournisseur=deux, numero="F-AUTRE", date_doc=date(2026, 8, 7)
+    )
+
+    tous = await lister_factures(db_session, fournisseur_id=un.id)
+    assert {f.id for f in tous} == {aout.id, septembre.id, archivee.id}
+
+    sans_archivees = await lister_factures(
+        db_session, fournisseur_id=un.id, hors_archivees=True
+    )
+    assert {f.id for f in sans_archivees} == {aout.id, septembre.id}
+
+    du_mois = await lister_factures(
+        db_session,
+        fournisseur_id=un.id,
+        mois=date(2026, 8, 17),
+        hors_archivees=True,
+    )
+    assert [f.id for f in du_mois] == [aout.id]
+
+
 async def test_lister_factures_trie_par_date_doc_puis_created_at_decroissants(
     db_session: AsyncSession,
 ) -> None:

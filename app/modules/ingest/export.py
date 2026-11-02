@@ -348,6 +348,16 @@ def _libelle_etat_livraison(ligne: LigneLivraison) -> str:
     )
 
 
+def _montant_livraison(ligne: LigneLivraison) -> str:
+    """Montant facturé pour une ligne de facture, montant lu sur le bon pour
+    un bon pas encore facturé (vide si aucun montant n'a été lu)."""
+    if ligne.facture:
+        return _formater_montant(ligne.montants.facture_ht)
+    if ligne.montant_bon is None:
+        return ""
+    return _formater_montant(ligne.montant_bon)
+
+
 def _ligne_csv_livraison(ligne: LigneLivraison) -> tuple[str, ...]:
     date_bl = ligne.date_bl.isoformat() if ligne.date_bl is not None else None
     return (
@@ -357,7 +367,7 @@ def _ligne_csv_livraison(ligne: LigneLivraison) -> tuple[str, ...]:
         _cellule(ligne.fournisseur),
         "Oui" if ligne.facture else "Non",
         _libelle_etat_livraison(ligne),
-        _formater_montant(ligne.montants.facture_ht) if ligne.facture else "",
+        _montant_livraison(ligne),
         str(ligne.montants.nb_anomalies_ouvertes),
     )
 
@@ -365,7 +375,7 @@ def _ligne_csv_livraison(ligne: LigneLivraison) -> tuple[str, ...]:
 def csv_livraisons(lignes: Sequence[LigneLivraison]) -> str:
     """`GET /api/bilan/livraisons` en CSV : une ligne par livraison, la
     colonne « Facturé » dit Oui (ligne de facture) ou Non (bon pas encore
-    retrouvé sur une facture, montant vide)."""
+    retrouvé sur une facture, montant lu sur le bon, vide s'il n'y en a pas)."""
     return _ecrire_csv(
         _ENTETES_LIVRAISONS, [_ligne_csv_livraison(ligne) for ligne in lignes]
     )

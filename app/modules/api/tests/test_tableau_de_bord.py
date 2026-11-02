@@ -435,3 +435,13 @@ async def test_get_tableau_de_bord_bons_du_mois_champs(
     assert isinstance(corps["montant_bons_mois"], str)
     assert corps["nb_bons_a_verifier"] == 2
     assert corps["nb_bons_mois_sans_montant"] == 1
+    assert corps["nb_factures_mois"] == 0
+    # Lot 3, C2 : ces trois bons n'ont pas de chantier -> ligne « Sans chantier ».
+    assert len(corps["suivi_chantiers"]) == 1
+    sans_chantier = corps["suivi_chantiers"][0]
+    assert sans_chantier["chantier_id"] is None
+    assert sans_chantier["nom_canonique"] is None
+    assert sans_chantier["nb_bons"] == 3
+    assert sans_chantier["montant_bons"] == "200.00"
+    assert sans_chantier["nb_bons_a_verifier"] == 2
+    assert sans_chantier["facture_ht"] is None

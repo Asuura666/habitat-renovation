@@ -37,9 +37,10 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import date
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -148,8 +149,18 @@ async def deposer_facture_pdf(
 async def lister_factures_endpoint(
     utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    fournisseur: Annotated[uuid.UUID | None, Query()] = None,
+    mois: Annotated[date | None, Query()] = None,
+    archivees: Annotated[bool, Query()] = True,
 ) -> list[FactureResumeReponse]:
-    resumes = await lister_factures(session)
+    """Lot 3, C3 : filtres facultatifs `fournisseur`, `mois` (un jour du mois)
+    et `archivees=false` (écarte les factures archivées)."""
+    resumes = await lister_factures(
+        session,
+        fournisseur_id=fournisseur,
+        mois=mois,
+        hors_archivees=not archivees,
+    )
     return [FactureResumeReponse.model_validate(resume) for resume in resumes]
 
 

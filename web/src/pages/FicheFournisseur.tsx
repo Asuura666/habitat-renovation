@@ -15,9 +15,10 @@ import {
 } from "../api/bilan";
 import { type Anomalie, cleAnomalies, listerAnomalies } from "../api/anomalies";
 import { CLE_COMPTE_A_REGLER, obtenirCompteARegler } from "../api/aTraiter";
+import { cleFacturesFournisseur, type FactureResume, listerFacturesFournisseur } from "../api/factures";
 import { CLE_FOURNISSEURS, listerFournisseurs } from "../api/referentiels";
 import { type LivraisonAffichee, TableauLivraisons } from "../components/TableauLivraisons";
-import { estMontantNul, formaterMontant, libelleMois, lireMois, mentionFactureAVerifier, moisApi } from "../lib/formats";
+import { estMontantNul, formaterDate, formaterMontant, libelleMois, lireMois, mentionFactureAVerifier, moisApi } from "../lib/formats";
 import { lienChantier } from "../lib/liens";
 import {
   Chiffre,
@@ -34,6 +35,31 @@ import {
 
 const CLASSES_CHAMP_MOIS =
   "min-h-[44px] rounded-lg border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent";
+
+/** Lot 3, C3 : liste des factures non archivées du fournisseur (date, numéro,
+ * montant HT, état), chacune menant à sa page (où se trouve « Archiver »). */
+function ListeFactures({ factures }: { factures: FactureResume[] }): ReactElement {
+  if (factures.length === 0) {
+    return <EtatVide message="Aucune facture." />;
+  }
+  return (
+    <ul className="divide-y divide-bordure">
+      {factures.map((facture) => (
+        <li key={facture.id}>
+          <Link
+            to={`/documents/${facture.id}`}
+            className="flex min-h-[44px] flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded py-2 outline-none hover:bg-fond focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <span className="text-sm text-encre-2">{formaterDate(facture.date_doc)}</span>
+            <span className="font-medium text-accent">{facture.numero}</span>
+            <span className="font-mono text-sm tabular-nums text-encre">{formaterMontant(facture.total_ht)}</span>
+            <span className="text-sm text-encre">{facture.statut === "a_verifier" ? "À vérifier" : "Reçue"}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 /** Une ligne de `GET /api/bilan/livraisons`, mise à la forme attendue par
  * `TableauLivraisons` (Task 13, spec §4.3) -- le chantier de chaque ligne
@@ -331,6 +357,12 @@ export function FicheFournisseur(): ReactElement {
     enabled: fournisseurId !== undefined,
   });
   const livraisons: LivraisonAffichee[] = (livraisonsQuery.data ?? []).map(versLivraisonAffichee);
+  // Carte « Factures » (lot 3, C3) : mêmes mois que le reste de la page.
+  const facturesQuery = useQuery({
+    queryKey: cleFacturesFournisseur(fournisseurId ?? "", filtres.mois),
+    queryFn: () => listerFacturesFournisseur(fournisseurId ?? "", filtres.mois),
+    enabled: fournisseurId !== undefined,
+  });
   const periodeLivraisons = filtresUrl.mois !== undefined ? libelleMois(filtresUrl.mois) : null;
   const titreLivraisons = periodeLivraisons !== null ? `Livraisons — ${periodeLivraisons}` : "Livraisons";
   const messageAucuneLivraison =
@@ -442,6 +474,23 @@ export function FicheFournisseur(): ReactElement {
           ) : (
             <EtatVide message="Aucune facture enregistrée pour ce fournisseur sur ces filtres." />
           )}
+
+          <section aria-label="Factures" className={CLASSES_CARTE}>
+            <h2 className="mb-4 font-titre text-xl font-medium text-encre">
+              {filtresUrl.mois !== undefined ? `Factures — ${libelleMois(filtresUrl.mois)}` : "Factures"}
+            </h2>
+            {facturesQuery.isPending && (
+              <p role="status" className="text-sm text-encre-2">
+                Chargement…
+              </p>
+            )}
+            {facturesQuery.isError && (
+              <p role="alert" className="text-sm text-alerte">
+                Impossible de charger les factures de ce fournisseur.
+              </p>
+            )}
+            {facturesQuery.isSuccess && <ListeFactures factures={facturesQuery.data} />}
+          </section>
 
           <section aria-label="Livraisons" className={CLASSES_CARTE}>
             <h2 className="mb-4 font-titre text-xl font-medium text-encre">{titreLivraisons}</h2>

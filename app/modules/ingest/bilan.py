@@ -1186,6 +1186,11 @@ class LigneLivraison:
     # `facture_id` valent alors `None`, `bl_document_id` est le bon lui-même ;
     # `categorie` vaut `a_verifier`, `probleme_ouvert` ou `recu`).
     facture: bool = True
+    # Lot 3, C1 : montant HT lu sur le bon lui-même (`document.total_ht`, tel
+    # quel, même si le bon est « à vérifier » ou a un problème ouvert) ; `None`
+    # si aucun montant n'a été lu, et toujours `None` pour une ligne de
+    # facture (son montant est `montants.facture_ht`).
+    montant_bon: Decimal | None = None
 
 
 def _montants_vides(nb_anomalies_ouvertes: int) -> MontantsBilan:
@@ -1252,6 +1257,7 @@ async def _bons_sans_facture(
             Document.date_doc,
             Document.created_at,
             Document.statut,
+            Document.total_ht,
             Document.chantier_id,
             Chantier.nom_canonique.label("chantier"),
             Document.fournisseur_id,
@@ -1303,6 +1309,7 @@ async def _bons_sans_facture(
                 categorie=categorie,
                 montants=_montants_vides(ligne.nb_problemes),
                 facture=False,
+                montant_bon=ligne.total_ht,
             )
         )
     return resultat
