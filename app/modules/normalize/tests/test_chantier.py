@@ -372,3 +372,96 @@ def test_reference_sans_aucun_compte() -> None:
     from app.modules.normalize.chantier import reference_utilisable
 
     assert reference_utilisable("KAYRE", []) is True
+
+
+# --------------------------------------------------------------------------
+# retirer_employes_du_chantier (lot 4 du 02/11/2026, D2)
+# --------------------------------------------------------------------------
+
+_COMPTES = ["Odilon Verdier", "Basile Tarral", "Éloïse Nant"]
+
+
+@pytest.mark.parametrize(
+    "brut",
+    [
+        "POUR ODILON",
+        "PRS PAR BASILE",
+        "BASILE ODILON",
+        "pris par éloise",
+        "Odilon / Basile",
+        "CDE POUR ELOISE",
+        "COMMANDÉ PAR NANT",
+        "ENLEVÉ ODILON",
+        "(ODILON)",
+    ],
+)
+def test_retirer_employes_donne_vide(brut: str) -> None:
+    from app.modules.normalize.chantier import retirer_employes_du_chantier
+
+    assert retirer_employes_du_chantier(brut, _COMPTES) is None
+
+
+@pytest.mark.parametrize(
+    ("brut", "attendu"),
+    [
+        ("LES SOURCES / ODILON", "LES SOURCES"),
+        ("LES SOURCES (ODILON)", "LES SOURCES"),
+        ("ODILON (LES SOURCES)", "LES SOURCES"),
+        ("ELOISE (MONTAGNAC)", "MONTAGNAC"),
+        ("Odilon / Basile / Les Sources", "Les Sources"),
+        ("Les Sources / Odilon / Colline", "Les Sources / Colline"),
+        ("POUR ODILON LES SOURCES", "LES SOURCES"),
+        ("Les Sources (odilon)", "Les Sources"),
+        ("Résidence Éloïse-Nant Verte", "Résidence Verte"),
+    ],
+)
+def test_retirer_employes_garde_le_reste(brut: str, attendu: str) -> None:
+    from app.modules.normalize.chantier import retirer_employes_du_chantier
+
+    assert retirer_employes_du_chantier(brut, _COMPTES) == attendu
+
+
+@pytest.mark.parametrize(
+    "brut",
+    [
+        "LES SOURCES",
+        "ORMEAUX (9944126862)",
+        "Chantier : Résidence de la Plage",
+        "VERDURE (12)",
+        "",
+    ],
+)
+def test_retirer_employes_chantier_sans_prenom_inchange(brut: str) -> None:
+    from app.modules.normalize.chantier import retirer_employes_du_chantier
+
+    assert retirer_employes_du_chantier(brut, _COMPTES) == brut
+
+
+def test_retirer_employes_none_et_sans_compte() -> None:
+    from app.modules.normalize.chantier import retirer_employes_du_chantier
+
+    assert retirer_employes_du_chantier(None, _COMPTES) is None
+    # Sans compte, seuls les mots de liaison partent.
+    assert retirer_employes_du_chantier("POUR LES SOURCES", []) == "LES SOURCES"
+    assert retirer_employes_du_chantier("LES SOURCES ODILON", [None]) == (
+        "LES SOURCES ODILON"
+    )
+
+
+def test_retirer_employes_ignore_les_mots_courts_des_noms_de_compte() -> None:
+    """« de » dans « Anne de Fabre » ne doit pas vider « Résidence de la Plage »."""
+    from app.modules.normalize.chantier import retirer_employes_du_chantier
+
+    assert (
+        retirer_employes_du_chantier("Résidence de la Plage", ["Anne de Fabre"])
+        == "Résidence de la Plage"
+    )
+    assert retirer_employes_du_chantier("FABRE", ["Anne de Fabre"]) is None
+
+
+def test_retirer_employes_limite_chantier_homonyme_d_un_compte() -> None:
+    """Limite connue (docs/dette.md) : un chantier dont le nom est un mot du
+    nom d'un compte est vidé."""
+    from app.modules.normalize.chantier import retirer_employes_du_chantier
+
+    assert retirer_employes_du_chantier("VERDIER", _COMPTES) is None

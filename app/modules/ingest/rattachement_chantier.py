@@ -101,6 +101,7 @@ from app.modules.normalize.chantier import (
     nom_pour_creation,
     reconnaitre_chantier,
     reference_utilisable,
+    retirer_employes_du_chantier,
 )
 from app.modules.normalize.texte import nombres_differents, normaliser_libelle
 from app.modules.rules.engine import REGLES_CHANTIER, evaluer_chantier
@@ -475,8 +476,14 @@ async def rattacher_chantier_document(
     )
     noms = await charger_noms_chantiers(session)
 
+    # D2 (lot 4 du 02/11/2026) : la personne qui commande ou enlève n'est pas
+    # le chantier. `document.chantier_brut` (la lecture) reste inchangé ; le
+    # nom nettoyé sert à reconnaître, créer et apprendre.
+    comptes = (await session.execute(select(Utilisateur.nom))).scalars().all()
+    nom_lu = retirer_employes_du_chantier(document.chantier_brut, comptes)
+
     lu, lu_exact = await _correspondance_exacte_ou_ressemblance(
-        session, document.fournisseur_id, document.chantier_brut, noms, seuil
+        session, document.fournisseur_id, nom_lu, noms, seuil
     )
     legende = reconnaitre_chantier(document.legende, noms, seuil)
 
@@ -499,9 +506,7 @@ async def rattacher_chantier_document(
     elif decision.type is TypeDecision.CREER:
         methode = "création"
         source_brut = (
-            document.chantier_brut
-            if decision.source is SourceNom.NOM_LU
-            else document.legende
+            nom_lu if decision.source is SourceNom.NOM_LU else document.legende
         )
         nom = nom_pour_creation(source_brut)
         source_libelle = "nom lu" if decision.source is SourceNom.NOM_LU else "légende"
@@ -536,21 +541,20 @@ async def rattacher_chantier_document(
         decision.type is TypeDecision.AUCUN
         and lu.etat is EtatCorrespondance.VIDE
         and legende.etat is EtatCorrespondance.VIDE
+        and reference_utilisable(document.numero_commande, comptes)
     ):
-        comptes = (await session.execute(select(Utilisateur.nom))).scalars().all()
-        if reference_utilisable(document.numero_commande, comptes):
-            reference = (document.numero_commande or "").strip()
-            lue = reconnaitre_chantier(reference, noms, seuil)
-            if lue.etat is EtatCorrespondance.RECONNU:
-                chantier_id = lue.chantier_id
-                methode = "référence de commande"
-                score = lue.score
-            else:
-                reference_inconnue = reference
-                noms_ref = await _noms_canoniques(session, lue.candidats)
-                reference_candidats = tuple(
-                    sorted(noms_ref[c] for c in lue.candidats if c in noms_ref)
-                )
+        reference = (document.numero_commande or "").strip()
+        lue = reconnaitre_chantier(reference, noms, seuil)
+        if lue.etat is EtatCorrespondance.RECONNU:
+            chantier_id = lue.chantier_id
+            methode = "référence de commande"
+            score = lue.score
+        else:
+            reference_inconnue = reference
+            noms_ref = await _noms_canoniques(session, lue.candidats)
+            reference_candidats = tuple(
+                sorted(noms_ref[c] for c in lue.candidats if c in noms_ref)
+            )
 
     document.chantier_id = chantier_id
 
@@ -630,6 +634,10 @@ async def rattacher_chantier_bloc(
         )
     )
     noms = await charger_noms_chantiers(session)
+
+    # D2 (lot 4 du 02/11/2026) : voir `rattacher_chantier_document`.
+    comptes = (await session.execute(select(Utilisateur.nom))).scalars().all()
+    chantier_brut = retirer_employes_du_chantier(chantier_brut, comptes)
 
     corr, via_alias_exact = await _correspondance_exacte_ou_ressemblance(
         session, fournisseur_id, chantier_brut, noms, seuil
