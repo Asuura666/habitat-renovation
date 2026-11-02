@@ -86,6 +86,9 @@ const LIBELLES_ACTION: Record<string, string> = {
   ecart_constate: "Écart constaté (BL)",
   facture_rapprochee: "Facture comparée aux bons",
   fournisseur_defini: "Fournisseur défini",
+  // Fusion de deux fournisseurs (`ingest/fusion_fournisseur.py`, lot 4 du
+  // 02/11/2026, commande `fournisseur-fusionner`).
+  fournisseur_fusionne: "Fournisseurs fusionnés",
   chantier_cree: "Chantier créé",
   // Édition du nom/client/agence/actif d'un chantier depuis sa fiche
   // (`app/modules/ingest/referentiels.py::modifier_chantier`).
@@ -497,6 +500,13 @@ const LIBELLES_CLE_DETAIL: Record<string, string> = {
   siret: "Siret",
   tva: "TVA",
   aliases: "Autres noms connus",
+  // `fournisseur_fusionne` : le fournisseur supprimé au profit de la cible,
+  // et le détail par table (déplacées, doublons, rattachées aux doublons).
+  fournisseur_absorbe: "Fournisseur absorbé",
+  aliases_absorbe: "Autres noms du fournisseur absorbé",
+  lignes_deplacees: "Lignes déplacées",
+  doublons_supprimes: "Doublons supprimés",
+  lignes_reconduites: "Lignes rattachées aux doublons gardés",
   libelle: "Nom lu",
   unite_cdt: "Unité de conditionnement",
   unite_fact: "Unité de facturation",

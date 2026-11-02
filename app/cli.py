@@ -87,6 +87,15 @@
   rattachés, toujours inconnus et ignorés ; code 1 si au moins un bon n'a pas
   pu être relu, 0 sinon. Un bon qui n'a plus aucun motif passe à `recu`. Aucune
   valeur client affichée.
+- `python -m app.cli fournisseur-fusionner --source NOM --cible NOM
+  [--simulation]` (lot 4 du 02/11/2026) : reporte sur la cible tout ce que
+  porte la source (bons, alias de chantier, articles, agences, grilles et
+  historique de prix), le nom et les alias de la source devenant des alias de
+  la cible, puis supprime la source -- `ingest.fusion_fournisseur`, une seule
+  transaction, journal `fournisseur_fusionne`. `--simulation` n'écrit rien et
+  affiche les nombres de lignes par table. Code 1 avec un message clair si
+  source = cible, si l'un des deux n'existe pas ou si deux documents portent
+  le même numéro chez les deux fournisseurs.
 - `python -m app.cli recalculer-bons [--simulation]` (lot 2 du 31/10/2026) :
   applique aux bons `bl`/`enlevement` non archivés et `a_verifier` les règles
   de lecture (fournisseur reconnu par SIREN/TVA et chantier reconnu ou donné
@@ -215,6 +224,11 @@ from app.modules.ingest.factures import (
     blocs_avec_reception,
     formater_blocs,
     lire_facture,
+)
+from app.modules.ingest.fusion_fournisseur import (
+    FusionFournisseurImpossible,
+    ResultatFusionFournisseur,
+    fusionner_fournisseurs,
 )
 from app.modules.ingest.historique_prix import (
     FournisseurAmbigu,
@@ -866,6 +880,61 @@ async def _resoudre_fournisseurs(*, simulation: bool) -> int:
     return 1 if bilan.echecs else 0
 
 
+def _lignes_par_table(titre: str, nombres: dict[str, int]) -> list[str]:
+    if not nombres:
+        return []
+    return [titre, *(f"  {t} : {n}" for t, n in sorted(nombres.items()))]
+
+
+def _afficher_fusion(resultat: ResultatFusionFournisseur) -> None:
+    if resultat.simulation:
+        print("Simulation : rien n'est écrit.")
+    verbe = "serait fusionné" if resultat.simulation else "fusionné"
+    print(f"« {resultat.source_nom} » {verbe} dans « {resultat.cible_nom} ».")
+    lignes = [
+        *_lignes_par_table("Lignes déplacées vers la cible :", resultat.deplacees),
+        *_lignes_par_table(
+            "Doublons de la source supprimés (la ligne de la cible est gardée) :",
+            resultat.doublons,
+        ),
+        *_lignes_par_table(
+            "Lignes rattachées à la ligne gardée de la cible :", resultat.reconduites
+        ),
+    ]
+    for ligne in lignes:
+        print(ligne)
+    if resultat.alias_ajoutes:
+        print(f"Alias ajoutés à la cible : {len(resultat.alias_ajoutes)}")
+
+
+async def _fournisseur_fusionner(*, source: str, cible: str, simulation: bool) -> int:
+    """Implémentation de `fournisseur-fusionner` (lot 4 du 02/11/2026). Toute
+    la logique est dans `ingest.fusion_fournisseur` ; une seule transaction,
+    commitée ici (jamais en simulation). Refus clair, code 1, sans rien
+    écrire."""
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            try:
+                resultat = await fusionner_fournisseurs(
+                    session, source_nom=source, cible_nom=cible, simulation=simulation
+                )
+            except FusionFournisseurImpossible as exc:
+                await session.rollback()
+                print(f"Fusion refusée : {exc}", file=sys.stderr)
+                return 1
+            if simulation:
+                await session.rollback()
+            else:
+                await session.commit()
+    finally:
+        await engine.dispose()
+    _afficher_fusion(resultat)
+    return 0
+
+
 async def _recalculer_bons(*, simulation: bool) -> int:
     """Implémentation de `recalculer-bons` (lot 2 du 31/10/2026). Toute la
     logique est dans `ingest.recalcul_bons` ; cette CLI construit ses
@@ -1457,6 +1526,21 @@ def _construire_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    parser_fournisseur_fusionner = sous_parsers.add_parser(
+        "fournisseur-fusionner",
+        help=(
+            "Fusionne un fournisseur (source) dans un autre (cible) : tout ce "
+            "que porte la source passe à la cible, puis la source est supprimée"
+        ),
+    )
+    parser_fournisseur_fusionner.add_argument("--source", required=True)
+    parser_fournisseur_fusionner.add_argument("--cible", required=True)
+    parser_fournisseur_fusionner.add_argument(
+        "--simulation",
+        action="store_true",
+        help="N'écrit rien : affiche les nombres de lignes qui bougeraient",
+    )
+
     parser_resoudre_fournisseurs = sous_parsers.add_parser(
         "resoudre-fournisseurs",
         help=(
@@ -1608,6 +1692,12 @@ def main(argv: list[str] | None = None) -> int:
                 feuille=args.feuille,
                 source=args.source,
                 simulation=args.simulation,
+            )
+        )
+    if args.commande == "fournisseur-fusionner":
+        return asyncio.run(
+            _fournisseur_fusionner(
+                source=args.source, cible=args.cible, simulation=args.simulation
             )
         )
     if args.commande == "recalculer-bons":
