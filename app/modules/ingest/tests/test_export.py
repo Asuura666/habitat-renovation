@@ -513,7 +513,7 @@ def test_csv_bilan_detail_libelle_avec_point_virgule_echappe() -> None:
     assert len(lignes[1]) == len(lignes[0])
 
 
-def test_csv_livraisons_colonne_facture_et_bon_sans_montant() -> None:
+def test_csv_livraisons_colonne_facture_et_montant_du_bon() -> None:
     """Lot 2, B3 : l'export de la liste des livraisons suit l'écran -- une
     colonne « Facturé » (Oui/Non), le montant vide pour un bon non facturé."""
     from app.modules.ingest.bilan import LigneLivraison
@@ -548,6 +548,7 @@ def test_csv_livraisons_colonne_facture_et_bon_sans_montant() -> None:
         categorie="probleme_ouvert",
         montants=_montants(facture_ht=Decimal("0")),
         facture=False,
+        montant_bon=Decimal("8.25"),
     )
 
     lignes = list(
@@ -580,5 +581,12 @@ def test_csv_livraisons_colonne_facture_et_bon_sans_montant() -> None:
         "Fournisseur A",
         "Non",
         "Problème ouvert",
-        "",
+        "8,25",
     ]
+    sans_montant = LigneLivraison(
+        **{**bon.__dict__, "montant_bon": None},
+    )
+    lignes = list(
+        csv.reader(io.StringIO(csv_livraisons([sans_montant])), delimiter=";")
+    )
+    assert lignes[1][6] == ""

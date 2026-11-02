@@ -17,6 +17,9 @@ type LivraisonMontants = Pick<LigneBilanBl, "statut_rapprochement" | "bl_documen
   /** Lot 2, B3 : faux pour un bon pas encore retrouvé sur une facture
    * (absent ou vrai pour une ligne de facture). */
   facture?: boolean;
+  /** Lot 3, C1 : montant HT lu sur le bon (quel que soit son état), absent
+   * ou nul si aucun montant n'a été lu. Sert au bon pas encore facturé. */
+  montant_bon?: string | null;
 };
 
 /** Une livraison affichée par ce composant, sur les trois écrans qui le
@@ -51,6 +54,14 @@ const CLASSES_POINT_STATUT: Record<CategorieLivraison, string> = {
 /** Vrai pour une ligne de facture, faux pour un bon pas encore facturé. */
 function estFacturee(ligne: LivraisonMontants): boolean {
   return ligne.facture !== false;
+}
+
+/** Lot 3, C1 : montant facturé pour une ligne de facture, montant lu sur le
+ * bon pour un bon pas encore facturé (« — » seulement si aucun montant lu),
+ * même quand le bon est à vérifier ou a un problème. */
+function montantAffiche(ligne: LivraisonMontants): string {
+  if (estFacturee(ligne)) return formaterMontant(ligne.montants.facture_ht);
+  return ligne.montant_bon != null ? formaterMontant(ligne.montant_bon) : TIRET;
 }
 
 function libelleEtatBon(ligne: LivraisonMontants): string {
@@ -111,7 +122,7 @@ function LigneLivraisonCarte({ livraison }: { livraison: LivraisonAffichee }): R
             </p>
           </div>
           <p className="font-mono text-sm tabular-nums text-encre">
-            {estFacturee(livraison.ligne) ? formaterMontant(livraison.ligne.montants.facture_ht) : TIRET}
+            {montantAffiche(livraison.ligne)}
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -184,7 +195,7 @@ function LigneLivraisonTableau({
       </td>
       <td className="py-2.5 pr-2 text-encre">{estFacturee(livraison.ligne) ? "Oui" : "Non"}</td>
       <td className="py-2.5 pr-2 text-right font-mono tabular-nums text-encre">
-        {estFacturee(livraison.ligne) ? formaterMontant(livraison.ligne.montants.facture_ht) : TIRET}
+        {montantAffiche(livraison.ligne)}
       </td>
       <td className="py-2.5 pr-2 text-right text-encre">
         {livraison.ligne.montants.nb_anomalies_ouvertes > 0 ? (

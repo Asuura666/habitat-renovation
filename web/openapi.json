@@ -8964,6 +8964,18 @@
      "facture": {
       "type": "boolean",
       "title": "Facture"
+     },
+     "montant_bon": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Montant Bon"
      }
     },
     "type": "object",

@@ -215,3 +215,36 @@ async def test_tri_par_date_decroissante_factures_et_bons_melanges(
     assert lignes[0].bl_document_id == recent.id
     assert lignes[0].facture is False
     assert lignes[1].facture is True
+
+
+async def test_montant_du_bon_lu_meme_a_verifier_ou_avec_probleme(
+    db_session: AsyncSession,
+) -> None:
+    """Lot 3, C1 : le montant lu sur le bon est porté tel quel par la ligne,
+    quel que soit l'état du bon ; `None` si aucun montant n'a été lu."""
+    fournisseur = await _creer_fournisseur(db_session)
+    avec_probleme = await _creer_document_bl(
+        db_session,
+        fournisseur_id=fournisseur.id,
+        date_doc=date(2026, 8, 12),
+        total_ht=Decimal("123.40"),
+    )
+    await _creer_anomalie(db_session, document_id=avec_probleme.id)
+    a_verifier = await _creer_document_bl(
+        db_session,
+        fournisseur_id=fournisseur.id,
+        date_doc=date(2026, 8, 11),
+        statut="a_verifier",
+        total_ht=Decimal("50"),
+    )
+    sans_montant = await _creer_document_bl(
+        db_session, fournisseur_id=fournisseur.id, date_doc=date(2026, 8, 10)
+    )
+
+    lignes = {ligne.bl_document_id: ligne for ligne in await _toutes(db_session)}
+
+    assert lignes[avec_probleme.id].categorie == "probleme_ouvert"
+    assert lignes[avec_probleme.id].montant_bon == Decimal("123.40")
+    assert lignes[a_verifier.id].categorie == "a_verifier"
+    assert lignes[a_verifier.id].montant_bon == Decimal("50")
+    assert lignes[sans_montant.id].montant_bon is None

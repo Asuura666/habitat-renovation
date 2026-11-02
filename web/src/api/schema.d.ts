@@ -3219,6 +3219,8 @@ export interface components {
             montants: components["schemas"]["MontantsBilanReponse"];
             /** Facture */
             facture: boolean;
+            /** Montant Bon */
+            montant_bon?: string | null;
         };
         /**
          * LigneSaisieRequete

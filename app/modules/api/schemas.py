@@ -707,6 +707,9 @@ class LigneLivraisonReponse(BaseModel):
     # une facture (`bloc_id` et `facture_id` valent alors `None`,
     # `bl_document_id` est le bon lui-même).
     facture: bool
+    # Lot 3, C1 : montant HT lu sur le bon (quel que soit son état), `None`
+    # si aucun montant n'a été lu ou pour une ligne de facture.
+    montant_bon: Decimal | None = None
 
 
 # --------------------------------------------------------------------------
