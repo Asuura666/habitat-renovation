@@ -15,6 +15,7 @@ quota `slowapi` du login avec un autre fichier de test.
 from __future__ import annotations
 
 import itertools
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -367,3 +368,37 @@ async def test_fichier_admin_renvoie_le_pdf(
     assert reponse.status_code == 200
     assert reponse.headers["content-type"] == "application/pdf"
     assert reponse.content == b"%PDF-1.4\ncontenu-invente"
+
+
+async def test_liste_filtre_fournisseur_et_hors_archivees(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Lot 3, C3 : `fournisseur`, `mois` et `archivees=false` filtrent la
+    liste des factures (encart « Factures » de la fiche fournisseur)."""
+    await _creer_utilisateur(
+        db_session, email="admin.filtre@example.invalid", role="admin"
+    )
+    document = await _creer_facture_avec_bloc(db_session, numero="FAC-FILTRE-1")
+    archivee = await _creer_facture_avec_bloc(
+        db_session, numero="FAC-FILTRE-2", fichier_path="/var/docs/f2-invente.pdf"
+    )
+    archivee.statut = "archive"
+    await db_session.commit()
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.filtre@example.invalid")
+
+    toutes = await _get(app_test, "/api/factures", cookie=cookie)
+    assert {f["id"] for f in toutes.json()} == {str(document.id), str(archivee.id)}
+
+    sans = await _get(app_test, "/api/factures?archivees=false", cookie=cookie)
+    assert [f["id"] for f in sans.json()] == [str(document.id)]
+
+    autre = await _get(
+        app_test, f"/api/factures?fournisseur={uuid.uuid4()}", cookie=cookie
+    )
+    assert autre.json() == []
+
+    mois_vide = await _get(app_test, "/api/factures?mois=2020-01-01", cookie=cookie)
+    assert mois_vide.status_code == 200

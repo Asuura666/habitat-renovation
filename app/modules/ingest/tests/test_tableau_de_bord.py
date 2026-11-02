@@ -1324,3 +1324,29 @@ async def test_bons_du_mois_ignorent_un_autre_mois_et_les_factures(
     assert tdb.montant_bons_mois == Decimal("0")
     assert tdb.nb_bons_a_verifier == 0
     assert tdb.nb_bons_mois_sans_montant == 0
+
+
+async def test_nb_factures_du_mois_hors_archivees_et_autres_mois(
+    db_session: AsyncSession,
+) -> None:
+    """Lot 3, C3 : la Vue d'ensemble annonce « N factures ce mois-ci »."""
+    fournisseur = await _creer_fournisseur(db_session)
+    await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="F-A", date_doc=date(2026, 9, 5)
+    )
+    await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="F-B", date_doc=date(2026, 9, 9)
+    )
+    await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="F-C", date_doc=date(2026, 8, 9)
+    )
+    archivee = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="F-D", date_doc=date(2026, 9, 10)
+    )
+    archivee.statut = "archive"
+    await db_session.commit()
+    await _creer_bon(db_session, total_ht=Decimal("10"))
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    assert tdb.nb_factures_mois == 2

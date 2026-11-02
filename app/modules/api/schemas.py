@@ -794,6 +794,7 @@ class TableauDeBordReponse(BaseModel):
     montant_bons_mois: Decimal
     nb_bons_a_verifier: int
     nb_bons_mois_sans_montant: int
+    nb_factures_mois: int = 0
 
 
 class DepotAgentReponse(BaseModel):

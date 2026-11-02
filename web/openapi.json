@@ -140,38 +140,18 @@
    }
   },
   "/api/factures": {
-   "get": {
-    "summary": "Lister Factures Endpoint",
-    "operationId": "lister_factures_endpoint_api_factures_get",
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {
-         "items": {
-          "$ref": "#/components/schemas/FactureResumeReponse"
-         },
-         "type": "array",
-         "title": "Response Lister Factures Endpoint Api Factures Get"
-        }
-       }
-      }
-     }
-    }
-   },
    "post": {
     "summary": "Deposer Facture Pdf",
     "operationId": "deposer_facture_pdf_api_factures_post",
     "requestBody": {
+     "required": true,
      "content": {
       "multipart/form-data": {
        "schema": {
         "$ref": "#/components/schemas/Body_deposer_facture_pdf_api_factures_post"
        }
       }
-     },
-     "required": true
+     }
     },
     "responses": {
      "201": {
@@ -180,6 +160,83 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/FactureDeposeeReponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "get": {
+    "summary": "Lister Factures Endpoint",
+    "description": "Lot 3, C3 : filtres facultatifs `fournisseur`, `mois` (un jour du mois)\net `archivees=false` (écarte les factures archivées).",
+    "operationId": "lister_factures_endpoint_api_factures_get",
+    "parameters": [
+     {
+      "name": "fournisseur",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uuid"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Fournisseur"
+      }
+     },
+     {
+      "name": "mois",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Mois"
+      }
+     },
+     {
+      "name": "archivees",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": true,
+       "title": "Archivees"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/FactureResumeReponse"
+         },
+         "title": "Response Lister Factures Endpoint Api Factures Get"
         }
        }
       }
@@ -10251,6 +10308,11 @@
      "nb_bons_mois_sans_montant": {
       "type": "integer",
       "title": "Nb Bons Mois Sans Montant"
+     },
+     "nb_factures_mois": {
+      "type": "integer",
+      "title": "Nb Factures Mois",
+      "default": 0
      }
     },
     "type": "object",

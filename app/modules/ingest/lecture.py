@@ -204,7 +204,13 @@ class FactureResume:
     motifs: list[MotifLu]
 
 
-async def lister_factures(session: AsyncSession) -> list[FactureResume]:
+async def lister_factures(
+    session: AsyncSession,
+    *,
+    fournisseur_id: uuid.UUID | None = None,
+    mois: date | None = None,
+    hors_archivees: bool = False,
+) -> list[FactureResume]:
     """Liste des factures, triée par `date_doc` puis `created_at`
     décroissants (décision du contrôleur L2-T5).
 
@@ -218,8 +224,13 @@ async def lister_factures(session: AsyncSession) -> list[FactureResume]:
     `ocr_brut` elle-même déférée (`defer`, jamais chargée ici) — la réponse
     OCR brute d'une facture pèse plusieurs centaines de Ko, inutile pour une
     liste.
+
+    Lot 3, C3 (encart « Factures » de la fiche fournisseur) : `fournisseur_id`
+    ne garde que les factures de ce fournisseur, `mois` celles du mois (même
+    règle que le bilan : `date_doc`, sinon le jour de dépôt à Paris),
+    `hors_archivees` écarte les factures archivées. Sans argument : toutes.
     """
-    resultat_factures = await session.execute(
+    requete = (
         select(
             Document,
             Fournisseur.nom,
@@ -230,6 +241,16 @@ async def lister_factures(session: AsyncSession) -> list[FactureResume]:
         .where(Document.type == "facture")
         .order_by(Document.date_doc.desc(), Document.created_at.desc())
     )
+    if fournisseur_id is not None:
+        requete = requete.where(Document.fournisseur_id == fournisseur_id)
+    if hors_archivees:
+        requete = requete.where(Document.statut != "archive")
+    if mois is not None:
+        # Import local : `bilan` importe déjà ce module (`TYPES_BL`).
+        from app.modules.ingest.bilan import _condition_mois
+
+        requete = requete.where(_condition_mois(mois))
+    resultat_factures = await session.execute(requete)
     lignes_factures = resultat_factures.all()
     if not lignes_factures:
         return []

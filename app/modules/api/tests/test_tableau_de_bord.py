@@ -435,3 +435,4 @@ async def test_get_tableau_de_bord_bons_du_mois_champs(
     assert isinstance(corps["montant_bons_mois"], str)
     assert corps["nb_bons_a_verifier"] == 2
     assert corps["nb_bons_mois_sans_montant"] == 1
+    assert corps["nb_factures_mois"] == 0

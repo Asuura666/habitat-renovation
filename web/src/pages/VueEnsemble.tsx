@@ -319,6 +319,12 @@ function sousTexteProblemes(nbUrgentsDuMois: number, compte: CompteARegler | und
   return compte === undefined ? urgents : `${urgents} · ${compte.nb_problemes}\u00a0en tout, tous mois confondus`;
 }
 
+/** Lot 3, C3 : « 2 factures ce mois-ci → » (nombre lu tel quel du serveur). */
+function libelleFacturesDuMois(nombre: number): string {
+  if (nombre === 0) return "Aucune facture ce mois-ci, voir les factures →";
+  return `${nombre} facture${nombre > 1 ? "s" : ""} ce mois-ci →`;
+}
+
 function sousTexteBonsRecus(nbManquants: number): string {
   if (nbManquants === 0) {
     return "aucun bon à réclamer";
@@ -489,6 +495,15 @@ export function VueEnsemble(): ReactElement {
               sousTexte={sousTexteBonsRecus(donnees.nb_bl_manquants)}
             />
           </section>
+
+          {/* Lot 3, C3 : « je trouve pas la facture » -- raccourci discret vers
+              la liste des factures. */}
+          <Link
+            to="/documents?filtre=factures"
+            className="inline-flex min-h-[44px] items-center text-sm font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            {libelleFacturesDuMois(donnees.nb_factures_mois)}
+          </Link>
 
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
             <Carte titre="Chantiers" className="xl:col-span-2">

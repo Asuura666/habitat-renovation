@@ -239,6 +239,8 @@ class TableauDeBord:
     montant_bons_mois: Decimal
     nb_bons_a_verifier: int
     nb_bons_mois_sans_montant: int
+    # Lot 3, C3 : factures non archivées du mois (« N factures ce mois-ci »).
+    nb_factures_mois: int = 0
 
 
 def _montant_en_jeu(anomalie: AnomalieLue) -> Decimal | None:
@@ -444,6 +446,20 @@ async def _compter_bons_du_mois(
     )
 
 
+async def _compter_factures_du_mois(session: AsyncSession, *, mois: date) -> int:
+    """Lot 3, C3 : nombre de factures non archivées du mois (même règle de
+    mois que le reste du tableau de bord)."""
+    return (
+        await session.execute(
+            select(func.count()).where(
+                Document.type == "facture",
+                Document.statut != "archive",
+                _condition_mois(mois),
+            )
+        )
+    ).scalar_one()
+
+
 async def _dernier_mois_facture(session: AsyncSession) -> date | None:
     """1er du mois de la facture non archivée la plus récente -- même mois
     que le bilan (L5-D4) : `date_doc`, sinon la date de dépôt en heure de
@@ -555,4 +571,5 @@ async def tableau_de_bord(session: AsyncSession, *, mois: date) -> TableauDeBord
         montant_bons_mois=montant_bons_mois,
         nb_bons_a_verifier=nb_bons_a_verifier,
         nb_bons_mois_sans_montant=nb_bons_mois_sans_montant,
+        nb_factures_mois=await _compter_factures_du_mois(session, mois=mois),
     )

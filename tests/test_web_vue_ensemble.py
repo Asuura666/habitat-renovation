@@ -304,3 +304,13 @@ def test_livraisons_couvre_le_contrat() -> None:
     # Aucun calcul métier : les montants viennent tels quels du serveur.
     assert "parseFloat" not in page
     assert "Number(" not in page
+
+
+def test_vue_ensemble_annonce_les_factures_du_mois() -> None:
+    """Lot 3, C3 : « N facture(s) ce mois-ci » mène à la liste des documents
+    filtrée sur les factures (`?filtre=factures`, filtre existant)."""
+    page = (SRC / "pages" / "VueEnsemble.tsx").read_text()
+
+    assert "nb_factures_mois" in page
+    assert "/documents?filtre=factures" in page
+    assert "ce mois-ci" in page
