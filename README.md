@@ -781,10 +781,10 @@ Court ; détail et constats de l'audit : archive §19 et §20.
 - **Sous-traitants** : Mistral (OCR, Union européenne), Telegram (hors Union
   européenne), OVH (hébergement) ; OpenAI et Exa seulement si l'IA est allumée ;
   Google Drive prévu, bloqué.
-- **Restent à faire** : registre des traitements et information des salariés ;
-  renouvellement par Ilane des clés (Mistral, Telegram, Google) et du mot de passe
-  admin, affichés dans des échanges de travail en septembre (**à confirmer** : fait
-  ou non).
+- **Clés et mot de passe affichés en septembre** dans des échanges de travail
+  (Mistral, Telegram, Google, mot de passe admin) : changés par Ilane (confirmé
+  le 04/11/2026).
+- **Reste à faire** : registre des traitements et information des salariés.
 
 ---
 
