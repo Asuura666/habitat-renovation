@@ -1513,10 +1513,10 @@ Décisions d'Ilane du 29/09/2026 (`.superpowers/sdd/corrections-audit/decisions-
 Audit complet de `dev` (copie figée au commit `8ccd872`), six angles (A
 sécurité, B métier, C données, D API et écrans, E intégrations, F
 exploitation et tests), puis vérification contradictoire des 26 constats
-classés « importants » (méthode et bilan : `README.md` §20). Résultat : **0
+classés « importants » (méthode et bilan : `docs/readme-octobre-2026.md` §20). Résultat : **0
 critique, 13 importants confirmés**. Ces 13 ne sont pas listés ici : ils ont
 des corrections en cours (branche `feature/corrections-audit`, plan en cinq
-groupes, `README.md` §20.4). Cette section ne liste que les constats
+groupes, `docs/readme-octobre-2026.md` §20.4). Cette section ne liste que les constats
 **mineurs ou latents**, sans répéter ce qui est déjà décrit plus haut. « V » =
 vérifié par un vérificateur contradictoire (gravité révisée) ; « NV » = classé
 mineur par l'auditeur, non revérifié un par un. Rien de ce qui suit ne bloque

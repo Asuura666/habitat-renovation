@@ -78,9 +78,10 @@ infra/         README.md : documentation technique d'ensemble (demande client, a
 
 ## Où en est le projet
 
-**État au 04/11/2026.** Lire d'abord `README.md` (documentation globale ; son
-§22.4 « État » s'arrête au 22/10, les lots du 31/10 au 02/11 y sont décrits
-dans les sections des écrans et des commandes), puis
+**État au 04/11/2026.** Lire d'abord `README.md` (à jour au 04/11/2026 :
+parcours, écrans, lecture des bons, règles, commandes, déploiement ; l'ancien
+README, état au 22/10 avec l'histoire détaillée et l'audit, est archivé dans
+`docs/readme-octobre-2026.md`), puis
 `docs/roadmap-octobre-2026.md` (organisation git, phases 1 à 4),
 `docs/dette.md` et, avant de toucher l'IA, `docs/phase-4-ia.md`.
 
@@ -127,7 +128,7 @@ dans les sections des écrans et des commandes), puis
 - **IA gelée par Ilane le 29/09** : aucune évolution de l'IA sans son accord ;
   OpenCode reste en 1.18.32, modèle `gpt-5.6-sol`, compte ChatGPT d'Ilane.
 - **Audit complet du 29/09 : corrigé et déployé le 30/09** (13 importants,
-  README §20, mineurs dans `docs/dette.md`). Reste ouvert : F-04 (aucune
+  `docs/readme-octobre-2026.md` §20, mineurs dans `docs/dette.md`). Reste ouvert : F-04 (aucune
   alerte si une sauvegarde ne s'exécute pas).
 - **Pas fait** : lot 6 (recette sur deux mois, formation, procès-verbal),
   lecteur de factures Point.P (aucune facture Point.P reçue), mesure de l'OCR
@@ -149,7 +150,7 @@ dans les sections des écrans et des commandes), puis
   `--no-verify`, ne jamais lancer `pre-commit install` depuis un worktree).
 - **Décisions d'Ilane qui font foi** : `docs/roadmap-octobre-2026.md` §1.2,
   avenants du cahier des charges §14 et §15 (le §15, IA, reste « à
-  confirmer »), README §20.3 pour l'audit.
+  confirmer »), `docs/readme-octobre-2026.md` §20.3 pour l'audit.
 
 ## Méthode
 
