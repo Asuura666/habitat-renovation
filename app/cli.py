@@ -49,7 +49,7 @@
   suivi de comptes et taux, jamais une valeur du document client (décision
   du contrôleur).
 - `python -m app.cli controles-differes` (L4-T11) : évalue les quatre règles
-  de suivi (R06, R14, R15, R16 — délais du CDC §5, L4-D14) via
+  de suivi (R06, R14, R16 ; R15 retirée le 31/10/2026 — délais du CDC §5, L4-D14) via
   `ingest.suivi.controles_differes` et affiche le nombre d'anomalies de
   suivi ouvertes après synchronisation. Idempotente, sans argument (l'heure
   d'exécution est lue une fois, `datetime.now(UTC)`) ; à lancer
@@ -76,6 +76,46 @@
   (cron, hors périmètre de cette tâche). Toujours code 0 (un échec individuel
   est absorbé et journalisé par `ingest.rangement.ranger_document`, jamais
   remonté ici).
+- `python -m app.cli resoudre-fournisseurs [--simulation]` (décision d'Ilane
+  du 31/10/2026) : après la création des fournisseurs manquants, rattache les
+  bons déjà reçus (`bl`/`enlevement` non archivés, sans fournisseur, jamais
+  corrigés ni validés à la main) **sans rappeler l'OCR**, à partir de la
+  lecture gardée (`document.ocr_brut`) --
+  `ingest.resolution_fournisseurs.resoudre_fournisseurs_des_bons`, qui rejoue
+  le chemin de `relancer_extraction`. `--simulation` n'écrit rien et affiche,
+  par bon, le fournisseur qui serait trouvé. Affiche les bons relus,
+  rattachés, toujours inconnus et ignorés ; code 1 si au moins un bon n'a pas
+  pu être relu, 0 sinon. Un bon qui n'a plus aucun motif passe à `recu`. Aucune
+  valeur client affichée.
+- `python -m app.cli fournisseur-fusionner --source NOM --cible NOM
+  [--simulation]` (lot 4 du 02/11/2026) : reporte sur la cible tout ce que
+  porte la source (bons, alias de chantier, articles, agences, grilles et
+  historique de prix), le nom et les alias de la source devenant des alias de
+  la cible, puis supprime la source -- `ingest.fusion_fournisseur`, une seule
+  transaction, journal `fournisseur_fusionne`. `--simulation` n'écrit rien et
+  affiche les nombres de lignes par table. Code 1 avec un message clair si
+  source = cible, si l'un des deux n'existe pas ou si deux documents portent
+  le même numéro chez les deux fournisseurs.
+- `python -m app.cli recalculer-bons [--simulation]` (lot 2 du 31/10/2026) :
+  applique aux bons `bl`/`enlevement` non archivés et `a_verifier` les règles
+  de lecture (fournisseur reconnu par SIREN/TVA et chantier reconnu ou donné
+  par la légende : la confiance de lecture du nom ne compte plus ; chantier
+  vide lu dans la référence de commande) **sans rappeler l'OCR**, depuis
+  `document.ocr_brut` -- `ingest.recalcul_bons.recalculer_bons`, qui réutilise
+  le chemin de `resoudre-fournisseurs`. Jamais un bon corrigé ou validé à la
+  main. Affiche les bons examinés, passés à « reçu », les points levés par
+  type et les chantiers rattachés par la référence ; code 1 si un bon n'a pas
+  pu être relu. `--simulation` n'écrit rien et ne dénombre que les bons
+  concernés.
+- `python -m app.cli importer-historique-prix --fournisseur NOM --fichier X.xlsx
+  --feuille "HISTORIQUE POINT P" --source "Fichier de contrôle ..."
+  [--simulation]` (lot 2 du 31/10/2026) : range les lignes d'une feuille
+  d'historique d'un fichier de contrôle dans `prix_observe`
+  (`ingest.historique_prix.importer_historique_prix`) pour l'historique d'un
+  produit ; jamais dans la grille. Idempotent (une ligne identique n'est pas
+  réimportée). Affiche les lignes lues, importées, déjà présentes et
+  illisibles ; code 1 si le fichier, la feuille ou le fournisseur est
+  introuvable. `--simulation` ne s'écrit rien.
 - `python -m app.cli synthese-commentaires [--semaine AAAA-MM-JJ]` (T4,
   phase 4 IA, spec §4.5) : génère la synthèse hebdomadaire des commentaires
   de lignes — toute la logique (période, plafond, appel à l'IA, écriture)
@@ -174,6 +214,8 @@ from app.core.db import creer_engine, creer_sessionmaker
 from app.core.fuseau import FUSEAU_PARIS
 from app.modules.extract.bl import OPTIONS_OCR_BL
 from app.modules.extract.facture import FactureIllisible
+from app.modules.extract.grille_excel import FichierGrilleInvalide
+from app.modules.extract.historique_prix import FeuilleIntrouvable
 from app.modules.extract.verification import (
     SEUIL_CONFIANCE_DEFAUT,
     TOLERANCE_TOTAL_DEFAUT,
@@ -182,6 +224,16 @@ from app.modules.ingest.factures import (
     blocs_avec_reception,
     formater_blocs,
     lire_facture,
+)
+from app.modules.ingest.fusion_fournisseur import (
+    FusionFournisseurImpossible,
+    ResultatFusionFournisseur,
+    fusionner_fournisseurs,
+)
+from app.modules.ingest.historique_prix import (
+    FournisseurAmbigu,
+    FournisseurNonTrouve,
+    importer_historique_prix,
 )
 from app.modules.ingest.ia_prix import (
     BilanIA,
@@ -212,7 +264,9 @@ from app.modules.ingest.rattachement_chantier import (
     lister_alias_suspects,
     reprendre_chantiers,
 )
+from app.modules.ingest.recalcul_bons import recalculer_bons
 from app.modules.ingest.referentiels import definir_fournisseur
+from app.modules.ingest.resolution_fournisseurs import resoudre_fournisseurs_des_bons
 from app.modules.ingest.router import DELAI_OCR_BL
 from app.modules.ingest.suivi import controles_differes
 from app.modules.jobs.drive import ClientGoogleDrive, JetonCompteServiceGoogle
@@ -792,6 +846,187 @@ async def _ranger_photos() -> int:
     return 0
 
 
+async def _resoudre_fournisseurs(*, simulation: bool) -> int:
+    """Implémentation de `resoudre-fournisseurs` (31/10/2026). Toute la
+    logique est dans `ingest.resolution_fournisseurs` ; cette CLI ne fait que
+    construire ses dépendances (moteur DB, `DOCS_DIR`) et afficher le bilan.
+    Aucune clé OCR n'est lue ni utilisée. Code 1 si au moins un bon n'a pas pu
+    être relu."""
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            bilan = await resoudre_fournisseurs_des_bons(
+                session, settings.docs_dir, simulation=simulation
+            )
+    finally:
+        await engine.dispose()
+
+    if simulation:
+        print("Simulation : rien n'est écrit.")
+        for ligne in bilan.lignes:
+            trouve = ligne.fournisseur if ligne.fournisseur else "toujours inconnu"
+            print(f"Document n° {ligne.numero_interne} : {trouve}")
+    texte = (
+        f"Bons relus : {bilan.relus} · "
+        f"rattachés à un fournisseur : {bilan.rattaches} · "
+        f"toujours inconnus : {bilan.inconnus} · "
+        f"ignorés (corrigés à la main) : {bilan.ignores}"
+    )
+    if bilan.echecs:
+        texte += f" · non relus (erreur) : {bilan.echecs}"
+    print(texte)
+    return 1 if bilan.echecs else 0
+
+
+def _lignes_par_table(titre: str, nombres: dict[str, int]) -> list[str]:
+    if not nombres:
+        return []
+    return [titre, *(f"  {t} : {n}" for t, n in sorted(nombres.items()))]
+
+
+def _afficher_fusion(resultat: ResultatFusionFournisseur) -> None:
+    if resultat.simulation:
+        print("Simulation : rien n'est écrit.")
+    verbe = "serait fusionné" if resultat.simulation else "fusionné"
+    print(f"« {resultat.source_nom} » {verbe} dans « {resultat.cible_nom} ».")
+    lignes = [
+        *_lignes_par_table("Lignes déplacées vers la cible :", resultat.deplacees),
+        *_lignes_par_table(
+            "Doublons de la source supprimés (la ligne de la cible est gardée) :",
+            resultat.doublons,
+        ),
+        *_lignes_par_table(
+            "Lignes rattachées à la ligne gardée de la cible :", resultat.reconduites
+        ),
+    ]
+    for ligne in lignes:
+        print(ligne)
+    if resultat.alias_ajoutes:
+        print(f"Alias ajoutés à la cible : {len(resultat.alias_ajoutes)}")
+
+
+async def _fournisseur_fusionner(*, source: str, cible: str, simulation: bool) -> int:
+    """Implémentation de `fournisseur-fusionner` (lot 4 du 02/11/2026). Toute
+    la logique est dans `ingest.fusion_fournisseur` ; une seule transaction,
+    commitée ici (jamais en simulation). Refus clair, code 1, sans rien
+    écrire."""
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            try:
+                resultat = await fusionner_fournisseurs(
+                    session, source_nom=source, cible_nom=cible, simulation=simulation
+                )
+            except FusionFournisseurImpossible as exc:
+                await session.rollback()
+                print(f"Fusion refusée : {exc}", file=sys.stderr)
+                return 1
+            if simulation:
+                await session.rollback()
+            else:
+                await session.commit()
+    finally:
+        await engine.dispose()
+    _afficher_fusion(resultat)
+    return 0
+
+
+async def _recalculer_bons(*, simulation: bool) -> int:
+    """Implémentation de `recalculer-bons` (lot 2 du 31/10/2026). Toute la
+    logique est dans `ingest.recalcul_bons` ; cette CLI construit ses
+    dépendances (moteur DB, `DOCS_DIR`) et affiche le bilan, sans aucune valeur
+    client ni appel OCR. Code 1 si au moins un bon n'a pas pu être relu."""
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            bilan = await recalculer_bons(
+                session, settings.docs_dir, simulation=simulation
+            )
+    finally:
+        await engine.dispose()
+
+    if simulation:
+        print("Simulation : rien n'est écrit.")
+    texte = (
+        f"Bons examinés : {bilan.examines} · "
+        f"passés à « reçu » : {bilan.passes_a_recu} · "
+        f"chantiers rattachés par la référence de commande : "
+        f"{bilan.chantiers_par_reference} · "
+        f"ignorés (corrigés à la main) : {bilan.ignores}"
+    )
+    if bilan.echecs:
+        texte += f" · non relus (erreur) : {bilan.echecs}"
+    print(texte)
+    if bilan.motifs_leves:
+        print("Points à vérifier levés ou remplacés :")
+        for code, nombre in sorted(bilan.motifs_leves.items()):
+            print(f"  {code} : {nombre}")
+    return 1 if bilan.echecs else 0
+
+
+async def _importer_historique_prix(
+    *,
+    fournisseur: str,
+    fichier: Path,
+    feuille: str,
+    source: str,
+    simulation: bool,
+) -> int:
+    """Implémentation de `importer-historique-prix` (lot 2 du 31/10/2026) :
+    toute la logique est dans `ingest.historique_prix` ; cette CLI lit le
+    fichier, construit ses dépendances et affiche le bilan (aucune valeur du
+    fichier). Code 1 si le fichier, la feuille ou le fournisseur ne sont pas
+    utilisables."""
+    try:
+        contenu = await asyncio.to_thread(fichier.read_bytes)
+    except OSError:
+        print(f"fichier introuvable ou illisible : {fichier}", file=sys.stderr)
+        return 1
+
+    settings = get_settings()
+    engine = creer_engine(settings.database_url)
+    try:
+        sessions = creer_sessionmaker(engine)
+        async with sessions() as session:
+            bilan = await importer_historique_prix(
+                session,
+                fournisseur_nom=fournisseur,
+                contenu=contenu,
+                feuille=feuille,
+                source=source,
+                simulation=simulation,
+            )
+    except FournisseurNonTrouve:
+        print(f"aucun fournisseur nommé « {fournisseur} »", file=sys.stderr)
+        return 1
+    except FournisseurAmbigu:
+        print(f"plusieurs fournisseurs nommés « {fournisseur} »", file=sys.stderr)
+        return 1
+    except FeuilleIntrouvable as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    except FichierGrilleInvalide as exc:
+        print(f"fichier refusé : {exc}", file=sys.stderr)
+        return 1
+    finally:
+        await engine.dispose()
+
+    if simulation:
+        print("Simulation : rien n'est écrit.")
+    print(
+        f"Feuille « {feuille} » : lignes lues : {bilan.lues} · "
+        f"importées : {bilan.importees} · déjà présentes : {bilan.deja_presentes} · "
+        f"illisibles : {bilan.erreurs}"
+    )
+    return 0
+
+
 def _semaine_lundi(valeur: str) -> date:
     """Type argparse de `--semaine` (T4, même mécanique que `--seuil` de
     `rapport-ocr`, ruling R13) : une date lisible (`AAAA-MM-JJ`) tombant un
@@ -1227,7 +1462,7 @@ def _construire_parser() -> argparse.ArgumentParser:
     sous_parsers.add_parser(
         "controles-differes",
         help=(
-            "Évalue les règles de suivi (R14, R15, R16, et R06 seulement si "
+            "Évalue les règles de suivi (R14, R16, et R06 seulement si "
             "CONTROLE_LIVRE_NON_FACTURE_ACTIF est vraie) et synchronise "
             "leurs anomalies"
         ),
@@ -1289,6 +1524,66 @@ def _construire_parser() -> argparse.ArgumentParser:
             "<DOCS_DIR>/bl/<AAAA>/<MM>/... (lien physique, jamais une copie) "
             "-- idempotente, à lancer au déploiement puis chaque nuit"
         ),
+    )
+
+    parser_fournisseur_fusionner = sous_parsers.add_parser(
+        "fournisseur-fusionner",
+        help=(
+            "Fusionne un fournisseur (source) dans un autre (cible) : tout ce "
+            "que porte la source passe à la cible, puis la source est supprimée"
+        ),
+    )
+    parser_fournisseur_fusionner.add_argument("--source", required=True)
+    parser_fournisseur_fusionner.add_argument("--cible", required=True)
+    parser_fournisseur_fusionner.add_argument(
+        "--simulation",
+        action="store_true",
+        help="N'écrit rien : affiche les nombres de lignes qui bougeraient",
+    )
+
+    parser_resoudre_fournisseurs = sous_parsers.add_parser(
+        "resoudre-fournisseurs",
+        help=(
+            "Rattache aux fournisseurs créés après coup les bons déjà reçus, "
+            "sans rappeler l'OCR (lecture déjà gardée) ; un bon sans motif "
+            "restant passe à « reçu » ; les bons corrigés à la main sont ignorés"
+        ),
+    )
+    parser_resoudre_fournisseurs.add_argument(
+        "--simulation",
+        action="store_true",
+        help="N'écrit rien : affiche le fournisseur qui serait trouvé par bon",
+    )
+
+    parser_historique = sous_parsers.add_parser(
+        "importer-historique-prix",
+        help=(
+            "Range les prix d'une feuille d'historique d'un fichier de "
+            "contrôle pour l'historique d'un produit (jamais dans la grille)"
+        ),
+    )
+    parser_historique.add_argument("--fournisseur", required=True)
+    parser_historique.add_argument("--fichier", required=True, type=Path)
+    parser_historique.add_argument("--feuille", required=True)
+    parser_historique.add_argument("--source", required=True)
+    parser_historique.add_argument(
+        "--simulation",
+        action="store_true",
+        help="N'écrit rien : compte seulement les lignes qui seraient importées",
+    )
+    parser_recalculer_bons = sous_parsers.add_parser(
+        "recalculer-bons",
+        help=(
+            "Applique aux bons à vérifier les règles de lecture (fournisseur "
+            "et chantier confirmés, chantier lu dans la référence de "
+            "commande) à partir de la lecture déjà gardée, sans rappeler "
+            "l'OCR ; les bons corrigés à la main sont ignorés"
+        ),
+    )
+    parser_recalculer_bons.add_argument(
+        "--simulation",
+        action="store_true",
+        help="N'écrit rien : compte seulement les bons qui seraient relus",
     )
 
     parser_synthese_commentaires = sous_parsers.add_parser(
@@ -1389,6 +1684,26 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_chantiers_alias_suspects())
     if args.commande == "ranger-photos":
         return asyncio.run(_ranger_photos())
+    if args.commande == "importer-historique-prix":
+        return asyncio.run(
+            _importer_historique_prix(
+                fournisseur=args.fournisseur,
+                fichier=args.fichier,
+                feuille=args.feuille,
+                source=args.source,
+                simulation=args.simulation,
+            )
+        )
+    if args.commande == "fournisseur-fusionner":
+        return asyncio.run(
+            _fournisseur_fusionner(
+                source=args.source, cible=args.cible, simulation=args.simulation
+            )
+        )
+    if args.commande == "recalculer-bons":
+        return asyncio.run(_recalculer_bons(simulation=args.simulation))
+    if args.commande == "resoudre-fournisseurs":
+        return asyncio.run(_resoudre_fournisseurs(simulation=args.simulation))
     if args.commande == "synthese-commentaires":
         return asyncio.run(_synthese_commentaires(semaine_debut=args.semaine))
     if args.commande == "ia-prix":

@@ -1027,3 +1027,40 @@ class GrillePrix(Base):
         UUID(as_uuid=True), ForeignKey("utilisateur.id"), nullable=True
     )
     created_at: Mapped[datetime] = _created_at()
+
+
+class PrixObserve(Base):
+    """Prix déjà vu chez un fournisseur, importé d'une feuille d'historique
+    d'un fichier de contrôle -- migration 0018 (lot 2 du 31/10/2026, B4).
+    Ces prix ne vont **jamais** dans la grille : ils s'affichent seulement
+    dans l'historique d'un produit. `cle_produit` : même règle que la
+    grille (`normalize.prix.cle_produit`). `piece` : numéro de la facture
+    d'origine. `source_libelle` : texte donné à l'import (« Fichier de
+    contrôle ... »), affiché tel quel. Pas de `updated_at` : une ligne
+    importée n'est jamais modifiée."""
+
+    __tablename__ = "prix_observe"
+    __table_args__ = (
+        CheckConstraint("prix_ht > 0", name="prix_ht_positif"),
+        Index(
+            "ix_prix_observe_fournisseur_produit_date",
+            "fournisseur_id",
+            "cle_produit",
+            "date_observation",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _id()
+    fournisseur_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fournisseur.id"), nullable=False
+    )
+    cle_produit: Mapped[str] = mapped_column(Text, nullable=False)
+    reference: Mapped[str | None] = mapped_column(Text, nullable=True)
+    designation: Mapped[str] = mapped_column(Text, nullable=False)
+    unite_brut: Mapped[str | None] = mapped_column(Text, nullable=True)
+    date_observation: Mapped[date] = mapped_column(Date, nullable=False)
+    prix_ht: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    quantite: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    piece: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_libelle: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = _created_at()

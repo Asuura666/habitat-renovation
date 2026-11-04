@@ -67,7 +67,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, inspect, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -80,6 +80,7 @@ from app.modules.ingest.models import (
     ChantierAlias,
     Document,
     Journal,
+    Utilisateur,
 )
 from app.modules.ingest.parametres import CLE_SEUIL_RESSEMBLANCE_CHANTIER
 from app.modules.ingest.referentiels import (
@@ -99,12 +100,14 @@ from app.modules.normalize.chantier import (
     decomposer_chantier,
     nom_pour_creation,
     reconnaitre_chantier,
+    reference_utilisable,
+    retirer_employes_du_chantier,
 )
 from app.modules.normalize.texte import nombres_differents, normaliser_libelle
 from app.modules.rules.engine import REGLES_CHANTIER, evaluer_chantier
 from app.modules.rules.modeles import ChantierIncertainControle
 
-SEUIL_RESSEMBLANCE_DEFAUT = Decimal("90")
+SEUIL_RESSEMBLANCE_DEFAUT = Decimal("80")
 
 
 @dataclass(frozen=True)
@@ -113,12 +116,20 @@ class ResultatRattachement:
 
     chantier_id: uuid.UUID | None
     # "nom connu" (alias exact) | "ressemblance" (nom lu) | "légende" |
-    # "création" | "alerte" | `None` (aucune des deux sources n'est
-    # exploitable, comme aujourd'hui).
+    # "création" | "alerte" | "référence de commande" (A4) | `None` (aucune
+    # source exploitable, comme aujourd'hui).
     methode: str | None
     score: int | None
     cree: bool  # un chantier vient d'être créé (jamais vrai en cas de doublon repris).
     alerte: bool  # R18 ouverte sur le bon (`document.chantier_id` reste `None`).
+    # Lot 2 du 31/10/2026 : le chantier retenu par un rattachement (nom connu,
+    # ressemblance, légende), pour confirmer la lecture (`ajustement_motifs`).
+    chantier_nom: str | None = None
+    chantier_a_completer: bool = False
+    # A4 : nom et légende vides, la référence de commande ne correspond à
+    # aucun chantier connu (ou à plusieurs) -- aucun chantier n'est créé.
+    reference_inconnue: str | None = None
+    reference_candidats: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -385,6 +396,64 @@ async def _r18_deja_decidee(session: AsyncSession, document_id: uuid.UUID) -> bo
     return resultat.first() is not None
 
 
+async def _choix_humain_en_vigueur(
+    session: AsyncSession, document_id: uuid.UUID
+) -> bool:
+    """Vrai si le chantier de ce bon a été choisi à la main (journal
+    `chantier_choisi`) et qu'aucune correction d'en-tête (`document_corrige`)
+    n'est plus récente : la relecture ne l'écrase pas (31/10/2026)."""
+    cible = str(document_id)
+    dernier_choix = (
+        await session.execute(
+            select(func.max(Journal.created_at)).where(
+                Journal.cible_table == "document",
+                Journal.cible_id == cible,
+                Journal.action == "chantier_choisi",
+            )
+        )
+    ).scalar_one()
+    if dernier_choix is None:
+        return False
+    derniere_correction = (
+        await session.execute(
+            select(func.max(Journal.created_at)).where(
+                Journal.cible_table == "document",
+                Journal.cible_id == cible,
+                Journal.action == "document_corrige",
+            )
+        )
+    ).scalar_one()
+    return derniere_correction is None or derniere_correction <= dernier_choix
+
+
+async def _decision_humaine_conservee(
+    session: AsyncSession, document: Document
+) -> ResultatRattachement:
+    """Sortie anticipée commune (R18 déjà décidée, chantier choisi à la main) :
+    `document.chantier_id` reste tel quel, anomalies intactes."""
+    nom: str | None = None
+    a_completer = False
+    if document.chantier_id is not None:
+        retenu = (
+            await session.execute(
+                select(Chantier.nom_canonique, Chantier.a_completer).where(
+                    Chantier.id == document.chantier_id
+                )
+            )
+        ).first()
+        if retenu is not None:
+            nom, a_completer = retenu
+    return ResultatRattachement(
+        chantier_id=document.chantier_id,
+        methode="décision humaine conservée",
+        score=None,
+        cree=False,
+        alerte=False,
+        chantier_nom=nom,
+        chantier_a_completer=a_completer,
+    )
+
+
 async def rattacher_chantier_document(
     session: AsyncSession, document: Document
 ) -> ResultatRattachement:
@@ -394,6 +463,12 @@ async def rattacher_chantier_document(
     c'est l'appelant qui décide du périmètre transactionnel."""
     await session.execute(select(func.pg_advisory_xact_lock(VERROU_CHANTIERS)))
 
+    # `document.id` peut être expiré (rejeu après un rollback) : l'identité de
+    # l'objet reste lisible sans accès à la base.
+    identite = inspect(document).identity
+    if identite is not None and await _choix_humain_en_vigueur(session, identite[0]):
+        return await _decision_humaine_conservee(session, document)
+
     seuil = int(
         await lire_parametre_decimal(
             session, CLE_SEUIL_RESSEMBLANCE_CHANTIER, SEUIL_RESSEMBLANCE_DEFAUT
@@ -401,8 +476,14 @@ async def rattacher_chantier_document(
     )
     noms = await charger_noms_chantiers(session)
 
+    # D2 (lot 4 du 02/11/2026) : la personne qui commande ou enlève n'est pas
+    # le chantier. `document.chantier_brut` (la lecture) reste inchangé ; le
+    # nom nettoyé sert à reconnaître, créer et apprendre.
+    comptes = (await session.execute(select(Utilisateur.nom))).scalars().all()
+    nom_lu = retirer_employes_du_chantier(document.chantier_brut, comptes)
+
     lu, lu_exact = await _correspondance_exacte_ou_ressemblance(
-        session, document.fournisseur_id, document.chantier_brut, noms, seuil
+        session, document.fournisseur_id, nom_lu, noms, seuil
     )
     legende = reconnaitre_chantier(document.legende, noms, seuil)
 
@@ -425,9 +506,7 @@ async def rattacher_chantier_document(
     elif decision.type is TypeDecision.CREER:
         methode = "création"
         source_brut = (
-            document.chantier_brut
-            if decision.source is SourceNom.NOM_LU
-            else document.legende
+            nom_lu if decision.source is SourceNom.NOM_LU else document.legende
         )
         nom = nom_pour_creation(source_brut)
         source_libelle = "nom lu" if decision.source is SourceNom.NOM_LU else "légende"
@@ -448,18 +527,51 @@ async def rattacher_chantier_document(
             # chantier_id` (qui vaudrait `None` ici) et avant
             # `synchroniser_anomalies` (qui ne rouvrirait de toute façon
             # jamais une R18 `traitee`/`ignoree`, L4-D12).
-            return ResultatRattachement(
-                chantier_id=document.chantier_id,
-                methode="décision humaine conservée",
-                score=None,
-                cree=False,
-                alerte=False,
-            )
+            return await _decision_humaine_conservee(session, document)
         methode = "alerte"
         alerte = True
     # TypeDecision.AUCUN : chantier_id/methode restent `None` (comme aujourd'hui).
 
+    # A4 (lot 2 du 31/10/2026) : ni nom lu ni légende -- la « Référence
+    # commande client » donne parfois le chantier. Jamais de création, jamais
+    # d'alias appris depuis une référence.
+    reference_inconnue: str | None = None
+    reference_candidats: tuple[str, ...] = ()
+    if (
+        decision.type is TypeDecision.AUCUN
+        and lu.etat is EtatCorrespondance.VIDE
+        and legende.etat is EtatCorrespondance.VIDE
+        and reference_utilisable(document.numero_commande, comptes)
+    ):
+        reference = (document.numero_commande or "").strip()
+        lue = reconnaitre_chantier(reference, noms, seuil)
+        if lue.etat is EtatCorrespondance.RECONNU:
+            chantier_id = lue.chantier_id
+            methode = "référence de commande"
+            score = lue.score
+        else:
+            reference_inconnue = reference
+            noms_ref = await _noms_canoniques(session, lue.candidats)
+            reference_candidats = tuple(
+                sorted(noms_ref[c] for c in lue.candidats if c in noms_ref)
+            )
+
     document.chantier_id = chantier_id
+
+    chantier_nom: str | None = None
+    chantier_a_completer = False
+    if chantier_id is not None and (
+        decision.type is TypeDecision.RATTACHER or methode == "référence de commande"
+    ):
+        retenu = (
+            await session.execute(
+                select(Chantier.nom_canonique, Chantier.a_completer).where(
+                    Chantier.id == chantier_id
+                )
+            )
+        ).first()
+        if retenu is not None:
+            chantier_nom, chantier_a_completer = retenu
 
     if (
         decision.apprendre
@@ -494,7 +606,15 @@ async def rattacher_chantier_document(
     )
 
     return ResultatRattachement(
-        chantier_id=chantier_id, methode=methode, score=score, cree=cree, alerte=alerte
+        chantier_id=chantier_id,
+        methode=methode,
+        score=score,
+        cree=cree,
+        alerte=alerte,
+        chantier_nom=chantier_nom,
+        chantier_a_completer=chantier_a_completer,
+        reference_inconnue=reference_inconnue,
+        reference_candidats=reference_candidats,
     )
 
 
@@ -514,6 +634,10 @@ async def rattacher_chantier_bloc(
         )
     )
     noms = await charger_noms_chantiers(session)
+
+    # D2 (lot 4 du 02/11/2026) : voir `rattacher_chantier_document`.
+    comptes = (await session.execute(select(Utilisateur.nom))).scalars().all()
+    chantier_brut = retirer_employes_du_chantier(chantier_brut, comptes)
 
     corr, via_alias_exact = await _correspondance_exacte_ou_ressemblance(
         session, fournisseur_id, chantier_brut, noms, seuil

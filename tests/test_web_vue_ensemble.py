@@ -26,13 +26,13 @@ def test_vue_ensemble_contenu() -> None:
     assert "obtenirTableauDeBord" in page
     assert "useSearchParams" in page
     assert 'type="month"' in page
-    assert "PastilleEtat" in page
+    assert "SectionChantiers" in page
 
     # Les six tuiles chiffrées (maquette `Main`, brief T5) — libellés exacts.
     for libelle in (
         "Facturé ce mois",
         "Conforme",
-        "Montant des bons reçus",
+        "Montant des bons du mois",
         "Sans bon de livraison",
         "Problèmes à régler",
         "Bons de livraison reçus",
@@ -47,8 +47,15 @@ def test_vue_ensemble_contenu() -> None:
     # identifiants restent employés par la fiche chantier et la fiche
     # fournisseur (`tests/test_web_socle.py::
     # test_tuiles_ecart_utilisent_libelle_ecart_partage`), plus jamais ici.
-    assert "montant_bons_recus" in page
-    assert "nb_bons_sans_montant" in page
+    # Lot 2, B6 (31/10/2026) : la tuile compte tous les bons du mois, même
+    # non vérifiés (« le CA global de tous les BL »).
+    assert "montant_bons_mois" in page
+    assert "nb_bons_mois" in page
+    assert "nb_bons_a_verifier" in page
+    assert "nb_bons_mois_sans_montant" in page
+    assert "Montant des bons du mois" in page
+    assert "Montant des bons reçus" not in page
+    assert "montant_bons_recus" not in page
     # Forme appelée, pas la simple mention (le commentaire de décision
     # ci-dessus les cite en toutes lettres, sans parenthèses, pour expliquer
     # où elles vivent désormais).
@@ -56,8 +63,9 @@ def test_vue_ensemble_contenu() -> None:
     assert "sousTexteEcart(" not in page
     assert "controlePrixActif" not in page
 
-    assert "Chantier à rattacher" in page
-    assert "Aucune facture ce mois-ci." in page
+    assert "Sans chantier" in page
+    assert "Aucun bon ce mois-ci." in page
+    assert "Aucune facture ce mois-ci." not in page
     assert "Exporter pour Excel" in page
 
     # Tableau (ordinateur) / cartes empilées (téléphone).
@@ -187,7 +195,7 @@ def test_vue_ensemble_liens_vers_la_fiche_et_le_probleme() -> None:
     chantier non rattaché mène à « À régler » filtré sur les chantiers à
     rattacher."""
     page = (SRC / "pages" / "VueEnsemble.tsx").read_text()
-    assert "lienChantier(chantier.chantier_id, mois)" in page
+    assert "lienChantier(ligne.chantier_id, mois)" in page
     assert "`/a-regler/${priorite.anomalie.id}`" in page
     liens = (SRC / "lib" / "liens.ts").read_text()
     assert 'LIEN_CHANTIERS_A_RATTACHER = "/a-regler?filtre=rattacher"' in liens
@@ -202,9 +210,8 @@ def test_vue_ensemble_tableau_aligne_et_client_nomme() -> None:
     page = (SRC / "pages" / "VueEnsemble.tsx").read_text()
     assert "<table" in page
     assert "grid-cols-[2.2fr_1.4fr_1fr_1fr_1fr]" not in page
-    assert '"Client non renseigné"' in page
     assert "dernier_mois_facture" in page
-    assert "dernier mois facturé" in page
+    assert "Dernier mois facturé" in page
 
 
 def test_mois_de_l_url_valide_partout() -> None:
@@ -297,3 +304,32 @@ def test_livraisons_couvre_le_contrat() -> None:
     # Aucun calcul métier : les montants viennent tels quels du serveur.
     assert "parseFloat" not in page
     assert "Number(" not in page
+
+
+def test_vue_ensemble_annonce_les_factures_du_mois() -> None:
+    """Lot 3, C3 : « N facture(s) ce mois-ci » mène à la liste des documents
+    filtrée sur les factures (`?filtre=factures`, filtre existant)."""
+    page = (SRC / "pages" / "VueEnsemble.tsx").read_text()
+
+    assert "nb_factures_mois" in page
+    assert "/documents?filtre=factures" in page
+    assert "ce mois-ci" in page
+
+
+def test_vue_ensemble_suit_les_chantiers_du_mois_meme_non_factures() -> None:
+    """Lot 3, C2 (02/11/2026) : « même si ce n'est pas encore facturé, on peut
+    voir le suivi des chantiers du mois en cours » -- le cadre se construit
+    sur `suivi_chantiers`, plus sur les seules factures."""
+    page = (SRC / "pages" / "VueEnsemble.tsx").read_text()
+
+    assert "donnees.suivi_chantiers" in page
+    assert "donnees.chantiers" not in page
+    for chaine in (
+        "Montant des bons",
+        "nb_bons_a_verifier",
+        "nb_problemes",
+        '"Pas encore"',
+        '"Sans chantier"',
+        "Aucun bon ce mois-ci.",
+    ):
+        assert chaine in page, chaine

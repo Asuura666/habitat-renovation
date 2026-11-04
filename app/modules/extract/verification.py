@@ -20,13 +20,18 @@ aucun log, aucun appel réseau (R17) : entrées et sorties en dataclasses.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
+from .arithmetique import (
+    controle_arithmetique_ligne,
+    decimales_du_brut,
+    produit_attendu,
+)
 from .bl import BLExtrait, LigneBL, normaliser_numero_bl
 from .facture import Facture
 
@@ -49,6 +54,12 @@ class CodeMotif(StrEnum):
     ANNOTATION_ILLISIBLE = "annotation_illisible"  # posé par ingest
     FOURNISSEUR_INCONNU = "fournisseur_inconnu"  # posé par ingest
     NUMERO_EN_DOUBLE = "numero_en_double"  # posé par ingest
+    # posé par ingest (lot 2 du 31/10/2026) : pas de chantier écrit sur le bon,
+    # et la référence de commande ne correspond à aucun chantier connu.
+    REFERENCE_CHANTIER_INCONNUE = "reference_chantier_inconnue"
+    # A6 : quantité x prix unitaire ne tombe pas sur le montant lu (champ
+    # `ligne:<ordre>`, comme `confiance_faible` d'une ligne).
+    CALCUL_LIGNE_INCOHERENT = "calcul_ligne_incoherent"
 
 
 @dataclass(frozen=True)
@@ -93,7 +104,10 @@ class LigneAVerifier:
     montant_ht: Decimal | None
     confiance: (
         Decimal | None
-    )  # minimum des confiances non nulles de code, quantité, montant
+    )  # minimum des confiances non nulles de quantité, prix unitaire, montant
+    # A6 : quantité, prix, montant lu et produit attendu (chaînes) quand le
+    # contrôle arithmétique échoue, sinon `None`.
+    calcul_incoherent: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -119,22 +133,49 @@ class BLAVerifier:
 
 
 def _confiance_ligne(ligne: LigneBL) -> Decimal | None:
-    """Confiance d'une ligne (L3-D3) : minimum des confiances non nulles de
-    `code`, `quantite` et `montant_ht` (la désignation, l'unité et le prix
-    unitaire ne comptent pas). `None` si les trois sont nulles (aucun score
-    disponible, ou aucune des trois valeurs n'a été retrouvée pour l'une
-    d'elles alors que les autres n'ont pas de score — cas très improbable,
-    mais on ne distingue pas ces deux origines ici)."""
+    """Confiance de lecture d'une ligne (A6, lot 2 du 31/10/2026) : minimum des
+    confiances non nulles de `quantite`, `pu_ht` et `montant_ht`, cherchées
+    ensemble dans une seule ligne de texte (`confiance.confiances_ligne`). Le
+    code et la désignation ne comptent plus (chez Unikalo le modèle range le
+    nombre de colis dans le code). `None` si aucune des trois n'a de score.
+    Le contrôle arithmétique est à part (`_calcul_incoherent`)."""
     confiances = [
         c
         for c in (
-            ligne.code.confiance,
             ligne.quantite.confiance,
+            ligne.pu_ht.confiance,
             ligne.montant_ht.confiance,
         )
         if c is not None
     ]
     return min(confiances) if confiances else None
+
+
+def _calcul_incoherent(ligne: LigneBL) -> dict[str, str] | None:
+    """Détail du calcul si quantité x prix unitaire ne tombe pas sur le montant
+    lu (tolérance selon les décimales du prix tel que lu), sinon `None` --
+    y compris quand le contrôle est impossible (prix absent)."""
+    quantite, pu, montant = (
+        ligne.quantite.valeur,
+        ligne.pu_ht.valeur,
+        ligne.montant_ht.valeur,
+    )
+    if (
+        controle_arithmetique_ligne(
+            quantite, pu, montant, decimales_pu=decimales_du_brut(ligne.pu_ht.brut)
+        )
+        is not False
+        or quantite is None
+        or pu is None
+        or montant is None
+    ):
+        return None
+    return {
+        "quantite": str(quantite),
+        "pu_ht": str(pu),
+        "montant_ht": str(montant),
+        "produit": str(produit_attendu(quantite, pu)),
+    }
 
 
 def bl_a_verifier(extrait: BLExtrait) -> BLAVerifier:
@@ -167,6 +208,7 @@ def bl_a_verifier(extrait: BLExtrait) -> BLAVerifier:
             ordre=ligne.ordre,
             montant_ht=ligne.montant_ht.valeur,
             confiance=_confiance_ligne(ligne),
+            calcul_incoherent=_calcul_incoherent(ligne),
         )
         for ligne in extrait.lignes
     )
@@ -250,12 +292,25 @@ def verifier_bl(
                     _motif_confiance_faible(champ, confiance, seuil_confiance)
                 )
         for ligne in bl.lignes:
+            if ligne.calcul_incoherent is not None:
+                continue  # un seul motif par ligne : le calcul faux, ci-dessous
             if ligne.confiance is None or ligne.confiance < seuil_confiance:
                 motifs.append(
                     _motif_confiance_faible(
                         f"ligne:{ligne.ordre}", ligne.confiance, seuil_confiance
                     )
                 )
+
+    # 2bis. Contrôle arithmétique des lignes (A6) : indépendant des scores.
+    for ligne in bl.lignes:
+        if ligne.calcul_incoherent is not None:
+            motifs.append(
+                Motif(
+                    code=CodeMotif.CALCUL_LIGNE_INCOHERENT,
+                    champ=f"ligne:{ligne.ordre}",
+                    detail=dict(ligne.calcul_incoherent),
+                )
+            )
 
     # 3. Réconciliation somme des lignes / total (L3-D25, constat 11 : un BL
     # sans total lu part toujours « à vérifier », qu'il ait ou non des
@@ -318,6 +373,23 @@ def verifier_bl(
             )
 
     return tuple(motifs)
+
+
+def retirer_motifs_confirmes(
+    motifs: Sequence[Motif], champs_confirmes: frozenset[str]
+) -> tuple[Motif, ...]:
+    """Retire les motifs `CONFIANCE_FAIBLE` des champs dont la lecture est
+    confirmée par ailleurs (lot 2 du 31/10/2026) : fournisseur reconnu par
+    son SIREN ou sa TVA, chantier reconnu dans le référentiel. Les autres
+    motifs du champ (absent, illisible, inconnu…) et ceux des autres champs
+    sont conservés tels quels, dans le même ordre."""
+    return tuple(
+        motif
+        for motif in motifs
+        if not (
+            motif.code is CodeMotif.CONFIANCE_FAIBLE and motif.champ in champs_confirmes
+        )
+    )
 
 
 # --------------------------------------------------------------------------

@@ -6,11 +6,14 @@ import {
   cleBilanBl,
   cleBilanChantiers,
   cleBilanFournisseurs,
+  cleLivraisons,
   type FiltresBilan,
+  type FiltresLivraisons,
   type LigneBilanFournisseur,
   listerBilanBl,
   listerBilanChantiers,
   listerBilanFournisseurs,
+  listerLivraisons,
   urlExportBilanBl,
   urlExportBilanFournisseurs,
 } from "../api/bilan";
@@ -456,6 +459,18 @@ export function FicheChantier(): ReactElement {
     })),
   });
 
+  // Lot 2, B3 (31/10/2026) : « même s'il y a un problème je dois quand même
+  // voir le BL dans le bon endroit » -- les bons que aucune facture ne cite
+  // encore s'ajoutent aux livraisons des factures (la liste serveur porte
+  // `facture = false` pour eux ; les lignes de facture viennent des requêtes
+  // par fournisseur ci-dessus).
+  const filtresBons: FiltresLivraisons = { ...filtresActifs, chantierId: id };
+  const bonsSansFacture = useQuery({
+    queryKey: cleLivraisons(filtresBons),
+    queryFn: () => listerLivraisons(filtresBons),
+    enabled: chantierId !== undefined,
+  });
+
   const chantier = chantierQuery.data;
   const autresChantiers = chantiersListe.data?.filter((c) => c.id !== id) ?? [];
   const ligneBilan = bilanChantiers.data?.find((l) => l.chantier_id === id);
@@ -476,10 +491,11 @@ export function FicheChantier(): ReactElement {
   // informatif ici (colonne « Fournisseur » de la carte « Livraisons »,
   // jamais un lien) : la consigne de ce tour ne demande une destination
   // cliquable que pour le nom du chantier.
-  const livraisonsChargees = fournisseurs.isSuccess && blParFournisseur.every((requete) => requete.isSuccess);
+  const livraisonsChargees =
+    fournisseurs.isSuccess && blParFournisseur.every((requete) => requete.isSuccess) && bonsSansFacture.isSuccess;
   const livraisons: LivraisonAffichee[] = livraisonsChargees
-    ? blParFournisseur
-        .flatMap((requete, index) =>
+    ? [
+        ...blParFournisseur.flatMap((requete, index) =>
           (requete.data ?? []).map((ligne) => ({
             blocId: ligne.bloc_id,
             numeroBl: ligne.numero_bl,
@@ -487,8 +503,17 @@ export function FicheChantier(): ReactElement {
             fournisseur: fournisseursResolus[index]?.nom ?? "Fournisseur à rattacher",
             ligne,
           })),
-        )
-        .sort(comparerDateDesc)
+        ),
+        ...(bonsSansFacture.data ?? [])
+          .filter((ligne) => ligne.facture === false)
+          .map((ligne) => ({
+            blocId: null,
+            numeroBl: ligne.numero_bl,
+            dateBl: ligne.date_bl,
+            fournisseur: ligne.fournisseur ?? "Fournisseur à rattacher",
+            ligne,
+          })),
+      ].sort(comparerDateDesc)
     : [];
   // « Dernier bon retrouvé sur une facture » (fix round 1, constat 2 ;
   // recalculée sans filtre de mois au fix round 2, constat 1 ; libellé

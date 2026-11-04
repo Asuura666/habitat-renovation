@@ -39,26 +39,6 @@ function libelleStatutDocument(statut: string): string {
   return "Reçu";
 }
 
-function texteConfirmation(confirmation: "verifiee" | "ecart" | null): string {
-  if (confirmation === "verifiee") {
-    return "oui";
-  }
-  if (confirmation === "ecart") {
-    return "écart signalé";
-  }
-  return "pas encore";
-}
-
-function classesConfirmation(confirmation: "verifiee" | "ecart" | null): string {
-  if (confirmation === "verifiee") {
-    return "text-conforme";
-  }
-  if (confirmation === "ecart") {
-    return "text-ecart-texte";
-  }
-  return "text-encre-2";
-}
-
 /** Fil d'Ariane « Chantiers › chantier › n° BL » (spec, maquette `BL`) : le
  * chantier n'est un lien que lorsqu'il est rattaché (`chantier_id` connu) —
  * un document jamais rattaché affiche « Chantier à rattacher » en texte
@@ -642,18 +622,6 @@ export function PageBl(): ReactElement {
             <p>
               Déposé par <strong>{donnees.deposant ?? TIRET}</strong> via Telegram, le{" "}
               {formaterDateHeure(donnees.cree_le)}
-            </p>
-            <p>
-              Quantités vérifiées par l'équipe :{" "}
-              <strong className={classesConfirmation(donnees.confirmation)}>
-                {texteConfirmation(donnees.confirmation)}
-              </strong>
-              {donnees.confirmation !== null && (
-                <span className="text-encre-2">
-                  {" "}
-                  — {donnees.confirme_par ?? TIRET}, {formaterDateHeure(donnees.confirme_le)}
-                </span>
-              )}
             </p>
           </div>
         </section>

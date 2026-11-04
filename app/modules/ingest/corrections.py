@@ -87,11 +87,14 @@ from app.modules.extract.verification import (
     SEUIL_CONFIANCE_DEFAUT,
     TOLERANCE_TOTAL_DEFAUT,
     BLAVerifier,
+    CodeMotif,
     LigneAVerifier,
     Motif,
+    motif_depuis_json,
     motif_en_json,
     verifier_bl,
 )
+from app.modules.ingest.ajustement_motifs import motifs_chantier_apres_correction
 from app.modules.ingest.anomalies import synchroniser_anomalies
 from app.modules.ingest.extraction_bl import (
     CLE_SEUIL_CONFIANCE_OCR,
@@ -666,7 +669,35 @@ async def _recalculer_motifs_structurels(
         illisibles=frozenset(),
         numero_detecte=None,
     )
-    return verifier_bl(vue, seuil_confiance=seuil, tolerance=tolerance)
+    motifs = verifier_bl(vue, seuil_confiance=seuil, tolerance=tolerance)
+
+    # Lot 2 du 31/10/2026 : sans nom écrit sur le bon, un chantier identifié
+    # par la référence de commande ou la légende ne manque pas ; une référence
+    # inconnue déjà signalée reste signalée.
+    chantier_identifie = False
+    if document.chantier_id is not None:
+        a_completer = (
+            await session.execute(
+                select(Chantier.a_completer).where(Chantier.id == document.chantier_id)
+            )
+        ).scalar_one_or_none()
+        chantier_identifie = (
+            a_completer is False or not (document.legende or "").strip()
+        )
+    precedent = next(
+        (
+            motif_depuis_json(m)
+            for m in (document.motifs or [])
+            if m.get("code") == CodeMotif.REFERENCE_CHANTIER_INCONNUE.value
+        ),
+        None,
+    )
+    return motifs_chantier_apres_correction(
+        motifs,
+        chantier_brut=document.chantier_brut,
+        chantier_identifie=chantier_identifie,
+        motif_reference_precedent=precedent,
+    )
 
 
 def _statut_apres_correction(statut_actuel: str, motifs: tuple[Motif, ...]) -> str:
@@ -1246,16 +1277,47 @@ async def relancer_extraction(
     if not isinstance(reponse, dict) or not isinstance(reponse.get("pages"), list):
         raise LectureImpossible(_MESSAGE_LECTURE_IMPOSSIBLE)
 
+    return await rejouer_extraction_depuis_reponse(
+        session, document, reponse, docs_dir, auteur_id=auteur_id
+    )
+
+
+async def rejouer_extraction_depuis_reponse(
+    session: AsyncSession,
+    document: Document,
+    reponse: dict[str, Any],
+    docs_dir: Path,
+    *,
+    auteur_id: uuid.UUID | None,
+    sans_nouvel_ocr: bool = False,
+) -> DocumentDetail:
+    """Rejoue l'extraction d'un BL à partir d'une réponse OCR **déjà en
+    main** : le chemin unique de `relancer_extraction` (réponse venant d'un
+    nouvel appel OCR) et de `ingest.resolution_fournisseurs` (réponse déjà
+    gardée dans `document.ocr_brut`, décision d'Ilane du 31/10/2026 : aucun
+    nouvel appel OCR). `sans_nouvel_ocr` ne change que le journal
+    `extraction_relancee` (`apres.origine`) ; `auteur_id` vide pour une
+    commande d'exploitation."""
+    document_id = document.id
     # Capturé avant toute écriture (jamais mutée entre-temps) : ces valeurs
     # sont celles du journal `avant`, écrit seulement une fois l'extraction
-    # elle-même commitée (voir le docstring ci-dessus).
+    # elle-même commitée (voir le docstring de `relancer_extraction`).
     nb_lignes_avant = await _nombre_lignes(session, document_id)
     avant = {
         **_valeurs_document_pour_journal(document),
         "nb_lignes": str(nb_lignes_avant),
     }
 
-    await enregistrer_extraction_bl(session, document_id, reponse, relance=True)
+    # Même lecture rejouée avec un référentiel enrichi (`sans_nouvel_ocr`) : le
+    # statut suit les motifs restants ; une relance demandée depuis l'écran
+    # reste `a_verifier`.
+    await enregistrer_extraction_bl(
+        session,
+        document_id,
+        reponse,
+        relance=True,
+        statut_selon_motifs=sans_nouvel_ocr,
+    )
 
     session.add(
         Journal(
@@ -1264,7 +1326,11 @@ async def relancer_extraction(
             cible_table="document",
             cible_id=str(document_id),
             avant=avant,
-            apres=None,
+            apres=(
+                {"origine": "Sans nouvel OCR (lecture déjà gardée)"}
+                if sans_nouvel_ocr
+                else None
+            ),
         )
     )
     await session.commit()

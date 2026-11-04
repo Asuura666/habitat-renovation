@@ -71,24 +71,35 @@ def test_regles_desactivees_vide_quand_actif(monkeypatch: pytest.MonkeyPatch) ->
     _regler_controle_livre_non_facture(monkeypatch, actif=True)
 
     assert commun.controle_livre_non_facture_actif() is True
-    assert commun.regles_desactivees() == frozenset()
+    # R15 est retirée en permanence (31/10/2026) : jamais vide.
+    assert commun.regles_desactivees() == frozenset({"R15"})
 
 
 def test_regles_desactivees_r06_quand_inactif(monkeypatch: pytest.MonkeyPatch) -> None:
     _regler_controle_livre_non_facture(monkeypatch, actif=False)
 
     assert commun.controle_livre_non_facture_actif() is False
-    assert commun.regles_desactivees() == frozenset({"R06"})
+    assert commun.regles_desactivees() == frozenset({"R06", "R15"})
 
 
 def test_regles_desactivees_ne_touche_aucune_autre_regle_de_suivi(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Seule R06 est concernée -- R14/R15/R16 restent actives même drapeau
-    désactivé."""
+    """Seule R06 est concernée par ce drapeau -- R14/R16 restent actives
+    même drapeau désactivé (R15 est retirée à part, 31/10/2026)."""
     _regler_controle_livre_non_facture(monkeypatch, actif=False)
 
-    assert (REGLES_SUIVI - commun.regles_desactivees()) == REGLES_SUIVI - {"R06"}
+    assert (REGLES_SUIVI - commun.regles_desactivees()) == REGLES_SUIVI - {"R06", "R15"}
+
+
+def test_r15_est_retiree_en_permanence(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Décision d'Ilane du 31/10/2026 : la confirmation des quantités est
+    retirée, R15 n'est plus produite quels que soient les drapeaux."""
+    _regler_controle_livre_non_facture(monkeypatch, actif=True)
+
+    assert frozenset({"R15"}) == commun.REGLES_RETIREES
+    assert "R15" in commun.regles_desactivees()
+    assert "R15" not in REGLES_SUIVI - commun.regles_desactivees()
 
 
 def test_les_deux_drapeaux_se_combinent_sans_se_recouvrir(
@@ -105,7 +116,7 @@ def test_les_deux_drapeaux_se_combinent_sans_se_recouvrir(
 
     monkeypatch.setattr(commun, "get_settings", lambda: _AucunControleActif())
 
-    assert commun.regles_desactivees() == frozenset({"R07", "R08", "R09", "R06"})
+    assert commun.regles_desactivees() == frozenset({"R07", "R08", "R09", "R06", "R15"})
 
 
 # --------------------------------------------------------------------------

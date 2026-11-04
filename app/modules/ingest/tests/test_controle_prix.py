@@ -86,14 +86,15 @@ def test_regles_desactivees_vide_quand_actif(monkeypatch: pytest.MonkeyPatch) ->
     _regler_controle_prix(monkeypatch, actif=True)
 
     assert commun.controle_prix_actif() is True
-    assert commun.regles_desactivees() == frozenset()
+    # R15 (retirée pour de bon, 31/10/2026) est toujours désactivée.
+    assert commun.regles_desactivees() == frozenset({"R15"})
 
 
 def test_regles_desactivees_prix_quand_inactif(monkeypatch: pytest.MonkeyPatch) -> None:
     _regler_controle_prix(monkeypatch, actif=False)
 
     assert commun.controle_prix_actif() is False
-    assert commun.regles_desactivees() == frozenset({"R07", "R08", "R09"})
+    assert commun.regles_desactivees() == frozenset({"R07", "R08", "R09", "R15"})
 
 
 def test_regles_prix_egale_regles_de_categorie_prix() -> None:

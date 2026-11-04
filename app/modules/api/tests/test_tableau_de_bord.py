@@ -204,6 +204,7 @@ async def _creer_bon(
     *,
     total_ht: Decimal | None = Decimal("100.00"),
     date_doc: date | None = date(2026, 9, 15),
+    statut: str = "recu",
 ) -> Document:
     """Un BL reçu -- voir docstring d'`ingest.tableau_de_bord` (décision
     d'Ilane du 25/09/2026, tuile « Montant des bons reçus »). Ce fichier ne
@@ -212,7 +213,7 @@ async def _creer_bon(
     document = Document(
         type="bl",
         source="telegram",
-        statut="recu",
+        statut=statut,
         fichier_path=f"chemin-invente-{uuid.uuid4()}.jpg",
         total_ht=total_ht,
         date_doc=date_doc,
@@ -402,3 +403,45 @@ async def test_get_tableau_de_bord_bons_recus_champs(
     assert corps["montant_bons_recus"] == "150.00"
     assert isinstance(corps["montant_bons_recus"], str)
     assert corps["nb_bons_sans_montant"] == 1
+
+
+async def test_get_tableau_de_bord_bons_du_mois_champs(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Lot 2, B6 : les bons « à vérifier » comptent dans le montant des bons
+    du mois ; les nouveaux champs sont distincts des anciens."""
+    await _creer_bon(db_session, total_ht=Decimal("150.00"))
+    await _creer_bon(db_session, statut="a_verifier", total_ht=Decimal("50.00"))
+    await _creer_bon(db_session, statut="a_verifier", total_ht=None)
+    await _creer_utilisateur(
+        db_session, email="admin.tdb6@example.invalid", role="admin"
+    )
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email="admin.tdb6@example.invalid")
+
+    reponse = await _requete(
+        app_test,
+        "/api/tableau-de-bord",
+        cookie=cookie,
+        params={"mois": "2026-09-01"},
+    )
+
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert corps["nb_bons_mois"] == 3
+    assert corps["montant_bons_mois"] == "200.00"
+    assert isinstance(corps["montant_bons_mois"], str)
+    assert corps["nb_bons_a_verifier"] == 2
+    assert corps["nb_bons_mois_sans_montant"] == 1
+    assert corps["nb_factures_mois"] == 0
+    # Lot 3, C2 : ces trois bons n'ont pas de chantier -> ligne « Sans chantier ».
+    assert len(corps["suivi_chantiers"]) == 1
+    sans_chantier = corps["suivi_chantiers"][0]
+    assert sans_chantier["chantier_id"] is None
+    assert sans_chantier["nom_canonique"] is None
+    assert sans_chantier["nb_bons"] == 3
+    assert sans_chantier["montant_bons"] == "200.00"
+    assert sans_chantier["nb_bons_a_verifier"] == 2
+    assert sans_chantier["facture_ht"] is None

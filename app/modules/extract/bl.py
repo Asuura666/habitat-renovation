@@ -186,7 +186,10 @@ CONSIGNE_ANNOTATION_BL: str = (
     "Recopie chaque valeur exactement telle qu'elle est imprimée sur le "
     "document (mêmes caractères, virgule décimale conservée). Mets null "
     "si la valeur est absente ou illisible. N'invente, ne calcule et ne "
-    "corrige aucune valeur. Ignore les mentions manuscrites."
+    "corrige aucune valeur. Ignore les mentions manuscrites. Sur les bons où "
+    "un nombre précède la désignation de l'article (colis, conditionnements), "
+    "ce nombre est le nombre de conditionnements (quantite_conditionnements), "
+    "jamais le code article."
 )
 
 OPTIONS_OCR_BL: dict[str, Any] = {
@@ -515,6 +518,9 @@ def _charger_annotation(brute: Any) -> dict[str, Any]:
     return brute
 
 
+_CHAMPS_CONFIANCE_LIGNE: tuple[str, ...] = ("quantite", "pu_ht", "montant_ht")
+
+
 def _lire_lignes(brutes: Any, index: IndexConfiance) -> tuple[LigneBL, ...]:
     """Lignes de l'annotation -> `LigneBL` : `lignes` absente ou non liste
     -> `()` ; une entrée qui n'est pas un objet, ou dont les 7 champs
@@ -532,9 +538,21 @@ def _lire_lignes(brutes: Any, index: IndexConfiance) -> tuple[LigneBL, ...]:
         valeurs = [_valeur_brute(brute.get(champ)) for champ in CHAMPS_LIGNE_BL]
         if all(valeur is None for valeur in valeurs):
             continue
-        confiances = confiances_ligne(index, valeurs)
         champs = dict(zip(CHAMPS_LIGNE_BL, valeurs, strict=True))
-        confs = dict(zip(CHAMPS_LIGNE_BL, confiances, strict=True))
+        # A6 (31/10/2026) : la confiance de la ligne ne repose que sur la
+        # quantité, le prix unitaire et le montant, cherchés ensemble dans
+        # une seule ligne de texte ; les autres champs sont jugés isolément
+        # (information seulement, ils n'entrent pas dans la confiance de la
+        # ligne, voir `verification._confiance_ligne`).
+        confs: dict[str, Decimal | None] = {
+            champ: confiance_valeur(index, champs[champ])
+            for champ in CHAMPS_LIGNE_BL
+            if champ not in _CHAMPS_CONFIANCE_LIGNE
+        }
+        triplet = confiances_ligne(
+            index, [champs[champ] for champ in _CHAMPS_CONFIANCE_LIGNE]
+        )
+        confs.update(zip(_CHAMPS_CONFIANCE_LIGNE, triplet, strict=True))
         lignes.append(
             LigneBL(
                 ordre=len(lignes),

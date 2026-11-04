@@ -91,7 +91,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Lister Factures Endpoint */
+        /**
+         * Lister Factures Endpoint
+         * @description Lot 3, C3 : filtres facultatifs `fournisseur`, `mois` (un jour du mois)
+         *     et `archivees=false` (écarte les factures archivées).
+         */
         get: operations["lister_factures_endpoint_api_factures_get"];
         put?: never;
         /** Deposer Facture Pdf */
@@ -757,6 +761,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bilan/livraisons.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bilan Livraisons Csv Endpoint
+         * @description Lot 2, B3 : la liste des livraisons (lignes de facture et bons pas
+         *     encore facturés) en CSV, mêmes filtres que la route JSON.
+         */
+        get: operations["bilan_livraisons_csv_endpoint_api_bilan_livraisons_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/journal": {
         parameters: {
             query?: never;
@@ -988,6 +1013,28 @@ export interface paths {
         };
         /** Historique Produit Endpoint */
         get: operations["historique_produit_endpoint_api_grilles_fournisseurs__fournisseur_id__produits__cle_produit__historique_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/grilles/fournisseurs/{fournisseur_id}/produits/{cle_produit}/historique-complet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Historique Complet Endpoint
+         * @description Lot 2 du 31/10/2026 (B4) : tout l'historique d'un produit -- versions
+         *     de la grille, prix vus sur les bons et factures du fournisseur, prix
+         *     observés importés. Trié par date décroissante, 100 lignes au plus.
+         */
+        get: operations["historique_complet_endpoint_api_grilles_fournisseurs__fournisseur_id__produits__cle_produit__historique_complet_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2507,6 +2554,42 @@ export interface components {
             chantier_id: string | null;
         };
         /**
+         * EntreeHistoriqueReponse
+         * @description `GET /api/grilles/fournisseurs/{id}/produits/{cle}/historique-complet`
+         *     -- mêmes attributs qu'`ingest.historique_prix.EntreeHistorique` (lot 2
+         *     du 31/10/2026, B4). `type` : `grille`, `document` ou `observe`.
+         */
+        EntreeHistoriqueReponse: {
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "grille" | "document" | "observe";
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Origine */
+            origine: string;
+            /** Prix Ht */
+            prix_ht: string;
+            /** Remise Pct */
+            remise_pct: string | null;
+            /** Prix Net */
+            prix_net: string | null;
+            /** Unite */
+            unite: string | null;
+            /** Quantite */
+            quantite: string | null;
+            /** Numero Document */
+            numero_document: string | null;
+            /** Document Id */
+            document_id: string | null;
+            /** Type Document */
+            type_document: string | null;
+        };
+        /**
          * ErreurImportReponse
          * @description Une ligne du fichier non retenue -- mêmes attributs
          *     qu'`ingest.grilles.ErreurImport`.
@@ -3112,11 +3195,8 @@ export interface components {
          *     fournisseur déjà fixés par l'URL, contrairement à `LigneBilanBlReponse`).
          */
         LigneLivraisonReponse: {
-            /**
-             * Bloc Id
-             * Format: uuid
-             */
-            bloc_id: string;
+            /** Bloc Id */
+            bloc_id: string | null;
             /** Numero Bl */
             numero_bl: string | null;
             /** Date Bl */
@@ -3125,11 +3205,8 @@ export interface components {
             statut_rapprochement: string | null;
             /** Bl Document Id */
             bl_document_id: string | null;
-            /**
-             * Facture Id
-             * Format: uuid
-             */
-            facture_id: string;
+            /** Facture Id */
+            facture_id: string | null;
             /** Chantier Id */
             chantier_id: string | null;
             /** Chantier */
@@ -3142,8 +3219,12 @@ export interface components {
              * Categorie
              * @enum {string}
              */
-            categorie: "conforme" | "a_verifier" | "sans_bon";
+            categorie: "conforme" | "a_verifier" | "sans_bon" | "probleme_ouvert" | "recu";
             montants: components["schemas"]["MontantsBilanReponse"];
+            /** Facture */
+            facture: boolean;
+            /** Montant Bon */
+            montant_bon?: string | null;
         };
         /**
          * LigneSaisieRequete
@@ -3547,6 +3628,29 @@ export interface components {
             famille?: string | null;
         };
         /**
+         * SuiviChantierReponse
+         * @description Lot 3, C2 : une ligne de `suivi_chantiers` dans `GET /api/tableau-de-
+         *     bord` -- mêmes attributs qu'`ingest.tableau_de_bord.SuiviChantier`.
+         *     `chantier_id` et `nom_canonique` valent `None` pour la ligne « Sans
+         *     chantier » ; `facture_ht` vaut `None` tant que rien n'est facturé.
+         */
+        SuiviChantierReponse: {
+            /** Chantier Id */
+            chantier_id: string | null;
+            /** Nom Canonique */
+            nom_canonique: string | null;
+            /** Nb Bons */
+            nb_bons: number;
+            /** Montant Bons */
+            montant_bons: string;
+            /** Nb Bons A Verifier */
+            nb_bons_a_verifier: number;
+            /** Nb Problemes */
+            nb_problemes: number;
+            /** Facture Ht */
+            facture_ht: string | null;
+        };
+        /**
          * SyntheseAccueilReponse
          * @description Réponse de `GET /api/ia/synthese` — mêmes attributs
          *     qu'`ingest.ia_synthese.SyntheseAccueil`.
@@ -3624,6 +3728,24 @@ export interface components {
             montant_bons_recus: string;
             /** Nb Bons Sans Montant */
             nb_bons_sans_montant: number;
+            /** Nb Bons Mois */
+            nb_bons_mois: number;
+            /** Montant Bons Mois */
+            montant_bons_mois: string;
+            /** Nb Bons A Verifier */
+            nb_bons_a_verifier: number;
+            /** Nb Bons Mois Sans Montant */
+            nb_bons_mois_sans_montant: number;
+            /**
+             * Nb Factures Mois
+             * @default 0
+             */
+            nb_factures_mois: number;
+            /**
+             * Suivi Chantiers
+             * @default []
+             */
+            suivi_chantiers: components["schemas"]["SuiviChantierReponse"][];
         };
         /**
          * TotauxMoisReponse
@@ -3949,7 +4071,11 @@ export interface operations {
     };
     lister_factures_endpoint_api_factures_get: {
         parameters: {
-            query?: never;
+            query?: {
+                fournisseur?: string | null;
+                mois?: string | null;
+                archivees?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3963,6 +4089,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FactureResumeReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -5249,6 +5384,40 @@ export interface operations {
             };
         };
     };
+    bilan_livraisons_csv_endpoint_api_bilan_livraisons_csv_get: {
+        parameters: {
+            query?: {
+                mois?: string | null;
+                agence?: string | null;
+                chantier?: string | null;
+                fournisseur?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Export CSV UTF-8 du bilan. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     lister_journal_endpoint_api_journal_get: {
         parameters: {
             query?: {
@@ -5693,6 +5862,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LigneHistoriqueReponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    historique_complet_endpoint_api_grilles_fournisseurs__fournisseur_id__produits__cle_produit__historique_complet_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fournisseur_id: string;
+                cle_produit: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntreeHistoriqueReponse"][];
                 };
             };
             /** @description Validation Error */

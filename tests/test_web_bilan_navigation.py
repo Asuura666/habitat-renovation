@@ -113,3 +113,41 @@ def test_detail_facture_expose_une_ancre_par_bloc() -> None:
     page = (WEB / "pages" / "FactureDetail.tsx").read_text()
 
     assert "id={`bloc-${bloc.id}`}" in page
+
+
+def test_tableau_livraisons_montre_les_bons_et_la_colonne_facture() -> None:
+    """Lot 2, B3 (31/10/2026) : « on peut le mettre sur la carte Livraison et
+    rajouter une colonne si c'est facturé ou pas »."""
+    partage = (WEB / "components" / "TableauLivraisons.tsx").read_text()
+
+    for chaine in (
+        '<th scope="col" className="py-2 pr-2">Facturé</th>',
+        "Facturé :",
+        '"Oui"',
+        '"Non"',
+        "Problème ouvert",
+        "ligne.facture !== false",
+    ):
+        assert chaine in partage, chaine
+
+    # Les trois écrans qui montent le tableau lisent le champ blocId nul.
+    for ecran in ("Livraisons.tsx", "FicheFournisseur.tsx"):
+        page = (WEB / "pages" / ecran).read_text()
+        assert "blocId: ligne.bloc_id" in page, ecran
+
+    fiche = (WEB / "pages" / "FicheChantier.tsx").read_text()
+    assert "listerLivraisons" in fiche
+    assert "facture === false" in fiche
+    assert "urlExportLivraisons" in (WEB / "pages" / "Livraisons.tsx").read_text()
+    assert "/api/bilan/livraisons.csv" in (WEB / "api" / "bilan.ts").read_text()
+
+
+def test_tableau_livraisons_montre_le_montant_du_bon_non_facture() -> None:
+    """Lot 3, C1 (02/11/2026) : « je veux voir le montant même s'il y a un
+    problème » -- un bon pas encore facturé affiche le montant lu sur le bon."""
+    partage = (WEB / "components" / "TableauLivraisons.tsx").read_text()
+
+    assert "function montantAffiche" in partage
+    assert "ligne.montant_bon" in partage
+    assert partage.count("montantAffiche(livraison.ligne)") == 2
+    assert "estFacturee(livraison.ligne) ? formaterMontant" not in partage

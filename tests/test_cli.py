@@ -99,6 +99,10 @@ from app.modules.extract.bl import OPTIONS_OCR_BL
 from app.modules.extract.facture import Facture, FactureIllisible
 from app.modules.extract.reponses_ia import OffreLue, PrixInternetLu
 from app.modules.extract.verification import SEUIL_CONFIANCE_DEFAUT
+from app.modules.ingest.fusion_fournisseur import (
+    FusionFournisseurImpossible,
+    ResultatFusionFournisseur,
+)
 from app.modules.ingest.ia_prix import BilanIA, LigneEssai, ProduitEssai
 from app.modules.ingest.ia_synthese import ResultatSynthese
 from app.modules.ingest.mistral import ErreurOCR
@@ -112,6 +116,8 @@ from app.modules.ingest.models import (
     Journal,
     Utilisateur,
 )
+from app.modules.ingest.recalcul_bons import BilanRecalcul
+from app.modules.ingest.resolution_fournisseurs import BilanResolution
 from app.modules.ingest.router import DELAI_OCR_BL
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -1367,9 +1373,9 @@ _PREFIXE_FICHIER_CONTROLES_DIFFERES = "/invente/test-cli-controles-differes-"
 
 
 async def _creer_bl_sans_confirmation(engine: AsyncEngine) -> uuid.UUID:
-    """Un BL déposé il y a plus de 24h, jamais confirmé : matière de R15
-    (`delai_confirmation_bl_h`, défaut 24 — L4-D10), suffisante pour prouver
-    que la CLI appelle bien `controles_differes` et en affiche le compte."""
+    """Un BL déposé il y a plus de 24h, jamais confirmé : ancienne matière de
+    R15, retirée le 31/10/2026 -- le test vérifie désormais qu'il ne produit
+    plus aucune anomalie."""
     sessionmaker = creer_sessionmaker(engine)
     async with sessionmaker() as session:
         document = Document(
@@ -1409,11 +1415,23 @@ async def _nettoyer_bl_controles_differes(engine: AsyncEngine) -> None:
         await session.commit()
 
 
+async def _nb_anomalies_du_document(engine: AsyncEngine, document_id: uuid.UUID) -> int:
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        return (
+            await session.execute(
+                select(func.count())
+                .select_from(Anomalie)
+                .where(Anomalie.document_id == document_id)
+            )
+        ).scalar_one()
+
+
 @pytest.mark.db
 def test_controles_differes_affiche_le_nombre_ouvertes_code_0(
     db_engine: AsyncEngine, _env_bl_test: None, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    asyncio.run(_creer_bl_sans_confirmation(db_engine))
+    document_id = asyncio.run(_creer_bl_sans_confirmation(db_engine))
     try:
         code = cli.main(["controles-differes"])
         sortie = capsys.readouterr().out
@@ -1423,7 +1441,8 @@ def test_controles_differes_affiche_le_nombre_ouvertes_code_0(
             r"^(\d+) anomalies de suivi ouvertes$", sortie.strip()
         )
         assert correspondance is not None, "sortie au format inattendu"
-        assert int(correspondance.group(1)) >= 1
+        # R15 est retirée (31/10/2026) : le BL non confirmé ne produit rien.
+        assert asyncio.run(_nb_anomalies_du_document(db_engine, document_id)) == 0
     finally:
         asyncio.run(_nettoyer_bl_controles_differes(db_engine))
 
@@ -1610,6 +1629,225 @@ def test_ranger_photos_sans_argument_supplementaire() -> None:
         cli.main(["ranger-photos", "--inconnu"])
 
     assert exc_info.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# `resoudre-fournisseurs` (décision d'Ilane du 31/10/2026) -- câblage CLI
+# seulement, la logique métier (`ingest.resolution_fournisseurs`) est déjà
+# testée dans `app/modules/ingest/tests/test_resolution_fournisseurs.py`.
+# ---------------------------------------------------------------------------
+
+_REPONSE_OCR_RESOLUTION = (
+    Path(__file__).resolve().parent.parent
+    / "app"
+    / "modules"
+    / "extract"
+    / "tests"
+    / "donnees"
+    / "bl_synthetique.mistral-ocr.json"
+)
+
+
+async def _semer_bon_sans_fournisseur(
+    engine: AsyncEngine,
+) -> tuple[uuid.UUID, uuid.UUID, int]:
+    """Un bon `a_verifier` sans fournisseur, avec la lecture OCR synthétique
+    déjà gardée, et le fournisseur « Peintures Exemple » (TVA de la lecture)
+    créé après coup."""
+    reponse = json.loads(_REPONSE_OCR_RESOLUTION.read_text(encoding="utf-8"))
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        fournisseur = Fournisseur(nom="Peintures Exemple CLI", tva="FR00000000000")
+        document = Document(
+            type="bl",
+            source="telegram",
+            statut="a_verifier",
+            fichier_path=f"/invente/test-cli-resolution-{uuid.uuid4()}.jpg",
+            ocr_brut=reponse,
+        )
+        session.add_all([fournisseur, document])
+        await session.commit()
+        await session.refresh(fournisseur)
+        await session.refresh(document)
+        return document.id, fournisseur.id, document.numero_interne
+
+
+async def _fournisseur_du_bon(
+    engine: AsyncEngine, document_id: uuid.UUID
+) -> uuid.UUID | None:
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        return (
+            await session.execute(
+                select(Document.fournisseur_id).where(Document.id == document_id)
+            )
+        ).scalar_one()
+
+
+async def _nettoyer_resolution(
+    engine: AsyncEngine, document_id: uuid.UUID, fournisseur_id: uuid.UUID
+) -> None:
+    sessionmaker = creer_sessionmaker(engine)
+    async with sessionmaker() as session:
+        await session.execute(
+            delete(Anomalie).where(Anomalie.document_id == document_id)
+        )
+        await session.execute(
+            delete(Journal).where(Journal.cible_id == str(document_id))
+        )
+        await session.execute(delete(Document).where(Document.id == document_id))
+        await session.execute(
+            delete(Fournisseur).where(Fournisseur.id == fournisseur_id)
+        )
+        await session.commit()
+
+
+@pytest.mark.db
+def test_cli_resoudre_fournisseurs_simulation_n_ecrit_rien(
+    db_engine: AsyncEngine,
+    _env_bl_test: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("DOCS_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    document_id, fournisseur_id, numero_interne = asyncio.run(
+        _semer_bon_sans_fournisseur(db_engine)
+    )
+    try:
+        code = cli.main(["resoudre-fournisseurs", "--simulation"])
+        sortie = capsys.readouterr().out
+
+        assert code == 0
+        assert f"Document n° {numero_interne} : Peintures Exemple CLI" in sortie
+        assert "Bons relus : " in sortie and "rattachés à un fournisseur : " in sortie
+        assert asyncio.run(_fournisseur_du_bon(db_engine, document_id)) is None
+    finally:
+        get_settings.cache_clear()
+        asyncio.run(_nettoyer_resolution(db_engine, document_id, fournisseur_id))
+
+
+def test_cli_resoudre_fournisseurs_affiche_le_bilan(
+    _env_bl_test: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Service factice (la vraie relecture crée chantiers et articles, qu'un
+    test sur `bl_test` ne nettoie pas) : la CLI le branche sur `DOCS_DIR`, lui
+    passe `simulation=False` et affiche son bilan sans valeur client."""
+    monkeypatch.setenv("DOCS_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    recu: dict[str, Any] = {}
+
+    async def _service(
+        session: object, docs_dir: Path, *, simulation: bool = False
+    ) -> BilanResolution:
+        recu.update(docs_dir=docs_dir, simulation=simulation)
+        return BilanResolution(
+            relus=5, rattaches=3, inconnus=2, ignores=4, echecs=0, lignes=()
+        )
+
+    monkeypatch.setattr(cli, "resoudre_fournisseurs_des_bons", _service)
+    try:
+        code = cli.main(["resoudre-fournisseurs"])
+    finally:
+        get_settings.cache_clear()
+
+    assert code == 0
+    assert recu == {"docs_dir": tmp_path, "simulation": False}
+    assert capsys.readouterr().out.strip() == (
+        "Bons relus : 5 · rattachés à un fournisseur : 3 · "
+        "toujours inconnus : 2 · ignorés (corrigés à la main) : 4"
+    )
+
+
+def test_resoudre_fournisseurs_refuse_un_argument_inconnu() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["resoudre-fournisseurs", "--inconnu"])
+
+    assert exc_info.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# `recalculer-bons` (lot 2 du 31/10/2026) -- câblage CLI seulement, la logique
+# (`ingest.recalcul_bons`) est testée dans `test_recalcul_bons.py`.
+# ---------------------------------------------------------------------------
+
+
+def test_cli_recalculer_bons_affiche_le_bilan(
+    _env_bl_test: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("DOCS_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    recu: dict[str, Any] = {}
+
+    async def _service(
+        session: object, docs_dir: Path, *, simulation: bool = False
+    ) -> BilanRecalcul:
+        recu.update(docs_dir=docs_dir, simulation=simulation)
+        return BilanRecalcul(
+            examines=10,
+            passes_a_recu=6,
+            motifs_leves={"confiance_faible": 4, "champ_absent": 2},
+            chantiers_par_reference=1,
+            ignores=3,
+            echecs=0,
+        )
+
+    monkeypatch.setattr(cli, "recalculer_bons", _service)
+    try:
+        code = cli.main(["recalculer-bons"])
+    finally:
+        get_settings.cache_clear()
+
+    assert code == 0
+    assert recu == {"docs_dir": tmp_path, "simulation": False}
+    sortie = capsys.readouterr().out
+    assert "Bons examinés : 10 · passés à « reçu » : 6" in sortie
+    assert "chantiers rattachés par la référence de commande : 1" in sortie
+    assert "ignorés (corrigés à la main) : 3" in sortie
+    assert "confiance_faible : 4" in sortie and "champ_absent : 2" in sortie
+
+
+def test_cli_recalculer_bons_simulation_code_1_si_echec(
+    _env_bl_test: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("DOCS_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    recu: dict[str, Any] = {}
+
+    async def _service(
+        session: object, docs_dir: Path, *, simulation: bool = False
+    ) -> BilanRecalcul:
+        recu["simulation"] = simulation
+        return BilanRecalcul(
+            examines=2,
+            passes_a_recu=0,
+            motifs_leves={},
+            chantiers_par_reference=0,
+            ignores=0,
+            echecs=1,
+        )
+
+    monkeypatch.setattr(cli, "recalculer_bons", _service)
+    try:
+        code = cli.main(["recalculer-bons", "--simulation"])
+    finally:
+        get_settings.cache_clear()
+
+    assert code == 1
+    assert recu == {"simulation": True}
+    sortie = capsys.readouterr().out
+    assert "Simulation : rien n'est écrit." in sortie
+    assert "non relus (erreur) : 1" in sortie
 
 
 # ---------------------------------------------------------------------------
@@ -2457,3 +2695,162 @@ def test_cli_chantiers_alias_suspects(
         assert asyncio.run(_nb()) == 1
     finally:
         asyncio.run(_nettoyer_alias_en_attente(db_engine, fournisseur_id, chantier_id))
+
+
+# ---------------------------------------------------------------------------
+# `importer-historique-prix` (lot 2 du 31/10/2026, B4) -- câblage CLI
+# seulement, la logique est testée dans `test_historique_prix.py`.
+# ---------------------------------------------------------------------------
+
+
+def test_cli_importer_historique_prix_affiche_le_bilan(
+    _env_bl_test: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from app.modules.ingest.historique_prix import BilanImportHistorique
+
+    fichier = tmp_path / "controle.xlsx"
+    fichier.write_bytes(b"contenu-invente")
+    recu: dict[str, Any] = {}
+
+    async def _service(session: object, **kwargs: Any) -> BilanImportHistorique:
+        recu.update(kwargs)
+        return BilanImportHistorique(lues=10, importees=7, deja_presentes=3, erreurs=2)
+
+    monkeypatch.setattr(cli, "importer_historique_prix", _service)
+    code = cli.main(
+        [
+            "importer-historique-prix",
+            "--fournisseur",
+            "Négoce Inventé",
+            "--fichier",
+            str(fichier),
+            "--feuille",
+            "HISTORIQUE X",
+            "--source",
+            "Fichier de contrôle inventé",
+            "--simulation",
+        ]
+    )
+
+    assert code == 0
+    assert recu == {
+        "fournisseur_nom": "Négoce Inventé",
+        "contenu": b"contenu-invente",
+        "feuille": "HISTORIQUE X",
+        "source": "Fichier de contrôle inventé",
+        "simulation": True,
+    }
+    sortie = capsys.readouterr().out
+    assert "Simulation : rien n'est écrit." in sortie
+    assert "lignes lues : 10" in sortie
+    assert "importées : 7" in sortie
+    assert "déjà présentes : 3" in sortie
+    assert "illisibles : 2" in sortie
+
+
+def test_cli_importer_historique_prix_erreurs_lisibles(
+    _env_bl_test: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from app.modules.ingest.historique_prix import FournisseurNonTrouve
+
+    arguments = [
+        "importer-historique-prix",
+        "--fournisseur",
+        "Inconnu",
+        "--feuille",
+        "H",
+        "--source",
+        "S",
+    ]
+    # Fichier absent : code 1 avant tout accès à la base.
+    assert cli.main([*arguments, "--fichier", str(tmp_path / "absent.xlsx")]) == 1
+    assert "fichier introuvable" in capsys.readouterr().err
+
+    fichier = tmp_path / "controle.xlsx"
+    fichier.write_bytes(b"x")
+
+    async def _service(session: object, **kwargs: Any) -> None:
+        raise FournisseurNonTrouve("Inconnu")
+
+    monkeypatch.setattr(cli, "importer_historique_prix", _service)
+    assert cli.main([*arguments, "--fichier", str(fichier)]) == 1
+    assert "aucun fournisseur nommé" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# `fournisseur-fusionner` (lot 4 du 02/11/2026) -- câblage CLI seulement, la
+# logique (`ingest.fusion_fournisseur`) est testée dans
+# `test_fusion_fournisseur.py`.
+# ---------------------------------------------------------------------------
+
+
+def test_cli_fournisseur_fusionner_affiche_les_nombres_et_commite(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    appels: dict[str, Any] = {}
+
+    async def _service(session: Any, **kwargs: Any) -> ResultatFusionFournisseur:
+        appels.update(kwargs)
+        return ResultatFusionFournisseur(
+            source_nom="Source Test",
+            cible_nom="Cible Test",
+            simulation=kwargs["simulation"],
+            deplacees={"document": 3, "article": 2},
+            doublons={"chantier_alias": 1},
+            reconduites={"anomalie": 1},
+            alias_ajoutes=("Source Test",),
+        )
+
+    monkeypatch.setattr(cli, "fusionner_fournisseurs", _service)
+    code = cli.main(
+        ["fournisseur-fusionner", "--source", "Source Test", "--cible", "Cible Test"]
+    )
+    sortie = capsys.readouterr().out
+    assert code == 0
+    assert appels == {
+        "source_nom": "Source Test",
+        "cible_nom": "Cible Test",
+        "simulation": False,
+    }
+    assert "Source Test" in sortie and "Cible Test" in sortie
+    assert "document : 3" in sortie and "article : 2" in sortie
+    assert "chantier_alias : 1" in sortie
+    assert "Simulation" not in sortie
+
+
+def test_cli_fournisseur_fusionner_simulation_et_refus(
+    _env_bl_test: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def _refus(session: Any, **kwargs: Any) -> ResultatFusionFournisseur:
+        raise FusionFournisseurImpossible("Fournisseur introuvable : Nulle Part")
+
+    monkeypatch.setattr(cli, "fusionner_fournisseurs", _refus)
+    code = cli.main(
+        [
+            "fournisseur-fusionner",
+            "--source",
+            "Nulle Part",
+            "--cible",
+            "Cible Test",
+            "--simulation",
+        ]
+    )
+    sortie = capsys.readouterr()
+    assert code == 1
+    assert "Fournisseur introuvable : Nulle Part" in sortie.out + sortie.err
+
+
+def test_cli_fournisseur_fusionner_exige_source_et_cible() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["fournisseur-fusionner", "--source", "A"])
+    assert exc_info.value.code == 2

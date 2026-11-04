@@ -33,7 +33,6 @@ def test_page_bl_contrat() -> None:
         "Ouvrir en grand",
         "Livré et facturé",
         "Corriger la lecture du bon",
-        "Quantités vérifiées par l'équipe",
         "obtenirComparaisonBl",
         "Prix unit.",
         "Contrôle",
@@ -47,6 +46,12 @@ def test_page_bl_contrat() -> None:
         assert chaine in page, chaine
 
     assert "alt={`Photo du bon de livraison" in page
+
+    # Décision d'Ilane du 31/10/2026 : plus de confirmation des quantités
+    # affichée sur la page d'un bon.
+    assert "Quantités vérifiées" not in page
+    assert "texteConfirmation" not in page
+    assert "donnees.confirmation" not in page
 
     # Sans jargon visible (spec §5) : aucun code de règle brut, aucun des
     # mots interdits dans les chaînes affichées. Mots entiers seulement
@@ -238,8 +243,12 @@ def test_documents_liste_reintroduit_les_champs_perdus_par_la_fusion() -> None:
     # sur la largeur du tableau) — le déposant reste affiché, plus jamais
     # dans une colonne à part.
     assert "Déposé par {ligne.deposant}" in page
-    assert "confirmation: document.confirmation" in page
-    assert "BadgeConfirmation" in page
+    # Décision d'Ilane du 31/10/2026 : la confirmation des quantités n'est
+    # plus affichée dans la liste.
+    assert "confirmation" not in page
+    assert "BadgeConfirmation" not in page
+    assert "Quantités vérifiées" not in page
+    assert "Écart signalé" not in page
     assert "totalHt: facture.total_ht" in page
     assert "confianceReduite: facture.confiance_reduite" in page
     assert "BadgeConfianceReduite" in page
@@ -605,3 +614,39 @@ def test_libelles_de_lecture_en_francais_courant() -> None:
     detail = (WEB / "pages" / "DocumentDetail.tsx").read_text()
     assert "Chantier indiqué sur le bon" in detail
     assert "Relire le document" in detail
+
+
+def test_facture_detail_propose_d_archiver() -> None:
+    """Lot 2, B1 (31/10/2026) : « Pour les factures, j'arrive pas à enlever
+    le document » -- même bouton que sur un bon, avec commentaire."""
+    page = (WEB / "pages" / "FactureDetail.tsx").read_text()
+
+    for chaine in (
+        "archiverDocument",
+        "Archiver",
+        "Commentaire (obligatoire)",
+        "Confirmer l'archivage",
+        'donnees.statut !== "archive"',
+    ):
+        assert chaine in page, chaine
+
+
+def test_menu_fournisseur_de_la_correction_est_charge_et_habille() -> None:
+    """Lot 2, B7 (31/10/2026) : « j'arrive pas à choisir le fournisseur, le
+    choix bug, rien ne s'affiche ». Durcissement : la liste est chargée dès
+    que le bon est modifiable (plus seulement à l'ouverture du formulaire),
+    le menu annonce « Chargement… » tant qu'elle n'est pas arrivée et porte
+    les mêmes classes que le sélecteur « Chantier du bon »."""
+    page = (WEB / "pages" / "DocumentDetail.tsx").read_text()
+
+    debut = page.index("const fournisseurs = useQuery({")
+    requete = page[debut : page.index("});", debut)]
+    assert "enabled: document.data?.modifiable === true" in requete
+    assert "enabled: enEditionEntete" not in requete
+
+    debut = page.index('id="entete-fournisseur"')
+    menu = page[debut : page.index("</select>", debut)]
+    assert "Chargement…" in menu
+    assert "bg-surface" in menu
+    assert "text-encre" in menu
+    assert "chargement" in page

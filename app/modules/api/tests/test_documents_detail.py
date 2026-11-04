@@ -710,6 +710,32 @@ async def test_post_archivage_ok_puis_ecriture_refusee(
     assert reponse_correction.status_code == 409
 
 
+async def test_post_archivage_accepte_une_facture(
+    db_session: AsyncSession,
+    sessions_test: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Lot 2, B1 : le bouton « Archiver » de la page facture appelle cette
+    même route ; elle doit accepter une facture."""
+    admin = await _creer_utilisateur(
+        db_session, email="admin.archivage3@example.invalid", role="admin"
+    )
+    facture = await _creer_document(db_session, type_="facture", statut="recu")
+    app_test = _app_test(sessions_test, tmp_path)
+    cookie = await _login(app_test, email=admin.email)
+
+    reponse = await _requete(
+        app_test,
+        "POST",
+        f"/api/documents/{facture.id}/archivage",
+        cookie=cookie,
+        json_body={"commentaire": "facture déposée deux fois"},
+    )
+
+    assert reponse.status_code == 200
+    assert reponse.json()["statut"] == "archive"
+
+
 # --------------------------------------------------------------------------
 # POST /api/documents/{id}/extraction
 # --------------------------------------------------------------------------

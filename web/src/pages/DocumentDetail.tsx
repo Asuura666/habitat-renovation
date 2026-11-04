@@ -275,12 +275,15 @@ function FormulaireEntete({
   documentId,
   donnees,
   fournisseurs,
+  chargement,
   onEnregistre,
   onAnnuler,
 }: {
   documentId: string;
   donnees: DocumentDetailApi;
   fournisseurs: Fournisseur[];
+  /** Vrai tant que la liste des fournisseurs n'est pas arrivée. */
+  chargement: boolean;
   onEnregistre: (detail: DocumentDetailApi) => void;
   onAnnuler: () => void;
 }): ReactElement {
@@ -335,8 +338,9 @@ function FormulaireEntete({
             id="entete-fournisseur"
             value={brouillon.fournisseurId}
             onChange={(evenement) => definir("fournisseurId", evenement.target.value)}
-            className="w-full rounded-md border border-bordure px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="w-full rounded-md border border-bordure bg-surface px-3 py-2 text-sm text-encre outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
+            {chargement && <option value={brouillon.fournisseurId}>Chargement…</option>}
             <option value="">— Aucun —</option>
             {fournisseurs.map((fournisseur) => (
               <option key={fournisseur.id} value={fournisseur.id}>
@@ -974,7 +978,10 @@ export function DocumentDetail(): ReactElement {
   const fournisseurs = useQuery({
     queryKey: CLE_FOURNISSEURS,
     queryFn: listerFournisseurs,
-    enabled: enEditionEntete,
+    // Lot 2, B7 : chargée dès que le bon est modifiable (comme les chantiers
+    // ci-dessous), pas seulement à l'ouverture du formulaire -- la liste
+    // arrivait trop tard et le menu « Fournisseur » s'ouvrait vide.
+    enabled: document.data?.modifiable === true,
   });
   // « Chantier du bon » (Task 6) : chargé seulement une fois le document
   // modifiable connu (admin, bon non archivé) -- jamais pour un agent en
@@ -1134,6 +1141,7 @@ export function DocumentDetail(): ReactElement {
           documentId={donnees.id}
           donnees={donnees}
           fournisseurs={fournisseurs.data ?? []}
+          chargement={fournisseurs.isPending}
           onEnregistre={surEcritureEtFermetureEntete}
           onAnnuler={() => setEnEditionEntete(false)}
         />

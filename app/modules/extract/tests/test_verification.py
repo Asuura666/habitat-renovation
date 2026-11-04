@@ -13,6 +13,7 @@ décision du contrôleur) et ne compare qu'une égalité, jamais une valeur.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -644,26 +645,134 @@ def test_bl_a_verifier_numero_detecte_none_si_absent() -> None:
     assert bl.numero_detecte is None
 
 
-def test_bl_a_verifier_confiance_ligne_minimum_des_trois_champs() -> None:
-    ligne = LigneBL(
+def _ligne_a6(
+    *,
+    code_conf: str = "0.9",
+    quantite: str | None = "4",
+    pu: str | None = "10",
+    montant: str | None = "40",
+    conf_q: str | None = "0.5",
+    conf_pu: str | None = "0.6",
+    conf_m: str | None = "0.7",
+) -> LigneBL:
+    def nombre(brut: str | None, conf: str | None) -> NombreLu:
+        return NombreLu(
+            brut=brut,
+            valeur=Decimal(brut) if brut is not None else None,
+            confiance=Decimal(conf) if conf is not None else None,
+        )
+
+    return LigneBL(
         ordre=0,
-        code=_texte("AB1234", Decimal("0.9")),
-        designation=_texte("DESIGNATION", Decimal("0.1")),  # ignorée
+        code=_texte("AB1234", Decimal(code_conf)),
+        designation=_texte("DESIGNATION", Decimal("0.1")),
         quantite_conditionnements=NombreLu(
             brut="4", valeur=Decimal("4"), confiance=Decimal("0.05")
-        ),  # ignorée (L3-D24/L3-T6b : n'entre pas dans la confiance de ligne)
-        quantite=NombreLu(brut="4", valeur=Decimal("4"), confiance=Decimal("0.5")),
-        unite=_texte("U", Decimal("0.1")),  # ignorée
-        pu_ht=NombreLu(
-            brut="10", valeur=Decimal("10"), confiance=Decimal("0.1")
-        ),  # ignorée
-        montant_ht=NombreLu(brut="40", valeur=Decimal("40"), confiance=Decimal("0.7")),
+        ),
+        quantite=nombre(quantite, conf_q),
+        unite=_texte("U", Decimal("0.1")),
+        pu_ht=nombre(pu, conf_pu),
+        montant_ht=nombre(montant, conf_m),
     )
-    extrait = _bl_extrait_minimal(lignes=(ligne,))
 
-    bl = bl_a_verifier(extrait)
 
-    assert bl.lignes[0].confiance == Decimal("0.5")
+def _confiance_a6(**champs: Any) -> Decimal | None:
+    extrait = _bl_extrait_minimal(lignes=(_ligne_a6(**champs),))
+    return bl_a_verifier(extrait).lignes[0].confiance
+
+
+def test_confiance_ligne_minimum_quantite_pu_montant() -> None:
+    assert _confiance_a6() == Decimal("0.5")
+    assert _confiance_a6(conf_q="0.9", conf_pu="0.6") == Decimal("0.6")
+
+
+def test_confiance_ligne_ignore_le_code() -> None:
+    assert _confiance_a6(code_conf="0", conf_q="0.9", conf_pu="0.9", conf_m="0.9") == (
+        Decimal("0.9")
+    )
+
+
+def test_confiance_ligne_arithmetique_fausse_garde_la_confiance_de_lecture() -> None:
+    """Le calcul faux est signalé par un motif dédié, pas par un « 0 % »."""
+    assert _confiance_a6(
+        quantite="6",
+        pu="14.80",
+        montant="89.70",
+        conf_q="0.99",
+        conf_pu="0.98",
+        conf_m="0.97",
+    ) == Decimal("0.97")
+
+
+def _vue_avec_ligne(**champs: Any) -> BLAVerifier:
+    return bl_a_verifier(_bl_extrait_minimal(lignes=(_ligne_a6(**champs),)))
+
+
+def test_calcul_incoherent_pose_un_motif_sans_confiance_faible() -> None:
+    vue = _vue_avec_ligne(
+        quantite="6",
+        pu="14.80",
+        montant="89.70",
+        conf_q="0.2",
+        conf_pu="0.2",
+        conf_m="0.2",
+    )
+
+    motifs = verifier_bl(
+        vue, seuil_confiance=SEUIL_CONFIANCE_DEFAUT, tolerance=Decimal("1000")
+    )
+
+    sur_la_ligne = [m for m in motifs if m.champ == "ligne:0"]
+    assert [m.code for m in sur_la_ligne] == [CodeMotif.CALCUL_LIGNE_INCOHERENT]
+    assert sur_la_ligne[0].detail == {
+        "quantite": "6",
+        "pu_ht": "14.80",
+        "montant_ht": "89.70",
+        "produit": "88.80",
+    }
+
+
+def test_calcul_juste_et_confiance_basse_donne_confiance_faible() -> None:
+    vue = _vue_avec_ligne(conf_q="0.2")
+
+    motifs = verifier_bl(
+        vue, seuil_confiance=SEUIL_CONFIANCE_DEFAUT, tolerance=Decimal("1000")
+    )
+
+    assert [m.code for m in motifs if m.champ == "ligne:0"] == [
+        CodeMotif.CONFIANCE_FAIBLE
+    ]
+
+
+def test_calcul_incoherent_sans_confiances_est_signale_aussi() -> None:
+    """Vérification structurelle seule (`confiances` None) : le calcul faux
+    reste un fait des chiffres lus."""
+    vue = replace(
+        _vue_avec_ligne(quantite="6", pu="14.80", montant="89.70"), confiances=None
+    )
+
+    motifs = verifier_bl(
+        vue, seuil_confiance=SEUIL_CONFIANCE_DEFAUT, tolerance=Decimal("1000")
+    )
+
+    assert CodeMotif.CALCUL_LIGNE_INCOHERENT in [m.code for m in motifs]
+
+
+def test_confiance_ligne_arithmetique_juste_garde_la_confiance() -> None:
+    assert _confiance_a6(
+        quantite="500",
+        pu="0.4692",
+        montant="234.60",
+        conf_q="0.97",
+        conf_pu="0.95",
+        conf_m="0.99",
+    ) == Decimal("0.95")
+
+
+def test_confiance_ligne_sans_prix_pas_de_controle_arithmetique() -> None:
+    assert _confiance_a6(
+        quantite="3", pu=None, montant="999", conf_q="0.9", conf_pu=None, conf_m="0.8"
+    ) == Decimal("0.8")
 
 
 def test_bl_a_verifier_confiance_ligne_none_si_les_trois_sont_nulles() -> None:
@@ -894,3 +1003,48 @@ def test_bl_a_verifier_fixtures_reelles_sans_lever() -> None:
         except Exception:
             ok = False
     assert ok, "l'analyse d'une réponse OCR réelle ne doit pas lever"
+
+
+# --------------------------------------------------------------------------
+# retirer_motifs_confirmes (lot 2 du 31/10/2026, A2)
+# --------------------------------------------------------------------------
+
+
+def _motif_test(code: CodeMotif, champ: str | None) -> Motif:
+    return Motif(code=code, champ=champ, detail={"champ": champ or ""})
+
+
+def test_retirer_motifs_confirmes_retire_la_confiance_faible_du_champ_confirme() -> (
+    None
+):
+    from app.modules.extract.verification import retirer_motifs_confirmes
+
+    motifs = (
+        _motif_test(CodeMotif.CONFIANCE_FAIBLE, "fournisseur"),
+        _motif_test(CodeMotif.CONFIANCE_FAIBLE, "numero"),
+    )
+
+    reste = retirer_motifs_confirmes(motifs, frozenset({"fournisseur"}))
+
+    assert reste == (motifs[1],)
+
+
+def test_retirer_motifs_confirmes_ne_touche_pas_aux_autres_codes_du_champ() -> None:
+    from app.modules.extract.verification import retirer_motifs_confirmes
+
+    motifs = (
+        _motif_test(CodeMotif.CHAMP_ABSENT, "fournisseur"),
+        _motif_test(CodeMotif.FOURNISSEUR_INCONNU, "fournisseur"),
+        _motif_test(CodeMotif.VALEUR_ILLISIBLE, "fournisseur"),
+    )
+
+    assert retirer_motifs_confirmes(motifs, frozenset({"fournisseur"})) == motifs
+
+
+def test_retirer_motifs_confirmes_sans_champ_confirme_ne_change_rien() -> None:
+    from app.modules.extract.verification import retirer_motifs_confirmes
+
+    motifs = (_motif_test(CodeMotif.CONFIANCE_FAIBLE, "fournisseur"),)
+
+    assert retirer_motifs_confirmes(motifs, frozenset()) == motifs
+    assert retirer_motifs_confirmes((), frozenset({"fournisseur"})) == ()

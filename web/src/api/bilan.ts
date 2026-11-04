@@ -124,6 +124,18 @@ export function listerLivraisons(
   return appelerApi<LigneLivraison[]>("/api/bilan/livraisons", { url: chemin });
 }
 
+/** Export Excel de la liste des livraisons (lot 2, B3) : mêmes filtres que
+ * l'écran. */
+export function urlExportLivraisons(filtres: FiltresLivraisons = {}): string {
+  const params = new URLSearchParams();
+  if (filtres.mois) params.set("mois", filtres.mois);
+  if (filtres.agence) params.set("agence", filtres.agence);
+  if (filtres.chantierId) params.set("chantier", filtres.chantierId);
+  if (filtres.fournisseurId) params.set("fournisseur", filtres.fournisseurId);
+  const requete = params.toString();
+  return requete === "" ? "/api/bilan/livraisons.csv" : `/api/bilan/livraisons.csv?${requete}`;
+}
+
 export function cleLivraisons(
   filtres: FiltresLivraisons,
 ): readonly [string, string, FiltresLivraisons] {

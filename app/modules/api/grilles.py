@@ -35,6 +35,7 @@ from app.core.fuseau import FUSEAU_PARIS
 from app.modules.api.schemas import (
     ApercuImportReponse,
     ContestationReponse,
+    EntreeHistoriqueReponse,
     GrilleFournisseurReponse,
     ImportEffectueReponse,
     LigneHistoriqueReponse,
@@ -60,6 +61,7 @@ from app.modules.ingest.grilles import (
     modele_excel,
     retirer_produit,
 )
+from app.modules.ingest.historique_prix import historique_complet
 
 router = APIRouter()
 
@@ -143,6 +145,27 @@ async def historique_produit_endpoint(
             status_code=status.HTTP_404_NOT_FOUND, detail="produit introuvable"
         ) from exc
     return [LigneHistoriqueReponse.model_validate(ligne) for ligne in historique]
+
+
+@router.get(
+    "/grilles/fournisseurs/{fournisseur_id}/produits/{cle_produit}/historique-complet",
+    response_model=list[EntreeHistoriqueReponse],
+)
+async def historique_complet_endpoint(
+    fournisseur_id: uuid.UUID,
+    cle_produit: str,
+    utilisateur: Annotated[Utilisateur, Depends(admin_requis)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[EntreeHistoriqueReponse]:
+    """Lot 2 du 31/10/2026 (B4) : tout l'historique d'un produit -- versions
+    de la grille, prix vus sur les bons et factures du fournisseur, prix
+    observés importés. Trié par date décroissante, 100 lignes au plus."""
+    del utilisateur
+    try:
+        entrees = await historique_complet(session, fournisseur_id, cle_produit)
+    except FournisseurIntrouvable as exc:
+        raise _erreur_fournisseur_introuvable() from exc
+    return [EntreeHistoriqueReponse.model_validate(entree) for entree in entrees]
 
 
 @router.get(

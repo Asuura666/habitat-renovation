@@ -19,7 +19,8 @@ def test_ecran_bilan_couvre_le_contrat_responsive() -> None:
     assert "<select" in page
     assert '<option value="">Toutes les agences</option>' in page
     assert "obtenirAgences" in page
-    assert 'type="search"' not in page
+    # Lot 2, B2 : recherche d'un chantier par son nom.
+    assert 'type="search"' in page
     referentiels = (RACINE_WEB / "api" / "referentiels.ts").read_text()
     assert '"/api/referentiels/agences"' in referentiels
     assert "CLE_AGENCES" in referentiels

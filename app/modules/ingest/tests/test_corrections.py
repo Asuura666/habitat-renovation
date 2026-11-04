@@ -1153,6 +1153,31 @@ async def test_relancer_extraction_remplace_valeurs_reste_a_verifier(
     assert journal.apres is None
 
 
+async def test_relancer_extraction_ecran_garde_a_verifier_sans_motif(
+    db_session: AsyncSession, admin: Utilisateur, tmp_path: Path
+) -> None:
+    """Non-régression : la relance depuis l'écran (nouvelle lecture demandée
+    par un humain) reste `a_verifier` même sans aucun motif."""
+    fournisseur = await _creer_fournisseur(
+        db_session, nom="Peintures Exemple", aliases=["Peintures Exemple SAS"]
+    )
+    chemin = tmp_path / "photo.jpg"
+    chemin.write_bytes(b"contenu-invente")
+    document = await _creer_document(
+        db_session,
+        statut="a_verifier",
+        fournisseur=fournisseur,
+        fichier_path=str(chemin),
+    )
+
+    detail = await relancer_extraction(
+        db_session, document.id, tmp_path, _ocr_synthetique, auteur_id=admin.id
+    )
+
+    assert detail.statut == "a_verifier"
+    assert detail.motifs == []
+
+
 async def test_relancer_extraction_journal_survit_a_la_reprise_sur_doublon(
     db_session: AsyncSession,
     admin: Utilisateur,
@@ -1277,3 +1302,86 @@ async def test_relancer_extraction_fichier_absent_leve_document_introuvable(
         await relancer_extraction(
             db_session, document.id, tmp_path, _ocr_jamais_appele, auteur_id=_ADMIN_ID
         )
+
+
+# --------------------------------------------------------------------------
+# Lot 2 du 31/10/2026 : un chantier identifié sans nom écrit sur le bon
+# (référence de commande, légende) ne redevient pas « absent » après une
+# correction humaine ; une référence inconnue reste signalée.
+# --------------------------------------------------------------------------
+
+
+async def _bon_sans_chantier_ecrit(db_session: AsyncSession, **champs: Any) -> Document:
+    fournisseur = await _creer_fournisseur(db_session, nom="Fournisseur Reference")
+    document = await _creer_document(
+        db_session,
+        statut="a_verifier",
+        fournisseur=fournisseur,
+        numero="L300",
+        date_doc=date(2026, 1, 1),
+        total_ht=Decimal("10.00"),
+        **champs,
+    )
+    await _creer_ligne(
+        db_session, document=document, ordre=0, montant_ht=Decimal("10.00")
+    )
+    return document
+
+
+async def test_correction_garde_le_chantier_retrouve_par_la_reference(
+    db_session: AsyncSession, admin: Utilisateur
+) -> None:
+    chantier = Chantier(nom_canonique="Kayre", a_completer=False)
+    db_session.add(chantier)
+    await db_session.commit()
+    document = await _bon_sans_chantier_ecrit(
+        db_session, numero_commande="KAYRE", chantier_id=chantier.id
+    )
+
+    detail = await corriger_entete(
+        db_session,
+        document.id,
+        CorrectionEntete(valeurs={"enleve_par": "J. Dupont"}),
+        auteur_id=admin.id,
+    )
+
+    assert detail.motifs == []
+
+
+async def test_correction_garde_la_reference_de_chantier_inconnue(
+    db_session: AsyncSession, admin: Utilisateur
+) -> None:
+    document = await _bon_sans_chantier_ecrit(db_session, numero_commande="CAMBUS")
+    document.motifs = [
+        {
+            "code": "reference_chantier_inconnue",
+            "champ": "chantier_brut",
+            "detail": {"reference": "CAMBUS"},
+        }
+    ]
+    await db_session.commit()
+
+    detail = await corriger_entete(
+        db_session,
+        document.id,
+        CorrectionEntete(valeurs={"enleve_par": "J. Dupont"}),
+        auteur_id=admin.id,
+    )
+
+    assert [m.code for m in detail.motifs] == ["reference_chantier_inconnue"]
+    assert detail.motifs[0].detail == {"reference": "CAMBUS"}
+
+
+async def test_correction_sans_chantier_du_tout_garde_champ_absent(
+    db_session: AsyncSession, admin: Utilisateur
+) -> None:
+    document = await _bon_sans_chantier_ecrit(db_session)
+
+    detail = await corriger_entete(
+        db_session,
+        document.id,
+        CorrectionEntete(valeurs={"enleve_par": "J. Dupont"}),
+        auteur_id=admin.id,
+    )
+
+    assert [m.code for m in detail.motifs] == ["champ_absent"]

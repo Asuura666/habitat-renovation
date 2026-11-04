@@ -131,10 +131,6 @@ from app.modules.messaging.base import (
 _MESSAGE_ECHEC_AGENT = "Échec de l'enregistrement, renvoyez la photo."
 _BL_NON_DETECTE = "non détecté"
 
-# L2-D9 : libellés des deux boutons de la réponse au dépôt.
-_LIBELLE_QUANTITES_VERIFIEES = "Quantités vérifiées"
-_LIBELLE_ECART_CONSTATE = "Écart constaté"
-
 # L2-D10 : action journal (`journal.action`) associée à chaque préfixe de
 # `callback_data` (`ClicBouton.action`, `messaging/base.py`).
 _ACTIONS_JOURNAL: dict[str, str] = {
@@ -703,24 +699,13 @@ async def traiter_fichier(
     )
 
     try:
-        # L2-D9 : numéro interne lisible + deux boutons de confirmation
-        # (`callback_data` "v:<numero_interne>" / "e:<numero_interne>",
-        # décodés par `messaging.telegram.lire_update` en `ClicBouton`, géré
-        # par `traiter_clic` ci-dessous).
+        # Décision d'Ilane du 31/10/2026 : plus de boutons de confirmation
+        # des quantités sur les nouveaux dépôts. Les boutons des messages
+        # déjà envoyés restent gérés par `traiter_clic`, inchangé.
         await messagerie.repondre(
             entrant.chat_id,
             entrant.message_id,
             f"Reçu — document n° {numero_interne}",
-            boutons=[
-                (
-                    _LIBELLE_QUANTITES_VERIFIEES,
-                    f"{PREFIXE_QUANTITES_VERIFIEES}:{numero_interne}",
-                ),
-                (
-                    _LIBELLE_ECART_CONSTATE,
-                    f"{PREFIXE_ECART_CONSTATE}:{numero_interne}",
-                ),
-            ],
         )
     except Exception as exc:
         # Le document est déjà enregistré : on journalise sans revenir en

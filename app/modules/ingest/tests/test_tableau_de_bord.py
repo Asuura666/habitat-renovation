@@ -182,6 +182,7 @@ async def _creer_bon(
     total_ht: Decimal | None = Decimal("100.00"),
     date_doc: date | None = date(2026, 9, 10),
     created_at: datetime | None = None,
+    chantier_id: uuid.UUID | None = None,
 ) -> Document:
     """Un BL ou un bon d'enlèvement (`type_bon` dans `TYPES_BL`), jamais une
     facture -- construction réduite à ce que lit `_compter_bons_recus`
@@ -196,6 +197,7 @@ async def _creer_bon(
         fichier_path=f"chemin-invente-{uuid.uuid4()}.jpg",
         total_ht=total_ht,
         date_doc=date_doc,
+        chantier_id=chantier_id,
         **({"created_at": created_at} if created_at is not None else {}),
     )
     db_session.add(document)
@@ -1274,3 +1276,161 @@ async def test_tableau_de_bord_bon_sans_date_doc_range_selon_created_at(
 
     tdb_juillet = await tableau_de_bord(db_session, mois=_JUILLET)
     assert tdb_juillet.nb_bons_recus == 0
+
+
+# --------------------------------------------------------------------------
+# Montant de tous les bons du mois (lot 2, B6, 31/10/2026) : « dans la vue
+# d'ensemble le CA des BL doit être affiché même si cela n'a pas été réglé ».
+# --------------------------------------------------------------------------
+
+
+async def test_bons_du_mois_comptent_tous_les_statuts_sauf_archive(
+    db_session: AsyncSession,
+) -> None:
+    await _creer_bon(db_session, statut="recu", total_ht=Decimal("100.00"))
+    await _creer_bon(
+        db_session,
+        type_bon="enlevement",
+        statut="a_verifier",
+        total_ht=Decimal("40.00"),
+    )
+    await _creer_bon(db_session, statut="a_verifier", total_ht=None)
+    await _creer_bon(db_session, statut="archive", total_ht=Decimal("999.00"))
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    assert tdb.nb_bons_mois == 3
+    assert tdb.montant_bons_mois == Decimal("140.00")
+    assert tdb.nb_bons_a_verifier == 2
+    assert tdb.nb_bons_mois_sans_montant == 1
+    # Les anciens champs gardent leur sens (bons « reçus » seulement).
+    assert tdb.nb_bons_recus == 1
+    assert tdb.montant_bons_recus == Decimal("100.00")
+
+
+async def test_bons_du_mois_ignorent_un_autre_mois_et_les_factures(
+    db_session: AsyncSession,
+) -> None:
+    fournisseur = await _creer_fournisseur(db_session)
+    await _creer_bon(db_session, date_doc=date(2026, 7, 15), statut="a_verifier")
+    await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-BONS-MOIS",
+        date_doc=date(2026, 9, 5),
+    )
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    assert tdb.nb_bons_mois == 0
+    assert tdb.montant_bons_mois == Decimal("0")
+    assert tdb.nb_bons_a_verifier == 0
+    assert tdb.nb_bons_mois_sans_montant == 0
+
+
+async def test_nb_factures_du_mois_hors_archivees_et_autres_mois(
+    db_session: AsyncSession,
+) -> None:
+    """Lot 3, C3 : la Vue d'ensemble annonce « N factures ce mois-ci »."""
+    fournisseur = await _creer_fournisseur(db_session)
+    await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="F-A", date_doc=date(2026, 9, 5)
+    )
+    await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="F-B", date_doc=date(2026, 9, 9)
+    )
+    await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="F-C", date_doc=date(2026, 8, 9)
+    )
+    archivee = await _creer_facture(
+        db_session, fournisseur=fournisseur, numero="F-D", date_doc=date(2026, 9, 10)
+    )
+    archivee.statut = "archive"
+    await db_session.commit()
+    await _creer_bon(db_session, total_ht=Decimal("10"))
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    assert tdb.nb_factures_mois == 2
+
+
+async def test_suivi_chantiers_du_mois_avec_bons_non_factures(
+    db_session: AsyncSession,
+) -> None:
+    """Lot 3, C2 : le cadre « Chantiers » suit les chantiers qui ont un bon
+    dans le mois, même sans facture, plus ceux qui n'ont qu'une facture ;
+    les bons sans chantier forment une ligne à part. Tri : montant des bons
+    décroissant."""
+    fournisseur = await _creer_fournisseur(db_session)
+    a = await _creer_chantier(db_session, nom="Chantier A")
+    b = await _creer_chantier(db_session, nom="Chantier B")
+    c = await _creer_chantier(db_session, nom="Chantier C")
+    d = await _creer_chantier(db_session, nom="Chantier D")
+
+    await _creer_bon(db_session, chantier_id=a.id, total_ht=Decimal("100.00"))
+    bon_a2 = await _creer_bon(
+        db_session, chantier_id=a.id, statut="a_verifier", total_ht=Decimal("50.00")
+    )
+    db_session.add(
+        Anomalie(
+            regle="R11",
+            gravite="haute",
+            statut="ouverte",
+            document_id=bon_a2.id,
+            chantier_id=a.id,
+            detail={"cle": "valeur"},
+        )
+    )
+    await db_session.commit()
+    await _creer_bon(db_session, chantier_id=b.id, total_ht=Decimal("30.00"))
+    await _creer_bon(db_session, chantier_id=d.id, date_doc=date(2026, 8, 3))
+    await _creer_bon(db_session, chantier_id=None, total_ht=Decimal("20.00"))
+    await _creer_bon(db_session, chantier_id=a.id, statut="archive")
+
+    facture = await _creer_facture(
+        db_session,
+        fournisseur=fournisseur,
+        numero="F-SUIVI",
+        date_doc=date(2026, 9, 12),
+    )
+    for ordre, chantier in enumerate((b, c)):
+        bloc = await _creer_bloc(
+            db_session,
+            facture=facture,
+            ordre=ordre,
+            numero_bl=f"S{ordre}",
+            chantier_id=chantier.id,
+            statut_rapprochement="pas_de_bon",
+        )
+        await _creer_ligne(
+            db_session, document=facture, bloc=bloc, montant_ht=Decimal("70.00")
+        )
+
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+
+    suivi = {ligne.chantier_id: ligne for ligne in tdb.suivi_chantiers}
+    assert d.id not in suivi
+    assert set(suivi) == {a.id, b.id, c.id, None}
+    assert suivi[a.id].nom_canonique == "Chantier A"
+    assert suivi[a.id].nb_bons == 2
+    assert suivi[a.id].montant_bons == Decimal("150.00")
+    assert suivi[a.id].nb_bons_a_verifier == 1
+    assert suivi[a.id].nb_problemes == 1
+    assert suivi[a.id].facture_ht is None
+    assert suivi[b.id].nb_bons == 1
+    assert suivi[b.id].facture_ht == Decimal("70.00")
+    assert suivi[c.id].nb_bons == 0
+    assert suivi[c.id].montant_bons == Decimal("0")
+    assert suivi[c.id].facture_ht == Decimal("70.00")
+    assert suivi[None].nom_canonique is None
+    assert suivi[None].nb_bons == 1
+    assert suivi[None].montant_bons == Decimal("20.00")
+    montants = [ligne.montant_bons for ligne in tdb.suivi_chantiers]
+    assert montants == sorted(montants, reverse=True)
+
+
+async def test_suivi_chantiers_vide_sans_bon_ni_facture(
+    db_session: AsyncSession,
+) -> None:
+    tdb = await tableau_de_bord(db_session, mois=_SEPT)
+    assert tdb.suivi_chantiers == []

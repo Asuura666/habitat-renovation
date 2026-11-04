@@ -1770,3 +1770,155 @@ pauses de 2 puis 5 s), seulement quand aucune connexion ne s'est libérée à
 temps — rien n'a alors été écrit, donc pas de doublon possible. Non couvert :
 une coupure de la base pendant l'écriture elle-même n'est pas retentée (risque
 de doublon), le bon reste à renvoyer comme avant.
+
+
+## Confirmation des quantités retirée, rattachement des bons aux fournisseurs (31/10/2026)
+
+Décisions d'Ilane du 31/10/2026 (branche `feature/sans-confirmation-et-fournisseurs`).
+
+- **Plus de boutons sous « Reçu — document n° X ».** Le bot répond toujours
+  « Reçu », sans « Quantités vérifiées » / « Écart constaté ». **Les boutons
+  des messages déjà envoyés continuent de marcher comme avant**
+  (`traiter_clic` et la lecture des clics sont inchangés) : un ancien clic
+  « Écart constaté » peut donc encore produire un problème « Écart signalé par
+  l'équipe » dans « À régler ».
+- **Règle R15 retirée.** Elle reste dans le moteur (les invariants « toutes les
+  règles » restent vrais) mais `ingest.commun.REGLES_RETIREES = {"R15"}` fait
+  partie en permanence de `regles_desactivees()` : le suivi ne l'évalue plus,
+  les lectures et les comptes la masquent, le réglage `delai_confirmation_bl_h`
+  est masqué dans Réglages (sa valeur reste en base, sans effet). La page d'un
+  bon et la liste des documents n'affichent plus la confirmation.
+- **Problèmes R15 déjà ouverts fermés** par la migration `0017` : statut
+  `traitee`, commentaire « Confirmation des quantités retirée (31/10/2026) »,
+  sans auteur, plus une ligne de journal `anomalie_traitee` chacun ; le
+  `downgrade` ne rouvre rien. Non couvert : les colonnes `document.confirme_le`
+  et `confirme_par` restent en base et dans l'API (un ancien clic les renseigne
+  encore), seule l'interface les cache.
+- **Commande `python -m app.cli resoudre-fournisseurs [--simulation]`.** Après
+  la création des fournisseurs manquants (Point.P, Cedeo, Rexel…), rattache les
+  bons déjà reçus sans rappeler Mistral, à partir de `document.ocr_brut`.
+  Concerne les bons `bl`/`enlevement` non archivés, sans fournisseur, jamais
+  corrigés ni validés à la main (aucune entrée de journal `document_corrige`,
+  `lignes_corrigees` ni `document_valide`). Passe par le chemin de
+  `relancer_extraction` (`corrections.rejouer_extraction_depuis_reponse`) :
+  même rapprochement, même journal `extraction_relancee` (auteur vide, « Sans
+  nouvel OCR »). À lancer d'abord avec `--simulation` ; la relecture peut
+  aussi changer le chantier ou les lignes, comme une relance depuis l'écran.
+  Limite : une lecture gardée sans fournisseur lisible ne sera jamais
+  rattachée (il faut corriger le bon à la main).
+
+## Règles de lecture des bons (31/10/2026, lot 2 partie A)
+
+- **Seuil de ressemblance d'un chantier : 80 % par défaut.** La production avait
+  déjà 80 enregistré (pas de migration). Les anciens textes qui citent 90 %
+  (README, cahier des charges, recettes d'octobre) ne sont pas tous réécrits.
+- **Confirmation de la lecture.** Un fournisseur reconnu par son SIREN ou sa TVA,
+  un chantier reconnu (nom connu, ressemblance) ou donné par la légende ne
+  laissent plus le motif « lecture incertaine » ; un chantier « à compléter »
+  (créé automatiquement) ne confirme jamais rien. Non couvert : un chantier
+  reconnu sous le seuil reste créé « à compléter » (pas de proposition de
+  chantier proche).
+- **Chantier vide : référence de commande.** Lue seulement si ni nom ni légende ;
+  jamais de création de chantier ni d'alias appris depuis une référence. Une
+  référence qui ne correspond à aucun chantier laisse le bon sans chantier avec un
+  motif dédié (`reference_chantier_inconnue`). Après une correction humaine, le
+  rattachement n'est pas relancé quand seule la référence de commande change :
+  le motif posé à la lecture est conservé tel quel.
+- **Commande `python -m app.cli recalculer-bons [--simulation]`.** Applique ces
+  règles aux bons `a_verifier` déjà reçus, sans rappeler Mistral, par le même
+  chemin que `resoudre-fournisseurs`. Limite : la simulation compte les bons
+  concernés mais ne prévoit pas ce qui serait levé (les règles dépendent de
+  l'écriture du rattachement).
+
+## Lignes : chiffres plutôt que position du texte (31/10/2026, A6)
+
+- La confiance d'une ligne ne repose plus que sur la quantité, le prix unitaire et
+  le montant, cherchés ensemble dans une seule ligne de texte ; le code et la
+  désignation ne comptent plus. Si quantité x prix unitaire ne tombe pas sur le
+  montant (au centime près), la ligne reste incertaine. Le schéma de lecture ne
+  porte pas de remise : une ligne remisée peut échouer ce contrôle à tort.
+- La consigne d'annotation précise que le nombre qui précède la désignation est le
+  nombre de conditionnements ; elle ne vaut que pour les nouvelles lectures. Les
+  bons existants profitent de la nouvelle confiance via `recalculer-bons`, pas de
+  la nouvelle consigne.
+- Le contrôle de calcul tolère un centime plus la moitié de la dernière décimale
+  imprimée du prix, fois la quantité (les prix imprimés sont arrondis). Il signale
+  un motif dédié (« calcul de ligne incohérent ») et non une confiance à 0 %. Il
+  n'est pas rejoué après une correction humaine des lignes (la personne a revu les
+  chiffres).
+
+## Écrans du lot 2 (31/10/2026, partie B)
+
+- **Archiver une facture (B1).** Le bouton « Archiver » de la page facture appelle la
+  même route que celui d'un bon ; la facture archivée disparaît du bilan, des
+  tuiles, des livraisons et des problèmes ouverts, et ses bons redeviennent « non
+  facturés » (testé). Une facture archivée par erreur ne se rétablit pas depuis
+  l'application.
+- **Recherche d'un chantier (B2).** Côté écran seulement, sur le nom et le client ;
+  elle n'est pas dans l'adresse de la page (non partageable) et les compteurs des
+  boutons « Chantiers du mois » et « Tous les chantiers » ne la suivent pas. La
+  ligne « Chantier à rattacher » disparaît dès qu'on cherche. Le dépôt n'a pas
+  vitest : la fonction de comparaison est testée en l'exécutant avec Node (le test
+  est ignoré si Node est absent).
+- **Bons dans les livraisons (B3).** Un bon non facturé a pour état « À vérifier »,
+  « Problème ouvert » ou « Reçu » (jamais « Conforme »), avec le montant lu sur le bon depuis le lot 3. Un bon
+  n'est « facturé » que si le bloc d'une facture **non archivée** le cite. Le filtre
+  d'état « À vérifier » ne reprend que les bons à vérifier (pas ceux qui ont un
+  problème ouvert). Sur la fiche chantier, les lignes de facture viennent toujours
+  des requêtes par fournisseur et les bons de la liste commune : deux sources. Les
+  exports « Exporter les livraisons <fournisseur> » de la fiche chantier restent
+  ceux des blocs de facture ; l'écran « Livraisons » a son propre export, qui
+  contient aussi les bons.
+- **Montant des bons du mois (B6).** Quatre champs d'API ajoutés
+  (`nb_bons_mois`, `montant_bons_mois`, `nb_bons_a_verifier`,
+  `nb_bons_mois_sans_montant`) ; les trois champs « reçus » d'avant sont gardés
+  tels quels mais l'écran ne les lit plus (à retirer plus tard).
+- **Menu « Fournisseur » de la correction d'un bon (B7).** Bug vu une fois par Ilane
+  (Chrome, PC) puis plus revu ; non reproduit. Durcissement seulement : liste
+  chargée dès que le bon est modifiable, « Chargement… » dans le menu tant qu'elle
+  n'est pas arrivée, mêmes classes que le sélecteur de chantier.
+- **Historique d'un produit (B4).** Les prix vus sur les bons et les factures ne
+  sont retrouvés que par la référence du produit (code lu égal à la référence de
+  la grille, comparé sans espaces ni ponctuation ni casse), jamais par le nom ;
+  un produit de la grille sans référence n'a donc que ses versions et ses prix
+  observés. Les prix observés s'importent par la commande
+  `importer-historique-prix` (pas d'écran) ; deux lignes identiques (même produit,
+  même jour, même facture, même prix, même quantité) comptent pour une seule, y
+  compris dans un même fichier. Cent lignes au plus, sans pagination.
+
+## Lot 3 du 02/11/2026
+
+- **Montant d'un bon.** Seules les lignes de bons non facturés portent
+  `montant_bon` ; une ligne de facture garde le montant facturé (le montant du
+  bon cité n'est pas relu). La somme des montants de la colonne mélange donc
+  facturé et lu sur bon : l'écran n'en fait aucun total.
+- **Suivi des chantiers.** `suivi_chantiers` s'ajoute à `chantiers` (gardé pour
+  compatibilité, plus lu par l'écran : à retirer plus tard, comme les champs
+  « reçus »). La colonne « Problèmes » compte les problèmes ouverts du mois
+  attribués au chantier par le bilan (bons et factures), pas ceux d'autres mois.
+  Le tri « Sans chantier » suit le montant comme les autres lignes. La pastille
+  d'état de l'ancien cadre n'est plus affichée.
+- **Encart Factures.** Le filtre de mois de la carte suit celui de la page ;
+  l'agence n'est pas appliquée. Le lien « Voir tout » vers les documents filtrés
+  sur le fournisseur n'a pas été ajouté.
+
+## Lot 4 du 02/11/2026
+
+- **Prénoms d'employés dans le nom de chantier lu.** Les mots du nom d'un compte
+  (`utilisateur.nom`, trois lettres au moins, casse et accents ignorés) et les
+  mots de liaison « pour », « par », « pris », « prs », « cde », « commande »,
+  « commandé », « enlevé » sont retirés du nom lu avant la reconnaissance et la
+  création (`normalize/chantier.py::retirer_employes_du_chantier`). Limites :
+  un chantier dont le nom est aussi un mot du nom d'un compte (client homonyme
+  d'un employé) est vidé ; un mot de liaison est toujours retiré, même dans un
+  vrai nom de chantier ; la légende Telegram n'est pas nettoyée (seul le nom lu
+  l'est) ; les noms de chantier appris avant le 02/11 ne sont pas revus (les
+  bons existants passent par `recalculer-bons`, les alias appris restent).
+- **Fusion de fournisseurs.** `fournisseur-fusionner` ne traite pas deux
+  documents de même numéro chez les deux fournisseurs : elle refuse (rien n'est
+  supprimé) et la décision se prend à la main. Les prix de la source rejoignent
+  l'historique de la cible (`grille_prix`, inaltérable) : le déclencheur de la
+  migration 0013 est désactivé le temps de la transaction, ce qui demande que
+  l'utilisateur de la base soit propriétaire de la table. Le nom de la source
+  devient un alias de la cible : si la cible est ensuite reconnue par ce nom,
+  c'est voulu. Pas d'écran : commande seulement.

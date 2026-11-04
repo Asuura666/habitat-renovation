@@ -691,18 +691,25 @@ class LigneLivraisonReponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    bloc_id: uuid.UUID
+    bloc_id: uuid.UUID | None
     numero_bl: str | None
     date_bl: date | None
     statut_rapprochement: str | None
     bl_document_id: uuid.UUID | None
-    facture_id: uuid.UUID
+    facture_id: uuid.UUID | None
     chantier_id: uuid.UUID | None
     chantier: str | None
     fournisseur_id: uuid.UUID | None
     fournisseur: str | None
-    categorie: Literal["conforme", "a_verifier", "sans_bon"]
+    categorie: Literal["conforme", "a_verifier", "sans_bon", "probleme_ouvert", "recu"]
     montants: MontantsBilanReponse
+    # Lot 2, B3 : faux pour un bon ou un enlèvement pas encore retrouvé sur
+    # une facture (`bloc_id` et `facture_id` valent alors `None`,
+    # `bl_document_id` est le bon lui-même).
+    facture: bool
+    # Lot 3, C1 : montant HT lu sur le bon (quel que soit son état), `None`
+    # si aucun montant n'a été lu ou pour une ligne de facture.
+    montant_bon: Decimal | None = None
 
 
 # --------------------------------------------------------------------------
@@ -727,6 +734,23 @@ class TotauxMoisReponse(BaseModel):
     non_justifie: Decimal
     conforme: Decimal
     facture_a_verifier: Decimal
+
+
+class SuiviChantierReponse(BaseModel):
+    """Lot 3, C2 : une ligne de `suivi_chantiers` dans `GET /api/tableau-de-
+    bord` -- mêmes attributs qu'`ingest.tableau_de_bord.SuiviChantier`.
+    `chantier_id` et `nom_canonique` valent `None` pour la ligne « Sans
+    chantier » ; `facture_ht` vaut `None` tant que rien n'est facturé."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    chantier_id: uuid.UUID | None
+    nom_canonique: str | None
+    nb_bons: int
+    montant_bons: Decimal
+    nb_bons_a_verifier: int
+    nb_problemes: int
+    facture_ht: Decimal | None
 
 
 class ChantierTableauReponse(BaseModel):
@@ -783,6 +807,12 @@ class TableauDeBordReponse(BaseModel):
     nb_bons_recus: int
     montant_bons_recus: Decimal
     nb_bons_sans_montant: int
+    nb_bons_mois: int
+    montant_bons_mois: Decimal
+    nb_bons_a_verifier: int
+    nb_bons_mois_sans_montant: int
+    nb_factures_mois: int = 0
+    suivi_chantiers: list[SuiviChantierReponse] = []
 
 
 class DepotAgentReponse(BaseModel):
@@ -1448,6 +1478,26 @@ class LigneHistoriqueReponse(BaseModel):
     ligne_libelle: str | None
     auteur: str | None
     created_at: datetime
+
+
+class EntreeHistoriqueReponse(BaseModel):
+    """`GET /api/grilles/fournisseurs/{id}/produits/{cle}/historique-complet`
+    -- mêmes attributs qu'`ingest.historique_prix.EntreeHistorique` (lot 2
+    du 31/10/2026, B4). `type` : `grille`, `document` ou `observe`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    type: Literal["grille", "document", "observe"]
+    date: date
+    origine: str
+    prix_ht: Decimal
+    remise_pct: Decimal | None
+    prix_net: Decimal | None
+    unite: str | None
+    quantite: Decimal | None
+    numero_document: str | None
+    document_id: uuid.UUID | None
+    type_document: str | None
 
 
 class ContestationReponse(BaseModel):

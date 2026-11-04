@@ -129,6 +129,7 @@ async def _creer_document_bl(
     fournisseur_id: uuid.UUID | None = None,
     date_doc: date | None = None,
     statut: str = "recu",
+    total_ht: Decimal | None = None,
 ) -> Document:
     """Un document BL minimal (données inventées), utilisé uniquement pour
     fournir un `bl_document_id` valide à un bloc de facture (niveau BL,
@@ -141,6 +142,7 @@ async def _creer_document_bl(
         chantier_id=chantier_id,
         fournisseur_id=fournisseur_id,
         date_doc=date_doc,
+        total_ht=total_ht,
     )
     db_session.add(document)
     await db_session.commit()

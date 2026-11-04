@@ -195,14 +195,6 @@ def _parse_ligne_supervision(texte: str) -> re.Match[str]:
     return match
 
 
-def _boutons_confirmation(numero_interne: int) -> tuple[tuple[str, str], ...]:
-    """Boutons attendus dans la réponse au dépôt (L2-D9)."""
-    return (
-        ("Quantités vérifiées", f"v:{numero_interne}"),
-        ("Écart constaté", f"e:{numero_interne}"),
-    )
-
-
 def _update_callback(
     *,
     update_id: int,
@@ -315,7 +307,7 @@ async def test_photo_valide_cree_update_document_fichier_et_reponse(
             555,
             7,
             f"Reçu — document n° {document.numero_interne}",
-            _boutons_confirmation(document.numero_interne),
+            None,  # plus de boutons (31/10/2026),
         )
     ]
 

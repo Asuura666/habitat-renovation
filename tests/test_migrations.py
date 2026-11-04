@@ -46,7 +46,7 @@ def _lister_tables(url: str) -> list[str]:
     return asyncio.run(_lister())
 
 
-def test_upgrade_head_cree_les_23_tables_puis_aller_retour(
+def test_upgrade_head_cree_les_24_tables_puis_aller_retour(
     test_database_url: str,
 ) -> None:
     """14 tables du CDC (migration 0001) + `jeton_session` (migration 0002,
@@ -56,18 +56,20 @@ def test_upgrade_head_cree_les_23_tables_puis_aller_retour(
     fournisseur -- phase 3)
     + les 5 tables de l'IA (migration 0014 : `appel_ia`,
     `synthese_commentaires`, `synthese_action`, `explication_alerte`,
-    `prix_internet`)."""
+    `prix_internet`)
+    + `prix_observe` (migration 0018, lot 2 du 31/10/2026 : prix observés
+    importés d'un fichier de contrôle, historique d'un produit)."""
     url = url_base_migrations(test_database_url)
     preparer_base(url)  # crée la base si besoin, puis upgrade head
 
     tables = _lister_tables(url)
-    assert len(tables) == 23
+    assert len(tables) == 24
 
     command.downgrade(_config(url), "base")
     assert _lister_tables(url) == []
 
     command.upgrade(_config(url), "head")
-    assert len(_lister_tables(url)) == 23
+    assert len(_lister_tables(url)) == 24
 
 
 def test_alembic_check_sans_derive(test_database_url: str) -> None:
@@ -134,4 +136,100 @@ def test_migration_0015_reprend_les_prix_trouves_comme_une_offre(
     ]
 
     command.downgrade(_config(url), "0014")
+    command.upgrade(_config(url), "head")
+
+
+def test_migration_0017_ferme_les_problemes_r15_ouverts(
+    test_database_url: str,
+) -> None:
+    """Décision d'Ilane du 31/10/2026 : les problèmes R15 encore ouverts sont
+    traités (commentaire fixe, `traitee_le` posé, `traitee_par` vide) avec une
+    ligne de journal `anomalie_traitee` chacun ; les R15 déjà ignorées et les
+    autres règles ne bougent pas. Données inventées."""
+    url = url_base_migrations(test_database_url)
+    preparer_base(url)
+    command.downgrade(_config(url), "0016")
+
+    async def _inserer() -> None:
+        engine = create_async_engine(url)
+        try:
+            async with engine.begin() as connexion:
+                await connexion.execute(text("DELETE FROM journal"))
+                await connexion.execute(text("DELETE FROM anomalie"))
+                await connexion.execute(text("DELETE FROM document"))
+                for numero in ("MIG-1", "MIG-2", "MIG-3"):
+                    await connexion.execute(
+                        text(
+                            "INSERT INTO document (type, numero, fichier_path, "
+                            "source, statut) VALUES "
+                            "('bl', :numero, '/inventé/x.jpg', 'telegram', 'recu')"
+                        ),
+                        {"numero": numero},
+                    )
+                await connexion.execute(
+                    text(
+                        "INSERT INTO anomalie (regle, gravite, document_id, "
+                        "detail, statut, commentaire) "
+                        "SELECT r, 'basse', d.id, '{\"a\": \"1\"}'::jsonb, s, c "
+                        "FROM (VALUES "
+                        "('MIG-1', 'R15', 'ouverte', NULL), "
+                        "('MIG-2', 'R15', 'ignoree', 'déjà ignorée'), "
+                        "('MIG-3', 'R11', 'ouverte', NULL)"
+                        ") AS v(numero, r, s, c) "
+                        "JOIN document d ON d.numero = v.numero"
+                    )
+                )
+        finally:
+            await engine.dispose()
+
+    async def _lire() -> tuple[list[Any], list[Any]]:
+        engine = create_async_engine(url)
+        try:
+            async with engine.connect() as connexion:
+                anomalies = await connexion.execute(
+                    text(
+                        "SELECT d.numero, a.regle, a.statut, a.commentaire, "
+                        "a.traitee_le IS NOT NULL AS date_posee, "
+                        "a.traitee_par IS NULL AS sans_auteur "
+                        "FROM anomalie a JOIN document d ON d.id = a.document_id "
+                        "ORDER BY d.numero"
+                    )
+                )
+                journal = await connexion.execute(
+                    text(
+                        "SELECT j.utilisateur_id IS NULL, j.cible_table, j.avant, "
+                        "j.apres, d.numero FROM journal j "
+                        "JOIN anomalie a ON a.id::text = j.cible_id "
+                        "JOIN document d ON d.id = a.document_id "
+                        "WHERE j.action = 'anomalie_traitee'"
+                    )
+                )
+                return list(anomalies), list(journal)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_inserer())
+    command.upgrade(_config(url), "head")
+    anomalies, journal = asyncio.run(_lire())
+
+    texte = "Confirmation des quantités retirée (31/10/2026)"
+    assert [tuple(ligne) for ligne in anomalies] == [
+        ("MIG-1", "R15", "traitee", texte, True, True),
+        ("MIG-2", "R15", "ignoree", "déjà ignorée", False, True),
+        ("MIG-3", "R11", "ouverte", None, False, True),
+    ]
+    assert [tuple(ligne) for ligne in journal] == [
+        (
+            True,
+            "anomalie",
+            {"statut": "ouverte", "commentaire": None},
+            {"statut": "traitee", "commentaire": texte},
+            "MIG-1",
+        )
+    ]
+
+    # Le retour arrière est sans effet sur les données.
+    command.downgrade(_config(url), "0016")
+    anomalies, _ = asyncio.run(_lire())
+    assert anomalies[0][2] == "traitee"
     command.upgrade(_config(url), "head")

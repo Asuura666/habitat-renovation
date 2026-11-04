@@ -830,3 +830,80 @@ def test_extraction_en_json_ligne_quantite_conditionnements_serialisee() -> None
 
     assert resultat["lignes"][0]["quantite_conditionnements"]["brut"] == "4"
     assert resultat["lignes"][0]["quantite_conditionnements"]["valeur"] == "4"
+
+
+# --------------------------------------------------------------------------
+# A6 (lot 2 du 31/10/2026) : lignes sur deux lignes de texte (désignation
+# précédée du nombre de colis, puis quantité, prix et montant).
+# --------------------------------------------------------------------------
+
+
+def _reponse_deux_lignes_de_texte() -> dict[str, Any]:
+    texte = (
+        "20,00 MAPESOL RENO 3 25KG\n"
+        "1,00 ECO PRIM UNIVERSEL 5KG\n"
+        "500,00 0,4692 234,60\n"
+        "5,00 10,21 51,05\n"
+    )
+    mots = []
+    depart = 0
+    for jeton in texte.replace("\n", " ").split(" "):
+        index = texte.index(jeton, depart)
+        mots.append({"text": jeton, "confidence": 0.99, "start_index": index})
+        depart = index + len(jeton)
+    annotation = {
+        "lignes": [
+            {  # modèle trompé : code = colis, chiffres mal rangés
+                "code": "20,00",
+                "designation": "MAPESOL RENO 3 25KG",
+                "quantite": "1,00",
+                "unite": None,
+                "pu_ht": "234,60",
+                "montant_ht": "234,60",
+            },
+            {
+                "code": "1,00",
+                "designation": "ECO PRIM UNIVERSEL 5KG",
+                "quantite": "5,00",
+                "unite": None,
+                "pu_ht": "10,21",
+                "montant_ht": "51,05",
+            },
+        ]
+    }
+    return {
+        "pages": [
+            {
+                "markdown": texte,
+                "confidence_scores": {"word_confidence_scores": mots},
+            }
+        ],
+        "document_annotation": json.dumps(annotation),
+    }
+
+
+def test_a6_ligne_dont_les_chiffres_se_suivent_est_confirmee_sans_le_code() -> None:
+    from app.modules.extract.verification import bl_a_verifier
+
+    extrait = analyser_bl(_reponse_deux_lignes_de_texte())
+
+    lignes = bl_a_verifier(extrait).lignes
+    # Ligne 2 : « 5,00 10,21 51,05 » sur une seule ligne de texte, produit juste.
+    assert lignes[1].confiance is not None and lignes[1].confiance > Decimal("0.9")
+
+
+def test_a6_ligne_aux_chiffres_mal_ranges_reste_signalee() -> None:
+    from app.modules.extract.verification import bl_a_verifier
+
+    extrait = analyser_bl(_reponse_deux_lignes_de_texte())
+
+    lignes = bl_a_verifier(extrait).lignes
+    # Ligne 1 : « 1,00 / 234,60 / 234,60 » n'est sur aucune ligne de texte.
+    assert lignes[0].confiance == Decimal("0")
+
+
+def test_a6_consigne_precise_le_nombre_qui_precede_la_designation() -> None:
+    from app.modules.extract.bl import CONSIGNE_ANNOTATION_BL
+
+    assert "nombre de conditionnements" in CONSIGNE_ANNOTATION_BL
+    assert "jamais le code article" in CONSIGNE_ANNOTATION_BL
