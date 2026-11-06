@@ -142,7 +142,9 @@ photo : la légende sert de confirmation du chantier.
    une réponse dans le groupe.
 3. En tâche de fond : téléchargement, vérification de la **signature du
    fichier** (pas seulement le type annoncé) et de la taille, écriture sur
-   disque, enregistrement du document (statut `recu`).
+   disque, enregistrement du document (statut `recu`). Le téléchargement est
+   tenté jusqu'à 3 fois (pauses de 1 s puis 3 s). La raison de chaque refus de
+   Telegram est notée dans le journal, sans le token ni l'adresse.
 4. OCR Mistral, lecture structurée du bon, normalisation (§5), rattachement du
    fournisseur et du chantier, enregistrement des lignes.
 5. Si un numéro de BL est lu, rapprochement avec les factures déjà déposées.
@@ -152,7 +154,8 @@ photo : la légende sert de confirmation du chantier.
 7. Le bot répond « Reçu — document n° N », **sans bouton** (la confirmation des
    quantités est retirée depuis le 31/10/2026 ; les boutons des anciens messages
    marchent encore). En cas d'échec d'enregistrement, il répond « Échec de
-   l'enregistrement, renvoyez la photo. ».
+   l'enregistrement, renvoyez la photo. » ; ce message part après le dernier
+   essai de téléchargement.
 
 Un bon d'enlèvement est traité comme un BL.
 
