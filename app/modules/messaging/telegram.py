@@ -74,7 +74,9 @@ Audit rapidité et sécurité (T8) — taille d'un fichier Telegram plafonnée :
 from __future__ import annotations
 
 import hmac
+import logging
 import re
+from asyncio import sleep
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import PurePosixPath
@@ -89,6 +91,8 @@ from app.modules.messaging.base import (
     FichierEntrant,
     FichierTelecharge,
 )
+
+logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://api.telegram.org"
 
@@ -133,6 +137,41 @@ class ErreurTelegram(Exception):
     """Échec d'un appel à l'API Telegram. Son message ne contient jamais le
     token (présent dans les URL de l'API) : construit à la main, jamais à
     partir de l'exception httpx brute."""
+
+
+class _FichierTropVolumineux(ErreurTelegram):
+    """Fichier au-dessus du plafond : levé tout de suite, jamais réessayé."""
+
+
+class _EchecEssai(ErreurTelegram):
+    """Un essai de téléchargement raté, avec l'étape et la raison à journaliser
+    (`raison` ne contient jamais de token, d'URL ni de texte d'exception
+    httpx)."""
+
+    def __init__(self, message: str, etape: str, raison: str) -> None:
+        super().__init__(message)
+        self.etape = etape
+        self.raison = raison
+
+
+_ETAPE_GETFILE = "getFile"
+_ETAPE_FICHIER = "téléchargement du fichier"
+_DESCRIPTION_MAX = 200
+
+
+def _raison_http(reponse: httpx.Response) -> str:
+    """`HTTP <code>` et, si le corps est du JSON avec une `description` texte,
+    cette description coupée à 200 caractères."""
+    raison = f"HTTP {reponse.status_code}"
+    try:
+        corps = reponse.json()
+    except ValueError:
+        return raison
+    if isinstance(corps, dict):
+        description = corps.get("description")
+        if isinstance(description, str):
+            raison += f" : {description[:_DESCRIPTION_MAX]}"
+    return raison
 
 
 def secret_valide(recu: str | None, attendu: str) -> bool:
@@ -398,28 +437,97 @@ def _extension(fichier: FichierEntrant, file_path: str) -> str:
 class TelegramClient:
     """Implémentation `Messagerie` pour l'API Bot Telegram."""
 
-    def __init__(self, token: str, http: httpx.AsyncClient) -> None:
+    def __init__(
+        self,
+        token: str,
+        http: httpx.AsyncClient,
+        *,
+        pauses: Sequence[float] = (1.0, 3.0),
+    ) -> None:
         self._token = token
         self._http = http
+        # Pauses entre deux essais de `telecharger` : nombre d'essais =
+        # `len(pauses) + 1`.
+        self._pauses = tuple(pauses)
 
     async def telecharger(self, fichier: FichierEntrant) -> FichierTelecharge:
+        """Télécharge le fichier, en réessayant auprès de Telegram (06/11/2026) :
+        `len(pauses) + 1` essais, chacun étant toute la séquence `getFile` puis
+        téléchargement. « Fichier trop volumineux » n'est jamais réessayé.
+        Chaque essai raté est journalisé (WARNING) avec sa raison, sans jamais
+        le token, une URL, le `file_id` ni le `file_path`."""
+        total = len(self._pauses) + 1
+        for numero in range(1, total + 1):
+            try:
+                resultat = await self._essayer(fichier)
+            except _FichierTropVolumineux:
+                raise
+            except _EchecEssai as echec:
+                logger.warning(
+                    "Téléchargement Telegram raté pour update_id=%s : %s, "
+                    "essai %d/%d : %s",
+                    fichier.update_id,
+                    echec.etape,
+                    numero,
+                    total,
+                    echec.raison,
+                )
+                if numero == total:
+                    raise
+                await sleep(self._pauses[numero - 1])
+                continue
+            if numero > 1:
+                logger.warning(
+                    "Téléchargement Telegram pour update_id=%s : "
+                    "réussi à l'essai %d/%d",
+                    fichier.update_id,
+                    numero,
+                    total,
+                )
+            return resultat
+        raise AssertionError("inatteignable")  # pragma: no cover
+
+    async def _essayer(self, fichier: FichierEntrant) -> FichierTelecharge:
         try:
             reponse = await self._http.get(
                 f"{_BASE_URL}/bot{self._token}/getFile",
                 params={"file_id": fichier.fichier_id},
             )
-            reponse.raise_for_status()
-        except httpx.HTTPError:
-            raise ErreurTelegram("Échec de l'appel Telegram getFile") from None
+        except httpx.HTTPError as exc:
+            raise _EchecEssai(
+                "Échec de l'appel Telegram getFile",
+                _ETAPE_GETFILE,
+                type(exc).__name__,
+            ) from None
+        if not reponse.is_success:
+            raise _EchecEssai(
+                "Échec de l'appel Telegram getFile",
+                _ETAPE_GETFILE,
+                _raison_http(reponse),
+            )
 
         corps: dict[str, Any] = reponse.json()
         if not corps.get("ok"):
-            raise ErreurTelegram("Réponse Telegram getFile en échec (ok=false)")
+            description = corps.get("description")
+            raise _EchecEssai(
+                "Réponse Telegram getFile en échec (ok=false)",
+                _ETAPE_GETFILE,
+                "ok=false"
+                + (
+                    f" : {description[:_DESCRIPTION_MAX]}"
+                    if isinstance(description, str)
+                    else ""
+                ),
+            )
         resultat = corps.get("result")
         if not isinstance(resultat, dict) or not isinstance(
             resultat.get("file_path"), str
         ):
-            raise ErreurTelegram("Réponse Telegram getFile sans file_path exploitable")
+            raise _EchecEssai(
+                "Réponse Telegram getFile sans file_path exploitable",
+                _ETAPE_GETFILE,
+                "réponse sans file_path exploitable",
+            )
         file_path: str = resultat["file_path"]
 
         # T8 : `file_size` (octets, absent selon les versions de l'API) est
@@ -427,7 +535,9 @@ class TelegramClient:
         # fichier déjà connu comme trop volumineux.
         file_size = resultat.get("file_size")
         if isinstance(file_size, int) and file_size > _TAILLE_MAX_OCTETS:
-            raise ErreurTelegram("Fichier Telegram trop volumineux (20 Mio maximum)")
+            raise _FichierTropVolumineux(
+                "Fichier Telegram trop volumineux (20 Mio maximum)"
+            )
 
         # T8 : téléchargement en flux, jamais `reponse.content` chargé d'un
         # coup — `file_size` n'étant pas garanti, le plafond est aussi
@@ -438,17 +548,25 @@ class TelegramClient:
             async with self._http.stream(
                 "GET", f"{_BASE_URL}/file/bot{self._token}/{file_path}"
             ) as reponse_fichier:
-                reponse_fichier.raise_for_status()
+                if not reponse_fichier.is_success:
+                    await reponse_fichier.aread()
+                    raise _EchecEssai(
+                        "Échec du téléchargement du fichier Telegram",
+                        _ETAPE_FICHIER,
+                        _raison_http(reponse_fichier),
+                    )
                 async for morceau in reponse_fichier.aiter_bytes():
                     taille_cumulee += len(morceau)
                     if taille_cumulee > _TAILLE_MAX_OCTETS:
-                        raise ErreurTelegram(
+                        raise _FichierTropVolumineux(
                             "Fichier Telegram trop volumineux (20 Mio maximum)"
                         )
                     morceaux.append(morceau)
-        except httpx.HTTPError:
-            raise ErreurTelegram(
-                "Échec du téléchargement du fichier Telegram"
+        except httpx.HTTPError as exc:
+            raise _EchecEssai(
+                "Échec du téléchargement du fichier Telegram",
+                _ETAPE_FICHIER,
+                type(exc).__name__,
             ) from None
 
         return FichierTelecharge(
